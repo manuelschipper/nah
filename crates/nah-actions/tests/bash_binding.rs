@@ -43,7 +43,7 @@ fn every_observation_binding_change_fails_closed() {
 }
 
 #[test]
-fn parseable_unlowerable_and_unparseable_inputs_are_partial() {
+fn bash_lowerable_inputs_are_full_and_parse_failures_are_partial() {
     let plan = bash_plan("for x in a; do echo $x; done");
     let observation = observe(plan.observation_request(), "echo");
     assert_eq!(finalize(plan, observation).coverage(), Coverage::Full);

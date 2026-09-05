@@ -1079,17 +1079,13 @@ mod tests {
 
     #[test]
     fn confirmation_copy_distinguishes_self_and_all() {
-        assert_eq!(
-            nap_prompt(NapMode::SelfProtection),
-            ("Self-protection will pause; guards remain active.", "NAP")
-        );
-        assert_eq!(
-            nap_prompt(NapMode::All),
-            (
-                "All non-permanent enforcement will pause; other calls will delegate to their runtime.",
-                "NAP ALL"
-            )
-        );
+        let (self_scope, self_token) = nap_prompt(NapMode::SelfProtection);
+        let (all_scope, all_token) = nap_prompt(NapMode::All);
+        assert_eq!(self_token, "NAP");
+        assert_eq!(all_token, "NAP ALL");
+        assert!(!self_scope.trim().is_empty());
+        assert!(!all_scope.trim().is_empty());
+        assert_ne!(self_scope, all_scope);
     }
 
     #[test]

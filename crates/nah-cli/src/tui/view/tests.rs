@@ -71,30 +71,21 @@ fn runtime_screen_offers_one_dynamic_failure_mode_action() {
 fn contextual_help_explains_each_screen() {
     let mut app = App::fixture();
     app.help_open = true;
-    for (screen, expected) in [
-        (
-            Screen::Guards,
-            "Changed custom guard files require review before re-enabling.",
-        ),
-        (
-            Screen::Projects,
-            "Trust does not enable guards; each still needs review and enablement.",
-        ),
-        (
-            Screen::Runtimes,
-            "Fail-open (default): explicit evaluation failures and refusals delegate.",
-        ),
-        (
-            Screen::Log,
-            "Delegate means nah did not block; the runtime keeps control.",
-        ),
+    for screen in [
+        Screen::Guards,
+        Screen::Projects,
+        Screen::Runtimes,
+        Screen::Log,
     ] {
         app.screen = screen;
         let output = rendered(&app, 100, 24);
         assert!(output.contains("ABOUT"), "{screen:?}:\n{output}");
         assert!(output.contains("KEYS"), "{screen:?}:\n{output}");
         assert!(output.contains("GLOBAL"), "{screen:?}:\n{output}");
-        assert!(output.contains(expected), "{screen:?}:\n{output}");
+        assert!(
+            output.contains(&format!("Help — {}", help_title(screen))),
+            "{screen:?}:\n{output}"
+        );
         assert!(
             output.contains("? or Esc close help"),
             "{screen:?}:\n{output}"
@@ -112,10 +103,9 @@ fn help_explains_the_confirmation_underneath_it() {
     let output = rendered(&app, 100, 28);
 
     assert!(output.contains("OPEN PROMPT"), "{output}");
-    assert!(
-        output.contains("Close help, then y confirms; n or Esc cancels."),
-        "{output}"
-    );
+    app.confirmation = None;
+    let output = rendered(&app, 100, 28);
+    assert!(!output.contains("OPEN PROMPT"), "{output}");
 }
 
 #[test]

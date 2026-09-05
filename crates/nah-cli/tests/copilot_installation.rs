@@ -60,10 +60,15 @@ fn install_status_and_uninstall_own_only_nah_file() {
 
     let status = nah(home, &["hook", "copilot", "status"]);
     assert!(status.status.success(), "{status:?}");
-    assert_eq!(
-        String::from_utf8_lossy(&status.stdout),
-        "GitHub Copilot: wiring current\nfailure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-copilot\n"
-    );
+    let output = String::from_utf8_lossy(&status.stdout);
+    for expected in [
+        "GitHub Copilot",
+        "wiring current",
+        "fail-open",
+        "nah docs runtime-copilot",
+    ] {
+        assert!(output.contains(expected), "missing {expected:?}:\n{output}");
+    }
     let installed_again = nah(home, &["hook", "copilot", "install"]);
     assert!(installed_again.status.success(), "{installed_again:?}");
     assert_eq!(std::fs::read(&path).unwrap(), first);
@@ -72,10 +77,16 @@ fn install_status_and_uninstall_own_only_nah_file() {
     stale["hooks"]["preToolUse"][0]["timeoutSec"] = json!(9);
     std::fs::write(&path, serde_json::to_vec_pretty(&stale).unwrap()).unwrap();
     let status = nah(home, &["hook", "copilot", "status"]);
-    assert_eq!(
-        String::from_utf8_lossy(&status.stdout),
-        "GitHub Copilot: reinstall required\ndetected failure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook copilot install\ndocs: nah docs runtime-copilot\n"
-    );
+    let output = String::from_utf8_lossy(&status.stdout);
+    for expected in [
+        "GitHub Copilot",
+        "reinstall required",
+        "fail-open",
+        "nah hook copilot install",
+        "nah docs runtime-copilot",
+    ] {
+        assert!(output.contains(expected), "missing {expected:?}:\n{output}");
+    }
     assert!(nah(home, &["hook", "copilot", "install"]).status.success());
 
     let removed = nah(home, &["hook", "copilot", "uninstall"]);

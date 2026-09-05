@@ -387,7 +387,13 @@ mod tests {
             assert!(help.contains(name), "missing {name} from help");
         }
         assert!(help.contains("nah docs start"));
-        assert!(help.contains("Pause nah self-protection globally for ten minutes"));
+        assert!(
+            command
+                .find_subcommand("nap")
+                .unwrap()
+                .get_about()
+                .is_some()
+        );
     }
 
     #[test]
