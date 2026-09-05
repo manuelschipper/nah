@@ -285,6 +285,7 @@ fn family(name: &str) -> GuardFamily {
         | "secrets-env"
         | "secrets-exfil"
         | "secrets-store-delete"
+        | "secrets-store-destroy"
         | "secrets-store-read" => GuardFamily::Secrets,
         "sys-power" | "sys-service-stop" => GuardFamily::System,
         _ => unreachable!("every shipped guard has a family"),
@@ -395,7 +396,10 @@ fn behavior(name: &str) -> &'static str {
             "Blocks reads or writes of private-key and credential-store paths."
         }
         "secrets-store-delete" => {
-            "Blocks reviewed Vault, AWS Secrets Manager and SSM, Google Cloud Secret Manager, Azure Key Vault, Doppler, Infisical, and 1Password deletion. Recoverable deletes such as an AWS recovery window and permanent destroy or purge, including AWS `--force-delete-without-recovery`, are both in scope; the flag changes recovery, not eligibility. Whole-store removal is also in scope. 1Password archive, help and non-executing output, reads, dynamic targets, unknown selection options, KMS scheduling, access removal, and arbitrary REST calls stay outside."
+            "Blocks remaining reviewed secret-store deletion: Vault kv delete, AWS Secrets Manager ordinary or recovery-window deletion, Google version destruction, Azure delete, Doppler secret/environment/project deletion, Infisical secret/folder deletion, and 1Password item/document/vault deletion. Recovery may depend on remote configuration. Archive, help, non-executing forms, dynamic targets, and unknown syntax stay outside."
+        }
+        "secrets-store-destroy" => {
+            "Blocks proven permanent secret-store destruction: Vault kv destroy with explicit versions, kv metadata delete and secrets disable; AWS Secrets Manager force deletion without recovery and SSM parameter deletion; Google whole-secret deletion; Azure Key Vault object and vault purge; Doppler configuration deletion. Remote permissions or purge protection may reject the attempt. Help, non-executing forms, dynamic targets, invalid or unknown syntax, KMS, and arbitrary REST calls stay outside."
         }
         "secrets-store-read" => {
             "Blocks reviewed secret value reads through Vault, AWS Secrets Manager and decrypted SSM, Google Cloud Secret Manager, Azure Key Vault, Doppler, Infisical, and 1Password. Help, metadata and name-only output, run and inject workflows, dynamic command paths, malformed forms, and unknown output options stay outside."
@@ -608,9 +612,14 @@ fn examples(name: &str) -> Vec<&'static str> {
             "cat /etc/shadow",
         ],
         "secrets-store-delete" => [
-            "vault kv destroy -mount=secret -versions=2 service/api",
+            "vault kv delete -mount=secret service/api",
             "aws secretsmanager delete-secret --secret-id service/api --recovery-window-in-days 14",
+            "op item delete item-id --vault prod",
+        ],
+        "secrets-store-destroy" => [
+            "vault kv destroy -mount=secret -versions=2 service/api",
             "aws secretsmanager delete-secret --secret-id service/api --force-delete-without-recovery",
+            "az keyvault secret purge --vault-name prod --name service-api",
         ],
         "secrets-store-read" => [
             "vault kv get -mount=secret service/api",

@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1872);
+    assert_eq!(summary.cases, 1885);
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("native.jsonl".to_owned(), 22),
             ("project.jsonl".to_owned(), 22),
             ("registry.jsonl".to_owned(), 76),
-            ("secrets.jsonl".to_owned(), 131),
+            ("secrets.jsonl".to_owned(), 144),
             ("self-protection.jsonl".to_owned(), 263),
             ("shell-resolution.jsonl".to_owned(), 81),
             ("storage.jsonl".to_owned(), 73),
@@ -274,15 +274,28 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "storage-boundary.zfs-dry-run-delegates",
         "storage-boundary.dynamic-target-delegates",
         "secrets-store-delete.vault-soft-delete",
-        "secrets-store-delete.vault-destroy",
+        "secrets-store-destroy.vault-destroy",
         "secrets-store-delete.aws-recovery-window",
-        "secrets-store-delete.aws-force-delete",
+        "secrets-store-destroy.aws-force-delete",
         "secrets-store-delete.gcloud-version-destroy",
-        "secrets-store-delete.azure-purge",
+        "secrets-store-destroy.azure-purge",
         "secrets-store-delete.doppler-project",
         "secrets-store-delete.infisical-folder",
         "secrets-store-delete.onepassword-vault",
         "secrets-store-delete.factory-delegates",
+        "secrets-store-destroy.metadata",
+        "secrets-store-destroy.mount",
+        "secrets-store-destroy.ssm",
+        "secrets-store-destroy.ssm-many",
+        "secrets-store-destroy.gcloud",
+        "secrets-store-destroy.azure-vault",
+        "secrets-store-destroy.doppler",
+        "secrets-store-destroy.both-disabled-destroy",
+        "secrets-store-destroy.both-disabled-delete",
+        "secrets-store-destroy.negated",
+        "secrets-store-destroy.conflict",
+        "secrets-store-destroy.false",
+        "secrets-store-destroy.delayed-version",
         "secrets-store-read.vault",
         "secrets-store-read.onepassword",
         "secrets-store-read.doppler",

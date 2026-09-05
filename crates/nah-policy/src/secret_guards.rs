@@ -8,6 +8,7 @@ use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
 
 const SECRETS_CREDENTIALS: &str = "secrets-credentials";
 const SECRETS_ENV: &str = "secrets-env";
+const SECRETS_STORE_DESTROY: &str = "secrets-store-destroy";
 const SECRETS_STORE_DELETE: &str = "secrets-store-delete";
 const SECRETS_STORE_READ: &str = "secrets-store-read";
 
@@ -29,6 +30,10 @@ pub(crate) fn add(
         (
             SECRETS_STORE_DELETE,
             "secrets-store-delete blocked deletion from a secret store; keep the selected secret-store object intact and ask the operator to perform the reviewed removal",
+        ),
+        (
+            SECRETS_STORE_DESTROY,
+            "secrets-store-destroy blocked permanent destruction of secret-store data and its recovery path; keep the data intact and ask the operator to perform the reviewed destruction",
         ),
         (
             SECRETS_STORE_READ,
@@ -72,6 +77,9 @@ fn matches(name: &str, action_stream: &ActionStream) -> bool {
                     invocation: InvocationEffect::Known { operation, .. },
                 },
             ) => operation == &SemanticCode::CREDENTIAL_DISCLOSURE,
+            (SECRETS_STORE_DESTROY, EffectKind::SystemState { operation }) => {
+                operation == &SemanticCode::SECRETS_STORE_DESTROY
+            }
             (SECRETS_STORE_DELETE, EffectKind::SystemState { operation }) => {
                 operation == &SemanticCode::SECRETS_STORE_DELETE
             }

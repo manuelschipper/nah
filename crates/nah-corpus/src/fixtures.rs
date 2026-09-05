@@ -34,6 +34,7 @@ pub struct ContextFixture {
 enum ShippedGuardPosture {
     FactoryDefaults,
     AllEnabled,
+    AllDisabled,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,6 +113,11 @@ impl ContextFixture {
             match self.shipped_guards {
                 ShippedGuardPosture::FactoryDefaults => nah_cli::shipped_guard_states(),
                 ShippedGuardPosture::AllEnabled => nah_cli::all_shipped_guard_states_enabled(),
+                ShippedGuardPosture::AllDisabled => nah_cli::shipped_guards()
+                    .iter()
+                    .map(|name| nah_proto::ctx::ShippedGuardState::new(*name, false))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.to_string())?,
             },
             vec![],
             TrustProjection::new(vec![]).map_err(|error| error.to_string())?,

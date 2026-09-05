@@ -115,30 +115,39 @@ fn secrets_credentials_deletion_delegates_cross_platform() {
 }
 
 #[test]
-fn secrets_store_delete_requires_its_matching_enabled_code() {
-    let stream = guarded_stream(EffectKind::SystemState {
-        operation: SemanticCode::SECRETS_STORE_DELETE,
-    });
-    let enabled =
-        nah_policy::decide(&stream, &guard_policy("secrets-store-delete", true), &[]).unwrap();
-    assert_eq!(enabled.verdict(), Verdict::Block);
-    assert_eq!(
-        enabled.policy_attributions()[0].name(),
-        "secrets-store-delete"
-    );
-
-    let disabled =
-        nah_policy::decide(&stream, &guard_policy("secrets-store-delete", false), &[]).unwrap();
-    assert_eq!(disabled.verdict(), Verdict::Delegate);
-
-    for guard in ["secrets-credentials", "secrets-env"] {
-        assert_eq!(
-            nah_policy::decide(&stream, &guard_policy(guard, true), &[])
-                .unwrap()
-                .verdict(),
-            Verdict::Delegate,
-            "{guard}"
-        );
+fn secrets_store_deletion_requires_its_matching_enabled_code() {
+    for (code, name, other) in [
+        (
+            SemanticCode::SECRETS_STORE_DELETE,
+            "secrets-store-delete",
+            "secrets-store-destroy",
+        ),
+        (
+            SemanticCode::SECRETS_STORE_DESTROY,
+            "secrets-store-destroy",
+            "secrets-store-delete",
+        ),
+    ] {
+        let stream = guarded_stream(EffectKind::SystemState { operation: code });
+        let enabled = nah_policy::decide(&stream, &guard_policy(name, true), &[]).unwrap();
+        assert_eq!(enabled.verdict(), Verdict::Block);
+        assert_eq!(enabled.policy_attributions()[0].name(), name);
+        let disabled = nah_policy::decide(&stream, &guard_policy(name, false), &[]).unwrap();
+        assert_eq!(disabled.verdict(), Verdict::Delegate);
+        for guard in [
+            "secrets-credentials",
+            "secrets-env",
+            "secrets-store-read",
+            other,
+        ] {
+            assert_eq!(
+                nah_policy::decide(&stream, &guard_policy(guard, true), &[])
+                    .unwrap()
+                    .verdict(),
+                Verdict::Delegate,
+                "{guard}"
+            );
+        }
     }
 }
 

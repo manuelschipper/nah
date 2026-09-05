@@ -8,6 +8,13 @@
       "platform": "linux",
       "trust": []
     },
+    "disabled-linux-v1": {
+      "shipped_guards": "all-disabled",
+      "extensions": [],
+      "home": "/home/test",
+      "platform": "linux",
+      "trust": []
+    },
     "factory-linux-v1": {
       "shipped_guards": "factory-defaults",
       "extensions": [],

@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 45 guards span seven security classes; 27 default on.
+- 46 guards span seven security classes; 28 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
@@ -73,12 +73,11 @@ some execute delegated calls by default. Read `nah docs runtimes`.
 
 ## Credential and network flow
 
-`secrets-credentials` covers paths/stores, not cloud CLIs; `secrets-env` covers
-`.env` reads/copies and credential-variable output, not presence checks or
-creation/replacement. `secrets-store-read` covers
-reviewed value reads, excluding run/inject and concealed listings;
-`secrets-store-delete` covers reviewed deletions, excluding
-archive/non-executing forms.
+`secrets-credentials` covers paths, not CLIs; `secrets-env` covers `.env`
+reads/copies and credential-variable output, not presence or writes.
+`secrets-store-read` covers value reads except run/inject and concealed
+listings. `secrets-store-destroy` covers permanent destruction;
+`secrets-store-delete`, other reviewed deletes. Both exclude archive/non-executing forms.
 
 Network guards follow visible data/code through modeled shell flows. Opaque and
 prior provenance remain boundaries. Unresolved/bounded analysis is partial;
