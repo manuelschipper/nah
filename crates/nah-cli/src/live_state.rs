@@ -117,6 +117,9 @@ pub(crate) fn load() -> Result<LiveState, String> {
     })
 }
 
+/// Resolves and canonicalizes the configured home directory. On Windows, also
+/// creates and protects the Nah state directory through
+/// [`crate::state_protection::ensure_nah_state_directory`].
 pub(crate) fn home(platform: Platform) -> Result<AbsolutePath, String> {
     let home = configured_home(platform, |name| std::env::var_os(name))?;
     let home =

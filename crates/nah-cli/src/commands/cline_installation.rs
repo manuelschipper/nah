@@ -138,6 +138,9 @@ struct ClineHookPaths {
 }
 
 impl ClineHookPaths {
+    /// Discovers paths via `documents_path`, which can launch `xdg-user-dir` on
+    /// Linux or PowerShell on Windows. Uses `home/Documents` on macOS or when
+    /// the helper fails or returns invalid UTF-8, an empty path, or a relative path.
     fn new(home: &AbsolutePath, platform: Platform) -> Self {
         let home = PathBuf::from(home.as_str());
         let cline = documents_path(&home, platform).join("Cline");

@@ -16,6 +16,8 @@ pub(crate) fn ensure_nah_state_directory(
     Ok(())
 }
 
+/// Validates the file owner and DACL on Windows; a no-op on non-Windows builds.
+/// Unix permission validation belongs to the caller (see `nap.rs`).
 pub(crate) fn validate_private_file(file: &File) -> Result<(), StateProtectionError> {
     #[cfg(not(windows))]
     let _ = file;

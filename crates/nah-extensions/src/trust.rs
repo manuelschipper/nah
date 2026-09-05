@@ -128,6 +128,9 @@ pub fn record_trusted_root(
     unreachable!("the retry loop always returns")
 }
 
+/// Uses the shared lock order: trust before activation. Rechecks the projection's
+/// trusted root under the trust lock and holds it while acquiring the activation
+/// lock and recording, so activation cannot race trusted-root revocation.
 pub fn record_project_activation(
     trust_path: &Path,
     activation_path: &Path,
@@ -163,6 +166,8 @@ pub fn record_project_activation(
         .map_err(|_| TrustError::Activation)
 }
 
+/// Follows the trust-before-activation lock order of [`record_project_activation`],
+/// holding the trust lock through activation removal and trust database saving.
 pub fn revoke_trusted_root(
     trust_path: &Path,
     activation_path: &Path,

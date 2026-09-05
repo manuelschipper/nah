@@ -407,7 +407,7 @@ impl AuditRecordV1 {
             outcome,
             envelope,
             runtime: runtime.to_owned(),
-            command: redact_tool_call(tool_call, true),
+            command: redact_tool_call(tool_call),
             #[cfg(feature = "effinterp")]
             plan: None,
             effects,
@@ -474,7 +474,7 @@ impl AuditRecordV1 {
             outcome,
             envelope,
             runtime: runtime.to_owned(),
-            command: redact_tool_call(tool_call, true),
+            command: redact_tool_call(tool_call),
             #[cfg(feature = "effinterp")]
             plan: None,
             effects: vec![],
@@ -882,17 +882,7 @@ fn redact(value: &str, masked: bool) -> RedactedText {
     RedactedText(if masked { MASK.into() } else { value.into() })
 }
 
-fn redact_tool_call(tool_call: &ToolCallInput, masked: bool) -> RedactedText {
-    if !masked
-        && tool_call.tool() == "Bash"
-        && let Some(command) = tool_call
-            .input()
-            .as_object()
-            .and_then(|input| input.get("command"))
-            .and_then(serde_json::Value::as_str)
-    {
-        return RedactedText(command.to_owned());
-    }
+fn redact_tool_call(tool_call: &ToolCallInput) -> RedactedText {
     RedactedText(format!("{} {MASK}", tool_call.tool()))
 }
 

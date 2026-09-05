@@ -246,7 +246,7 @@ pub struct ExitCode(u8);
 
 impl ExitCode {
     /// nah could not decide at all, so it reports no verdict and no decision
-    /// body. Adapters treat this as an evaluation failure and delegate.
+    /// body. Adapters apply their configured unavailable failure policy.
     pub const UNAVAILABLE: Self = Self(3);
 
     pub const fn value(self) -> u8 {
