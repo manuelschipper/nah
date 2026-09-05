@@ -10,7 +10,7 @@ use super::filesystem::unresolved_read;
 use crate::bash_descriptor_paths::descriptor_reference_path_from_cwd;
 use crate::bash_descriptor_state::{DescriptorFlow, DescriptorState, NetworkEndpoint};
 use crate::bash_descriptors::descriptor_reference_binding_from_cwd;
-use crate::bash_git::{command_operations as git_command_operations, metadata_mutation};
+use crate::bash_git::{git_command_operations, metadata_mutation};
 use crate::bash_infrastructure::Classification as InfrastructureClassification;
 use crate::bash_kubernetes::Classification as KubernetesClassification;
 use crate::bash_logical_storage::logical_storage_destroy;

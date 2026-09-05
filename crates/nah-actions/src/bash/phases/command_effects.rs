@@ -14,7 +14,7 @@ use super::{AssignmentUpdate, Lowered, Lowerer};
 use crate::bash_descriptors::{DescriptorRedirectPlan, shell_attached_to_dev_socket};
 use crate::bash_environment_disclosure::operation as environment_disclosure_operation;
 use crate::bash_flow::redirects_stdin;
-use crate::bash_git::command_operations as git_command_operations;
+use crate::bash_git::git_command_operations;
 use crate::bash_invocation::invocation;
 use crate::bash_logical_storage::models_logical_storage_command;
 use crate::bash_model::{InvocationDraft, ProgramDraft, StageDraft, StdoutDraft, VariableValue};

@@ -9,8 +9,8 @@ use crate::bash_git_config::{ParsedGit, parse};
 use crate::bash_git_operations::{clean_options, stash_deletes_entries};
 use crate::shell_word::static_word;
 
-/// Returns independent Git guard meanings without making filesystem or coverage claims.
-pub(crate) fn command_operations(program: &str, arguments: &[Word]) -> Vec<&'static str> {
+/// Collects applicable Git meanings independently of guard enablement.
+pub(crate) fn git_command_operations(program: &str, arguments: &[Word]) -> Vec<&'static str> {
     if program != "git" {
         return Vec::new();
     }
@@ -50,8 +50,13 @@ pub(crate) fn command_operations(program: &str, arguments: &[Word]) -> Vec<&'sta
         "clean" if clean_force(&parsed, arguments) => Some("clean-force"),
         "checkout" if forced_checkout(arguments) => Some("worktree-discard"),
         "switch" if forced_switch(arguments) => Some("worktree-discard"),
-        "push" => push_operation(arguments)
-            .or_else(|| ref_delete(subcommand, arguments).then_some("ref-delete")),
+        "push" => {
+            let mut operations = push_operations(arguments);
+            if operations.is_empty() && ref_delete(subcommand, arguments) {
+                operations.push("ref-delete");
+            }
+            return operations;
+        }
         "reset" if option_before_separator(arguments, "--hard") => Some("hard-reset"),
         "filter-repo" if option_before_separator(arguments, "--force") => Some("rewrite-force"),
         "filter-branch"
@@ -790,7 +795,7 @@ pub(crate) fn metadata_mutation(
         })
 }
 
-fn push_operation(arguments: &[Word]) -> Option<&'static str> {
+fn push_operations(arguments: &[Word]) -> Vec<&'static str> {
     let mut before_separator = true;
     let mut explicit_force = false;
     let mut mirror = false;
@@ -937,7 +942,7 @@ fn push_operation(arguments: &[Word]) -> Option<&'static str> {
         index += 1;
     }
     if dry_run {
-        return None;
+        return Vec::new();
     }
     if explicit_force
         || mirror
@@ -945,14 +950,16 @@ fn push_operation(arguments: &[Word]) -> Option<&'static str> {
             .iter()
             .any(|forced| !all_refs_leased && !leased_refs.iter().any(|leased| leased == forced))
     {
-        Some("force-push")
-    } else if protected_parse && protected_destination && !delete && !all {
-        Some("protected-push")
-    } else if force_with_lease {
-        Some("history-rewrite")
-    } else {
-        None
+        return vec!["force-push"];
     }
+    let mut operations = Vec::new();
+    if protected_parse && protected_destination && !delete && !all {
+        operations.push("protected-push");
+    }
+    if force_with_lease {
+        operations.push("history-rewrite");
+    }
+    operations
 }
 
 fn protected_push_refspec(argument: &str) -> bool {

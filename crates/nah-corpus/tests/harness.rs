@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1892);
+    assert_eq!(summary.cases, 1898);
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn current_corpus_file_counts_are_pinned() {
         [
             ("execution-flows.jsonl".to_owned(), 296),
             ("filesystem.jsonl".to_owned(), 263),
-            ("git.jsonl".to_owned(), 341),
+            ("git.jsonl".to_owned(), 347),
             ("infrastructure.jsonl".to_owned(), 180),
             ("kubernetes.jsonl".to_owned(), 35),
             ("local-utilities.jsonl".to_owned(), 53),
@@ -120,6 +120,12 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "git-path-discard.subdir-restore",
         "git-protected-push.literal-main",
         "git-protected-push.lease-refspec",
+        "git-leased-push.history-main",
+        "git-leased-push.history-master",
+        "git-leased-push.protected-main",
+        "git-leased-push.protected-master",
+        "git-leased-push.factory-main",
+        "git-leased-push.factory-master",
         "git-protected-push.dynamic-destination-delegates",
         "git-protected-push.dynamic-remote",
         "git-protected-push.factory-delegates",
