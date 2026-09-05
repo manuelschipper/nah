@@ -172,6 +172,32 @@ fn plugin_delegates_when_the_adapter_is_unavailable() {
             Some("#!/bin/sh\nprintf 'not-json\\n'\n"),
             false,
         ),
+        (
+            "nonzero",
+            Some(
+                "#!/bin/sh\nprintf '{\"block\":true,\"evaluation_failed\":false,\"reason\":\"blocked\"}'\nexit 1\n",
+            ),
+            false,
+        ),
+        (
+            "invalid-envelope",
+            Some("#!/bin/sh\nprintf '{\"block\":true,\"reason\":\"blocked\"}'\n"),
+            false,
+        ),
+        (
+            "stdout-limit",
+            Some(
+                "#!/bin/sh\nprintf '{\"block\":true,\"evaluation_failed\":false,\"reason\":\"'\nhead -c 65537 /dev/zero | tr '\\000' x\nprintf '\"}'\n",
+            ),
+            false,
+        ),
+        (
+            "stderr-limit",
+            Some(
+                "#!/bin/sh\nhead -c 65537 /dev/zero >&2\nprintf '{\"block\":true,\"evaluation_failed\":false,\"reason\":\"blocked\"}'\n",
+            ),
+            false,
+        ),
         ("timeout", Some("#!/bin/sh\nsleep 1\n"), true),
     ];
     for (name, program, shorten_timeout) in cases {
