@@ -247,8 +247,13 @@ impl Interpreter<'_> {
                 if !valid {
                     return Value::Unknown;
                 }
+                let callable = match method {
+                    "read_text" => "pathlib.path.read_text",
+                    "read_bytes" => "pathlib.path.read_bytes",
+                    _ => unreachable!(),
+                };
                 self.emit_filesystem_call(
-                    &format!("pathlib.path.{method}"),
+                    callable,
                     &arguments,
                     state,
                     vec![LanguageFilesystem::new(
@@ -293,8 +298,17 @@ impl Interpreter<'_> {
                     || method == "chmod"
                         && argument(&arguments, 1, "follow_symlinks").and_then(exact_bool)
                             == Some(false);
+                let callable = match method {
+                    "write_text" => "pathlib.path.write_text",
+                    "write_bytes" => "pathlib.path.write_bytes",
+                    "touch" => "pathlib.path.touch",
+                    "mkdir" => "pathlib.path.mkdir",
+                    "chmod" => "pathlib.path.chmod",
+                    "lchmod" => "pathlib.path.lchmod",
+                    _ => unreachable!(),
+                };
                 self.emit_filesystem_call(
-                    &format!("pathlib.path.{method}"),
+                    callable,
                     &arguments,
                     state,
                     vec![
@@ -322,8 +336,13 @@ impl Interpreter<'_> {
                 if !valid {
                     return Value::Unknown;
                 }
+                let callable = match method {
+                    "unlink" => "pathlib.path.unlink",
+                    "rmdir" => "pathlib.path.rmdir",
+                    _ => unreachable!(),
+                };
                 self.emit_filesystem_call(
-                    &format!("pathlib.path.{method}"),
+                    callable,
                     &arguments,
                     state,
                     vec![LanguageFilesystem::new(
@@ -343,8 +362,13 @@ impl Interpreter<'_> {
                 let target = argument(&arguments, 0, "target")
                     .and_then(value_string)
                     .map(str::to_owned);
+                let callable = match method {
+                    "rename" => "pathlib.path.rename",
+                    "replace" => "pathlib.path.replace",
+                    _ => unreachable!(),
+                };
                 self.emit_filesystem_call(
-                    &format!("pathlib.path.{method}"),
+                    callable,
                     &arguments,
                     state,
                     vec![
@@ -376,8 +400,13 @@ impl Interpreter<'_> {
                 } else {
                     (target, Some(path))
                 };
+                let callable = match method {
+                    "hardlink_to" => "pathlib.path.hardlink_to",
+                    "link_to" => "pathlib.path.link_to",
+                    _ => unreachable!(),
+                };
                 self.emit_filesystem_call(
-                    &format!("pathlib.path.{method}"),
+                    callable,
                     &arguments,
                     state,
                     vec![

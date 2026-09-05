@@ -15,6 +15,7 @@ mod effinterp;
 mod guard_config;
 mod hermes_installation;
 mod hook_config;
+mod javascript_bridge;
 mod kiro_installation;
 mod openclaw_installation;
 mod opencode_installation;

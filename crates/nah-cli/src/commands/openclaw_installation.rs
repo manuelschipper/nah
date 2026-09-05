@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::javascript_bridge::javascript_decision_bridge;
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const MARKER: &str = "// Managed by nah.";
@@ -302,66 +303,14 @@ fn manifest() -> Value {
 }
 
 fn plugin(executable: &str, policy: FailurePolicy) -> String {
-    let failure_arg = if policy == FailurePolicy::Block {
-        r#", "--fail-closed""#
-    } else {
-        ""
-    };
+    let bridge = javascript_decision_bridge(executable, "openclaw", policy);
     format!(
         r#"{MARKER}
 import {{ spawn }} from "node:child_process";
 import {{ resolve as resolvePath }} from "node:path";
 import {{ definePluginEntry }} from "openclaw/plugin-sdk/plugin-entry";
 
-const nahExecutable = {executable};
-const maxOutputBytes = 65536;
-
-function decide(input) {{
-  return new Promise((resolve, reject) => {{
-    const child = spawn(nahExecutable, ["hook", "openclaw", "run"{failure_arg}], {{
-      stdio: ["pipe", "pipe", "pipe"],
-    }});
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    let timer;
-    const cleanup = () => clearTimeout(timer);
-    const fail = (error) => {{
-      if (settled) return;
-      settled = true;
-      cleanup();
-      child.kill();
-      reject(error);
-    }};
-    const append = (current, chunk) => {{
-      const next = current + chunk.toString();
-      if (Buffer.byteLength(next) > maxOutputBytes) fail(new Error("nah output limit exceeded"));
-      return next;
-    }};
-    timer = setTimeout(() => fail(new Error("nah decision timed out")), 5000);
-    child.on("error", fail);
-    child.stdout.on("data", (chunk) => {{ stdout = append(stdout, chunk); }});
-    child.stderr.on("data", (chunk) => {{ stderr = append(stderr, chunk); }});
-    child.on("close", (code) => {{
-      if (settled) return;
-      settled = true;
-      cleanup();
-      if (code !== 0) return reject(new Error("nah decision failed"));
-      try {{
-        const result = JSON.parse(stdout);
-        if (typeof result.block !== "boolean") throw new Error("invalid nah decision");
-        if (typeof result.evaluation_failed !== "boolean") throw new Error("invalid nah failure state");
-        if (result.block && typeof result.reason !== "string") throw new Error("invalid nah reason");
-        resolve(result);
-      }} catch (error) {{
-        reject(error);
-      }}
-    }});
-    child.stdin.on("error", fail);
-    child.stdin.end(JSON.stringify(input));
-  }});
-}}
-
+{bridge}
 export default definePluginEntry({{
   id: "nah",
   name: "nah",
