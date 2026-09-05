@@ -20,6 +20,32 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
     std::fs::write(repo.join(".env"), "TOKEN=secret\n").unwrap();
     std::fs::write(repo.join(".env.example"), "TOKEN=\n").unwrap();
     let context = ctx(&home);
+    let factory = support::factory_ctx(&home);
+    for command in [
+        "vault kv get -mount=secret service/api",
+        "op read op://prod/service/password",
+        "doppler secrets get API_TOKEN --plain --project service --config prod",
+        "infisical export --projectId project --env prod --format=json",
+        "aws secretsmanager get-secret-value --secret-id service/api",
+        "aws ssm get-parameter --name /service/api --with-decryption",
+        "gcloud secrets versions access latest --secret=service-api",
+        "az keyvault secret show --vault-name prod --name service-api",
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &factory,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .any(|guard| guard.name() == "secrets-store-read"),
+            "{command}"
+        );
+    }
     for (command, guard) in [
         ("cat ~/.ssh/id_rsa", "secrets-credentials"),
         ("cat \"$HOME/.ssh/id_rsa\"", "secrets-credentials"),

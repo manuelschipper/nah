@@ -44,7 +44,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 1878);
+    assert_eq!(summary.cases, 1898);
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn current_corpus_file_counts_are_pinned() {
         [
             ("execution-flows.jsonl".to_owned(), 296),
             ("filesystem.jsonl".to_owned(), 263),
-            ("git.jsonl".to_owned(), 327),
+            ("git.jsonl".to_owned(), 347),
             ("infrastructure.jsonl".to_owned(), 180),
             ("kubernetes.jsonl".to_owned(), 35),
             ("local-utilities.jsonl".to_owned(), 53),
@@ -296,7 +296,7 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "secrets-store-read.aws",
         "secrets-store-read.gcloud",
         "secrets-store-read.azure",
-        "secrets-store-read.factory-delegates",
+        "secrets-store-read.factory-blocks",
         "secrets-store-boundary.run-delegates",
         "secrets-store-boundary.inject-delegates",
         "secrets-store-boundary.name-only-delegates",

@@ -232,7 +232,6 @@ pub(crate) fn shipped_guard_docs() -> Vec<ShippedGuardDoc> {
                     | "infra-k8s-delete"
                     | "registry-publish"
                     | "secrets-store-delete"
-                    | "secrets-store-read"
                     | "storage-recursive-delete"
                     | "storage-snapshot-delete"
                     | "sys-service-stop"
@@ -343,7 +342,7 @@ fn behavior(name: &str) -> &'static str {
             "Blocks Git pushes whose explicit static refspec destination is `main` or `master`; bare pushes are outside this guard."
         }
         "git-recovery-destroy" => {
-            "Blocks immediate repository-wide destruction of Git recovery history."
+            "Blocks clearing the full stash collection or immediate repository-wide destruction of Git recovery history."
         }
         "git-ref-delete" => {
             "Blocks reviewed local and remote ref, stash entry, worktree, and submodule worktree deletion."
@@ -358,7 +357,7 @@ fn behavior(name: &str) -> &'static str {
             "Blocks history rewriting that explicitly bypasses safety or backup checks."
         }
         "git-worktree-discard" => {
-            "Blocks project-wide checkout or restore and proven forced branch changes."
+            "Blocks project-wide checkout or restore, proven forced branch changes, and forced worktree removal or submodule deinitialization."
         }
         "infra-container-volume-delete" => {
             "Blocks broad unused-volume pruning and explicit Compose volume removal through reviewed Docker and Podman commands."
@@ -519,7 +518,7 @@ fn examples(name: &str) -> Vec<&'static str> {
         "git-recovery-destroy" => [
             "git reflog expire --all --expire=now",
             "git gc --prune=now",
-            "git prune --expire=now",
+            "git stash clear",
         ],
         "git-ref-delete" => [
             "git branch -D old",
@@ -548,8 +547,8 @@ fn examples(name: &str) -> Vec<&'static str> {
         ],
         "git-worktree-discard" => [
             "git checkout -f",
-            "git switch --discard-changes main",
-            "git restore .",
+            "git worktree remove -f old",
+            "git submodule deinit -f --all",
         ],
         "infra-container-volume-delete" => [
             "docker volume prune --all",
@@ -924,9 +923,9 @@ mod tests {
             states
                 .iter()
                 .find(|state| state.name() == "secrets-store-read")
-                .is_some_and(|state| !state.enabled())
+                .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 18);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 17);
         for (name, default_enabled) in shipped_defaults() {
             assert_eq!(
                 states

@@ -59,11 +59,14 @@ impl Lowerer {
     ) -> CommandResources {
         let mut system_states = Vec::new();
         let mut root_move_destination_key = None;
-        let git_command_operations = match program {
-            _ if git_environment_override => Vec::new(),
+        let mut git_command_guards = match program {
             ProgramDraft::Static(program) => git_command_operations(program, arguments),
             ProgramDraft::Env { .. } | ProgramDraft::Unresolved => Vec::new(),
         };
+        if git_environment_override {
+            git_command_guards
+                .retain(|operation| !matches!(*operation, "clean-force" | "worktree-discard"));
+        }
         // The shell expands these targets before the command runs, so their
         // effects stay bounded by the literal prefix instead of naming a path.
         let mut patterns = pattern_targets(arguments);
@@ -174,7 +177,7 @@ impl Lowerer {
                     cwd_relative(target, self.platform),
                     &mut filesystem_drafts,
                 );
-                if git_command_operations.contains(&SemanticCode::CLEAN_FORCE.as_str())
+                if git_command_guards.contains(&SemanticCode::CLEAN_FORCE.as_str())
                     && let Some(filesystem) = filesystem_drafts.last_mut()
                 {
                     filesystem.git_guard = Some(SemanticCode::CLEAN_FORCE);
@@ -405,7 +408,7 @@ impl Lowerer {
             })
             .map(|_| SemanticCode::METADATA_MUTATION)
             .collect::<Vec<_>>();
-        for operation in git_command_operations
+        for operation in git_command_guards
             .into_iter()
             .filter(|operation| *operation != SemanticCode::CLEAN_FORCE.as_str())
         {

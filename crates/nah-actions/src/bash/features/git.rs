@@ -24,7 +24,29 @@ pub(crate) fn git_command_operations(program: &str, arguments: &[Word]) -> Vec<&
     {
         return Vec::new();
     }
-    match subcommand {
+    let deletion = match subcommand {
+        "worktree" => worktree_deletion(arguments),
+        "submodule" => submodule_deinit(arguments),
+        _ => None,
+    };
+    if let Some(force) = deletion {
+        return if force && parsed.complete() {
+            vec!["ref-delete", "worktree-discard"]
+        } else {
+            vec!["ref-delete"]
+        };
+    }
+    if subcommand == "stash"
+        && stash_delete_is_valid(arguments)
+        && arguments.first().and_then(static_argument).as_deref() == Some("clear")
+    {
+        return if parsed.complete() {
+            vec!["ref-delete", "recovery-destroy"]
+        } else {
+            vec!["ref-delete"]
+        };
+    }
+    let operation = match subcommand {
         "clean" if clean_force(&parsed, arguments) => Some("clean-force"),
         "checkout" if forced_checkout(arguments) => Some("worktree-discard"),
         "switch" if forced_switch(arguments) => Some("worktree-discard"),
@@ -52,9 +74,8 @@ pub(crate) fn git_command_operations(program: &str, arguments: &[Word]) -> Vec<&
         "gc" if gc_rewrites_history(arguments) => Some("history-rewrite"),
         _ if ref_delete(subcommand, arguments) => Some("ref-delete"),
         _ => None,
-    }
-    .into_iter()
-    .collect()
+    };
+    operation.into_iter().collect()
 }
 
 fn rebase_rewrites_history(arguments: &[Word]) -> bool {
@@ -78,8 +99,6 @@ fn ref_delete(subcommand: &str, arguments: &[Word]) -> bool {
         "stash" => stash_deletes_entries(arguments) && stash_delete_is_valid(arguments),
         "push" => push_deletes_refs(arguments),
         "update-ref" => update_ref_deletes_ref(arguments),
-        "worktree" => worktree_deletes(arguments),
-        "submodule" => submodule_deinits(arguments),
         _ => false,
     }
 }
@@ -189,9 +208,13 @@ fn tag_deletes_refs(arguments: &[Word]) -> bool {
 }
 
 fn stash_delete_is_valid(arguments: &[Word]) -> bool {
-    let verb = static_argument(&arguments[0]);
+    let verb = arguments.first().and_then(static_argument);
     match verb.as_deref() {
-        Some("clear") => arguments.len() == 1,
+        Some("clear") => {
+            arguments.len() == 1
+                || (arguments.len() == 2
+                    && arguments.get(1).and_then(static_argument).as_deref() == Some("--"))
+        }
         Some("drop") => target_count(&arguments[1..], |argument| {
             matches!(argument, "-q" | "--quiet" | "--no-quiet")
         })
@@ -353,19 +376,45 @@ fn update_ref_deletes_ref(arguments: &[Word]) -> bool {
     deleting && matches!(operands, 1 | 2)
 }
 
-fn worktree_deletes(arguments: &[Word]) -> bool {
-    let verb = arguments.first().and_then(static_argument);
-    match verb.as_deref() {
-        Some("remove") => worktree_remove_is_valid(&arguments[1..]),
-        Some("prune") => worktree_prune_is_valid(&arguments[1..]),
-        _ => false,
+// Some(false) still carries independently selectable ref deletion evidence.
+fn worktree_deletion(arguments: &[Word]) -> Option<bool> {
+    match arguments.first().and_then(static_argument).as_deref() {
+        Some("remove") => {
+            let mut force = false;
+            let mut targets = 0;
+            let mut after_separator = false;
+            for word in &arguments[1..] {
+                let Some(argument) = static_argument(word) else {
+                    if !after_separator {
+                        force = false;
+                    }
+                    targets += 1;
+                    continue;
+                };
+                if argument.is_empty() {
+                    return None;
+                }
+                if after_separator {
+                    targets += 1;
+                    continue;
+                }
+                match argument.as_str() {
+                    "--" => after_separator = true,
+                    "--force" => force = true,
+                    "--no-force" => force = false,
+                    argument if bundled_short_flags(argument, |flag| flag == "-f") => force = true,
+                    argument if argument.starts_with('-') => return None,
+                    _ => targets += 1,
+                }
+            }
+            if targets != 1 {
+                return None;
+            }
+            Some(force)
+        }
+        Some("prune") => worktree_prune_is_valid(&arguments[1..]).then_some(false),
+        _ => None,
     }
-}
-
-fn worktree_remove_is_valid(arguments: &[Word]) -> bool {
-    target_count(arguments, |argument| {
-        matches!(argument, "-f" | "--force" | "--no-force")
-    }) == Some(1)
 }
 
 fn worktree_prune_is_valid(arguments: &[Word]) -> bool {
@@ -402,25 +451,60 @@ fn worktree_prune_is_valid(arguments: &[Word]) -> bool {
     true
 }
 
-fn submodule_deinits(arguments: &[Word]) -> bool {
+fn submodule_deinit(arguments: &[Word]) -> Option<bool> {
     let mut index = 0;
+    let mut executable = true;
     while let Some(argument) = arguments.get(index).and_then(static_argument) {
         if matches!(argument.as_str(), "-q" | "--quiet" | "--no-quiet") {
+            executable &= argument != "--no-quiet";
             index += 1;
             continue;
         }
         break;
     }
     if arguments.get(index).and_then(static_argument).as_deref() != Some("deinit") {
-        return false;
+        return None;
     }
-    target_count(&arguments[index + 1..], |argument| {
-        matches!(
-            argument,
-            "-f" | "--force" | "--no-force" | "-q" | "--quiet" | "--no-quiet"
-        )
-    })
-    .is_some_and(|targets| targets > 0)
+    let mut force = false;
+    let mut all = false;
+    let mut targets = 0;
+    let mut after_options = false;
+    // The public submodule shell command accepts only these whole flags and
+    // stops at the first path. Retain the existing ref deletion evidence for
+    // helper-only flags, but never use them to prove an executable forced wipe.
+    for word in &arguments[index + 1..] {
+        let Some(argument) = static_argument(word) else {
+            if !after_options {
+                force = false;
+            }
+            after_options = true;
+            targets += 1;
+            continue;
+        };
+        if argument.is_empty() {
+            return None;
+        }
+        if after_options {
+            targets += 1;
+            continue;
+        }
+        match argument.as_str() {
+            "--" => after_options = true,
+            "-f" | "--force" => force = true,
+            "-q" | "--quiet" => {}
+            "--no-force" | "--no-quiet" => executable = false,
+            argument if bundled_short_flags(argument, |flag| matches!(flag, "-f" | "-q")) => {
+                executable = false;
+            }
+            "--all" => all = true,
+            argument if argument.starts_with('-') => return None,
+            _ => {
+                after_options = true;
+                targets += 1;
+            }
+        }
+    }
+    ((all && targets == 0) || (!all && targets > 0)).then_some(force && executable)
 }
 
 fn clean_force(parsed: &ParsedGit<'_>, arguments: &[Word]) -> bool {

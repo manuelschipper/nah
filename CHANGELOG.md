@@ -13,7 +13,7 @@
   unrelated overrides.
 - **Secrets guards** — `secrets-credentials` replaces `secrets-keys` with a
   hidden compatibility alias, `secrets-env` now blocks direct output of
-  catalogued credential variables, optional `secrets-store-read` covers
+  catalogued credential variables, default-on `secrets-store-read` covers
   reviewed value reads across common secret-manager CLIs while preserving
   run, inject, and concealed listing workflows, and optional
   `secrets-store-delete` covers reviewed recoverable and permanent deletion.
@@ -30,8 +30,9 @@
   and published-name ownership changes by default; optional `registry-publish`
   covers publication across npm-compatible registries, Cargo, RubyGems, Python,
   and NuGet.
-- **Git safety guards** — Optional `git-ref-delete` covers reviewed ref, stash, and worktree
-  deletion, while optional `git-path-discard` covers definite named-path
+- **Git safety guards** — Existing default-on guards now protect clearing the full
+  stash collection and forced worktree removal or submodule deinitialization.
+  Optional `git-ref-delete` covers reviewed ref, stash, and worktree deletion, while optional `git-path-discard` covers definite named-path
   checkout, restore, and same-path `git show` overwrites. Optional
   `git-history-rewrite` covers rebases, unforced filtering, recovery expiry,
   aggressive or pruning garbage collection, and leased force pushes, including
