@@ -263,7 +263,7 @@ fn git_history_rewrite_evidence_is_complementary_and_recovery_safe() {
 }
 
 #[test]
-fn git_ref_deletes_lower_to_one_semantic_operation() {
+fn git_ref_deletes_preserve_independent_semantic_operations() {
     for source in [
         "git branch -d topic",
         "git branch -D \"$BRANCH\"",
@@ -284,8 +284,12 @@ fn git_ref_deletes_lower_to_one_semantic_operation() {
         "git worktree remove -f \"$PATH\"",
         "git worktree remove -ff old",
         "git worktree prune --expire now",
+        "git submodule deinit --all",
         "git submodule deinit vendor/library",
         "git submodule deinit -q vendor/library",
+        "git submodule deinit -qf vendor/library",
+        "git submodule deinit --no-force --force vendor/library",
+        "git submodule --no-quiet deinit -f vendor/library",
         "git submodule --quiet deinit -- \"$PATH\"",
         "timeout 5 git worktree remove old",
     ] {
@@ -302,10 +306,114 @@ fn git_ref_deletes_lower_to_one_semantic_operation() {
             .collect::<Vec<_>>();
         assert_eq!(
             operations,
-            ["ref-delete"],
+            if source == "git stash clear" {
+                vec!["recovery-destroy", "ref-delete"]
+            } else if source == "git worktree remove -ff old" {
+                vec!["ref-delete", "worktree-discard"]
+            } else {
+                vec!["ref-delete"]
+            },
             "{source}: {:?}",
             stream.effects()
         );
+    }
+}
+
+#[test]
+fn stash_clear_and_forced_tree_deletion_preserve_both_guards_without_path_claims() {
+    for (source, loss) in [
+        ("git stash clear", "recovery-destroy"),
+        ("git stash clear --", "recovery-destroy"),
+        ("git worktree remove -ff old", "worktree-discard"),
+        (
+            "git worktree remove --force --force old",
+            "worktree-discard",
+        ),
+        ("git worktree remove --no-force -f old", "worktree-discard"),
+        ("git worktree remove old -f", "worktree-discard"),
+        ("git worktree remove -f -- \"$TREE\"", "worktree-discard"),
+        ("git -C other worktree remove -f old", "worktree-discard"),
+        ("git submodule deinit -f vendor/library", "worktree-discard"),
+        (
+            "git submodule -q --quiet deinit --force --all",
+            "worktree-discard",
+        ),
+        (
+            "git submodule deinit -f -f -q -- one two",
+            "worktree-discard",
+        ),
+    ] {
+        let plan = bash_plan(source);
+        let observation = observe(plan.observation_request(), "echo");
+        let stream = finalize(plan, observation);
+        for operation in [loss, "ref-delete"] {
+            assert!(stream.effects().iter().any(|effect| {
+                matches!(effect.kind(), EffectKind::Git { operation: actual } if actual.as_str() == operation)
+            }), "{source}: {:?}", stream.effects());
+        }
+        assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
+        assert!(
+            !stream
+                .effects()
+                .iter()
+                .any(|effect| { matches!(effect.kind(), EffectKind::Filesystem { .. }) }),
+            "{source}: {:?}",
+            stream.effects()
+        );
+    }
+
+    for source in [
+        "GIT_DIR=/other.git git worktree remove -f old",
+        "GIT_WORK_TREE=/other git submodule deinit -f --all",
+    ] {
+        let plan = bash_plan(source);
+        let observation = observe(plan.observation_request(), "echo");
+        let stream = finalize(plan, observation);
+        assert_eq!(stream.coverage(), Coverage::Partial);
+        assert!(stream.effects().iter().any(|effect| {
+            matches!(effect.kind(), EffectKind::Git { operation } if operation.as_str() == "ref-delete")
+        }), "{source}: {:?}", stream.effects());
+        assert!(!stream.effects().iter().any(|effect| {
+            matches!(effect.kind(), EffectKind::Git { operation } if operation.as_str() == "worktree-discard")
+        }), "{source}: {:?}", stream.effects());
+    }
+
+    for source in [
+        "git stash clear extra",
+        "git stash clear --help",
+        "git stash push",
+        "git stash apply",
+        "git stash pop",
+        "git stash branch saved",
+        "git worktree remove old",
+        "git worktree remove -f --no-force old",
+        "git worktree remove -- --force",
+        "git worktree remove -f",
+        "git worktree remove -f one two",
+        "git worktree remove -qf old",
+        "git worktree remove -fh old",
+        "git worktree remove -f old --help",
+        "git worktree remove -f \"$OPTIONS\" old",
+        "git submodule deinit --all",
+        "git submodule deinit old",
+        "git submodule deinit -- --force",
+        "git submodule deinit old --force",
+        "git submodule deinit -f --all old",
+        "git submodule deinit -f",
+        "git submodule deinit -qf old",
+        "git submodule deinit -ff old",
+        "git submodule deinit --force --no-force old",
+        "git submodule deinit --no-force --force old",
+        "git submodule --no-quiet deinit -f old",
+        "git submodule deinit -f --help",
+        "git submodule deinit -f --no-all",
+    ] {
+        let plan = bash_plan(source);
+        let observation = observe(plan.observation_request(), "echo");
+        let stream = finalize(plan, observation);
+        assert!(!stream.effects().iter().any(|effect| {
+            matches!(effect.kind(), EffectKind::Git { operation } if matches!(operation.as_str(), "worktree-discard" | "recovery-destroy"))
+        }), "{source}: {:?}", stream.effects());
     }
 }
 
@@ -350,7 +458,6 @@ fn git_ref_delete_rejects_nonexecuting_and_invalid_shapes() {
         "git worktree \"$ACTION\" old",
         "git submodule deinit",
         "git submodule deinit -f",
-        "git submodule deinit --all",
         "git submodule update --init",
         "git submodule \"$ACTION\" vendor/library",
         "git remote remove origin",
