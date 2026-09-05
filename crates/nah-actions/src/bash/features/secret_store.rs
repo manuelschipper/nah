@@ -20,6 +20,17 @@ impl Classification {
         }
     }
 
+    const fn destruction(valid: bool) -> Self {
+        if !valid {
+            return Self::incomplete();
+        }
+        Self {
+            complete: true,
+            known_invocation: None,
+            system_state: Some(SemanticCode::SECRETS_STORE_DESTROY),
+        }
+    }
+
     const fn read() -> Self {
         Self {
             complete: true,
@@ -144,9 +155,22 @@ fn vault(arguments: &[String]) -> Classification {
             if kv == "kv"
                 && destroy == "destroy"
                 && valid_operand(path)
-                && parsed.value("-versions").is_some_and(valid_operand) =>
+                && parsed.value("-versions").is_some()
+                && parsed
+                    .values
+                    .iter()
+                    .filter(|(name, _)| name == "-versions")
+                    .flat_map(|(_, values)| values)
+                    .all(|versions| {
+                        versions.split(',').all(|version| {
+                            version
+                                .trim()
+                                .parse::<i64>()
+                                .is_ok_and(|version| version > 0)
+                        })
+                    }) =>
         {
-            Classification::deletion()
+            Classification::destruction(vault_destruction_options(&parsed))
         }
         [kv, metadata, delete, path]
             if kv == "kv"
@@ -154,16 +178,48 @@ fn vault(arguments: &[String]) -> Classification {
                 && delete == "delete"
                 && valid_operand(path) =>
         {
-            Classification::deletion()
+            Classification::destruction(vault_destruction_options(&parsed))
         }
         [secrets, disable, path]
             if secrets == "secrets" && disable == "disable" && valid_operand(path) =>
         {
-            Classification::deletion()
+            Classification::destruction(vault_destruction_options(&parsed))
         }
         positions if vault_classified_prefix(positions) => Classification::incomplete(),
         _ => Classification::control(),
     }
+}
+
+// Read-only selection options are not accepted by these destructive Vault forms.
+fn vault_destruction_options(parsed: &ParsedOptions) -> bool {
+    parsed.only_options(
+        &[
+            "-disable-redirects",
+            "-non-interactive",
+            "-output-curl-string",
+            "-output-policy",
+            "-policy-override",
+            "-tls-skip-verify",
+            "-address",
+            "-agent-address",
+            "-ca-cert",
+            "-ca-path",
+            "-client-cert",
+            "-client-key",
+            "-format",
+            "-header",
+            "-mfa",
+            "-namespace",
+            "-ns",
+            "-tls-server-name",
+            "-wrap-ttl",
+        ],
+        match parsed.positionals.get(1).map(String::as_str) {
+            Some("destroy") => &["-mount", "-versions"],
+            Some("metadata") => &["-mount"],
+            _ => &[],
+        },
+    )
 }
 
 fn vault_classified_prefix(positions: &[String]) -> bool {
@@ -281,14 +337,49 @@ fn aws(arguments: &[String]) -> Classification {
                 && command == "delete-secret"
                 && parsed.value("--secret-id").is_some_and(valid_operand) =>
         {
-            Classification::deletion()
+            if !aws_deletion_options(
+                arguments,
+                &parsed,
+                &[
+                    "--secret-id",
+                    "--recovery-window-in-days",
+                    "--force-delete-without-recovery",
+                    "--no-force-delete-without-recovery",
+                ],
+            ) {
+                return Classification::incomplete();
+            }
+            let force = parsed
+                .flags
+                .iter()
+                .rev()
+                .find(|(name, _)| {
+                    matches!(
+                        name.as_str(),
+                        "--force-delete-without-recovery" | "--no-force-delete-without-recovery"
+                    )
+                })
+                .is_some_and(|(name, _)| name == "--force-delete-without-recovery");
+            let recovery = parsed.value("--recovery-window-in-days");
+            if recovery.is_some_and(|days| {
+                !days
+                    .parse::<u32>()
+                    .is_ok_and(|days| (7..=30).contains(&days))
+            }) || force && recovery.is_some()
+            {
+                Classification::incomplete()
+            } else if force {
+                Classification::destruction(true)
+            } else {
+                Classification::deletion()
+            }
         }
         [service, command]
             if service == "ssm"
                 && command == "delete-parameter"
                 && parsed.value("--name").is_some_and(valid_operand) =>
         {
-            Classification::deletion()
+            Classification::destruction(aws_deletion_options(arguments, &parsed, &["--name"]))
         }
         [service, command]
             if service == "ssm"
@@ -297,11 +388,45 @@ fn aws(arguments: &[String]) -> Classification {
                     !values.is_empty() && values.iter().all(|value| valid_operand(value))
                 }) =>
         {
-            Classification::deletion()
+            Classification::destruction(aws_deletion_options(arguments, &parsed, &["--names"]))
         }
         positions if aws_classified_prefix(positions) => Classification::incomplete(),
         _ => Classification::control(),
     }
+}
+
+fn aws_deletion_options(arguments: &[String], parsed: &ParsedOptions, operation: &[&str]) -> bool {
+    // AWS boolean switches take no attached value, including =true and =false.
+    !arguments.iter().any(|argument| {
+        argument
+            .split_once('=')
+            .is_some_and(|(name, _)| parsed.flags.iter().any(|(flag, _)| flag == name))
+    }) && parsed.only_options(
+        &[
+            "--cli-auto-prompt",
+            "--debug",
+            "--no-cli-auto-prompt",
+            "--no-cli-pager",
+            "--no-paginate",
+            "--no-sign-request",
+            "--no-verify-ssl",
+            "--ca-bundle",
+            "--cli-binary-format",
+            "--cli-connect-timeout",
+            "--cli-read-timeout",
+            "--color",
+            "--endpoint-url",
+            "--output",
+            "--profile",
+            "--query",
+            "--region",
+        ],
+        operation,
+    ) && parsed.values.iter().all(|(_, values)| {
+        values
+            .iter()
+            .all(|value| !value.starts_with("file://") && !value.starts_with("fileb://"))
+    })
 }
 
 fn aws_decryption_requested(parsed: &ParsedOptions) -> bool {
@@ -341,6 +466,7 @@ fn gcloud(arguments: &[String]) -> Classification {
             "--account",
             "--billing-project",
             "--configuration",
+            "--etag",
             "--format",
             "--impersonate-service-account",
             "--location",
@@ -371,7 +497,26 @@ fn gcloud(arguments: &[String]) -> Classification {
         [secrets, delete, name]
             if secrets == "secrets" && delete == "delete" && valid_operand(name) =>
         {
-            Classification::deletion()
+            Classification::destruction(parsed.only_options(
+                &[
+                    "--log-http",
+                    "--quiet",
+                    "-q",
+                    "--user-output-enabled",
+                    "--no-user-output-enabled",
+                    "--account",
+                    "--billing-project",
+                    "--configuration",
+                    "--etag",
+                    "--format",
+                    "--impersonate-service-account",
+                    "--location",
+                    "--project",
+                    "--trace-token",
+                    "--verbosity",
+                ],
+                &[],
+            ))
         }
         [secrets, versions, destroy, version]
             if secrets == "secrets"
@@ -460,18 +605,51 @@ fn azure(arguments: &[String]) -> Classification {
                 && matches!(action.as_str(), "delete" | "purge")
                 && azure_object_selected(&parsed) =>
         {
-            Classification::deletion()
+            if action == "purge" {
+                Classification::destruction(azure_purge_options(arguments, &parsed))
+            } else {
+                Classification::deletion()
+            }
         }
         [keyvault, action]
             if keyvault == "keyvault"
                 && matches!(action.as_str(), "delete" | "purge")
                 && azure_vault_selected(&parsed) =>
         {
-            Classification::deletion()
+            if action == "purge" {
+                Classification::destruction(azure_purge_options(arguments, &parsed))
+            } else {
+                Classification::deletion()
+            }
         }
         positions if azure_classified_prefix(positions) => Classification::incomplete(),
         _ => Classification::control(),
     }
+}
+
+fn azure_purge_options(arguments: &[String], parsed: &ParsedOptions) -> bool {
+    !arguments.iter().any(|argument| {
+        argument
+            .split_once('=')
+            .is_some_and(|(name, _)| parsed.flags.iter().any(|(flag, _)| flag == name))
+    }) && parsed.only_options(
+        &[
+            "--debug",
+            "--only-show-errors",
+            "--verbose",
+            "-n",
+            "--name",
+            "-o",
+            "--output",
+            "--query",
+            "--subscription",
+        ],
+        if parsed.positionals.len() == 2 {
+            &["--location", "--no-wait"]
+        } else {
+            &["--id", "--vault-name"]
+        },
+    )
 }
 
 fn azure_object_selected(parsed: &ParsedOptions) -> bool {
@@ -582,17 +760,49 @@ fn doppler(arguments: &[String]) -> Classification {
         {
             Classification::deletion()
         }
-        [configs, delete, config]
-            if configs == "configs" && delete == "delete" && valid_operand(config) =>
-        {
-            Classification::deletion()
-        }
-        [configs, delete]
+        [configs, delete, targets @ ..]
             if configs == "configs"
                 && delete == "delete"
-                && parsed.value("--config").is_some_and(valid_operand) =>
+                && match targets {
+                    [config] => valid_operand(config),
+                    [] => parsed
+                        .value_any(&["--config", "-c"])
+                        .is_some_and(valid_operand),
+                    _ => false,
+                } =>
         {
-            Classification::deletion()
+            Classification::destruction(parsed.only_options(
+                &[
+                    "--debug",
+                    "--json",
+                    "--no-check-version",
+                    "--no-interactive",
+                    "--no-prompt",
+                    "--no-read-env",
+                    "--no-timeout",
+                    "--no-verify-tls",
+                    "--silent",
+                    "--yes",
+                    "-y",
+                    "--api-host",
+                    "--attempts",
+                    "-c",
+                    "--config",
+                    "--config-dir",
+                    "--configuration",
+                    "--dashboard-host",
+                    "--dns-resolver-address",
+                    "--dns-resolver-proto",
+                    "--dns-resolver-timeout",
+                    "-p",
+                    "--project",
+                    "--scope",
+                    "-t",
+                    "--timeout",
+                    "--token",
+                ],
+                &[],
+            ))
         }
         [environments, delete, environment]
             if environments == "environments"
@@ -876,6 +1086,19 @@ struct ParsedOptions {
 }
 
 impl ParsedOptions {
+    fn only_options(&self, common: &[&str], operation: &[&str]) -> bool {
+        self.flags
+            .iter()
+            .map(|(name, _)| name)
+            .chain(self.values.iter().map(|(name, _)| name))
+            .all(|name| common.contains(&name.as_str()) || operation.contains(&name.as_str()))
+            && self.values.iter().all(|(_, values)| {
+                values
+                    .iter()
+                    .all(|value| valid_operand(value) && !value.starts_with('-'))
+            })
+    }
+
     fn flag(&self, name: &str) -> bool {
         self.flags
             .iter()

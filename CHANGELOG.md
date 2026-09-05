@@ -15,8 +15,9 @@
   hidden compatibility alias, `secrets-env` now blocks direct output of
   catalogued credential variables, default-on `secrets-store-read` covers
   reviewed value reads across common secret-manager CLIs while preserving
-  run, inject, and concealed listing workflows, and optional
-  `secrets-store-delete` covers reviewed recoverable and permanent deletion.
+  run, inject, and concealed listing workflows. New default-on
+  `secrets-store-destroy` protects proven permanent destruction; remaining
+  reviewed deletion stays optional under independent `secrets-store-delete`.
 - **Infrastructure destruction guards** — New guards cover Kubernetes deletion
   (`infra-k8s-delete`, optional), whole-stack Terraform, OpenTofu, and Pulumi
   teardown (`infra-iac-destroy`, optional), broad Docker and Podman pruning plus

@@ -9,12 +9,12 @@ fn stream(source: &str) -> ActionStream {
     finalize(plan.clone(), observe(plan.observation_request(), "echo"))
 }
 
-fn has_secret_store_delete(stream: &ActionStream) -> bool {
+fn has_secret_store_deletion(stream: &ActionStream, code: &SemanticCode) -> bool {
     stream.effects().iter().any(|effect| {
         matches!(
             effect.kind(),
             EffectKind::SystemState { operation }
-                if operation == &SemanticCode::SECRETS_STORE_DELETE
+                if operation == code
         )
     })
 }
@@ -32,40 +32,73 @@ fn has_secret_store_read(stream: &ActionStream) -> bool {
 
 #[test]
 fn reviewed_secret_store_deletions_emit_typed_evidence() {
-    for source in [
-        "vault kv delete -mount=secret service/api",
-        "vault kv destroy -mount=secret -versions=2,3 service/api",
-        "vault kv metadata delete -mount=secret service/api",
-        "vault secrets disable secret/",
-        "aws secretsmanager delete-secret --secret-id service/api",
-        "aws secretsmanager delete-secret --secret-id service/api --recovery-window-in-days 14",
-        "aws secretsmanager delete-secret --secret-id service/api --force-delete-without-recovery",
-        "aws ssm delete-parameter --name /service/api",
-        "aws ssm delete-parameters --names /service/api /service/db",
-        "gcloud secrets delete service-api --quiet",
-        "gcloud secrets versions destroy 7 --secret=service-api --quiet",
-        "az keyvault secret delete --vault-name prod --name service-api",
-        "az keyvault key purge --id https://prod.vault.azure.net/keys/signing/1",
-        "az keyvault certificate delete --vault-name prod -n service-api",
-        "az keyvault delete --name prod --resource-group platform",
-        "az keyvault purge --name prod --location eastus",
-        "doppler secrets delete API_TOKEN DATABASE_URL --project service --config prod",
-        "doppler configs delete prod --project service",
-        "doppler environments delete production --project service",
-        "doppler projects delete service",
-        "infisical secrets delete API_TOKEN --projectId project --env prod --path /service",
-        "infisical secrets folders delete --projectId project --env prod --path / --name service",
-        "op item delete item-id --vault prod",
-        "op document delete document-id --vault prod",
-        "op vault delete vault-id",
+    for (code, sources) in [
+        (
+            SemanticCode::SECRETS_STORE_DELETE,
+            &[
+                "vault kv delete -mount=secret service/api",
+                "aws secretsmanager delete-secret --secret-id service/api",
+                "aws secretsmanager delete-secret --secret-id service/api --recovery-window-in-days 14",
+                "gcloud secrets versions destroy 7 --secret=service-api --quiet",
+                "az keyvault secret delete --vault-name prod --name service-api",
+                "az keyvault certificate delete --vault-name prod -n service-api",
+                "az keyvault delete --name prod --resource-group platform",
+                "doppler secrets delete API_TOKEN DATABASE_URL --project service --config prod",
+                "doppler environments delete production --project service",
+                "doppler projects delete service",
+                "infisical secrets delete API_TOKEN --projectId project --env prod --path /service",
+                "infisical secrets folders delete --projectId project --env prod --path / --name service",
+                "op item delete item-id --vault prod",
+                "op document delete document-id --vault prod",
+                "op vault delete vault-id",
+                "aws secretsmanager delete-secret --secret-id service/api --no-force-delete-without-recovery",
+                "aws secretsmanager delete-secret --secret-id service/api --force-delete-without-recovery --no-force-delete-without-recovery",
+            ][..],
+        ),
+        (
+            SemanticCode::SECRETS_STORE_DESTROY,
+            &[
+                "vault kv destroy -mount=secret -versions=2,3 service/api",
+                "vault kv destroy -versions=2 -versions=3 -format=json secret/api",
+                "vault kv metadata delete -mount=secret service/api",
+                "vault kv metadata delete -mount=secret -format=json service/api",
+                "vault secrets disable secret/",
+                "vault secrets disable -format=json secret/",
+                "aws secretsmanager delete-secret --secret-id service/api --force-delete-without-recovery",
+                "aws ssm delete-parameter --name /service/api",
+                "aws ssm delete-parameters --names /service/api /service/db",
+                "gcloud secrets delete service-api --quiet",
+                "gcloud secrets delete service-api --etag=abc",
+                "gcloud secrets delete service-api --etag abc --quiet",
+                "gcloud secrets delete service-api --location europe-west1 --etag=abc",
+                "az keyvault key purge --id https://prod.vault.azure.net/keys/signing/1",
+                "az keyvault purge --name prod --location eastus",
+                "doppler configs delete prod --project service",
+                "doppler configs delete prod --project service --configuration /home/dev/.doppler.yaml",
+                "az keyvault secret purge --vault-name prod --name service-api",
+                "az keyvault certificate purge --vault-name prod --name service-api",
+                "doppler configs delete --config prod --project service",
+                "doppler configs delete -c prod -p service",
+                "aws secretsmanager delete-secret --secret-id service/api --no-force-delete-without-recovery --force-delete-without-recovery",
+                "sudo vault kv destroy -versions=2 secret/api",
+            ][..],
+        ),
     ] {
-        let actual = stream(source);
-        assert!(
-            has_secret_store_delete(&actual),
-            "{source}: {:?}",
-            actual.effects()
-        );
-        assert_eq!(actual.coverage(), Coverage::Full, "{source}");
+        for source in sources {
+            let actual = stream(source);
+            assert!(
+                has_secret_store_deletion(&actual, &code),
+                "{source}: {:?}",
+                actual.effects()
+            );
+            let other = if code == SemanticCode::SECRETS_STORE_DELETE {
+                SemanticCode::SECRETS_STORE_DESTROY
+            } else {
+                SemanticCode::SECRETS_STORE_DELETE
+            };
+            assert!(!has_secret_store_deletion(&actual, &other), "{source}");
+            assert_eq!(actual.coverage(), Coverage::Full, "{source}");
+        }
     }
 }
 
@@ -109,6 +142,11 @@ fn concealed_control_and_non_executing_forms_do_not_emit_secret_store_evidence()
         "vault kv list -mount=secret service",
         "vault kv metadata get -mount=secret service/api",
         "vault status",
+        "vault kv destroy -versions=2 secret/api --help",
+        "aws secretsmanager delete-secret --secret-id api --force-delete-without-recovery help",
+        "gcloud secrets delete api --help",
+        "az keyvault purge --name prod --help",
+        "doppler configs delete prod --help",
         "vault kv undelete -mount=secret -versions=2 service/api",
         "vault token revoke token",
         "vault lease revoke lease-id",
@@ -140,7 +178,8 @@ fn concealed_control_and_non_executing_forms_do_not_emit_secret_store_evidence()
     ] {
         let actual = stream(source);
         assert!(
-            !has_secret_store_delete(&actual),
+            !has_secret_store_deletion(&actual, &SemanticCode::SECRETS_STORE_DELETE)
+                && !has_secret_store_deletion(&actual, &SemanticCode::SECRETS_STORE_DESTROY),
             "{source}: {:?}",
             actual.effects()
         );
@@ -158,7 +197,8 @@ fn concealed_control_and_non_executing_forms_do_not_emit_secret_store_evidence()
     ] {
         let actual = stream(source);
         assert!(
-            !has_secret_store_delete(&actual),
+            !has_secret_store_deletion(&actual, &SemanticCode::SECRETS_STORE_DELETE)
+                && !has_secret_store_deletion(&actual, &SemanticCode::SECRETS_STORE_DESTROY),
             "{source}: {:?}",
             actual.effects()
         );
@@ -179,7 +219,8 @@ fn secret_injection_runners_keep_opaque_nested_commands_partial() {
     ] {
         let actual = stream(source);
         assert!(
-            !has_secret_store_delete(&actual),
+            !has_secret_store_deletion(&actual, &SemanticCode::SECRETS_STORE_DELETE)
+                && !has_secret_store_deletion(&actual, &SemanticCode::SECRETS_STORE_DESTROY),
             "{source}: {:?}",
             actual.effects()
         );
@@ -206,6 +247,39 @@ fn secret_injection_runners_keep_opaque_nested_commands_partial() {
 #[test]
 fn ambiguous_secret_store_operations_remain_partial() {
     for source in [
+        "vault kv destroy -versions=zero secret/api",
+        "vault kv destroy -versions=zero -versions=2 secret/api",
+        "vault kv destroy -versions=0 secret/api",
+        "vault kv destroy -versions=1,,2 secret/api",
+        "vault kv destroy -versions=-2 secret/api",
+        "vault kv destroy -versions=2 -version=1 secret/api",
+        "vault kv metadata delete -versions=2 secret/api",
+        "vault secrets disable -mount=secret secret/",
+        "vault kv metadata delete secret/api -format",
+        "vault secrets disable secret/ -format",
+        "doppler configs delete prod --configuration",
+        "doppler configs delete -c",
+        "doppler configs delete -c '' -p service",
+        "doppler configs delete -c \"$CONFIG\" -p service",
+        "aws secretsmanager delete-secret --secret-id service/api --force-delete-without-recovery=true",
+        "aws secretsmanager delete-secret --secret-id service/api --force-delete-without-recovery=false",
+        "aws secretsmanager delete-secret --secret-id service/api --no-force-delete-without-recovery=false",
+        "aws secretsmanager delete-secret --secret-id service/api --force-delete-without-recovery --recovery-window-in-days 7",
+        "aws secretsmanager delete-secret --secret-id service/api --recovery-window-in-days 0",
+        "aws secretsmanager delete-secret --secret-id service/api --force-delete-without-recovery --version-stage CURRENT",
+        "aws ssm delete-parameter --name /api --with-decryption",
+        "aws ssm delete-parameter --name file://target",
+        "aws ssm delete-parameter --name --region us-east-1",
+        "gcloud secrets delete service-api --secret other",
+        "gcloud secrets delete service-api --out-file output",
+        "gcloud secrets delete service-api --etag",
+        "gcloud secrets delete service-api --etag --quiet",
+        "gcloud secrets delete service-api --etag=",
+        "gcloud secrets delete service-api --etag \"$ETAG\"",
+        "az keyvault secret purge --vault-name prod --name api --version 1",
+        "az keyvault purge --id vault-id",
+        "az keyvault purge --name prod --yes",
+        "doppler configs delete prod --only-names",
         "vault kv get",
         "vault read",
         "vault kv get --unknown service/api",
@@ -254,7 +328,8 @@ fn ambiguous_secret_store_operations_remain_partial() {
     ] {
         let actual = stream(source);
         assert!(
-            !has_secret_store_delete(&actual),
+            !has_secret_store_deletion(&actual, &SemanticCode::SECRETS_STORE_DELETE)
+                && !has_secret_store_deletion(&actual, &SemanticCode::SECRETS_STORE_DESTROY),
             "{source}: {:?}",
             actual.effects()
         );
@@ -270,7 +345,7 @@ fn ambiguous_secret_store_operations_remain_partial() {
 #[test]
 fn secret_store_program_identity_must_be_trusted() {
     for source in [
-        "PATH=/tmp vault kv delete secret/service",
+        "PATH=/tmp vault kv destroy -versions=2 secret/service",
         "PATH=/tmp aws secretsmanager delete-secret --secret-id service/api",
         "PATH=/tmp gcloud secrets delete service-api",
         "PATH=/tmp az keyvault delete --name prod",
@@ -283,7 +358,8 @@ fn secret_store_program_identity_must_be_trusted() {
     ] {
         let actual = stream(source);
         assert!(
-            !has_secret_store_delete(&actual),
+            !has_secret_store_deletion(&actual, &SemanticCode::SECRETS_STORE_DELETE)
+                && !has_secret_store_deletion(&actual, &SemanticCode::SECRETS_STORE_DESTROY),
             "{source}: {:?}",
             actual.effects()
         );
@@ -293,7 +369,7 @@ fn secret_store_program_identity_must_be_trusted() {
     for source in [
         "PATH=/tmp /bin/vault kv delete secret/service",
         "PATH=/tmp /usr/bin/aws secretsmanager delete-secret --secret-id service/api",
-        "/sbin/gcloud secrets delete service-api",
+        "/sbin/gcloud secrets versions destroy 7 --secret service-api",
         "/usr/sbin/az keyvault delete --name prod",
         "/bin/doppler projects delete service",
         "/usr/bin/infisical secrets delete API_TOKEN",
@@ -301,7 +377,7 @@ fn secret_store_program_identity_must_be_trusted() {
     ] {
         let actual = stream(source);
         assert!(
-            has_secret_store_delete(&actual),
+            has_secret_store_deletion(&actual, &SemanticCode::SECRETS_STORE_DELETE),
             "{source}: {:?}",
             actual.effects()
         );

@@ -81,6 +81,10 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
     for (guard, command) in [
         ("git-clean-force", "git clean -f"),
         (
+            "secrets-store-destroy",
+            "vault kv destroy -versions=2 secret/api",
+        ),
+        (
             "git-remote-repo-delete",
             "gh repo delete owner/project --yes",
         ),
@@ -97,6 +101,49 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
         assert!(enabled.status.success(), "{enabled:?}");
         assert_eq!(decide(temp.path(), &project, command)["verdict"], "block");
     }
+
+    for (delete, destroy) in [(false, true), (true, false), (false, false), (true, true)] {
+        for (guard, enabled) in [
+            ("secrets-store-delete", delete),
+            ("secrets-store-destroy", destroy),
+        ] {
+            let output = nah(
+                temp.path(),
+                &project,
+                &["guard", if enabled { "enable" } else { "disable" }, guard],
+                None,
+            );
+            assert!(output.status.success(), "{output:?}");
+        }
+        for (command, enabled) in [
+            ("vault kv delete secret/api", delete),
+            ("vault kv destroy -versions=2 secret/api", destroy),
+        ] {
+            assert_eq!(
+                decide(temp.path(), &project, command)["verdict"],
+                if enabled { "block" } else { "delegate" }
+            );
+        }
+    }
+    for guard in ["secrets-store-delete", "secrets-store-destroy"] {
+        assert!(
+            nah(temp.path(), &project, &["guard", "reset", guard], None)
+                .status
+                .success()
+        );
+    }
+    assert_eq!(
+        decide(temp.path(), &project, "vault kv delete secret/api")["verdict"],
+        "delegate"
+    );
+    assert_eq!(
+        decide(
+            temp.path(),
+            &project,
+            "vault kv destroy -versions=2 secret/api"
+        )["verdict"],
+        "block"
+    );
 
     let disabled = nah(
         temp.path(),

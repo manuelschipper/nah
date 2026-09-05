@@ -588,3 +588,64 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
             ))
     );
 }
+
+#[test]
+fn secret_store_factory_defaults_protect_only_proven_permanent_destruction() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = support::test_temp_path(temp.path());
+    let repo = repo(&home);
+    let context = support::factory_ctx(&home);
+    for (verdict, commands) in [
+        (
+            Verdict::Block,
+            &[
+                "vault kv destroy -versions=2 secret/api",
+                "vault kv metadata delete secret/api",
+                "vault secrets disable secret/",
+                "aws secretsmanager delete-secret --secret-id api --force-delete-without-recovery",
+                "aws ssm delete-parameter --name /api",
+                "aws ssm delete-parameters --names /api /db",
+                "gcloud secrets delete api",
+                "az keyvault secret purge --vault-name prod --name api",
+                "az keyvault key purge --vault-name prod --name api",
+                "az keyvault certificate purge --vault-name prod --name api",
+                "az keyvault purge --name prod",
+                "doppler configs delete prod --project service",
+            ][..],
+        ),
+        (
+            Verdict::Delegate,
+            &[
+                "vault kv delete secret/api",
+                "aws secretsmanager delete-secret --secret-id api",
+                "aws secretsmanager delete-secret --secret-id api --force-delete-without-recovery --no-force-delete-without-recovery",
+                "gcloud secrets versions destroy 1 --secret api",
+                "az keyvault secret delete --vault-name prod --name api",
+                "doppler projects delete service",
+                "infisical secrets delete API_TOKEN",
+                "op item delete api",
+            ][..],
+        ),
+    ] {
+        for command in commands {
+            let result = decide_with(
+                &call("Bash", json!({"command": command}), &repo),
+                &context,
+                |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            );
+            assert_eq!(
+                result.core().verdict(),
+                verdict,
+                "{command}: {:?}",
+                result.core()
+            );
+            if verdict == Verdict::Block {
+                assert_eq!(
+                    result.core().policy_attributions()[0].name(),
+                    "secrets-store-destroy",
+                    "{command}"
+                );
+            }
+        }
+    }
+}

@@ -24,8 +24,8 @@ invocation through agent tool calls.
 
 ## Built-in guards
 
-Factory defaults follow proven risk: irreversible commands without routine
-use ship on; lookalike everyday workflows require opt-in.
+Factory defaults follow proven risk; context-dependent protections require
+opt-in.
 `nah guards` shows live state and `nah docs guards` adds defaults and examples:
 
 ```sh
@@ -44,6 +44,10 @@ Disabling removes only that rule; another guard may still block, and otherwise
 the call delegates. Structural self-protection has no persistent switch. Scope
 same-named custom guards with `--user` or `--project <root>`; built-ins are
 global.
+
+New default-on `secrets-store-destroy` is independent of optional
+`secrets-store-delete`: existing delete overrides do not disable permanent
+destruction protection after upgrading. Change or reset each by its own name.
 
 Global choices live in `~/.nah/built-ins.json`. V2 stores sorted explicit
 overrides; missing names use factory defaults. Nah reads v1 without rewriting

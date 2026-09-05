@@ -37,6 +37,7 @@ enum ShippedGuardPosture {
     FactoryDefaults,
     FactoryDefaultsWithoutSecretsStoreRead,
     AllEnabled,
+    AllDisabled,
     States(Vec<ShippedGuardState>),
 }
 
@@ -133,6 +134,11 @@ impl ContextFixture {
                         .collect()
                 }
                 ShippedGuardPosture::AllEnabled => nah_cli::all_shipped_guard_states_enabled(),
+                ShippedGuardPosture::AllDisabled => nah_cli::shipped_guards()
+                    .iter()
+                    .map(|name| nah_proto::ctx::ShippedGuardState::new(*name, false))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.to_string())?,
                 ShippedGuardPosture::States(states) => states.clone(),
             },
             vec![],
