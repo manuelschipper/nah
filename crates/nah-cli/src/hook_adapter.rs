@@ -208,6 +208,10 @@ pub(crate) fn feedback(decision: &HookDecision) -> String {
     }
 }
 
+/// Delegate policy returns `None` without recording. Fail-closed feedback
+/// generates a decision ID, resolves home state, and attempts to append an
+/// unavailable audit record. Returned text includes `nah why <id>` on append
+/// success, or only the ID alongside the reason if recording fails.
 pub(crate) fn unavailable_feedback(
     failure_policy: FailurePolicy,
     runtime: Runtime,
@@ -261,6 +265,6 @@ mod tests {
 
     #[test]
     fn shared_adapter_stays_small() {
-        assert!(include_str!("hook_adapter.rs").lines().count() <= 266);
+        assert!(include_str!("hook_adapter.rs").lines().count() <= 270);
     }
 }

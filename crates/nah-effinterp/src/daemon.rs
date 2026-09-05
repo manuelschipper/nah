@@ -510,7 +510,8 @@ fn poll_roots(
     }
 }
 
-// UNDOCUMENTED-EFFINTERP: a loaded read-only index turns any detected change into a child rebuild.
+// UNDOCUMENTED-EFFINTERP: apply incremental updates and publish in-process;
+// only a failed incremental update launches a memory-capped child full rebuild.
 fn poll_root(
     home: &Path,
     root: &mut DaemonRoot,

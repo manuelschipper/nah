@@ -65,6 +65,10 @@ impl DecisionLog {
         self.tail_views_with_summary(limit, 0)
     }
 
+    /// Reads tail views with automatic recovery on invalid records: archives the
+    /// original log and rewrites it with a bounded tail of valid records.
+    /// `recovered_from` is the archive path if this call performed recovery,
+    /// or `None` if no archive was needed, including after a concurrent repair.
     pub(crate) fn tail_views_with_summary(
         &self,
         limit: usize,
@@ -81,6 +85,9 @@ impl DecisionLog {
         }
     }
 
+    /// Reads effinterp gaps with the same archival/rewrite recovery as
+    /// `tail_views_with_summary`. `recovered_from` is the archive path if this
+    /// call performed recovery, or `None` if no archive was needed.
     pub(crate) fn tail_effinterp_gaps(&self, limit: usize) -> Result<LogTail, AuditError> {
         match self.read_effinterp_gaps(limit) {
             Err(AuditError::InvalidRecord) => {
@@ -190,6 +197,8 @@ impl DecisionLog {
         })
     }
 
+    /// Finds a record without recovery writes; invalid records return an error
+    /// instead of archiving or rewriting the log as the tail APIs do.
     pub(crate) fn find(&self, id: &str) -> Result<Option<AuditRecordV1>, AuditError> {
         let file = match open_bounded(&self.path)? {
             Some(file) => file,
