@@ -67,11 +67,11 @@ and **host power and service-stop actions**.
 | `git-metadata` | Destructive writes or deletion selecting durable Git history metadata. |
 | `git-path-discard` | Definite named-path checkout, restore, and same-path `git show` overwrites. Off by default. |
 | `git-protected-push` | Pushes whose explicit static refspec targets `main` or `master`. Bare pushes remain outside this guard. Off by default. |
-| `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |
+| `git-recovery-destroy` | Clearing the full stash collection or immediate repository-wide destruction of Git recovery history. |
 | `git-ref-delete` | Reviewed local and remote ref, stash entry, worktree, and submodule worktree deletion. Off by default. |
 | `git-remote-repo-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
 | `git-remote-resource-delete` | Statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes. Off by default. |
-| `git-worktree-discard` | Project-wide checkout or restore and proven forced branch changes. |
+| `git-worktree-discard` | Project-wide checkout or restore, proven forced branch changes, and forced worktree removal or submodule deinitialization. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
 | `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
 | `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction. Off by default. |

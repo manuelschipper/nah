@@ -30,8 +30,9 @@
   and published-name ownership changes by default; optional `registry-publish`
   covers publication across npm-compatible registries, Cargo, RubyGems, Python,
   and NuGet.
-- **Git safety guards** — Optional `git-ref-delete` covers reviewed ref, stash, and worktree
-  deletion, while optional `git-path-discard` covers definite named-path
+- **Git safety guards** — Existing default-on guards now protect clearing the full
+  stash collection and forced worktree removal or submodule deinitialization.
+  Optional `git-ref-delete` covers reviewed ref, stash, and worktree deletion, while optional `git-path-discard` covers definite named-path
   checkout, restore, and same-path `git show` overwrites. Optional
   `git-history-rewrite` covers rebases, unforced filtering, recovery expiry,
   aggressive or pruning garbage collection, and leased force pushes except

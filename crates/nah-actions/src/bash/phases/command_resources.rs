@@ -10,7 +10,7 @@ use super::filesystem::unresolved_read;
 use crate::bash_descriptor_paths::descriptor_reference_path_from_cwd;
 use crate::bash_descriptor_state::{DescriptorFlow, DescriptorState, NetworkEndpoint};
 use crate::bash_descriptors::descriptor_reference_binding_from_cwd;
-use crate::bash_git::{command_operation as git_command_operation, metadata_mutation};
+use crate::bash_git::{command_operations as git_command_operations, metadata_mutation};
 use crate::bash_infrastructure::Classification as InfrastructureClassification;
 use crate::bash_kubernetes::Classification as KubernetesClassification;
 use crate::bash_logical_storage::logical_storage_destroy;
@@ -59,11 +59,14 @@ impl Lowerer {
     ) -> CommandResources {
         let mut system_states = Vec::new();
         let mut root_move_destination_key = None;
-        let git_command_guard = match program {
-            _ if git_environment_override => None,
-            ProgramDraft::Static(program) => git_command_operation(program, arguments),
-            ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
+        let mut git_command_guards = match program {
+            ProgramDraft::Static(program) => git_command_operations(program, arguments),
+            ProgramDraft::Env { .. } | ProgramDraft::Unresolved => Vec::new(),
         };
+        if git_environment_override {
+            git_command_guards
+                .retain(|operation| !matches!(*operation, "clean-force" | "worktree-discard"));
+        }
         // The shell expands these targets before the command runs, so their
         // effects stay bounded by the literal prefix instead of naming a path.
         let mut patterns = pattern_targets(arguments);
@@ -174,7 +177,7 @@ impl Lowerer {
                     cwd_relative(target, self.platform),
                     &mut filesystem_drafts,
                 );
-                if git_command_guard == Some(SemanticCode::CLEAN_FORCE.as_str())
+                if git_command_guards.contains(&SemanticCode::CLEAN_FORCE.as_str())
                     && let Some(filesystem) = filesystem_drafts.last_mut()
                 {
                     filesystem.git_guard = Some(SemanticCode::CLEAN_FORCE);
@@ -405,8 +408,9 @@ impl Lowerer {
             })
             .map(|_| SemanticCode::METADATA_MUTATION)
             .collect::<Vec<_>>();
-        if let Some(operation) = git_command_guard
-            && operation != SemanticCode::CLEAN_FORCE.as_str()
+        for operation in git_command_guards
+            .into_iter()
+            .filter(|operation| *operation != SemanticCode::CLEAN_FORCE.as_str())
         {
             git_operations.push(
                 SemanticCode::new(operation).expect("Git operations are validated constants"),
