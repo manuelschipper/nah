@@ -1,5 +1,27 @@
 # Agent instructions
 
+## Contributor search conventions
+
+- For pipeline, feature ownership, or verification, start with
+  [docs/architecture.md](docs/architecture.md).
+- `bash_*` names in `crates/nah-actions/src/lib.rs` are crate-root aliases
+  for modules under `crates/nah-actions/src/bash/features/`; search the
+  unprefixed name there (for example, `bash_git` → `git.rs`).
+- Private effinterp integration lives in `crates/nah-effinterp/` and is
+  marked `UNDOCUMENTED-EFFINTERP`. `.cargo/config.toml` replaces the private
+  dependency with `vendor/effinterp-stubs/` for feature-off builds; the stubs
+  contain no engine implementation. The `effinterp` job in
+  `.github/workflows/ci.yml` owns checkout and source replacement for private
+  feature checks. Keep these features out of public product documentation.
+- Effinterp annotations are produced in `crates/nah-effinterp/src/annotate.rs`;
+  `crates/nah-proto/src/action_v2.rs` owns their types and
+  `crates/nah-proto/src/stream.rs` owns stream validation. Follow
+  `crates/nah-cli/src/pipeline.rs` for runtime composition.
+
+Edit this guidance in `.mdmanager/sections/agents.md`, then run
+`mdmanager project apply agents`. `.mdmanager/project.toml` owns the
+composition; `AGENTS.md` is generated and `CLAUDE.md` links to it.
+
 ## Built-in guard design
 
 Build guards around a concrete loss or exposure that Nah can establish from

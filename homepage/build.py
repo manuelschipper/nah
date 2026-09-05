@@ -225,8 +225,8 @@ a{{color:#A5321E}}
 """)
 
 # -- the try-it engine: the decision pipeline compiled to wasm32 ----------
-#    (see wasm/README note in ../README.md). The page works without it —
-#    the inline rules stand in — so a missing artifact only warns.
+#    (see README.md). A missing artifact only warns; the page hides the
+#    playground if engine loading fails or browser support is unavailable.
 WASM = f"{HERE}/wasm/target/wasm32-wasip1/release/nah_home_wasm.wasm"
 if os.path.exists(WASM):
     shutil.copy(WASM, f"{OUT_DIR}/nah.wasm")
