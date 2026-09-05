@@ -390,11 +390,11 @@ mod tests {
             ShippedState::load(&path, &defaults, &[]).unwrap_err(),
             ShippedStateError::UnsupportedVersion
         );
-        std::fs::write(&path, r#"{"v":1,"disabled":["unknown"]}"#).unwrap();
-        assert_eq!(
-            ShippedState::load(&path, &defaults, &[]).unwrap().1,
-            ["unknown built-in guard `unknown` was ignored"]
-        );
+        std::fs::write(&path, r#"{"v":1,"disabled":["retired-test-guard"]}"#).unwrap();
+        let (state, diagnostics) = ShippedState::load(&path, &defaults, &[]).unwrap();
+        assert!(state.overrides.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].contains("retired-test-guard"));
         std::fs::write(
             &path,
             "{\"v\":2,\"overrides\":{\"fs-startup-persistence\":true}}\n",

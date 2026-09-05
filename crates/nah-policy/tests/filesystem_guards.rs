@@ -903,7 +903,7 @@ fn file_only_delete_effects_do_not_claim_directory_tree_destruction() {
 }
 
 #[test]
-fn fs_root_blocks_only_same_stage_known_root_relocation() {
+fn fs_system_tree_blocks_only_same_stage_known_root_relocation() {
     let root_pattern = || EffectKind::Filesystem {
         effect: FilesystemEffect {
             operation: FilesystemOperation::Delete,

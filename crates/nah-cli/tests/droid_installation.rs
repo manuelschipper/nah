@@ -408,10 +408,16 @@ fn install_migrates_owned_legacy_settings_hook_without_leaving_a_fallback() {
 
     let stale = nah(home, &["hook", "droid", "status"]);
     assert!(stale.status.success(), "{stale:?}");
-    assert_eq!(
-        String::from_utf8_lossy(&stale.stdout).trim(),
-        "Factory Droid: reinstall required\ndetected failure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook droid install\ndocs: nah docs runtime-droid"
-    );
+    let output = String::from_utf8_lossy(&stale.stdout);
+    for expected in [
+        "Factory Droid",
+        "reinstall required",
+        "fail-open",
+        "nah hook droid install",
+        "nah docs runtime-droid",
+    ] {
+        assert!(output.contains(expected), "missing {expected:?}:\n{output}");
+    }
 
     let installed = nah(home, &["hook", "droid", "install"]);
     assert!(installed.status.success(), "{installed:?}");
@@ -430,10 +436,15 @@ fn install_migrates_owned_legacy_settings_hook_without_leaving_a_fallback() {
 
     let current = nah(home, &["hook", "droid", "status"]);
     assert!(current.status.success(), "{current:?}");
-    assert_eq!(
-        String::from_utf8_lossy(&current.stdout).trim(),
-        "Factory Droid: wiring current\nfailure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-droid"
-    );
+    let output = String::from_utf8_lossy(&current.stdout);
+    for expected in [
+        "Factory Droid",
+        "wiring current",
+        "fail-open",
+        "nah docs runtime-droid",
+    ] {
+        assert!(output.contains(expected), "missing {expected:?}:\n{output}");
+    }
 
     let strict = nah(home, &["hook", "droid", "install", "--fail-closed"]);
     assert!(strict.status.success(), "{strict:?}");

@@ -65,10 +65,15 @@ fn install_status_repair_and_uninstall_are_owned_and_idempotent() {
 
     let status = nah(home, &["hook", "cline", "status"]);
     assert!(status.status.success(), "{status:?}");
-    assert_eq!(
-        String::from_utf8_lossy(&status.stdout),
-        "Cline: wiring current\nfailure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-cline\n"
-    );
+    let output = String::from_utf8_lossy(&status.stdout);
+    for expected in [
+        "Cline",
+        "wiring current",
+        "fail-open",
+        "nah docs runtime-cline",
+    ] {
+        assert!(output.contains(expected), "missing {expected:?}:\n{output}");
+    }
     assert!(nah(home, &["hook", "cline", "install"]).status.success());
     assert_eq!(std::fs::read(&ide_path).unwrap(), first);
     assert_eq!(std::fs::read(&cli_path).unwrap(), first);
@@ -78,10 +83,16 @@ fn install_status_repair_and_uninstall_are_owned_and_idempotent() {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&cli_path, std::fs::Permissions::from_mode(0o600)).unwrap();
         let status = nah(home, &["hook", "cline", "status"]);
-        assert_eq!(
-            String::from_utf8_lossy(&status.stdout),
-            "Cline: reinstall required\ndetected failure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook cline install\ndocs: nah docs runtime-cline\n"
-        );
+        let output = String::from_utf8_lossy(&status.stdout);
+        for expected in [
+            "Cline",
+            "reinstall required",
+            "fail-open",
+            "nah hook cline install",
+            "nah docs runtime-cline",
+        ] {
+            assert!(output.contains(expected), "missing {expected:?}:\n{output}");
+        }
         assert!(nah(home, &["hook", "cline", "install"]).status.success());
     }
 

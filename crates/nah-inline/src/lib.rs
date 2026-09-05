@@ -1390,7 +1390,7 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_control_flow_ends_exact_state_tracking() {
+    fn control_flow_preserves_safe_targets_and_visible_danger() {
         for (program, code) in [
             (
                 "python3",

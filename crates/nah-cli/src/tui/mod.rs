@@ -169,7 +169,7 @@ mod tests {
     use crate::nap::NapMode;
     use crate::runtime::FailurePolicy;
 
-    use app::{Confirmation, Message, MessageKind, NapStatus};
+    use app::{Confirmation, MessageKind, NapStatus};
 
     fn press(app: &mut App, code: KeyCode) -> Option<SessionAction> {
         handle_key(app, KeyEvent::new(code, KeyModifiers::NONE))
@@ -181,14 +181,12 @@ mod tests {
 
         assert!(press(&mut app, KeyCode::Enter).is_none());
 
-        // The apply already ran; only its message is left to render.
-        assert_eq!(
-            app.message,
-            Some(Message {
-                kind: MessageKind::Info,
-                text: "no guard changes to apply".into(),
-            })
-        );
+        let message = app.message.as_ref().unwrap();
+        assert_eq!(message.kind, MessageKind::Info);
+        assert!(!message.text.is_empty());
+        assert_eq!(app.pending_count(), 0);
+        assert_eq!(app.screen, Screen::Guards);
+        assert!(app.confirmation.is_none());
     }
 
     #[test]

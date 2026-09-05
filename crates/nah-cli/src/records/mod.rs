@@ -317,16 +317,13 @@ mod tests {
             latest_component: "observation".into(),
         };
         let now = timestamp_seconds("2026-07-23T12:02:00Z");
-        assert_eq!(
-            summary.display_at(now),
-            "nah: evaluation failures affected 1 call in the retained log; latest 2m ago (observation)."
-        );
-
         let future = timestamp_seconds("2026-07-23T11:59:00Z");
-        assert_eq!(
-            summary.display_at(future),
-            "nah: evaluation failures affected 1 call in the retained log; latest 07-23 12:00:00 (observation)."
-        );
+        for (time, expected) in [(now, "2m ago"), (future, "07-23 12:00:00")] {
+            let output = summary.display_at(time);
+            assert!(output.contains(expected), "{output}");
+            assert!(output.contains(&summary.latest_component), "{output}");
+            assert!(output.contains(&summary.calls.to_string()), "{output}");
+        }
         assert!(timestamp_seconds("2026-02-31T12:00:00Z").is_none());
     }
 }

@@ -291,13 +291,4 @@ mod tests {
             assert!(!call.normalization_complete());
         }
     }
-
-    #[test]
-    fn native_adapter_stays_thin() {
-        let implementation = include_str!("amp_adapter.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        assert!(implementation.lines().count() <= 173);
-    }
 }

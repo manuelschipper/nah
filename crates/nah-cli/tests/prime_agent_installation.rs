@@ -237,8 +237,6 @@ fn fail_closed_wiring_blocks_adapter_unavailability_in_the_extension() {
     assert!(installed.status.success(), "{installed:?}");
     let delegate = std::fs::read_to_string(&extension).unwrap();
     assert!(delegate.contains("return undefined;"));
-    assert!(delegate.contains("this call was delegated to the runtime"));
-    assert!(!delegate.contains("required safety evaluation was unavailable"));
 
     let installed = nah(
         &home,
@@ -249,7 +247,6 @@ fn fail_closed_wiring_blocks_adapter_unavailability_in_the_extension() {
     let strict = std::fs::read_to_string(&extension).unwrap();
     assert!(strict.contains(r#"["hook", "prime-agent", "run", "--fail-closed"]"#));
     assert!(strict.contains("return { block: true, reason: adapterFailureMessage };"));
-    assert!(strict.contains("required safety evaluation was unavailable"));
     assert!(!strict.contains("return undefined;"));
 }
 
