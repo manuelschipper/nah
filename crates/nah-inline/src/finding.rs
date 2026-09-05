@@ -158,6 +158,8 @@ impl Finding {
     }
 }
 
+/// Findings and refusals are sorted and deduplicated. Nested executions instead
+/// retain insertion order and repetition, bounded by `push_nested_execution`.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct InlineReport {
     findings: Vec<Finding>,
@@ -197,6 +199,9 @@ impl InlineReport {
         &self.findings
     }
 
+    /// Appends a nested execution in insertion order, preserving repeated entries.
+    /// Retains at most 64 entries; further pushes are discarded and record the
+    /// sticky `NestedExecutionLimit` refusal, including when reports are extended.
     pub fn push_nested_execution(&mut self, execution: NestedExecution) {
         if self.nested_executions.len() < 64 {
             self.nested_executions.push(execution);

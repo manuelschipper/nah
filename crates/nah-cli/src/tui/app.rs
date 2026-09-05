@@ -402,7 +402,7 @@ impl App {
         let visible = self.visible_guards();
         self.pending
             .iter()
-            .filter(|change| !visible.iter().any(|entry| entry.target == change.target))
+            .filter(|change| !visible.iter().any(|entry| entry.target == change.target()))
             .count()
     }
 
@@ -425,8 +425,12 @@ impl App {
     pub(crate) fn pending_value(&self, entry: &GuardEntry) -> Option<bool> {
         self.pending
             .iter()
-            .find(|pending| pending.target == entry.target)
-            .map(|pending| pending.enabled)
+            .find(|pending| pending.target() == entry.target)
+            .map(|pending| match pending {
+                GuardChange::BuiltInEnable { .. } | GuardChange::CustomEnable { .. } => true,
+                GuardChange::BuiltInDisable { .. } | GuardChange::CustomDisable { .. } => false,
+                GuardChange::BuiltInReset { .. } => default_enabled(entry),
+            })
     }
 
     pub(crate) fn toggle_guard(&mut self) {
@@ -435,7 +439,7 @@ impl App {
         };
         if self.pending_value(&entry).is_some() {
             self.pending
-                .retain(|pending| pending.target != entry.target);
+                .retain(|pending| pending.target() != entry.target);
             self.message = None;
             return;
         }
@@ -516,25 +520,33 @@ impl App {
                 )
             });
         if original.is_some_and(|(original, missing)| !missing && original == enabled) {
-            self.pending.retain(|pending| pending.target != target);
+            self.pending.retain(|pending| pending.target() != target);
             self.message = None;
             return;
         }
+        let change = match target.clone() {
+            GuardTarget::BuiltIn { name } if enabled => GuardChange::BuiltInEnable { name },
+            GuardTarget::BuiltIn { name } => GuardChange::BuiltInDisable { name },
+            GuardTarget::Custom { identity } if enabled => {
+                let Some(expected_hash) = expected_hash else {
+                    self.error("reviewed guard files hash is unavailable");
+                    return;
+                };
+                GuardChange::CustomEnable {
+                    identity,
+                    expected_hash,
+                }
+            }
+            GuardTarget::Custom { identity } => GuardChange::CustomDisable { identity },
+        };
         if let Some(pending) = self
             .pending
             .iter_mut()
-            .find(|pending| pending.target == target)
+            .find(|pending| pending.target() == target)
         {
-            pending.enabled = enabled;
-            pending.expected_hash = expected_hash;
-            pending.reset = false;
+            *pending = change;
         } else {
-            self.pending.push(GuardChange {
-                target,
-                enabled,
-                expected_hash,
-                reset: false,
-            });
+            self.pending.push(change);
         }
         self.message = None;
     }
@@ -548,11 +560,11 @@ impl App {
             .guards
             .iter()
             .filter(|entry| !at_default(entry))
-            .map(|entry| GuardChange {
-                target: entry.target.clone(),
-                enabled: default_enabled(entry),
-                expected_hash: None,
-                reset: matches!(entry.target, GuardTarget::BuiltIn { .. }),
+            .map(|entry| match &entry.target {
+                GuardTarget::BuiltIn { name } => GuardChange::BuiltInReset { name: name.clone() },
+                GuardTarget::Custom { identity } => GuardChange::CustomDisable {
+                    identity: identity.clone(),
+                },
             })
             .collect();
         let staged = self.pending.len();
@@ -574,7 +586,7 @@ impl App {
             if let Err(error) = validate_guard_change(change) {
                 self.error(format!(
                     "guard `{}` was not applied: {error}",
-                    change.target.name()
+                    change.target().name()
                 ));
                 self.refresh();
                 return;

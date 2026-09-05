@@ -840,6 +840,13 @@ pub struct ActionStream {
 }
 
 impl ActionStream {
+    /// Builds stages in input order, each nonempty and containing exactly one
+    /// invocation. Assigns canonical stage IDs and globally consecutive effect IDs
+    /// from their input ordinals, preserving effect order within each stage.
+    /// Flows use zero-based stage ordinals, must link distinct existing stages,
+    /// and are sorted canonically; duplicate edges are rejected.
+    /// Empty stages are invalid. An empty stream is accepted only with partial
+    /// coverage and no flows. Invalid inputs return an `ActionError`.
     pub fn new(
         coverage: Coverage,
         stages: Vec<Vec<EffectKind>>,

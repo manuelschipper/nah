@@ -168,6 +168,11 @@ impl Lowered {
     }
 }
 
+/// Returns, in order: the full effect draft retaining inline child stages; the
+/// coverage projection excluding those stages and remapping its flow/dominator
+/// ordinals; observation queries needed for binding; the inline report; and whether
+/// inline interpretation panicked. The coverage projection determines outer-call
+/// coverage independently of the inline failure flag.
 pub(crate) fn draft(
     syntax: &Syntax,
     requested_cwd: &AbsolutePath,
@@ -194,6 +199,11 @@ pub(crate) fn draft(
     lowerer.finish()
 }
 
+/// Returns, in order: the full effect draft retaining inline child stages; the
+/// coverage projection excluding those stages and remapping its flow/dominator
+/// ordinals; observation queries needed for binding; the inline report; and whether
+/// inline interpretation panicked. The coverage projection determines outer-call
+/// coverage independently of the inline failure flag.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn visible_language_effect_draft(
     outer_program: &str,
@@ -228,6 +238,11 @@ pub(crate) fn visible_language_effect_draft(
     )
 }
 
+/// Returns, in order: the full effect draft retaining inline child stages; the
+/// coverage projection excluding those stages and remapping its flow/dominator
+/// ordinals; observation queries needed for binding; the inline report; and whether
+/// inline interpretation panicked. The coverage projection determines outer-call
+/// coverage independently of the inline failure flag.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn visible_ipython_effect_draft(
     outer_program: &str,

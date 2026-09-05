@@ -311,6 +311,11 @@ pub fn finalize(plan: AnalysisPlan, observation: Observation) -> ActionStream {
     finalize_inner(plan, observation, false)
 }
 
+/// Returns (public action stream, language safety stream) for the same analysis.
+/// The public stream excludes `language_safety_only` stages and is supplied to
+/// custom guards and bound into the decision. The language safety stream includes
+/// those stages for shipped policy guards and permanent protection; it is not
+/// supplied to custom guards. Each stream has its own canonical stage ordinals.
 pub fn finalize_with_language_safety_stream(
     plan: AnalysisPlan,
     observation: Observation,

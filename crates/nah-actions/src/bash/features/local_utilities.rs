@@ -1,4 +1,6 @@
-//! Classifies fully lowered local utility invocations; it does not infer their effects.
+//! Lowers local utility invocations into operation classifications and filesystem
+//! read/write, clock-setting, and credential-search effects. Unsupported arguments
+//! conservatively leave coverage partial.
 
 use nah_parse::{Substitution, Word};
 use nah_proto::action::{FilesystemOperation, SemanticCode};

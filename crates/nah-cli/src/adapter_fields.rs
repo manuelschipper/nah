@@ -2,6 +2,10 @@
 
 use serde_json::Value;
 
+/// Checks field-name coverage for listed runtime/tool pairs, including modeled
+/// nested fields. Missing known fields are permitted; unlisted pairs return true.
+/// Adapters separately validate required fields and value types. This result alone
+/// does not establish that the input is a valid tool invocation.
 pub(crate) fn complete(runtime: &str, tool: &str, input: &Value) -> bool {
     let allowed: &[&str] = match (runtime, tool) {
         ("claude" | "codex", "Bash") => &["command", "description", "timeout", "run_in_background"],

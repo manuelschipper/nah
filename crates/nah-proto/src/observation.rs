@@ -74,6 +74,13 @@ pub struct ObservationRequest {
 }
 
 impl ObservationRequest {
+    /// Accepts either a nonempty environment-only preflight request or exactly one
+    /// cwd/roots/project-guards spine, optionally with environment and path queries.
+    /// Roots and all paths must reference that cwd; project guards must reference
+    /// those roots. Query keys must be unique, and identifiers must be nonempty.
+    /// Path symlink traversal beyond `None` requires descendant inspection.
+    /// Requires schema V1 and a nonempty request ID; sorts queries by key.
+    /// See `BindingError` for rejection codes, including invalid references.
     pub fn new(
         v: SchemaVersion,
         request_id: impl Into<String>,

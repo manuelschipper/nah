@@ -15,8 +15,8 @@ use crate::bash_lookup::{LookupMode, LookupState};
 use crate::bash_model::{InvocationDraft, ProgramDraft, StdoutDraft, VariableValue};
 use crate::bash_state::{Cwd, current_pwd, known_cwd};
 use crate::bash_wrappers::{
-    crontab_payload, executor_payloads, shell_payload, shell_string_wrapper_payload,
-    wrapper_clears_environment, wrapper_payload,
+    ExecutorPayload, crontab_payload, executor_payloads, shell_payload,
+    shell_string_wrapper_payload, wrapper_clears_environment, wrapper_payload,
 };
 use crate::paths::resolve_from_cwd;
 use crate::shell_word::static_word;
@@ -415,7 +415,12 @@ impl Lowerer {
         let lowered_executors = executor_candidates
             .into_iter()
             .filter_map(
-                |(payload, unknown_cwd, substitutes_command, recursive_target)| {
+                |ExecutorPayload {
+                     payload,
+                     unknown_cwd,
+                     substitutes_command,
+                     recursive_target,
+                 }| {
                     if !self.enter_payload(payload.len()) {
                         return None;
                     }

@@ -3,6 +3,8 @@
 use nah_proto::action::{FilesystemOperation, InvocationInput, NetworkDirection, SemanticCode};
 use nah_proto::observation::SymlinkTraversal;
 
+/// Filesystem spec: (lexical target, operation, recursive selection).
+/// The target has not crossed observation binding; it is not a resolved path.
 pub(crate) type FilesystemSpec = (String, FilesystemOperation, bool);
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -43,6 +43,12 @@ impl LanguageAnalysis {
     }
 }
 
+/// Bounded language effects in execution order. The public projection exposes the
+/// first 64 calls to action-stream/custom-guard consumers. The language safety
+/// projection retains up to 256 calls and 4096 flows for shipped guards.
+/// Exceeding the public call limit makes `complete` false even when additional
+/// safety calls remain available. Flow ordinals index their projection's call
+/// vector; shared calls retain the same zero-based ordinal in both projections.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LanguageDraft {
     complete: bool,
@@ -76,18 +82,24 @@ impl LanguageDraft {
         self.complete
     }
 
+    /// Public view: the first at most 64 calls, in execution order.
     pub fn calls(&self) -> &[LanguageCall] {
         &self.calls[..self.calls.len().min(MAX_PUBLIC_LANGUAGE_CALLS)]
     }
 
+    /// Language safety view for shipped guards: up to 256 calls in execution order,
+    /// including the public prefix even when public coverage is incomplete.
     pub fn language_safety_calls(&self) -> &[LanguageCall] {
         &self.calls
     }
 
+    /// Sorted, deduplicated public flows; endpoints index `calls()`.
     pub fn flows(&self) -> &[LanguageFlow] {
         &self.flows
     }
 
+    /// Sorted, deduplicated language safety flows for shipped guards, capped at
+    /// 4096; endpoints index `language_safety_calls()`.
     pub fn language_safety_flows(&self) -> &[LanguageFlow] {
         &self.language_safety_flows
     }
