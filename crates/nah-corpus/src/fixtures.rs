@@ -3,7 +3,9 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{
+    AbsolutePath, Ctx, Platform, SchemaVersion, ShippedGuardState, TrustProjection,
+};
 use nah_proto::observation::{
     DescendantObservation, EnvObservation, Observation, ObservationFact, ObservationQuery,
     ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
@@ -29,12 +31,14 @@ pub struct ContextFixture {
     trust: Vec<serde_json::Value>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum ShippedGuardPosture {
     FactoryDefaults,
+    FactoryDefaultsWithoutSecretsStoreRead,
     AllEnabled,
     AllDisabled,
+    States(Vec<ShippedGuardState>),
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,14 +114,32 @@ impl ContextFixture {
         Ctx::new(
             self.platform,
             AbsolutePath::new(self.platform, &self.home).map_err(|error| error.to_string())?,
-            match self.shipped_guards {
+            match &self.shipped_guards {
                 ShippedGuardPosture::FactoryDefaults => nah_cli::shipped_guard_states(),
+                ShippedGuardPosture::FactoryDefaultsWithoutSecretsStoreRead => {
+                    nah_cli::shipped_guard_states()
+                        .into_iter()
+                        .map(|guard| {
+                            if guard.name() == "secrets-store-read" {
+                                nah_proto::ctx::ShippedGuardState::with_explicit_disable(
+                                    guard.name(),
+                                    false,
+                                    true,
+                                )
+                                .expect("known shipped guard")
+                            } else {
+                                guard
+                            }
+                        })
+                        .collect()
+                }
                 ShippedGuardPosture::AllEnabled => nah_cli::all_shipped_guard_states_enabled(),
                 ShippedGuardPosture::AllDisabled => nah_cli::shipped_guards()
                     .iter()
                     .map(|name| nah_proto::ctx::ShippedGuardState::new(*name, false))
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|error| error.to_string())?,
+                ShippedGuardPosture::States(states) => states.clone(),
             },
             vec![],
             TrustProjection::new(vec![]).map_err(|error| error.to_string())?,

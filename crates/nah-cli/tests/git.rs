@@ -447,6 +447,104 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         );
     }
 
+    // A disabled protected-push guard must not hide leased history rewrites.
+    for history in [false, true] {
+        for protected in [false, true] {
+            let states = nah_cli::shipped_guard_states()
+                .into_iter()
+                .map(|state| match state.name() {
+                    "git-history-rewrite" => {
+                        nah_proto::ctx::ShippedGuardState::new(state.name(), history).unwrap()
+                    }
+                    "git-protected-push" => {
+                        nah_proto::ctx::ShippedGuardState::new(state.name(), protected).unwrap()
+                    }
+                    _ => state,
+                })
+                .collect();
+            let context = nah_proto::ctx::Ctx::new(
+                support::host_platform(),
+                support::absolute(&root),
+                states,
+                vec![],
+                nah_proto::ctx::TrustProjection::new(vec![]).unwrap(),
+            )
+            .unwrap();
+            for (command, applicable) in [
+                (
+                    "git push --force-with-lease origin main",
+                    vec!["git-history-rewrite", "git-protected-push"],
+                ),
+                (
+                    "git push --force-with-lease origin +feature:main",
+                    vec!["git-history-rewrite", "git-protected-push"],
+                ),
+                (
+                    "git push --force-with-lease=refs/heads/master origin +HEAD:refs/heads/master",
+                    vec!["git-history-rewrite", "git-protected-push"],
+                ),
+                ("git push origin main", vec!["git-protected-push"]),
+                (
+                    "git push --force-with-lease origin feature",
+                    vec!["git-history-rewrite"],
+                ),
+                ("git push --force-with-lease", vec!["git-history-rewrite"]),
+                (
+                    "git push --force-with-lease origin \"$REF\"",
+                    vec!["git-history-rewrite"],
+                ),
+                (
+                    "git push --force-with-lease --force origin main",
+                    vec!["git-force-push"],
+                ),
+                (
+                    "git push --force-with-lease=other origin +main",
+                    vec!["git-force-push"],
+                ),
+                ("git push --force-with-lease --dry-run origin main", vec![]),
+                ("git push --force-with-lease --help origin main", vec![]),
+                ("git push --force-with-lease --version origin main", vec![]),
+                (
+                    "git push --force-with-lease --no-force-with-lease origin main",
+                    vec!["git-protected-push"],
+                ),
+            ] {
+                let expected = applicable
+                    .into_iter()
+                    .filter(|name| match *name {
+                        "git-history-rewrite" => history,
+                        "git-protected-push" => protected,
+                        _ => true,
+                    })
+                    .collect::<std::collections::BTreeSet<_>>();
+                let result = decide_with(
+                    &call("Bash", json!({"command": command}), &repo),
+                    &context,
+                    |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+                );
+                let actual = result
+                    .core()
+                    .policy_attributions()
+                    .iter()
+                    .map(|guard| guard.name())
+                    .collect::<std::collections::BTreeSet<_>>();
+                assert_eq!(
+                    actual, expected,
+                    "{command}: history={history}, protected={protected}"
+                );
+                assert_eq!(
+                    result.core().verdict(),
+                    if expected.is_empty() {
+                        Verdict::Delegate
+                    } else {
+                        Verdict::Block
+                    },
+                    "{command}"
+                );
+            }
+        }
+    }
+
     for command in [
         "rm -rf .git/index",
         "rm -rf .git/objects/../index",
@@ -828,4 +926,100 @@ fn granular_git_operations_lower_to_their_exact_coverage() {
     );
     assert_eq!(result.core().verdict(), Verdict::Delegate);
     assert_eq!(result.core().coverage(), Coverage::Partial);
+}
+
+#[cfg(unix)]
+#[test]
+fn stash_and_forced_tree_loss_block_at_factory_defaults_and_keep_independent_controls() {
+    use nah_proto::ctx::{Ctx, ShippedGuardState, TrustProjection};
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = support::test_temp_path(temp.path());
+    let repo = repo(&root);
+    for (command, loss_guard) in [
+        ("git stash clear", "git-recovery-destroy"),
+        ("git stash clear --", "git-recovery-destroy"),
+        ("git worktree remove -ff old", "git-worktree-discard"),
+        (
+            "git submodule --quiet deinit -f vendor/library",
+            "git-worktree-discard",
+        ),
+        ("git submodule deinit --force --all", "git-worktree-discard"),
+    ] {
+        for controls in [
+            None,
+            Some((true, false)),
+            Some((false, true)),
+            Some((true, true)),
+            Some((false, false)),
+        ] {
+            let context = if let Some((loss_enabled, ref_enabled)) = controls {
+                Ctx::new(
+                    support::host_platform(),
+                    support::absolute(&root),
+                    vec![
+                        ShippedGuardState::new(loss_guard, loss_enabled).unwrap(),
+                        ShippedGuardState::new("git-ref-delete", ref_enabled).unwrap(),
+                    ],
+                    vec![],
+                    TrustProjection::new(vec![]).unwrap(),
+                )
+                .unwrap()
+            } else {
+                support::factory_ctx(&root)
+            };
+            let result = decide_with(
+                &call("Bash", json!({"command": command}), &repo),
+                &context,
+                |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            );
+            let (loss_enabled, ref_enabled) = controls.unwrap_or((true, false));
+            assert_eq!(
+                result.core().verdict(),
+                if loss_enabled || ref_enabled {
+                    Verdict::Block
+                } else {
+                    Verdict::Delegate
+                },
+                "{command}"
+            );
+            let names = result
+                .core()
+                .policy_attributions()
+                .iter()
+                .map(|guard| guard.name())
+                .collect::<Vec<_>>();
+            assert_eq!(names.contains(&loss_guard), loss_enabled, "{command}");
+            assert_eq!(names.contains(&"git-ref-delete"), ref_enabled, "{command}");
+            assert_eq!(
+                names.len(),
+                usize::from(loss_enabled) + usize::from(ref_enabled),
+                "{command}"
+            );
+        }
+    }
+    for command in [
+        "git worktree remove old",
+        "git worktree remove -ff --no-force old",
+        "git worktree remove -- --force",
+        "git submodule deinit vendor/library",
+        "git submodule deinit --all",
+        "git submodule deinit vendor/library --force",
+        "git submodule deinit --force --no-force vendor/library",
+        "git submodule deinit -qf vendor/library",
+        "git submodule deinit -f --all vendor/library",
+        "git branch -D old",
+        "git stash drop",
+        "git stash push",
+        "git stash apply",
+        "git stash pop",
+        "git stash branch recovered",
+    ] {
+        let result = decide_with(
+            &call("Bash", json!({"command": command}), &repo),
+            &support::factory_ctx(&root),
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
+    }
 }

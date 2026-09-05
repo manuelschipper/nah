@@ -31,7 +31,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-46 guards, 28 on by default, covering seven classes of disaster: **execution
+46 guards, 29 on by default, covering seven classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 **infrastructure, storage, and backup teardown**, **package-registry operations**,
 and **host power and service-stop actions**.
@@ -47,7 +47,7 @@ and **host power and service-stop actions**.
 | `secrets-exfil` | A visible flow from a sensitive source to a network stage. |
 | `secrets-store-delete` | Remaining reviewed secret-store deletion with recoverable or context-dependent semantics. Off by default. |
 | `secrets-store-destroy` | Proven permanent secret-store destruction: Vault version/metadata/engine removal, AWS force and SSM deletion, Google whole-secret deletion, Azure purge, and Doppler configuration deletion. |
-| `secrets-store-read` | Reviewed value reads across common secret-manager CLIs. Off by default. |
+| `secrets-store-read` | Reviewed value reads across common secret-manager CLIs. |
 | `fs-system-tree` | Deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree. |
 | `fs-home` | Deletion or recursive permission changes selecting the home root. |
 | `fs-outside-workspace-delete` | Recursive deletion outside the active project, except under reviewed temporary roots. Off by default. |
@@ -63,16 +63,16 @@ and **host power and service-stop actions**.
 | `git-clean-force` | An effective forced Git clean selecting the project root. |
 | `git-force-push` | Git force-push operations that do not use force-with-lease. |
 | `git-hard-reset` | Git hard resets. |
-| `git-history-rewrite` | Selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes except those with an explicit static refspec targeting `main` or `master`. Off by default. |
+| `git-history-rewrite` | Selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes, including explicit static refspecs targeting `main` or `master`. Off by default. |
 | `git-rewrite-force` | History rewriting that explicitly bypasses safety or backup checks. |
 | `git-metadata` | Destructive writes or deletion selecting durable Git history metadata. |
 | `git-path-discard` | Definite named-path checkout, restore, and same-path `git show` overwrites. Off by default. |
 | `git-protected-push` | Pushes whose explicit static refspec targets `main` or `master`. Bare pushes remain outside this guard. Off by default. |
-| `git-recovery-destroy` | Immediate repository-wide destruction of Git recovery history. |
+| `git-recovery-destroy` | Clearing the full stash collection or immediate repository-wide destruction of Git recovery history. |
 | `git-ref-delete` | Reviewed local and remote ref, stash entry, worktree, and submodule worktree deletion. Off by default. |
 | `git-remote-repo-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
 | `git-remote-resource-delete` | Statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes. Off by default. |
-| `git-worktree-discard` | Project-wide checkout or restore and proven forced branch changes. |
+| `git-worktree-discard` | Project-wide checkout or restore, proven forced branch changes, and forced worktree removal or submodule deinitialization. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
 | `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
 | `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction. Off by default. |

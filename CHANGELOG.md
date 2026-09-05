@@ -13,7 +13,7 @@
   unrelated overrides.
 - **Secrets guards** — `secrets-credentials` replaces `secrets-keys` with a
   hidden compatibility alias, `secrets-env` now blocks direct output of
-  catalogued credential variables, optional `secrets-store-read` covers
+  catalogued credential variables, default-on `secrets-store-read` covers
   reviewed value reads across common secret-manager CLIs while preserving
   run, inject, and concealed listing workflows. New default-on
   `secrets-store-destroy` protects proven permanent destruction; remaining
@@ -31,14 +31,15 @@
   and published-name ownership changes by default; optional `registry-publish`
   covers publication across npm-compatible registries, Cargo, RubyGems, Python,
   and NuGet.
-- **Git safety guards** — Optional `git-ref-delete` covers reviewed ref, stash, and worktree
-  deletion, while optional `git-path-discard` covers definite named-path
+- **Git safety guards** — Existing default-on guards now protect clearing the full
+  stash collection and forced worktree removal or submodule deinitialization.
+  Optional `git-ref-delete` covers reviewed ref, stash, and worktree deletion, while optional `git-path-discard` covers definite named-path
   checkout, restore, and same-path `git show` overwrites. Optional
   `git-history-rewrite` covers rebases, unforced filtering, recovery expiry,
-  aggressive or pruning garbage collection, and leased force pushes except
-  those with an explicit static refspec targeting `main` or `master`, while
-  preserving recovery and inspection commands; optional `git-protected-push`
-  covers explicit-refspec pushes to `main` or `master`.
+  aggressive or pruning garbage collection, and leased force pushes, including
+  explicit static refspecs targeting `main` or `master`, independently of
+  `git-protected-push`, while preserving recovery and inspection commands;
+  optional `git-protected-push` covers explicit-refspec pushes to `main` or `master`.
 - **Host and filesystem guards** — New default-on `sys-power` blocks reviewed host
   shutdown, reboot, halt, and suspend actions. Optional `sys-service-stop` covers
   explicit service shutdown, target isolation, Podman stop-all, and the exact

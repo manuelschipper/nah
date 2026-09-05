@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 46 guards span seven security classes; 28 default on.
+- 46 guards span seven classes; 29 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
@@ -21,8 +21,8 @@ protected-state changes outside maintenance.
   on compaction. `nah test --json`/custom guards may expose unredacted
   modeled input and inline code.
 - Credential and network-flow guards block modeled access to dangerous sinks.
-  `secrets-store-read` is optional, but its evidence feeds default-on
-  `secrets-exfil`.
+  `secrets-store-read` defaults on; its evidence feeds `secrets-exfil`
+  even when disabled.
 - Hosted Git guards cover exact repositories (on) and reviewed static
   resources (off).
 - `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and

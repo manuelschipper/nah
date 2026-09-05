@@ -54,7 +54,7 @@ pub(crate) fn add(
         (
             "git-recovery-destroy",
             &SemanticCode::RECOVERY_DESTROY,
-            "git-recovery-destroy blocked deletion of Git recovery history; keep reflogs and recovery refs; ask the operator to verify they are no longer needed",
+            "git-recovery-destroy blocked deletion of Git recovery history; keep stashes, reflogs, and recovery refs; ask the operator to verify they are no longer needed",
         ),
         (
             "git-ref-delete",
@@ -74,7 +74,7 @@ pub(crate) fn add(
         (
             "git-worktree-discard",
             &SemanticCode::WORKTREE_DISCARD,
-            "git-worktree-discard blocked a project-wide working-tree discard; inspect git diff, stash wanted work, use a named restore, or ask the operator to perform the broad discard",
+            "git-worktree-discard blocked a broad working-tree discard or forced worktree/submodule removal; inspect git diff and preserve wanted work in each affected tree, or ask the operator to perform the broad discard",
         ),
     ] {
         if !policy_ctx

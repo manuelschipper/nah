@@ -14,7 +14,7 @@ use super::{AssignmentUpdate, Lowered, Lowerer};
 use crate::bash_descriptors::{DescriptorRedirectPlan, shell_attached_to_dev_socket};
 use crate::bash_environment_disclosure::operation as environment_disclosure_operation;
 use crate::bash_flow::redirects_stdin;
-use crate::bash_git::command_operation as git_command_operation;
+use crate::bash_git::git_command_operations;
 use crate::bash_invocation::invocation;
 use crate::bash_logical_storage::models_logical_storage_command;
 use crate::bash_model::{InvocationDraft, ProgramDraft, StageDraft, StdoutDraft, VariableValue};
@@ -153,12 +153,12 @@ impl Lowerer {
             lowered_payload.is_some(),
         );
         let git_worktree_guard_candidate = matches!(&program, ProgramDraft::Static(program) if program == "git")
-            && (matches!(
-                git_command_operation("git", &local_arguments),
-                Some("clean-force" | "worktree-discard")
-            ) || classifications.git.as_ref().is_some_and(|git| {
-                !git.written_filesystems.is_empty() || !git.deleted_filesystems.is_empty()
-            }));
+            && (git_command_operations("git", &local_arguments)
+                .iter()
+                .any(|operation| matches!(*operation, "clean-force" | "worktree-discard"))
+                || classifications.git.as_ref().is_some_and(|git| {
+                    !git.written_filesystems.is_empty() || !git.deleted_filesystems.is_empty()
+                }));
         if git_worktree_guard_candidate {
             self.env_key("GIT_DIR");
             self.env_key("GIT_WORK_TREE");

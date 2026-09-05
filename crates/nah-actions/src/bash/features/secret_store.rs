@@ -765,7 +765,9 @@ fn doppler(arguments: &[String]) -> Classification {
                 && delete == "delete"
                 && match targets {
                     [config] => valid_operand(config),
-                    [] => parsed.value("--config").is_some_and(valid_operand),
+                    [] => parsed
+                        .value_any(&["--config", "-c"])
+                        .is_some_and(valid_operand),
                     _ => false,
                 } =>
         {
