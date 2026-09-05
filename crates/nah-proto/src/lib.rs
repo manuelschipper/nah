@@ -17,6 +17,7 @@ pub mod exec_v1;
 pub mod extension;
 pub mod labels;
 pub mod observation;
+pub mod runtime;
 #[cfg(feature = "effinterp")]
 pub mod stream;
 pub mod tool;

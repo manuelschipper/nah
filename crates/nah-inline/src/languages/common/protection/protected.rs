@@ -1,10 +1,11 @@
 use nah_proto::ctx::{AbsolutePath, Platform};
+use nah_proto::runtime::HOOK_RUNTIME_NAMES;
 
 use crate::{EnvironmentValue, normalized_program};
 
 use super::support::{
-    EnvironmentVariables, environment_operation, installed_binary_paths, protected_path,
-    runtime_launch_bypass, runtime_launch_program, runtime_name,
+    EnvironmentVariables, environment_operation_for_command, installed_binary_paths,
+    protected_path, runtime_launch_bypass, runtime_launch_program,
 };
 
 pub(super) fn protected_target(
@@ -121,7 +122,7 @@ pub(super) fn protected_target(
     let lifecycle = words.windows(4).any(|parts| {
         parts[0] == "nah"
             && parts[1] == "hook"
-            && runtime_name(&parts[2])
+            && HOOK_RUNTIME_NAMES.contains(&parts[2].as_str())
             && matches!(parts[3].as_str(), "install" | "uninstall")
     });
     let which_nah = (outside.contains("which(")
@@ -203,9 +204,8 @@ fn inline_runtime_words(
         index += 1;
     }
     words.get(index).is_some_and(|program| {
-        environment_operation(
+        environment_operation_for_command(
             program,
-            &words[index + 1..],
             &assignments,
             EnvironmentVariables {
                 visible: &[],

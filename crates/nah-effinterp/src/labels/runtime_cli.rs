@@ -82,7 +82,13 @@ fn nah_mutation(words: &[String]) -> bool {
         [kind, ..] if kind == "effinterp" => true,
         [kind, runtime_name, action, ..]
             if kind == "hook"
-                && runtime(runtime_name).is_some()
+                && nah_proto::runtime::HOOK_RUNTIME_NAMES.contains(
+                    &match runtime_name.as_str() {
+                        "agy" => "antigravity",
+                        "kiro-cli" => "kiro",
+                        name => name,
+                    },
+                )
                 && matches!(action.as_str(), "install" | "uninstall") =>
         {
             true

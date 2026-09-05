@@ -120,6 +120,13 @@ mod tests {
 
     #[test]
     fn recorded_runtime_names_are_the_names_hook_accepts() {
+        assert_eq!(
+            Runtime::value_variants()
+                .iter()
+                .map(|runtime| runtime.cli_name())
+                .collect::<Vec<_>>(),
+            nah_proto::runtime::HOOK_RUNTIME_NAMES,
+        );
         for runtime in Runtime::value_variants() {
             assert_eq!(
                 runtime.cli_name(),

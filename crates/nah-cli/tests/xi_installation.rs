@@ -81,6 +81,14 @@ fn install_runs_before_bash_and_uninstall_preserves_other_hooks() {
     let blocked = run_hook(home, &hook, &project, "cat .env");
     assert_eq!(blocked.status.code(), Some(2), "{blocked:?}");
     assert!(!blocked.stdout.is_empty(), "{blocked:?}");
+    let removal = run_hook(home, &hook, &project, "nah hook xi uninstall");
+    assert_eq!(removal.status.code(), Some(2), "{removal:?}");
+    assert!(!removal.stdout.is_empty(), "{removal:?}");
+    for command in ["nah hook xi status", "nah hook xi uninstall --help"] {
+        let inspection = run_hook(home, &hook, &project, command);
+        assert!(inspection.status.success(), "{inspection:?}");
+        assert!(inspection.stdout.is_empty(), "{inspection:?}");
+    }
     let malformed = run_hook_input(home, &hook, br#"{"event":"before-bash"}"#);
     assert!(malformed.status.success(), "{malformed:?}");
 

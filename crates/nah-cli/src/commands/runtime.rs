@@ -116,9 +116,9 @@ pub(crate) struct RuntimeEntry {
 }
 
 pub(crate) fn runtime_entries() -> Vec<RuntimeEntry> {
-    Runtime::value_variants()
+    nah_proto::runtime::HOOK_RUNTIME_NAMES
         .iter()
-        .copied()
+        .map(|name| Runtime::from_str(name, false).expect("hook runtime is a CLI runtime"))
         .map(runtime_entry)
         .collect()
 }

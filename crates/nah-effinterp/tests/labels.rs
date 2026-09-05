@@ -865,6 +865,7 @@ fn only_known_nah_state_mutations_are_recognized() {
         &["effinterp", "on"][..],
         &["hook", "claude", "install"][..],
         &["hook", "codex", "uninstall"][..],
+        &["hook", "xi", "uninstall"][..],
     ] {
         assert_eq!(
             runtime_cli::classify("nah", &argv(arguments), &home, Platform::Linux),
@@ -877,6 +878,8 @@ fn only_known_nah_state_mutations_are_recognized() {
         &["log", "--json"][..],
         &["why", "decision-id"][..],
         &["hook", "claude", "status"][..],
+        &["hook", "xi", "status"][..],
+        &["hook", "xi", "uninstall", "--help"][..],
         &["hook", "unknown", "install"][..],
         &["test", "git status"][..],
     ] {
