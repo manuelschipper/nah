@@ -14,6 +14,7 @@ use nah_proto::ctx::{AbsolutePath, Platform};
 mod finding;
 mod language_effects;
 mod languages;
+pub mod runtime_protection;
 mod syntax;
 
 pub use finding::{

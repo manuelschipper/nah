@@ -56,43 +56,22 @@ fn bash_tags_visible_nah_mutations_without_matching_local_utilities() {
         "exec nice -- nohup -- nah trust /repo",
         "(nah trust /repo)",
         "if true; then nah trust /repo; fi",
-        "nah hook amp install",
-        "nah hook amp uninstall",
-        "nah hook antigravity install",
-        "nah hook antigravity uninstall",
-        "nah hook claude install",
-        "nah hook claude uninstall",
-        "nah hook cline install",
-        "nah hook cline uninstall",
-        "nah hook codex install",
-        "nah hook codex uninstall",
-        "nah hook copilot install",
-        "nah hook copilot uninstall",
-        "nah hook cursor install",
-        "nah hook cursor uninstall",
-        "nah hook devin install",
-        "nah hook devin uninstall",
-        "nah hook droid install",
-        "nah hook droid uninstall",
-        "nah hook hermes install",
-        "nah hook hermes uninstall",
-        "nah hook kiro install",
-        "nah hook kiro uninstall",
-        "nah hook openclaw install",
-        "nah hook openclaw uninstall",
-        "nah hook opencode install",
-        "nah hook opencode uninstall",
-        "nah hook pi install",
-        "nah hook pi uninstall",
-        "nah hook prime-agent install",
-        "nah hook prime-agent uninstall",
         "amp plugins remove nah.ts",
         "amp plugins rm nah.ts --target system",
         "agy plugin disable nah",
         "agy plugin uninstall nah",
         "/usr/bin/openclaw plugins uninstall --force nah",
-    ] {
-        let plan = bash_plan(command);
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .chain(
+        nah_proto::runtime::HOOK_RUNTIME_NAMES
+            .iter()
+            .flat_map(|runtime| {
+                ["install", "uninstall"].map(|action| format!("nah hook {runtime} {action}"))
+            }),
+    ) {
+        let plan = bash_plan(&command);
         let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
         assert!(
             stream.effects().iter().any(|effect| matches!(
@@ -108,6 +87,8 @@ fn bash_tags_visible_nah_mutations_without_matching_local_utilities() {
     for command in [
         "nah docs guards",
         "nah hook amp status",
+        "nah hook xi status",
+        "nah hook xi uninstall --help",
         "echo nah trust /repo",
         "nah \"$COMMAND\" /repo",
         "exec -a nah echo trust /repo",
@@ -143,6 +124,8 @@ fn bash_tags_visible_nah_mutations_without_matching_local_utilities() {
         "nah log --json -n 10",
         "nah why decision-id",
         "nah hook amp status",
+        "nah hook xi status",
+        "nah hook xi uninstall --help",
     ] {
         let plan = bash_plan(command);
         let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
@@ -474,6 +457,9 @@ fn exact_interpreter_mutations_of_self_protected_paths_are_structural() {
         r#"cmd /c 'mklink /H C:\tmp\alias /home/test/.kiro/hooks/../hooks/nah.json'"#,
         r#"php -r 'call_user_func("unlink", "/home/test/.local/bin/nah");'"#,
         r#"python -c 'import subprocess; subprocess.run(["claude","--safe-mode"])'"#,
+        r#"python -c 'import subprocess; subprocess.run(["nah","hook","xi","uninstall"])'"#,
+        r#"perl -e 'system "nah", "hook", "xi", "uninstall"'"#,
+        r#"perl -e 'system "env", "PLUGINS=off", "amp", "--help"'"#,
         r#"python -c 'import subprocess; subprocess.run(["/usr/bin/env","OPENCODE_PURE=1","opencode"])'"#,
         r#"python -c 'import subprocess; subprocess.run(["sh","-c","claude --safe-mode"])'"#,
         r#"perl -e 'system "opencode", "--pure"'"#,
@@ -936,6 +922,8 @@ stop()
 os.remove("/home/test/.nah/trust.json")'"#,
         r#"python -c 'import os; os.remove("/repo/bin/nah")'"#,
         r#"python -c 'print("nah hook kiro uninstall")'"#,
+        r#"python -c 'print("nah hook xi uninstall")'"#,
+        r#"perl -e 'system "pi", "--no-extensions", "--help"'"#,
         r#"python -c 'print("unlink /home/test/.local/bin/nah")'"#,
         r#"python -c 'import subprocess; subprocess.run(["echo","claude","--safe-mode"])'"#,
         r#"python -c 'import subprocess; subprocess.run(["env","CODEX_HOME=/home/test/.codex","codex"])'"#,

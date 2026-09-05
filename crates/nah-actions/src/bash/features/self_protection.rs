@@ -1,8 +1,13 @@
 //! Tags visible nah state mutations; it does not enforce structural protection.
 
+pub(crate) use nah_inline::runtime_protection::protected_path;
+use nah_inline::runtime_protection::{
+    environment_operation, lexical_normalized_path, runtime_launch_bypass,
+};
 use nah_parse::Word;
 use nah_proto::action::FilesystemOperation;
 use nah_proto::ctx::{AbsolutePath, Platform};
+use nah_proto::runtime::HOOK_RUNTIME_NAMES;
 
 use crate::bash_filesystem::command_filesystems;
 use crate::bash_model::VariableValue;
@@ -274,7 +279,7 @@ fn operation_for_values_at(
         }
         [kind, runtime, action, ..]
             if kind == "hook"
-                && runtime_name(runtime)
+                && HOOK_RUNTIME_NAMES.contains(&runtime.as_str())
                 && matches!(action.as_str(), "install" | "uninstall") =>
         {
             Some("critical-mutation")
@@ -283,7 +288,7 @@ fn operation_for_values_at(
     }
 }
 
-pub(crate) fn environment_operation(
+pub(crate) fn environment_operation_for_command(
     program: &str,
     words: &[String],
     assignments: &[(String, Option<String>)],
@@ -310,14 +315,6 @@ pub(crate) fn environment_operation(
                     .and_then(|(_, value)| value.as_static())
             })
     };
-    let home_path = |suffix: &str| format!("{home}/{suffix}");
-    let program = normalized_program(program);
-    let active_selector = match program.as_str() {
-        "hermes" => has_projected_path(critical_paths, "config.yaml", platform),
-        "kiro-cli" => has_projected_path(critical_paths, "hooks/nah.json", platform),
-        "prime-agent" => has_projected_path(critical_paths, "extensions/nah.js", platform),
-        _ => false,
-    };
     let baseline = |name: &str| {
         variables
             .runtime
@@ -327,45 +324,7 @@ pub(crate) fn environment_operation(
             .and_then(|(_, value)| value.as_static())
             .filter(|value| !value.is_empty())
     };
-    let alternate = |name: &str, default: &str| {
-        let expected = match (name, active_selector) {
-            ("HERMES_HOME" | "KIRO_HOME" | "PRIME_AGENT_CODING_AGENT_DIR", true) => {
-                baseline(name).unwrap_or(default)
-            }
-            _ => default,
-        };
-        let configured = value(name)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(default);
-        !same_lexical_path(configured, expected, platform)
-    };
-    let bypass = match program.as_str() {
-        "amp" => value("PLUGINS") == Some("off"),
-        "cline" => alternate("CLINE_DIR", &home_path(".cline")),
-        "codex" => alternate("CODEX_HOME", &home_path(".codex")),
-        "copilot" => alternate("COPILOT_HOME", &home_path(".copilot")),
-        "hermes" => alternate("HERMES_HOME", &home_path(".hermes")),
-        "kiro-cli" => alternate("KIRO_HOME", &home_path(".kiro")),
-        "openclaw" => {
-            alternate("OPENCLAW_HOME", &home_path(".openclaw"))
-                || alternate("OPENCLAW_STATE_DIR", &home_path(".openclaw"))
-                || alternate(
-                    "OPENCLAW_CONFIG_PATH",
-                    &home_path(".openclaw/openclaw.json"),
-                )
-                || value("OPENCLAW_PROFILE").is_some_and(|value| {
-                    !value.trim().is_empty() && !value.trim().eq_ignore_ascii_case("default")
-                })
-        }
-        "opencode" => {
-            value("OPENCODE_PURE") == Some("1")
-                || alternate("XDG_CONFIG_HOME", &home_path(".config"))
-        }
-        "pi" => alternate("PI_CODING_AGENT_DIR", &home_path(".pi/agent")),
-        "prime-agent" => alternate("PRIME_AGENT_CODING_AGENT_DIR", &home_path(".prime/agent")),
-        _ => false,
-    };
-    bypass.then_some("critical-mutation")
+    environment_operation(program, value, baseline, home, critical_paths, platform)
 }
 
 fn runtime_mutation(program: &str, words: &[String]) -> bool {
@@ -431,72 +390,6 @@ fn runtime_mutation(program: &str, words: &[String]) -> bool {
                     && exact_or_child(&parts[2], "plugins.entries.nah")
             })
         }
-        _ => false,
-    }
-}
-
-fn runtime_launch_bypass(
-    program: &str,
-    words: &[String],
-    home: Option<&str>,
-    platform: Option<Platform>,
-) -> bool {
-    if runtime_terminal_information(words) {
-        return false;
-    }
-    let has_option = |option: &str| words.iter().any(|word| word == option);
-    let option_value = |option: &str| {
-        words
-            .windows(2)
-            .find(|parts| parts[0] == option)
-            .map(|parts| parts[1].as_str())
-            .or_else(|| {
-                words
-                    .iter()
-                    .find_map(|word| word.strip_prefix(option)?.strip_prefix('='))
-            })
-    };
-    let program = normalized_program(program);
-    match program.as_str() {
-        "claude" => has_option("--safe-mode") || has_option("--bare"),
-        "cline" => option_value("--config").is_some_and(|value| {
-            !value.is_empty()
-                && !home.zip(platform).is_some_and(|(home, platform)| {
-                    same_lexical_path(value, &format!("{home}/.cline"), platform)
-                })
-        }),
-        "codex" => {
-            words
-                .windows(2)
-                .any(|parts| parts[0] == "--disable" && parts[1] == "hooks")
-                || has_option("--disable=hooks")
-        }
-        "devin" => option_value("--config").is_some_and(|value| {
-            !value.is_empty()
-                && !home.zip(platform).is_some_and(|(home, platform)| {
-                    let relative = if platform == Platform::Windows {
-                        "AppData/Roaming/devin/config.json"
-                    } else {
-                        ".config/devin/config.json"
-                    };
-                    same_lexical_path(value, &format!("{home}/{relative}"), platform)
-                })
-        }),
-        "droid" => option_value("--settings").is_some_and(|value| {
-            !value.is_empty()
-                && !home.zip(platform).is_some_and(|(home, platform)| {
-                    same_lexical_path(value, &format!("{home}/.factory/settings.json"), platform)
-                })
-        }),
-        "hermes" => has_option("--safe-mode") || has_option("--ignore-user-config"),
-        "openclaw" => {
-            option_value("--profile").is_some_and(|value| {
-                !value.trim().is_empty() && !value.trim().eq_ignore_ascii_case("default")
-            }) || has_option("--dev")
-        }
-        "opencode" => has_option("--pure"),
-        "pi" => has_option("--no-extensions"),
-        "prime-agent" => has_option("--no-extensions"),
         _ => false,
     }
 }
@@ -594,7 +487,7 @@ fn potential_mutation(
         }
         if words.windows(3).any(|parts| {
             word_may_equal(parts.first(), "hook")
-                && runtime_names()
+                && HOOK_RUNTIME_NAMES
                     .iter()
                     .any(|runtime| word_may_equal(parts.get(1), runtime))
                 && ["install", "uninstall"]
@@ -1071,7 +964,9 @@ pub(crate) fn inspection_operation(program: &str, arguments: &[Word]) -> Option<
         [command, id] if command == "why" && !id.starts_with('-') => true,
         [command, arguments @ ..] if command == "log" && log_arguments(arguments) => true,
         [command, runtime, action]
-            if command == "hook" && runtime_name(runtime) && action == "status" =>
+            if command == "hook"
+                && HOOK_RUNTIME_NAMES.contains(&runtime.as_str())
+                && action == "status" =>
         {
             true
         }
@@ -1096,41 +991,6 @@ fn normalized_program(program: &str) -> String {
         .unwrap_or(lowercase)
 }
 
-fn same_lexical_path(left: &str, right: &str, platform: Platform) -> bool {
-    lexical_normalized_path(left, platform) == lexical_normalized_path(right, platform)
-}
-
-fn lexical_normalized_path(path: &str, platform: Platform) -> String {
-    let absolute = path.starts_with(['/', '\\']);
-    let mut components = Vec::new();
-    for component in path.split(['/', '\\']) {
-        match component {
-            "" | "." => {}
-            ".." => {
-                components.pop();
-            }
-            component => components.push(if platform == Platform::Windows {
-                component.to_ascii_lowercase()
-            } else {
-                component.to_owned()
-            }),
-        }
-    }
-    let normalized = components.join("/");
-    if absolute && platform != Platform::Windows {
-        format!("/{normalized}")
-    } else {
-        normalized
-    }
-}
-
-fn has_projected_path(critical_paths: &[AbsolutePath], suffix: &str, platform: Platform) -> bool {
-    let suffix = lexical_normalized_path(suffix, platform);
-    critical_paths.iter().any(|path| {
-        lexical_normalized_path(path.as_str(), platform).ends_with(&format!("/{suffix}"))
-    })
-}
-
 fn log_arguments(arguments: &[String]) -> bool {
     let mut index = 0;
     while index < arguments.len() {
@@ -1153,63 +1013,6 @@ fn log_arguments(arguments: &[String]) -> bool {
         index += 1;
     }
     true
-}
-
-fn runtime_name(runtime: &str) -> bool {
-    runtime_names().contains(&runtime)
-}
-
-fn runtime_names() -> &'static [&'static str] {
-    &[
-        "amp",
-        "antigravity",
-        "claude",
-        "cline",
-        "codex",
-        "copilot",
-        "cursor",
-        "devin",
-        "droid",
-        "hermes",
-        "kiro",
-        "openclaw",
-        "opencode",
-        "pi",
-        "prime-agent",
-    ]
-}
-
-pub(crate) fn protected_path(
-    path: &str,
-    home: &str,
-    critical_paths: &[AbsolutePath],
-    platform: Platform,
-) -> bool {
-    let path = lexical_normalized_path(path, platform);
-    let state = lexical_normalized_path(&format!("{home}/.nah"), platform);
-    if path == state || path.starts_with(&format!("{state}/")) {
-        return true;
-    }
-    let binary = if platform == Platform::Windows {
-        "nah.exe"
-    } else {
-        "nah"
-    };
-    let mut installed = vec![
-        format!("{home}/.local/bin/{binary}"),
-        format!("{home}/.cargo/bin/{binary}"),
-    ];
-    if platform == Platform::Windows {
-        installed.push(format!("{home}/AppData/Local/Programs/nah/{binary}"));
-    } else {
-        installed.extend(["/usr/local/bin/nah".into(), "/usr/bin/nah".into()]);
-    }
-    installed
-        .iter()
-        .any(|candidate| path == lexical_normalized_path(candidate, platform))
-        || critical_paths
-            .iter()
-            .any(|candidate| path == lexical_normalized_path(candidate.as_str(), platform))
 }
 
 fn protected_path_ancestor(

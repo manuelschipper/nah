@@ -20,7 +20,7 @@ use crate::bash_logical_storage::models_logical_storage_command;
 use crate::bash_model::{InvocationDraft, ProgramDraft, StageDraft, StdoutDraft, VariableValue};
 use crate::bash_remote_source_control::classify_remote_deletion;
 use crate::bash_self_protection::{
-    EnvironmentVariables, environment_operation as nah_environment_operation,
+    EnvironmentVariables, environment_operation_for_command as nah_environment_operation,
     hardlink_operation as nah_hardlink_operation, inspection_operation as nah_inspection_operation,
     operation as nah_mutation_operation, protected_access_control_operation,
     protected_cargo_install_operation, protected_git_operation,
