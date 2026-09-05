@@ -27,7 +27,7 @@ pub use cache::{CACHE_SIZE_CAP, MemoCache, memo_cache_path};
 pub use execution::{
     ConsultationDiagnostic, ConsultationFailure, ConsultationOutput, consult_extensions,
 };
-pub use selection::request as exec_request;
+pub use selection::exec_request;
 pub use template::{create_project_guard, create_user_guard};
 pub use transport::{EXEC_TIMEOUT, OUTPUT_SIZE_CAP};
 pub use trust::{

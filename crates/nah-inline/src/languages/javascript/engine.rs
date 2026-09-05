@@ -37,20 +37,48 @@ mod string_literals;
 mod syntax;
 mod value_semantics;
 
-use bun_runtime::*;
+use bun_runtime::{
+    bun_callable, bun_file, bun_file_callable, bun_file_member, bun_member, bun_spawn_argv,
+    summarize_bun_write,
+};
 use child_process::{
     ChildCallSummary, ChildExecution, child_callable, child_callback_shape, summarize_child_call,
 };
-use deno_runtime::*;
-use evidence::*;
-use filesystem::*;
-use module_ownership::*;
-use node_runtime::*;
-use openclaw_runtime::*;
-use runtime_apis::*;
-use string_literals::*;
-use syntax::*;
-use value_semantics::*;
+use deno_runtime::{
+    attach_deno_command_source, deno_callable, deno_command, deno_command_callable,
+    deno_command_member, deno_member, deno_member_constructible, deno_member_synchronous,
+    refresh_deno_command, summarize_deno_call,
+};
+use evidence::language_call_input;
+use filesystem::{FsCallSummary, OptionValue, fs_callable, fs_return_value, summarize_fs_call};
+use module_ownership::{
+    augmented_coercion_proven, contains_local_function, exact_non_callable, exact_non_iterable,
+    invalidate_loaded_module_value, module_from_source, module_member, possible_file_argument,
+    possible_path_argument, property_value, runtime_global_value, unknown_value, value_string,
+};
+use node_runtime::{
+    NodeModuleMember, NodeMutation, NodeProperty, NodePropertyKind, NodePropertyState,
+    absent_node_property, accessor_value, commonjs_module_property, commonjs_module_value,
+    default_node_properties, defined_node_property, invalid_define_property_target,
+    invalid_node_property_redefinition, invalid_node_prototype_constructor_definition,
+    invalid_property_descriptor, node_define_property_target, node_loader_reference,
+    node_module_loader_hook, node_module_property, node_module_property_value,
+    node_property_loader_hook, resolved_node_property, unknown_node_property,
+};
+use openclaw_runtime::{openclaw_member, summarize_openclaw_call};
+use runtime_apis::{ShapeValue, known_object_like, merge_execution, valid_u32};
+use string_literals::{
+    decode_escape, decode_js_string, delimited_has_hole, delimited_holes, is_absolute, parse_number,
+};
+use syntax::{
+    asynchronous_function, direct_call_identity, direct_receiver_expression,
+    direct_receiver_required, member_assignment_target, named_children, prototype_mutation_target,
+    source_is_module, source_mutates, strict_directive,
+};
+use value_semantics::{
+    abrupt_control, abrupt_value, join_node_property_state, join_states, join_values, loose_equal,
+    nullish, properties_bytes, strict_equal, string_coercion, truthy, values_bytes,
+};
 
 const MAX_WORK: usize = 262_144;
 const MAX_STATEMENTS: usize = 4_096;

@@ -386,8 +386,8 @@ impl Lowerer {
                 && self.state != entry
             {
                 // Fallthrough can feed this state into a later arm. Keep the
-                // common read-only case full, but fail closed when the arm
-                // changes cwd and later relative effects could resolve
+                // common read-only case full, but mark coverage partial when
+                // the arm changes cwd and later relative effects could resolve
                 // differently.
                 self.complete = false;
             }

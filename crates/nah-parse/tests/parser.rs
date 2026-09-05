@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
-use nah_parse::syntax_is_clean;
+use nah_parse::normalized_syntax_is_complete;
 use nah_parse::{Statement, Substitution, normalize};
 use proptest::prelude::*;
 
@@ -440,7 +440,7 @@ fn production_parser_matches_bash_on_the_seed_corpus() {
         let case: serde_json::Value = serde_json::from_str(line).expect("valid corpus case");
         let command = case["command"].as_str().expect("Bash command");
         assert_eq!(
-            syntax_is_clean(command).expect("parser result"),
+            normalized_syntax_is_complete(command).expect("parser result"),
             bash_accepts(command),
             "{}",
             case["id"]
@@ -1164,7 +1164,7 @@ proptest! {
 
     #[test]
     fn a_clean_parser_result_is_accepted_by_bash(source in shell_like_source_strategy()) {
-        let parser_accepts = syntax_is_clean(&source).expect("parser result");
+        let parser_accepts = normalized_syntax_is_complete(&source).expect("parser result");
         prop_assert!(
             !parser_accepts || bash_accepts(&source),
             "nah accepted Bash-rejected source: {source:?}"

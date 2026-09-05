@@ -137,7 +137,8 @@ pub(crate) fn merge_states(states: &[ShellState], bodies: &[FunctionBody]) -> (S
             }
         }
     }
-    let mut origins_saturated = false;
+    // True means the merged state cannot support complete analysis.
+    let mut merge_refused = false;
     let variables = names
         .into_iter()
         .map(|name| {
@@ -174,7 +175,7 @@ pub(crate) fn merge_states(states: &[ShellState], bodies: &[FunctionBody]) -> (S
             let binding_saturated = origins.len() > MAX_VARIABLE_ORIGINS;
             if binding_saturated {
                 origins.truncate(MAX_VARIABLE_ORIGINS);
-                origins_saturated = true;
+                merge_refused = true;
             }
             let exported = attribute(|binding| binding.exported);
             let readonly = attribute(|binding| binding.readonly);
@@ -199,7 +200,7 @@ pub(crate) fn merge_states(states: &[ShellState], bodies: &[FunctionBody]) -> (S
     ) {
         Ok(descriptors) => descriptors,
         Err(_) => {
-            origins_saturated = true;
+            merge_refused = true;
             DescriptorState::default()
         }
     };
@@ -274,7 +275,7 @@ pub(crate) fn merge_states(states: &[ShellState], bodies: &[FunctionBody]) -> (S
         .collect();
     let positional_zero = merge_positional_slot(
         states.iter().map(|state| state.positional_zero.as_ref()),
-        &mut origins_saturated,
+        &mut merge_refused,
     );
     let positional_len = states
         .iter()
@@ -285,7 +286,7 @@ pub(crate) fn merge_states(states: &[ShellState], bodies: &[FunctionBody]) -> (S
         .filter_map(|index| {
             merge_positional_slot(
                 states.iter().map(|state| state.positionals.get(index)),
-                &mut origins_saturated,
+                &mut merge_refused,
             )
         })
         .collect();
@@ -303,7 +304,7 @@ pub(crate) fn merge_states(states: &[ShellState], bodies: &[FunctionBody]) -> (S
     ) {
         Ok(lookup) => lookup,
         Err(()) => {
-            origins_saturated = true;
+            merge_refused = true;
             let mut lookup = first.lookup.clone();
             lookup.invalidate_all();
             lookup
@@ -324,13 +325,13 @@ pub(crate) fn merge_states(states: &[ShellState], bodies: &[FunctionBody]) -> (S
             unknown_variables,
             lookup,
         },
-        origins_saturated,
+        merge_refused,
     )
 }
 
 fn merge_positional_slot<'a>(
     values: impl Iterator<Item = Option<&'a PositionalValue>>,
-    origins_saturated: &mut bool,
+    merge_refused: &mut bool,
 ) -> Option<PositionalValue> {
     let values = values.collect::<Vec<_>>();
     if values.iter().all(|value| value.is_none()) {
@@ -347,7 +348,7 @@ fn merge_positional_slot<'a>(
     }) {
         first.clone()
     } else {
-        *origins_saturated = true;
+        *merge_refused = true;
         VariableValue::Unknown
     };
     let mut origins = values
@@ -359,7 +360,7 @@ fn merge_positional_slot<'a>(
     origins.dedup();
     if origins.len() > MAX_VARIABLE_ORIGINS {
         origins.truncate(MAX_VARIABLE_ORIGINS);
-        *origins_saturated = true;
+        *merge_refused = true;
         return Some(PositionalValue {
             value: VariableValue::Unknown,
             origins,

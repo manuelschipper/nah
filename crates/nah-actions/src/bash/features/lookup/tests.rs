@@ -217,7 +217,7 @@ fn hash_resets_and_path_changes_remove_exact_identity() {
 
     let mut state = LookupState::default();
     state.apply_builtin("hash", &strings(&["-p", "/bin/rm", "wipe"]));
-    assert_eq!(state.apply_path_change(Certainty::Yes), Update::Exact);
+    assert_eq!(state.apply_path_change(LookupCertainty::Yes), Update::Exact);
     assert!(matches!(
         state
             .resolve("wipe", LookupMode::Normal, FunctionPresence::Absent)
@@ -485,7 +485,10 @@ fn path_changes_distinguish_accepted_rejected_and_uncertain_assignments() {
     };
 
     let mut rejected = state_with_hash();
-    assert_eq!(rejected.apply_path_change(Certainty::No), Update::Exact);
+    assert_eq!(
+        rejected.apply_path_change(LookupCertainty::No),
+        Update::Exact
+    );
     assert_eq!(
         rejected
             .resolve("run", LookupMode::Normal, FunctionPresence::Absent)
@@ -494,7 +497,10 @@ fn path_changes_distinguish_accepted_rejected_and_uncertain_assignments() {
     );
 
     let mut accepted = state_with_hash();
-    assert_eq!(accepted.apply_path_change(Certainty::Yes), Update::Exact);
+    assert_eq!(
+        accepted.apply_path_change(LookupCertainty::Yes),
+        Update::Exact
+    );
     assert_eq!(
         accepted
             .resolve("run", LookupMode::Normal, FunctionPresence::Absent)
@@ -504,7 +510,7 @@ fn path_changes_distinguish_accepted_rejected_and_uncertain_assignments() {
 
     let mut uncertain = state_with_hash();
     assert_eq!(
-        uncertain.apply_path_change(Certainty::Maybe),
+        uncertain.apply_path_change(LookupCertainty::Maybe),
         Update::Partial
     );
     let resolution = uncertain.resolve("run", LookupMode::Normal, FunctionPresence::Absent);

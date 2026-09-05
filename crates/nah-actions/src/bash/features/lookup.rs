@@ -6,7 +6,7 @@ const MAX_BINDINGS: usize = 256;
 const MAX_VARIANTS: usize = 16;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Certainty {
+pub(crate) enum LookupCertainty {
     No,
     Yes,
     Maybe,
@@ -22,12 +22,12 @@ struct NamedValues<T> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LookupState {
-    expand_aliases: Certainty,
+    expand_aliases: LookupCertainty,
     aliases: Vec<NamedValues<String>>,
     aliases_unknown: bool,
     hashes: Vec<NamedValues<String>>,
     hashes_unknown: bool,
-    hashall: Certainty,
+    hashall: LookupCertainty,
     builtins: Vec<NamedValues<bool>>,
     builtins_unknown: bool,
 }
@@ -35,12 +35,12 @@ pub(crate) struct LookupState {
 impl Default for LookupState {
     fn default() -> Self {
         Self {
-            expand_aliases: Certainty::No,
+            expand_aliases: LookupCertainty::No,
             aliases: Vec::new(),
             aliases_unknown: false,
             hashes: Vec::new(),
             hashes_unknown: false,
-            hashall: Certainty::Yes,
+            hashall: LookupCertainty::Yes,
             builtins: Vec::new(),
             builtins_unknown: false,
         }
@@ -49,7 +49,7 @@ impl Default for LookupState {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct AliasSnapshot {
-    expand_aliases: Certainty,
+    expand_aliases: LookupCertainty,
     aliases: Vec<NamedValues<String>>,
     aliases_unknown: bool,
 }
@@ -124,12 +124,12 @@ impl LookupState {
         {
             first.expand_aliases
         } else {
-            Certainty::Maybe
+            LookupCertainty::Maybe
         };
         let hashall = if states.iter().all(|state| state.hashall == first.hashall) {
             first.hashall
         } else {
-            Certainty::Maybe
+            LookupCertainty::Maybe
         };
         Ok(Self {
             expand_aliases,
@@ -171,37 +171,37 @@ impl LookupState {
                     binding.absent = true;
                 }
             }
-            "hash" if self.hashall == Certainty::No => return Update::Exact,
+            "hash" if self.hashall == LookupCertainty::No => return Update::Exact,
             "hash" => self.hashes_unknown = true,
             "enable" => self.builtins_unknown = true,
             "shopt" => {
-                self.expand_aliases = Certainty::Maybe;
-                self.hashall = Certainty::Maybe;
+                self.expand_aliases = LookupCertainty::Maybe;
+                self.hashall = LookupCertainty::Maybe;
             }
-            "set" => self.hashall = Certainty::Maybe,
+            "set" => self.hashall = LookupCertainty::Maybe,
             _ => return Update::Exact,
         }
         Update::Partial
     }
 
     pub(crate) fn invalidate_all(&mut self) -> Update {
-        self.expand_aliases = Certainty::Maybe;
+        self.expand_aliases = LookupCertainty::Maybe;
         self.aliases_unknown = true;
         self.hashes_unknown = true;
-        self.hashall = Certainty::Maybe;
+        self.hashall = LookupCertainty::Maybe;
         self.builtins_unknown = true;
         Update::Partial
     }
 
-    pub(crate) fn apply_path_change(&mut self, changed: Certainty) -> Update {
+    pub(crate) fn apply_path_change(&mut self, changed: LookupCertainty) -> Update {
         match changed {
-            Certainty::No => Update::Exact,
-            Certainty::Yes => {
+            LookupCertainty::No => Update::Exact,
+            LookupCertainty::Yes => {
                 self.hashes.clear();
                 self.hashes_unknown = false;
                 Update::Exact
             }
-            Certainty::Maybe => {
+            LookupCertainty::Maybe => {
                 for binding in &mut self.hashes {
                     binding.absent = true;
                 }
@@ -366,7 +366,11 @@ impl LookupState {
         if set == unset {
             return Update::Exact;
         }
-        let requested = if set { Certainty::Yes } else { Certainty::No };
+        let requested = if set {
+            LookupCertainty::Yes
+        } else {
+            LookupCertainty::No
+        };
         if set_options {
             if names.contains(&"hashall") {
                 self.hashall = requested;
@@ -379,9 +383,9 @@ impl LookupState {
 
     fn update_hashes(&mut self, arguments: &[String]) -> Update {
         match self.hashall {
-            Certainty::No => return Update::Exact,
-            Certainty::Yes => return self.update_enabled_hashes(arguments),
-            Certainty::Maybe => {}
+            LookupCertainty::No => return Update::Exact,
+            LookupCertainty::Yes => return self.update_enabled_hashes(arguments),
+            LookupCertainty::Maybe => {}
         }
 
         let before = self.hashes.clone();
@@ -589,7 +593,7 @@ impl LookupState {
         targets: &mut Vec<LookupTarget>,
         variants_complete: &mut bool,
     ) {
-        if self.hashall == Certainty::No {
+        if self.hashall == LookupCertainty::No {
             targets.push(LookupTarget::Path(name.to_owned()));
             return;
         }
@@ -602,7 +606,7 @@ impl LookupState {
         if binding.absent
             || binding.unknown
             || self.hashes_unknown
-            || self.hashall == Certainty::Maybe
+            || self.hashall == LookupCertainty::Maybe
         {
             targets.push(LookupTarget::Path(name.to_owned()));
         }
@@ -612,7 +616,7 @@ impl LookupState {
 
 impl AliasSnapshot {
     pub(crate) fn resolve(&self, name: &str, eligible: bool) -> AliasResolution {
-        if !eligible || self.expand_aliases == Certainty::No {
+        if !eligible || self.expand_aliases == LookupCertainty::No {
             return AliasResolution {
                 replacements: Vec::new(),
                 unexpanded: true,
@@ -625,7 +629,7 @@ impl AliasSnapshot {
             .unwrap_or_default();
         replacements.sort();
         replacements.dedup();
-        let maybe_disabled = self.expand_aliases == Certainty::Maybe;
+        let maybe_disabled = self.expand_aliases == LookupCertainty::Maybe;
         let unexpanded = maybe_disabled
             || self.aliases_unknown
             || binding.is_none_or(|binding| binding.absent || binding.unknown);
@@ -770,15 +774,19 @@ fn finish_resolution(mut targets: Vec<LookupTarget>, variants_complete: bool) ->
     }
 }
 
-fn certainty(value: bool) -> Certainty {
-    if value { Certainty::Yes } else { Certainty::No }
+fn certainty(value: bool) -> LookupCertainty {
+    if value {
+        LookupCertainty::Yes
+    } else {
+        LookupCertainty::No
+    }
 }
 
-fn merge_certainty(left: Certainty, right: Certainty) -> Certainty {
+fn merge_certainty(left: LookupCertainty, right: LookupCertainty) -> LookupCertainty {
     if left == right {
         left
     } else {
-        Certainty::Maybe
+        LookupCertainty::Maybe
     }
 }
 

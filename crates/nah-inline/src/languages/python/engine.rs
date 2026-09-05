@@ -32,16 +32,48 @@ mod runtime_calls;
 mod string_paths;
 mod value_semantics;
 
-use bindings::*;
-use call_shapes::*;
-use data_flow::*;
-use evidence::*;
-use filesystem::*;
-use imports::*;
-use network::*;
-use process::*;
-use string_paths::*;
-use value_semantics::*;
+use bindings::{assigned_names, capture_names, contains_kind, global_names};
+use call_shapes::{
+    argument, before_python3_minor, bytes_admission, call_shape, code_mode, combine_admission,
+    compile_source_admission, dir_fd_changes_base, dynamic_arguments, empty_path_value,
+    import_level_admission, is_python2, nonempty_path_admission, one_argument, open_mode_admission,
+    open_target_admission, os_dir_fd_call_shape, path_admission, path_values_admission,
+    popen_buffering_admission, popen_mode_admission, possible_path_argument,
+    possible_scalar_argument, python3_minor, required_argument, text_admission, valid_call_shape,
+};
+use data_flow::{
+    argument_origins, bind_arguments, invalidate_argument_cells, join_states, merge_branch_states,
+    sequence_values, value_bytes, values_bytes,
+};
+use evidence::language_call_input;
+use filesystem::{
+    filesystem_argument, open_operations, path_has_name, shutil_copy_call_shape,
+    shutil_copy_callable, shutil_move_call_shape, text_open_is_unbuffered, valid_open_mode,
+};
+use imports::{
+    ImportRegistryMutation, ImportRegistryRead, Module, RegistryProvenance, StaticString,
+    contains_import_registry, import_name, import_registry_mutation,
+    import_registry_mutation_shape, import_registry_read, import_registry_read_shape,
+    imported_value, invalidate_import_ownership, invalidate_module, is_import_registry,
+    is_import_registry_attribute, is_sys_module_dictionary, module_attribute, module_value,
+    owned_module_target, propagate_invalid_modules, registry_provenance, retain_owned_module,
+    sequence_index, static_string,
+};
+use network::{request_call_shape, request_callable, request_url_keyword};
+use process::{
+    argv_value, bounded_strings, exact_bool, exact_index, invalid_subprocess_options,
+    os_exec_admission, os_exec_call_shape, os_exec_callable, subprocess_bufsize_admission,
+    subprocess_callable, subprocess_command_admission, subprocess_options, subprocess_shell,
+    valid_subprocess_shape,
+};
+use string_paths::{
+    bounded_owned, bounded_push_str, compose_cwd, decode_base64, decode_string_fragment,
+    expand_home, is_absolute, join_path, normalize_path,
+};
+use value_semantics::{
+    binary_value, compare_values, decoded, display_value, join_distinct_values, join_values,
+    parse_integer, producer_ordinals, truthy, value_string, value_text,
+};
 
 const MAX_WORK: usize = 262_144;
 const MAX_STATEMENTS: usize = 4_096;
