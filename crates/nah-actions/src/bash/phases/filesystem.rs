@@ -65,8 +65,9 @@ pub(super) fn redirect_operations(
             Some(vec![FilesystemOperation::Write])
         }
         "<<" | "<<-" | "<<<" => Some(vec![]),
-        // Descriptor duplication changes stream routing in an order-sensitive
-        // way the v1 effect schema cannot encode.
+        // shell_descriptor_redirects owns ordered descriptor rebinding; the
+        // coordinator projects its network and flow effects. Descriptor duplication
+        // therefore emits no direct filesystem operation here.
         ">&" | "<&" => None,
         _ => None,
     }

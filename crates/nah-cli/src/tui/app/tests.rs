@@ -114,7 +114,10 @@ fn changed_custom_guard_stages_the_reviewed_hash() {
     assert_eq!(app.pending_count(), 0);
     app.confirm();
     assert_eq!(app.pending_value(&app.guards[1]), Some(true));
-    assert_eq!(app.pending[0].expected_hash.as_deref(), Some("new"));
+    assert!(matches!(
+        &app.pending[0],
+        GuardChange::CustomEnable { expected_hash, .. } if expected_hash == "new"
+    ));
     app.toggle_guard();
     assert_eq!(app.pending_count(), 0);
 }
@@ -203,8 +206,8 @@ fn failed_preflight_preserves_the_complete_batch() {
     app.apply_guards();
 
     assert_eq!(app.pending_count(), 2);
-    assert!(app.pending[0].enabled);
-    assert!(app.pending[1].enabled);
+    assert!(matches!(app.pending[0], GuardChange::CustomEnable { .. }));
+    assert!(matches!(app.pending[1], GuardChange::BuiltInEnable { .. }));
     assert!(matches!(
         app.message,
         Some(Message {
@@ -260,7 +263,14 @@ fn project_custom(root: &str, name: &str) -> GuardTarget {
 fn staged(app: &App) -> Vec<(&str, bool)> {
     app.pending
         .iter()
-        .map(|change| (change.target.name(), change.enabled))
+        .map(|change| {
+            let entry = app
+                .guards
+                .iter()
+                .find(|entry| entry.target == change.target())
+                .unwrap();
+            (entry.target.name(), app.pending_value(entry).unwrap())
+        })
         .collect()
 }
 
@@ -301,7 +311,7 @@ fn resetting_stages_the_diff_from_the_shipped_defaults() {
     assert!(
         app.pending
             .iter()
-            .all(|change| change.expected_hash.is_none())
+            .all(|change| !matches!(change, GuardChange::CustomEnable { .. }))
     );
     assert_eq!(
         app.message,
@@ -377,7 +387,7 @@ fn reset_removes_an_explicit_veto_but_not_a_project_enablement() {
     app.guards = vec![profile];
     app.reset_to_defaults();
     assert_eq!(app.pending.len(), 1);
-    assert!(app.pending[0].reset);
+    assert!(matches!(app.pending[0], GuardChange::BuiltInReset { .. }));
 }
 
 #[test]

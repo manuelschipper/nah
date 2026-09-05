@@ -133,6 +133,11 @@ pub fn decide_with_mode_and_inline(
     )
 }
 
+/// Reduces evidence from a public action stream and its language safety stream.
+/// Shipped guards and permanent protection inspect `language_safety_stream`;
+/// `DecisionCore` is bound to `action_stream`, which custom guards inspect.
+/// Callers must supply both projections of the same tool call and extension
+/// responses validated against that public action stream.
 pub fn decide_with_mode_and_inline_language_safety_stream(
     action_stream: &ActionStream,
     language_safety_stream: &ActionStream,

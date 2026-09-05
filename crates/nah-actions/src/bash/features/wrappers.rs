@@ -193,22 +193,44 @@ fn script_command(arguments: &[Word]) -> Option<String> {
     None
 }
 
+/// A nested executor command and the context needed to lower it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ExecutorPayload {
+    pub(crate) payload: String,
+    /// The executor may run the command from an unknown working directory.
+    pub(crate) unknown_cwd: bool,
+    /// Executor input may substitute or append executable code in the command.
+    pub(crate) substitutes_command: bool,
+    /// Lexical root selected recursively, before resolving it against the parent cwd.
+    pub(crate) recursive_target: Option<String>,
+}
+
 pub(crate) fn executor_payloads(
     program: &str,
     arguments: &[Word],
     variables: &[(String, VariableValue)],
     visible_stdin: Option<&str>,
-) -> Vec<(String, bool, bool, Option<String>)> {
+) -> Vec<ExecutorPayload> {
     if matches!(program, "ssh" | "scp" | "rsync") {
         return crate::bash_network::executor_payloads(program, arguments)
             .into_iter()
-            .map(|payload| (payload, false, false, None))
+            .map(|payload| ExecutorPayload {
+                payload,
+                unknown_cwd: false,
+                substitutes_command: false,
+                recursive_target: None,
+            })
             .collect();
     }
     if program == "socat" {
         return crate::bash_socat::socat_executor_payloads(arguments, variables)
             .into_iter()
-            .map(|(payload, unknown_cwd)| (payload, unknown_cwd, false, None))
+            .map(|(payload, unknown_cwd)| ExecutorPayload {
+                payload,
+                unknown_cwd,
+                substitutes_command: false,
+                recursive_target: None,
+            })
             .collect();
     }
     if matches!(program, "tar" | "bsdtar") {
@@ -216,7 +238,12 @@ pub(crate) fn executor_payloads(
             .map(|analysis| analysis.executor_payloads)
             .unwrap_or_default()
             .into_iter()
-            .map(|payload| (payload, false, false, None))
+            .map(|payload| ExecutorPayload {
+                payload,
+                unknown_cwd: false,
+                substitutes_command: false,
+                recursive_target: None,
+            })
             .collect();
     }
     if program == "xargs" {
@@ -251,7 +278,12 @@ pub(crate) fn executor_payloads(
                             .join(" ")
                     },
                 );
-                vec![(payload, false, substitutes_command, None)]
+                vec![ExecutorPayload {
+                    payload,
+                    unknown_cwd: false,
+                    substitutes_command,
+                    recursive_target: None,
+                }]
             })
             .unwrap_or_default();
     }
@@ -300,8 +332,8 @@ pub(crate) fn executor_payloads(
             .any(|argument| static_argument(argument).as_deref() == Some("{}"))
         {
             payloads.extend(roots.iter().map(|root| {
-                (
-                    command
+                ExecutorPayload {
+                    payload: command
                         .iter()
                         .map(|argument| {
                             if static_argument(argument).as_deref() == Some("{}") {
@@ -313,12 +345,17 @@ pub(crate) fn executor_payloads(
                         .collect::<Vec<_>>()
                         .join(" "),
                     unknown_cwd,
-                    false,
-                    (!unknown_cwd && recursive_selector).then(|| root.clone()),
-                )
+                    substitutes_command: false,
+                    recursive_target: (!unknown_cwd && recursive_selector).then(|| root.clone()),
+                }
             }));
         } else {
-            payloads.push((join_words(command), unknown_cwd, false, None));
+            payloads.push(ExecutorPayload {
+                payload: join_words(command),
+                unknown_cwd,
+                substitutes_command: false,
+                recursive_target: None,
+            });
         }
         index = end + 1;
     }

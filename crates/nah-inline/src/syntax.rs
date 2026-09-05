@@ -521,6 +521,11 @@ pub fn lexical_code_exact(code: &str, program: &str) -> (String, Vec<String>, Ve
     (outside, strings, offsets, backtick_exec)
 }
 
+/// Returns (case-preserving outside mask, string values, string source offsets,
+/// static-string flags, executable-backtick flag). The three vectors align by
+/// index; offsets are source byte positions at each string's opening delimiter.
+/// The outside mask replaces strings and comments with spaces while preserving
+/// source byte positions, so scanners can map matches back to `code`.
 pub fn lexical_code_cased(
     code: &str,
     program: &str,

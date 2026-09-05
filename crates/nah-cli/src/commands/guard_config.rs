@@ -69,11 +69,38 @@ pub(crate) struct GuardEntry {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct GuardChange {
-    pub(crate) target: GuardTarget,
-    pub(crate) enabled: bool,
-    pub(crate) expected_hash: Option<String>,
-    pub(crate) reset: bool,
+pub(crate) enum GuardChange {
+    BuiltInEnable {
+        name: String,
+    },
+    BuiltInDisable {
+        name: String,
+    },
+    BuiltInReset {
+        name: String,
+    },
+    CustomEnable {
+        identity: GuardIdentity,
+        expected_hash: String,
+    },
+    CustomDisable {
+        identity: GuardIdentity,
+    },
+}
+
+impl GuardChange {
+    pub(crate) fn target(&self) -> GuardTarget {
+        match self {
+            Self::BuiltInEnable { name }
+            | Self::BuiltInDisable { name }
+            | Self::BuiltInReset { name } => GuardTarget::BuiltIn { name: name.clone() },
+            Self::CustomEnable { identity, .. } | Self::CustomDisable { identity } => {
+                GuardTarget::Custom {
+                    identity: identity.clone(),
+                }
+            }
+        }
+    }
 }
 
 /// Result of one explicit guard mutation, named by its current identity.
@@ -136,42 +163,42 @@ pub(crate) fn reset_guard(name: &str, selector: &GuardSelector) -> Result<GuardM
 }
 
 pub(crate) fn validate_guard_change(change: &GuardChange) -> Result<(), String> {
-    match &change.target {
-        GuardTarget::BuiltIn { name } => {
+    match change {
+        GuardChange::BuiltInEnable { name }
+        | GuardChange::BuiltInDisable { name }
+        | GuardChange::BuiltInReset { name } => {
             if resolve_shipped_guard(name).is_some() {
                 Ok(())
             } else {
                 Err(format!("guard `{name}` was not found"))
             }
         }
-        GuardTarget::Custom { identity } if change.enabled => {
-            let expected_hash = change
-                .expected_hash
-                .as_deref()
-                .ok_or_else(|| "reviewed guard files hash is unavailable".to_owned())?;
-            validate_guard_identity(identity, Some(expected_hash))
-        }
-        GuardTarget::Custom { identity } => validate_guard_identity(identity, None),
+        GuardChange::CustomEnable {
+            identity,
+            expected_hash,
+        } => validate_guard_identity(identity, Some(expected_hash)),
+        GuardChange::CustomDisable { identity } => validate_guard_identity(identity, None),
     }
 }
 
 pub(crate) fn apply_guard_change(change: &GuardChange) -> Result<Vec<String>, String> {
-    match &change.target {
-        GuardTarget::BuiltIn { name } if change.reset => {
+    match change {
+        GuardChange::BuiltInReset { name } => {
             reset_shipped_guard(name).map(|mutation| mutation.warnings)
         }
-        GuardTarget::BuiltIn { name } => {
-            set_shipped_guard(name, change.enabled).map(|mutation| mutation.warnings)
+        GuardChange::BuiltInEnable { name } => {
+            set_shipped_guard(name, true).map(|mutation| mutation.warnings)
         }
-        GuardTarget::Custom { identity } if change.enabled => enable_guard_identity(
+        GuardChange::BuiltInDisable { name } => {
+            set_shipped_guard(name, false).map(|mutation| mutation.warnings)
+        }
+        GuardChange::CustomEnable {
             identity,
-            change
-                .expected_hash
-                .as_deref()
-                .ok_or_else(|| "reviewed guard files hash is unavailable".to_owned())?,
-        )
-        .map(|()| vec![]),
-        GuardTarget::Custom { identity } => disable_guard_identity(identity).map(|()| vec![]),
+            expected_hash,
+        } => enable_guard_identity(identity, expected_hash).map(|()| vec![]),
+        GuardChange::CustomDisable { identity } => {
+            disable_guard_identity(identity).map(|()| vec![])
+        }
     }
 }
 

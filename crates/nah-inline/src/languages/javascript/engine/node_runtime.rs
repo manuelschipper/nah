@@ -184,6 +184,10 @@ pub(super) fn unknown_node_property() -> NodePropertyState {
     }
 }
 
+/// Returns (resulting property state, changes_value, uncertain). `changes_value`
+/// includes possible value/kind changes and new own properties; callers use it to
+/// invalidate module-loader ownership for loader hooks. Independently, `uncertain`
+/// signals an unknown mutation or possible rejection and makes coverage partial.
 pub(super) fn defined_node_property(
     current: NodePropertyState,
     descriptor: Option<&Value>,
