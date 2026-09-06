@@ -31,7 +31,7 @@ pub(crate) fn add(
     for (name, reason) in [
         (
             FS_AUTH_IDENTITY,
-            "fs-auth-identity blocked a change to host authentication, identity, or privilege policy; do not retry through another tool; if this host administration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-auth-identity`, then re-enable it after the change",
+            "fs-auth-identity blocked modification or deletion affecting host authentication, identity, or privilege-policy files; this includes recursive deletion of their parent directories; do not retry through another tool; ask the operator to perform any intended change",
         ),
         (
             FS_SYSTEM_TREE,

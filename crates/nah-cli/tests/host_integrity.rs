@@ -63,7 +63,6 @@ fn factory_posture_delegates_shell_profiles_and_blocks_persistence_and_auth_iden
         auth_result.core().policy_attributions()[0].name(),
         "fs-auth-identity"
     );
-    assert!(auth_result.core().reason().contains("nah tui"));
 }
 
 #[test]

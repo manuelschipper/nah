@@ -130,7 +130,6 @@ fn host_integrity_guards_are_independent_and_require_mutation() {
             .unwrap();
             assert_eq!(decision.verdict(), Verdict::Block, "{guard} {operation:?}");
             assert_eq!(decision.policy_attributions()[0].name(), guard);
-            assert!(decision.reason().contains("nah tui"));
         }
         let read = nah_policy::decide(
             &host_integrity_stream(FilesystemOperation::Read, class),

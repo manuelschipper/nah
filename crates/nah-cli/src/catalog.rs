@@ -294,7 +294,7 @@ fn family(name: &str) -> GuardFamily {
 fn behavior(name: &str) -> &'static str {
     match name {
         "fs-auth-identity" => {
-            "Blocks changes to reviewed host authentication, identity, and privilege-policy paths."
+            "Protects reviewed host authentication, identity, and privilege-policy files from modification or deletion, including recursive deletion of their parent directories."
         }
         "exec-decoded" => "Blocks execution reached from a visible decode stage.",
         "exec-network-shell" => {

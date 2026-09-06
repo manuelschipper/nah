@@ -56,7 +56,7 @@ and **host power and service-stop actions**.
 | `fs-raw-device` | Visible writes to raw storage devices and the sysrq trigger. |
 | `fs-volume-destroy` | Definite logical-volume, storage-pool, and live ZFS dataset destruction. |
 | `fs-forkbomb` | Structurally recognized shell fork-bomb patterns. |
-| `fs-auth-identity` | Changes to reviewed host authentication, identity, and privilege-policy paths. |
+| `fs-auth-identity` | Modification or deletion of reviewed host authentication, identity, and privilege-policy files, including recursive deletion of their parent directories. |
 | `fs-shell-profile` | Changes to reviewed user shell profile paths. Off by default. |
 | `fs-startup-management` | Reviewed persistent `systemctl`, `launchctl`, and `crontab` management commands. Off by default. |
 | `fs-startup-persistence` | Changes to reviewed service, schedule, login, autostart, and loader startup paths. |
