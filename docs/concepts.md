@@ -2,42 +2,42 @@
 
 ## Effects and coverage
 
-nah lowers visible tool calls into typed invocation, filesystem, Git, network,
-and system-state effects. Observation resolves cwd, roots, paths, and environment.
+nah lowers calls into typed invocation, filesystem, Git, network, and
+system-state effects. Observation resolves cwd, roots, paths, and environment.
 
-Coverage is `full` when every guard-relevant visible input is preserved; it does
-not mean nah understands an opaque program. Unresolved arguments, code, or
-fields are `partial`.
+`full` coverage preserves every guard-relevant visible input, without claiming
+to understand opaque programs. Unresolved arguments, code, or fields are `partial`.
 
-For Bash, nah parses pipelines, control flow, subshells, and redirects into
-stages and data-flow edges. Unresolved shell state makes the stream partial.
+Bash pipelines, control flow, subshells, and redirects become stages and
+data-flow edges. Unresolved shell state makes coverage partial.
 
 Visible source stays a `code-execution` effect. Python and JavaScript/TypeScript
-grammars lower to owned HIRs; bounded interpreters follow runtime semantics
-without execution. PowerShell and cmd have separate static tokenizers. IPython
-handles magics. TypeScript and TSX ignore reviewed type-only syntax for
-JavaScript runtime semantics; nah does not type-check or run the full
-TypeScript compiler. Other languages use narrow detectors.
+use owned HIRs and bounded interpreters without execution. PowerShell and cmd
+use static tokenizers; IPython handles magics. TypeScript/TSX ignore
+reviewed type-only syntax, following JavaScript semantics without type-checking
+or the TypeScript compiler. Other languages use narrow detectors.
 
 Profiles own only proven Node, Deno, Bun, OpenClaw QuickJS, or Prime current-cell
 APIs. Rebinding or visible mutation removes ownership; hidden state is unknown.
 Generic JavaScript owns none.
 
-Exact child argv and cwd are nested; missing or non-directory cwd prevents the
-child. Unawaited JavaScript applies state only through its first `await`.
+Exact child argv/cwd are nested; missing or non-directory cwd prevents the child.
+Unawaited JavaScript applies state only through its first `await`.
 `Deno.Command` reads options and cwd when consumed.
 
-Only proven Bash has full lowering. `sh` is a portable subset;
+Only proven Bash lowers fully. `sh` is a portable subset;
 dialect-sensitive state and redirects stay partial. `powershell`, `pwsh`, and
 `cmd` share reviewed typed effects. Other syntax, custom shells, Bun's `$`,
 and `bun exec` stay partial; sinks vanish only after a proven throw.
 
-From each interpreted source, at most 64 modeled language calls enter the public
-ActionStream for custom guards, dry-run JSON, and records. Saturation makes
-coverage partial. Built-ins continue on a per-source language-safety projection
-capped at 256 calls and 4,096 flows, so later modeled danger can still block.
+Per source, the public ActionStream (custom guards, dry-run JSON, records) admits
+64 modeled language calls; overflow makes coverage partial. Built-ins retain a
+separate 256-call, 4,096-flow projection to block later danger.
 Fail-closed records these bounds as `language-call-limit` or
 `language-safety-limit` analysis refusals.
+Command-like arguments to unknown programs trigger analysis refusal; reviewed
+subcommand programs are exempt if their first argument is a static verb that
+cannot run a command (no leading options).
 
 ## Verdicts and failures
 

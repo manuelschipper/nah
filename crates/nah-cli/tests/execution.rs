@@ -621,13 +621,19 @@ fn opaque_wrapper_boundaries_delegate_when_no_guard_has_evidence() {
     let repo = repo(temp.path());
     let context = execution_ctx(temp.path());
 
-    for command in [
-        "ltrace -f bash -c 'rm -rf /'",
-        "firejail --private bash -c 'rm -rf /'",
-        "dbus-run-session --config-file=/tmp/x bash -c 'rm -rf /'",
-        "proot -R / bash -c 'rm -rf /'",
-        "watch --unknown 'rm -rf /'",
-        "cargo install --root /tmp/tools ripgrep --locked",
+    for (command, coverage) in [
+        ("ltrace -f bash -c 'rm -rf /'", Coverage::Partial),
+        ("firejail --private bash -c 'rm -rf /'", Coverage::Partial),
+        (
+            "dbus-run-session --config-file=/tmp/x bash -c 'rm -rf /'",
+            Coverage::Partial,
+        ),
+        ("proot -R / bash -c 'rm -rf /'", Coverage::Partial),
+        ("watch --unknown 'rm -rf /'", Coverage::Partial),
+        (
+            "cargo install --root /tmp/tools ripgrep --locked",
+            Coverage::Full,
+        ),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -635,7 +641,7 @@ fn opaque_wrapper_boundaries_delegate_when_no_guard_has_evidence() {
             |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
         );
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
-        assert_eq!(result.core().coverage(), Coverage::Partial, "{command}");
+        assert_eq!(result.core().coverage(), coverage, "{command}");
         assert!(result.core().policy_attributions().is_empty(), "{command}");
     }
 }
