@@ -108,16 +108,121 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
         );
     }
 
-    for destination in [
-        "main",
-        "master",
-        "refs/heads/main",
-        "refs/heads/master",
-        "+feature:main",
-        "+HEAD:refs/heads/master",
+    for (source, expected) in [
+        (
+            "git push --force-with-lease origin main",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease origin master",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease origin refs/heads/main",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease origin refs/heads/master",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease origin +feature:main",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease=refs/heads/master origin +HEAD:master",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease=main:abc123 origin HEAD:refs/heads/main",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease=main: origin main",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease=feature --force-with-lease=master origin feature HEAD:master",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease --no-force origin main",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease --dry-run --no-dry-run origin main",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-w origin main",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease -o main -- origin HEAD:master",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force origin main",
+            vec!["force-push", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease=other origin +main",
+            vec!["force-push", "history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease=feature origin main",
+            vec!["history-rewrite", "protected-push"],
+        ),
+        (
+            "git push --force-with-lease origin main:feature",
+            vec!["history-rewrite"],
+        ),
+        (
+            "git push --force-with-lease=refs/heads/feature origin +feature",
+            vec!["history-rewrite"],
+        ),
+        (
+            "git push --force-with-lease=feature origin +HEAD:refs/heads/feature",
+            vec!["history-rewrite"],
+        ),
+        (
+            "git push --force-with-lease origin :main",
+            vec!["history-rewrite"],
+        ),
+        (
+            "git push --force-with-lease --delete origin main",
+            vec!["history-rewrite"],
+        ),
+        (
+            "git push --force-with-lease --all origin",
+            vec!["history-rewrite"],
+        ),
+        (
+            "git push --force-with-lease origin 'refs/heads/*:refs/heads/*'",
+            vec!["history-rewrite"],
+        ),
+        (
+            "git push --force-with-lease --unknown origin main",
+            vec!["history-rewrite"],
+        ),
+        (
+            "git push --force-with-lease origin \"$REF\"",
+            vec!["history-rewrite"],
+        ),
+        (
+            "git push --force-with-lease -o main origin feature",
+            vec!["history-rewrite"],
+        ),
+        (
+            "git push --force-with-lease --no-force-with-lease origin main",
+            vec!["protected-push"],
+        ),
+        ("git push --force-with-lease --dry-run origin main", vec![]),
+        ("git push --force-with-lease --help origin main", vec![]),
+        ("git push --force-with-lease --version origin main", vec![]),
+        ("git push --force --unknown origin main", vec!["force-push"]),
     ] {
-        let source = format!("git push --force-with-lease origin {destination}");
-        let plan = bash_plan(&source);
+        let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");
         let stream = finalize(plan, observation);
         let operations = stream
@@ -128,11 +233,7 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
                 _ => None,
             })
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(
-            operations,
-            std::collections::BTreeSet::from(["history-rewrite", "protected-push"]),
-            "{source}"
-        );
+        assert_eq!(operations, expected.into_iter().collect(), "{source}");
     }
 
     for source in [
@@ -241,11 +342,6 @@ fn git_history_rewrite_evidence_is_complementary_and_recovery_safe() {
         ("git filter-repo --force", "rewrite-force"),
         ("git reflog expire --all --expire=now", "recovery-destroy"),
         ("git gc --aggressive --prune=now", "recovery-destroy"),
-        ("git push --force-with-lease --force", "force-push"),
-        (
-            "git push --force-with-lease=other origin +main",
-            "force-push",
-        ),
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");

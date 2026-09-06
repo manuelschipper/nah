@@ -31,13 +31,6 @@ fn git_guards_block_only_their_one_sentence_operation() {
         let decision = nah_policy::decide(&stream, &guard_policy(guard, true), &[]).unwrap();
         assert_eq!(decision.verdict(), Verdict::Block, "{guard}");
         assert_eq!(decision.policy_attributions()[0].name(), guard);
-        if guard == "git-force-push" {
-            assert!(
-                decision
-                    .reason()
-                    .contains("before using --force-with-lease")
-            );
-        }
 
         let disabled = nah_policy::decide(&stream, &guard_policy(guard, false), &[]).unwrap();
         assert_eq!(disabled.verdict(), Verdict::Delegate, "{guard}");
