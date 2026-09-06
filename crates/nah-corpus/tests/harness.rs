@@ -5,7 +5,9 @@
 
 use std::path::Path;
 
-use nah_corpus::{corpus_dir, load_cases, load_fixtures, load_summary, reconcile};
+use nah_corpus::{
+    Expectation, ExpectedVerdict, corpus_dir, load_cases, load_fixtures, load_summary, reconcile,
+};
 
 #[test]
 fn every_case_is_executed_green_or_an_observed_expected_failure() {
@@ -45,6 +47,35 @@ fn corpus_loads_clean() {
         summary.malformed.join("\n")
     );
     assert_eq!(summary.cases, 1911);
+}
+
+#[test]
+fn every_default_enabled_shipped_guard_has_a_blocking_row() {
+    let cases = load_cases(&corpus_dir()).expect("load corpus");
+    let guards = nah_cli::shipped_guard_states();
+    let mut counts = guards
+        .iter()
+        .map(|guard| (guard.name(), 0usize))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for case in &cases {
+        if let Expectation::Decision {
+            verdict: ExpectedVerdict::Block,
+            guard: Some(guard),
+            ..
+        } = &case.expected
+        {
+            *counts.entry(guard.as_str()).or_default() += 1;
+        }
+    }
+    let missing = guards
+        .iter()
+        .filter(|guard| guard.enabled() && counts[guard.name()] == 0)
+        .map(|guard| guard.name())
+        .collect::<Vec<_>>();
+    assert!(
+        missing.is_empty(),
+        "default-enabled guards without blocking rows: {missing:?}\nblocking rows per guard: {counts:#?}"
+    );
 }
 
 #[test]

@@ -33,6 +33,14 @@ exact expected verdict, guard, and coverage define the behavior under test.
 Context fixtures name either the compiled factory posture or the intentionally
 all-enabled posture; tests must not assume those are equivalent.
 
+### Depth budget
+
+A new corpus row or lowering branch that only refines an already-blocked shape
+(another spelling, encoding, hostname form, or option cluster) must cite the threat
+it closes in the row ID or a `TRIAGE.md` note; do not add a row that only proves a
+parser variant when the shape is already blocked under every posture.
+Breadth work for a family with zero rows needs no such justification.
+
 ## Check
 
 ```sh

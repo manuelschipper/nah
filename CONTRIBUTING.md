@@ -34,6 +34,9 @@ cargo test --workspace --locked
 Use `nah test "..."` when you want to dry-run the decision pipeline on a
 command without executing it.
 
+Follow the corpus [depth budget](corpus/README.md#depth-budget) when adding corpus
+rows or lowering branches.
+
 ## Pull requests
 
 - Create a branch from `main`.
