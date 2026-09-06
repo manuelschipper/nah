@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## nah 1.5.0 — Sep 6, 2026
 
 - **Hosted Git resource deletion guard** — Optional
   `git-remote-resource-delete` blocks statically targeted GitHub and GitLab

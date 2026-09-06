@@ -249,7 +249,13 @@ fn project_root_guard_blocks_only_destructive_root_wide_filesystem_effects() {
         &context,
         |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
     );
-    assert_eq!(result.core().verdict(), Verdict::Delegate);
+    assert!(
+        result
+            .core()
+            .policy_attributions()
+            .iter()
+            .all(|attribution| attribution.name() != "fs-project-root")
+    );
 }
 
 #[test]

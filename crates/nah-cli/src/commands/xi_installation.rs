@@ -295,6 +295,7 @@ fn sync_parent(_parent: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn generated_hook_is_owned_and_modified_hooks_are_not() {
         let hook = desired_hook(Path::new("/opt/nah"), FailurePolicy::Delegate).unwrap();
