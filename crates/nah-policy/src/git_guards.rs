@@ -34,7 +34,7 @@ pub(crate) fn add(
         (
             "git-force-push",
             &SemanticCode::FORCE_PUSH,
-            "git-force-push blocked a force push without lease protection; fetch and review remote changes; ask the operator to verify the refs before using --force-with-lease",
+            "git-force-push blocked a force push without lease protection or to an explicit main/master destination; push a feature branch without force, or ask the operator to perform the intended history rewrite",
         ),
         (
             "git-hard-reset",

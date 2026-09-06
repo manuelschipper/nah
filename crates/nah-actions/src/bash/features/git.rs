@@ -806,7 +806,7 @@ fn push_operations(arguments: &[Word]) -> Vec<&'static str> {
     let mut repository = false;
     let mut delete = false;
     let mut all = false;
-    let mut protected_destination = false;
+    let mut protected_destinations = Vec::new();
     let mut protected_parse = true;
     let mut dry_run = false;
     let mut index = 0;
@@ -924,7 +924,11 @@ fn push_operations(arguments: &[Word]) -> Vec<&'static str> {
                     index += 2;
                     continue;
                 }
-                _ => protected_destination |= protected_push_refspec(&argument),
+                _ => {
+                    if let Some(destination) = protected_push_refspec(&argument) {
+                        protected_destinations.push(destination.to_owned());
+                    }
+                }
             }
             index += 1;
             continue;
@@ -935,8 +939,8 @@ fn push_operations(arguments: &[Word]) -> Vec<&'static str> {
             } else if argument == "tag" {
                 index += 2;
                 continue;
-            } else {
-                protected_destination |= protected_push_refspec(&argument);
+            } else if let Some(destination) = protected_push_refspec(&argument) {
+                protected_destinations.push(destination.to_owned());
             }
         }
         index += 1;
@@ -944,16 +948,28 @@ fn push_operations(arguments: &[Word]) -> Vec<&'static str> {
     if dry_run {
         return Vec::new();
     }
+    let lease_applies = |destination: &str| {
+        all_refs_leased
+            || leased_refs.iter().any(|leased: &String| {
+                leased.strip_prefix("refs/heads/").unwrap_or(leased)
+                    == destination
+                        .strip_prefix("refs/heads/")
+                        .unwrap_or(destination)
+            })
+    };
+    let protected_push = protected_parse && !protected_destinations.is_empty() && !delete && !all;
+    let mut operations = Vec::new();
     if explicit_force
         || mirror
-        || forced_refs
-            .iter()
-            .any(|forced| !all_refs_leased && !leased_refs.iter().any(|leased| leased == forced))
+        || forced_refs.iter().any(|forced| !lease_applies(forced))
+        || (protected_push
+            && protected_destinations
+                .iter()
+                .any(|destination| lease_applies(destination)))
     {
-        return vec!["force-push"];
+        operations.push("force-push");
     }
-    let mut operations = Vec::new();
-    if protected_parse && protected_destination && !delete && !all {
+    if protected_push {
         operations.push("protected-push");
     }
     if force_with_lease {
@@ -962,10 +978,10 @@ fn push_operations(arguments: &[Word]) -> Vec<&'static str> {
     operations
 }
 
-fn protected_push_refspec(argument: &str) -> bool {
+fn protected_push_refspec(argument: &str) -> Option<&str> {
     let refspec = argument.strip_prefix('+').unwrap_or(argument);
     let destination = match refspec.split_once(':') {
-        Some(("", _)) => return false,
+        Some(("", _)) => return None,
         Some((_, destination)) => destination,
         None => refspec,
     };
@@ -973,6 +989,7 @@ fn protected_push_refspec(argument: &str) -> bool {
         destination,
         "main" | "master" | "refs/heads/main" | "refs/heads/master"
     )
+    .then_some(destination)
 }
 
 fn push_option_takes_value(argument: &str) -> bool {

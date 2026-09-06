@@ -32,7 +32,8 @@
   covers publication across npm-compatible registries, Cargo, RubyGems, Python,
   and NuGet.
 - **Git safety guards** — Existing default-on guards now protect clearing the full
-  stash collection and forced worktree removal or submodule deinitialization.
+  stash collection, forced worktree removal or submodule deinitialization, and
+  leased force pushes explicitly targeting main or master.
   Optional `git-ref-delete` covers reviewed ref, stash, and worktree deletion, while optional `git-path-discard` covers definite named-path
   checkout, restore, and same-path `git show` overwrites. Optional
   `git-history-rewrite` covers rebases, unforced filtering, recovery expiry,

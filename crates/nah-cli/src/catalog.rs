@@ -328,7 +328,9 @@ fn behavior(name: &str) -> &'static str {
             "Blocks deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree."
         }
         "git-clean-force" => "Blocks an effective forced Git clean selecting the project root.",
-        "git-force-push" => "Blocks Git force-push operations that do not use force-with-lease.",
+        "git-force-push" => {
+            "Blocks Git force pushes without lease protection and leased pushes to explicit static main/master destinations. Leases must apply to the destination; bare pushes, --all, wildcard refspecs, and unresolved destinations do not establish main/master."
+        }
         "git-hard-reset" => "Blocks Git hard resets.",
         "git-history-rewrite" => {
             "Blocks selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes, including explicit static refspecs targeting `main` or `master`."
@@ -497,7 +499,7 @@ fn examples(name: &str) -> Vec<&'static str> {
         "git-force-push" => [
             "git push --force",
             "git push origin +main",
-            "git push --force-with-lease=other origin +main",
+            "git push --force-with-lease origin main",
         ],
         "git-protected-push" => [
             "git push origin main",

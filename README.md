@@ -61,7 +61,7 @@ and **host power and service-stop actions**.
 | `fs-startup-management` | Reviewed persistent `systemctl`, `launchctl`, and `crontab` management commands. Off by default. |
 | `fs-startup-persistence` | Changes to reviewed service, schedule, login, autostart, and loader startup paths. |
 | `git-clean-force` | An effective forced Git clean selecting the project root. |
-| `git-force-push` | Git force-push operations that do not use force-with-lease. |
+| `git-force-push` | Git force pushes without lease protection and leased force pushes explicitly targeting main or master. |
 | `git-hard-reset` | Git hard resets. |
 | `git-history-rewrite` | Selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes, including explicit static refspecs targeting `main` or `master`. Off by default. |
 | `git-rewrite-force` | History rewriting that explicitly bypasses safety or backup checks. |
