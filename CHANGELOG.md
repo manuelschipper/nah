@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Subcommand coverage** — Invocations such as `git rm`, `npm rm`, `docker cp`,
+  and `kubectl cp` no longer report partial coverage as analysis refusals.
 - **Hosted Git resource deletion guard** — Optional
   `git-remote-resource-delete` blocks statically targeted GitHub and GitLab
   release, issue, secret, variable, key, hook, environment, gist, and Actions

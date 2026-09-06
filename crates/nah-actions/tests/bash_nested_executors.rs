@@ -1,7 +1,7 @@
 mod support;
 
 use nah_actions::finalize;
-use nah_proto::action::{EffectKind, FilesystemOperation, InvocationEffect, Sensitivity};
+use nah_proto::action::{Coverage, EffectKind, FilesystemOperation, InvocationEffect, Sensitivity};
 use support::{absolute, bash_plan, observe};
 
 #[test]
@@ -175,4 +175,55 @@ fn find_selector_scope_marks_only_the_substituted_permission_target_recursive() 
         "{source}: {:?}",
         stream.effects()
     );
+}
+
+#[test]
+fn subcommand_verbs_exempt_only_non_executor_invocations_from_analysis_refusal() {
+    for (source, exempt) in [
+        ("git rm file.txt", true),
+        ("npm rm lodash", true),
+        ("docker cp web:/x ./y", true),
+        ("kubectl cp pod:/x ./y", true),
+        ("foo rm x", false),
+        ("git -C sub rm file.txt", false),
+        ("docker exec web rm -rf /", false),
+        ("npm exec -- rm -rf /", false),
+        ("op run -- rm -rf /", false),
+    ] {
+        let plan = bash_plan(source);
+        let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert_eq!(
+            stream.coverage(),
+            if exempt {
+                Coverage::Full
+            } else {
+                Coverage::Partial
+            },
+            "{source}"
+        );
+        assert!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::Opaque { .. }
+                }
+            )),
+            "{source}"
+        );
+        assert_eq!(
+            stream.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::SystemState { operation } if operation.as_str() == "analysis-refused"
+            )),
+            !exempt,
+            "{source}"
+        );
+        assert!(
+            !stream
+                .effects()
+                .iter()
+                .any(|effect| matches!(effect.kind(), EffectKind::Filesystem { .. })),
+            "{source}"
+        );
+    }
 }

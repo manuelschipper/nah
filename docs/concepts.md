@@ -38,6 +38,10 @@ coverage partial. Built-ins continue on a per-source language-safety projection
 capped at 256 calls and 4,096 flows, so later modeled danger can still block.
 Fail-closed records these bounds as `language-call-limit` or
 `language-safety-limit` analysis refusals.
+An unknown program whose arguments look like a command also triggers an analysis
+refusal; reviewed programs with subcommand grammars are exempt when the first
+argument is a static verb, unless that verb runs a command (leading global options
+remain unexempted).
 
 ## Verdicts and failures
 

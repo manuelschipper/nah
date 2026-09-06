@@ -159,6 +159,32 @@ pub(crate) fn hides_deferred_code(program: &str, arguments: &[Word]) -> bool {
         && matches!(arguments, [handler, _signal, ..] if static_argument(handler).is_none())
 }
 
+/// Reviewed subcommand verbs do not hide nested commands. Leading global
+/// options stay unexempted because their value-taking rules are program-specific.
+pub(crate) fn subcommand_verb_exempts_scan(program: &str, arguments: &[Word]) -> bool {
+    let Some(verb) = arguments.first().and_then(static_argument) else {
+        return false;
+    };
+    if verb.starts_with('-') {
+        return false;
+    }
+    let exec_verbs: &[&str] = match program {
+        "npm" => &["exec", "run", "run-script", "x", "explore"],
+        "pnpm" => &["exec", "run", "dlx"],
+        "yarn" => &["exec", "run", "dlx", "node"],
+        "cargo" | "rustup" | "snap" | "flatpak" | "op" | "doppler" => &["run"],
+        "gh" => &["extension"],
+        "brew" => &["sh", "bundle"],
+        "docker" | "podman" | "nerdctl" => &["run", "exec", "compose", "container"],
+        "kubectl" => &["exec", "run", "debug"],
+        "git" | "pip" | "pip3" | "gem" | "glab" | "helm" | "systemctl" | "journalctl"
+        | "terraform" | "tofu" | "pulumi" | "vault" | "apt" | "apt-get" | "dnf" | "yum"
+        | "pacman" => &[],
+        _ => return false,
+    };
+    !exec_verbs.contains(&verb.as_str())
+}
+
 /// `trap <handler> <signal>...` defers shell code that runs later, so the
 /// handler lowers like any other payload. `-` restores the default, an empty
 /// handler ignores the signal, and the option forms only report existing traps.

@@ -26,7 +26,7 @@ use crate::bash_self_protection::{
     protected_cargo_install_operation, protected_git_operation,
 };
 use crate::bash_state::{BindingAttribute, known_cwd};
-use crate::bash_wrappers::hides_deferred_code;
+use crate::bash_wrappers::{hides_deferred_code, subcommand_verb_exempts_scan};
 use crate::shell_word::static_word;
 
 pub(super) struct AnalyzedCommand<'a> {
@@ -505,7 +505,10 @@ impl Lowerer {
         if matches!(invocation, InvocationDraft::Opaque { .. })
             && lowered_payload.is_none()
             && lowered_executors.is_empty()
-            && (!recognized_command && self.arguments_may_run_a_command(&local_arguments)
+            && (!recognized_command
+                && !matches!(&program, ProgramDraft::Static(program)
+                    if subcommand_verb_exempts_scan(program, &local_arguments))
+                && self.arguments_may_run_a_command(&local_arguments)
                 || matches!(&program, ProgramDraft::Static(program)
                     if hides_deferred_code(program, &local_arguments)))
         {
