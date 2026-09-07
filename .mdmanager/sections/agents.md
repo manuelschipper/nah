@@ -22,6 +22,18 @@ Edit this guidance in `.mdmanager/sections/agents.md`, then run
 `mdmanager project apply agents`. `.mdmanager/project.toml` owns the
 composition; `AGENTS.md` is generated and `CLAUDE.md` links to it.
 
+## Build and test layout
+
+Integration tests are one binary per crate: `crates/<crate>/tests/suite/main.rs`
+declares each sibling file as a module. Add new integration tests there, not
+as top-level `tests/*.rs` files, and run one module with
+`cargo test -p <crate> --test suite <module>::`.
+
+Build output stays under one profile. Never set `CARGO_PROFILE_*` or
+`CARGO_INCREMENTAL` environment variables and do not pass `--release`: every
+distinct profile value makes Cargo link a second full copy of every test
+binary under `target/`, and each sddr worktree carries its own `target/`.
+
 ## Built-in guard design
 
 Build guards around a concrete loss or exposure that Nah can establish from

@@ -20,3 +20,14 @@ edition = "2024"
 rust-version = "1.91.1"
 license = "MIT"
 publish = false
+
+# Keep dev and test identical so `cargo build`, `cargo run`, and `cargo test`
+# share one artifact set, and keep debuginfo off so linked test binaries stay
+# small. Do not override these through CARGO_PROFILE_* or CARGO_INCREMENTAL
+# environment variables: each distinct value makes Cargo build a full second
+# copy of the workspace under the same target directory.
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
