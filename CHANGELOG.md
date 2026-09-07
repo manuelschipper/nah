@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## nah 1.5.0 — Sep 6, 2026
 
 - **Subcommand coverage** — Invocations such as `git rm`, `npm rm`, `docker cp`,
   and `kubectl cp` no longer report partial coverage as analysis refusals.

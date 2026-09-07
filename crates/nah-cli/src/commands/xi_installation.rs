@@ -291,7 +291,7 @@ fn sync_parent(_parent: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
