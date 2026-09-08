@@ -21,6 +21,7 @@ mod invocation_flow;
 mod payload;
 mod positionals;
 mod tar_state;
+mod terminal_launch;
 mod variables;
 mod word_resolution;
 mod words;

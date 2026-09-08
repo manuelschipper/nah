@@ -38,7 +38,8 @@ use bash::features::{
     self_protection as bash_self_protection, semantics as bash_semantics, socat as bash_socat,
     startup_persistence as bash_startup_persistence, state as bash_state, storage as bash_storage,
     symlinks as bash_symlinks, tar as bash_tar, targets as bash_targets,
-    transforms as bash_transforms, wrappers as bash_wrappers,
+    terminal_control as bash_terminal_control, transforms as bash_transforms,
+    wrappers as bash_wrappers,
 };
 mod codex_patch;
 mod language_effects;
@@ -497,8 +498,18 @@ fn finalize_inner(
             let Ok(invocation) = EffectKind::opaque_with_input(&tool, input) else {
                 return partial();
             };
-            let invocation = invocation.with_invocation_cwd(cwd.clone());
-            (coverage, vec![vec![invocation]], vec![])
+            let mut complete = coverage == Coverage::Full;
+            let invocation = bash_terminal_control::invocation(invocation, &mut complete)
+                .with_invocation_cwd(cwd.clone());
+            (
+                if complete {
+                    Coverage::Full
+                } else {
+                    Coverage::Partial
+                },
+                vec![vec![invocation]],
+                vec![],
+            )
         }
         Draft::Native(native::Draft::Unsupported) => return partial(),
         Draft::Bash(draft) => {
@@ -702,6 +713,7 @@ fn filesystem_effect(
         critical_paths,
         platform,
         false,
+        operation == nah_proto::action::FilesystemOperation::Delete,
     );
     let host_integrity = [
         host_integrity_class(
@@ -776,6 +788,7 @@ fn lexical_filesystem_effect(
         critical_paths,
         platform,
         false,
+        operation == nah_proto::action::FilesystemOperation::Delete,
     );
     let host_integrity = host_integrity_class(
         operation,

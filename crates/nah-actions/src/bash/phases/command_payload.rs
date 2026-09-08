@@ -280,7 +280,7 @@ impl Lowerer {
         } else {
             Lowered::default()
         };
-        let lowered_payload = payload.and_then(|(payload, transparent, execution)| {
+        let mut lowered_payload = payload.and_then(|(payload, transparent, execution)| {
             if !self.enter_payload(payload.len()) {
                 return None;
             }
@@ -382,6 +382,16 @@ impl Lowerer {
             self.payload_depth -= 1;
             lowered
         });
+        if matches!(program, ProgramDraft::Static(program) if program == "tmux")
+            && let Some(source) = crate::bash_terminal_control::tmux_launch(local_arguments)
+        {
+            // Tmux's server context is unknown, including its shell configuration.
+            self.complete = false;
+            let lowered = self.lower_terminal_launch(&source);
+            if !lowered.stages.is_empty() {
+                lowered_payload = Some((lowered, false));
+            }
+        }
         let variables = self.visible_variables();
         let mut executor_candidates = match program {
             ProgramDraft::Static(program) => executor_payloads(

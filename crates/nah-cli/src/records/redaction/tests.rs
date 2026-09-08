@@ -1165,3 +1165,64 @@ fn records_without_an_effinterp_stream_keep_their_pinned_bytes() {
         serde_json::to_string(&without_plan).unwrap()
     );
 }
+
+#[test]
+fn terminal_content_and_selectors_never_enter_audit_records() {
+    use nah_proto::action::{
+        ActionStream, InvocationEffect, TerminalCarrier, TerminalContent, TerminalControl,
+        TerminalOperation,
+    };
+    const SECRET: &str = "terminal-secret-sentinel";
+    for operation in [
+        TerminalOperation::Input,
+        TerminalOperation::AgentPrompt,
+        TerminalOperation::InputAndSubmit,
+    ] {
+        let input = InvocationInput::shell(
+            "herdr",
+            vec!["herdr".into(), SECRET.into()],
+            Some(vec!["herdr".into(), SECRET.into()]),
+        );
+        let stream = ActionStream::new(
+            Coverage::Partial,
+            vec![vec![EffectKind::Invocation {
+                invocation: InvocationEffect::TerminalControl {
+                    program: "herdr".into(),
+                    input,
+                    cwd: None,
+                    control: TerminalControl {
+                        carrier: TerminalCarrier::Herdr,
+                        target: Some(SECRET.into()),
+                        selector: Some(SECRET.into()),
+                        operation,
+                        content: TerminalContent::Literal {
+                            text: SECRET.into(),
+                        },
+                        candidate: None,
+                    },
+                },
+            }]],
+            vec![],
+        )
+        .unwrap();
+        let call = ToolCallInput::new(
+            nah_proto::ctx::SchemaVersion::V1,
+            "Bash",
+            serde_json::json!({"command":SECRET}),
+            "/repo",
+            None,
+        )
+        .unwrap();
+        let core = DecisionCore::new(&stream, Verdict::Delegate, vec![]).unwrap();
+        let record = AuditRecordV1::redact(
+            &call,
+            &stream,
+            &core,
+            DecisionEnvelope::new("terminal-redaction", "2026-07-23T12:00:00Z", 9).unwrap(),
+            "claude",
+            AuditDiagnostics::new(&[], &[], &[]),
+        );
+        assert!(!serde_json::to_string(&record).unwrap().contains(SECRET));
+        assert!(!record.explanation().contains(SECRET));
+    }
+}

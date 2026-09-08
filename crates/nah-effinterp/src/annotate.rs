@@ -108,6 +108,8 @@ fn annotate_path(
         critical_paths,
         ctx.platform(),
         pattern,
+        operation == FilesystemOperation::Delete
+            || recursive && effect.attributes.get("metadata") == Some(&AttrValue::Bool(true)),
     );
     let host_integrity = host_integrity_class(
         operation,

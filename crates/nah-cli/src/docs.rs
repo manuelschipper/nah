@@ -159,7 +159,7 @@ const TOPICS: &[Topic] = &[
         "security",
         "Review nah's enforcement and trust boundaries.",
         "../../../docs/security.md",
-        6_144
+        8_192
     ),
     topic!(
         "threat-model",

@@ -753,7 +753,7 @@ fn finalize_invocation(
     observation: &Observation,
     complete: &mut bool,
 ) -> Option<EffectKind> {
-    Some(match invocation {
+    let effect = match invocation {
         InvocationDraft::Opaque {
             program,
             words,
@@ -896,7 +896,8 @@ fn finalize_invocation(
                 }
             }
         }
-    })
+    };
+    Some(crate::bash_terminal_control::invocation(effect, complete))
 }
 
 fn add_observed_identity_flows(
@@ -996,12 +997,18 @@ fn mark_observed_network_reads(stages: &mut [StageDraft], flows: &[(usize, usize
     }
     let mut incomplete = false;
     for stage in reachable {
+        let unknown_context = stages[stage].invocation_cwd.is_none();
         for filesystem in &mut stages[stage].filesystems {
             if filesystem.operation != FilesystemOperation::Read || !filesystem.content_access {
                 continue;
             }
             filesystem.network_bound = true;
-            if (filesystem.recursive || filesystem.pattern) && filesystem.descendant_key.is_none() {
+            // A receiver with no observation context cannot turn unknown descendants
+            // into sensitive content. Keep lexical sensitivity and credential-search intent.
+            if (filesystem.recursive || filesystem.pattern)
+                && filesystem.descendant_key.is_none()
+                && !(unknown_context && filesystem.key.is_none())
+            {
                 filesystem.unresolved_selection = true;
                 incomplete = true;
             }
@@ -1336,6 +1343,8 @@ fn classify_filesystem(
         critical_paths,
         platform,
         pattern,
+        filesystem.operation == FilesystemOperation::Delete
+            || filesystem.recursive && !filesystem.content_access,
     );
     if filesystem.protects_descendants {
         direct_protection = strongest_protection(
@@ -1350,6 +1359,8 @@ fn classify_filesystem(
                 critical_paths,
                 platform,
                 pattern,
+                filesystem.operation == FilesystemOperation::Delete
+                    || filesystem.recursive && !filesystem.content_access,
             ),
         );
     }
@@ -1367,6 +1378,8 @@ fn classify_filesystem(
                 critical_paths,
                 platform,
                 false,
+                filesystem.operation == FilesystemOperation::Delete
+                    || filesystem.recursive && !filesystem.content_access,
             )
         });
     let host_integrity = [

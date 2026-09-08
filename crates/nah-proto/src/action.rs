@@ -275,9 +275,108 @@ impl fmt::Display for SemanticCode {
     }
 }
 
+/// Terminal delivery describes bytes and transport actions, never receiver execution.
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalControl {
+    pub carrier: TerminalCarrier,
+    pub target: Option<String>,
+    pub selector: Option<String>,
+    pub operation: TerminalOperation,
+    pub content: TerminalContent,
+    pub candidate: Option<TerminalCandidate>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalCarrier {
+    Herdr,
+    Tmux,
+    OpenclawProcess,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalOperation {
+    Input,
+    Submit,
+    InputAndSubmit,
+    PasteUnknownBuffer,
+    AgentPrompt,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum TerminalContent {
+    Literal { text: String },
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalCandidate {
+    pub operation: ProtectedNahOperation,
+    pub tier: NahProtectionTier,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProtectedNahOperation {
+    Nap,
+    Maintenance,
+}
+
+impl fmt::Debug for TerminalControl {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TerminalControl")
+            .field("carrier", &self.carrier)
+            .field("operation", &self.operation)
+            .field("candidate", &self.candidate)
+            .finish_non_exhaustive()
+    }
+}
+
+impl TerminalControl {
+    fn validate(&self) -> Result<(), ActionError> {
+        let text = match &self.content {
+            TerminalContent::Literal { text } => Some(text.as_str()),
+            TerminalContent::Unknown => None,
+        };
+        if text
+            .into_iter()
+            .chain(self.target.as_deref())
+            .chain(self.selector.as_deref())
+            .any(|value| value.len() > 16_384 || value.contains('\0'))
+            || matches!(self.operation, TerminalOperation::PasteUnknownBuffer) && text.is_some()
+            || self.candidate.is_some_and(|candidate| {
+                !matches!(
+                    self.operation,
+                    TerminalOperation::Input | TerminalOperation::InputAndSubmit
+                ) || text.is_none_or(str::is_empty)
+                    || candidate.tier
+                        != match candidate.operation {
+                            ProtectedNahOperation::Nap => NahProtectionTier::Permanent,
+                            ProtectedNahOperation::Maintenance => NahProtectionTier::Critical,
+                        }
+            })
+        {
+            return Err(ActionError::InvalidEffect);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum InvocationEffect {
+    TerminalControl {
+        program: String,
+        control: TerminalControl,
+        input: InvocationInput,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cwd: Option<AbsolutePath>,
+    },
     Known {
         program: String,
         operation: SemanticCode,
@@ -307,7 +406,8 @@ pub enum InvocationEffect {
 impl InvocationEffect {
     pub fn program(&self) -> &str {
         match self {
-            Self::Known { program, .. }
+            Self::TerminalControl { program, .. }
+            | Self::Known { program, .. }
             | Self::Opaque { program, .. }
             | Self::CodeExecution { program, .. } => program,
         }
@@ -315,7 +415,8 @@ impl InvocationEffect {
 
     pub const fn input(&self) -> &InvocationInput {
         match self {
-            Self::Known { input, .. }
+            Self::TerminalControl { input, .. }
+            | Self::Known { input, .. }
             | Self::Opaque { input, .. }
             | Self::CodeExecution { input, .. } => input,
         }
@@ -323,7 +424,8 @@ impl InvocationEffect {
 
     pub fn cwd(&self) -> Option<&AbsolutePath> {
         match self {
-            Self::Known { cwd, .. }
+            Self::TerminalControl { cwd, .. }
+            | Self::Known { cwd, .. }
             | Self::Opaque { cwd, .. }
             | Self::CodeExecution { cwd, .. } => cwd.as_ref(),
         }
@@ -489,7 +591,11 @@ impl EffectKind {
     pub fn with_invocation_cwd(mut self, cwd: AbsolutePath) -> Self {
         if let Self::Invocation { invocation } = &mut self {
             match invocation {
-                InvocationEffect::Known {
+                InvocationEffect::TerminalControl {
+                    cwd: invocation_cwd,
+                    ..
+                }
+                | InvocationEffect::Known {
                     cwd: invocation_cwd,
                     ..
                 }
@@ -530,6 +636,20 @@ impl EffectKind {
 
     fn validate(&self) -> Result<(), ActionError> {
         match self {
+            Self::Invocation {
+                invocation:
+                    InvocationEffect::TerminalControl {
+                        program,
+                        control,
+                        input,
+                        cwd,
+                    },
+            } => {
+                program_token(program)?;
+                validate_invocation_input(program, input)?;
+                validate_invocation_cwd(cwd.as_ref())?;
+                control.validate()?;
+            }
             Self::Invocation {
                 invocation:
                     InvocationEffect::Known {

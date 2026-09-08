@@ -147,7 +147,14 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
     mode: EnforcementMode,
 ) -> Result<DecisionCore, DecisionError> {
     if structural::permanent_blocks(language_safety_stream) {
-        return DecisionCore::structural_block(action_stream, structural::PERMANENT_REASON);
+        return DecisionCore::structural_block(
+            action_stream,
+            structural::terminal_reason(
+                language_safety_stream,
+                nah_proto::action::NahProtectionTier::Permanent,
+            )
+            .unwrap_or(structural::PERMANENT_REASON),
+        );
     }
     if mode == EnforcementMode::AllPaused {
         return DecisionCore::new(action_stream, Verdict::Delegate, vec![]);
@@ -156,7 +163,14 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
         && (structural::critical_blocks(language_safety_stream)
             || inline_report.contains_conservative(nah_inline::FindingKind::NahTampering))
     {
-        return DecisionCore::structural_block(action_stream, structural::CRITICAL_REASON);
+        return DecisionCore::structural_block(
+            action_stream,
+            structural::terminal_reason(
+                language_safety_stream,
+                nah_proto::action::NahProtectionTier::Critical,
+            )
+            .unwrap_or(structural::CRITICAL_REASON),
+        );
     }
 
     let mut contributions = Vec::new();

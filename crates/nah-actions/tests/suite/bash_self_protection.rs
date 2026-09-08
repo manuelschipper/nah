@@ -24,7 +24,7 @@ fn structurally_protected(stream: &ActionStream, report: &InlineReport) -> bool 
         || stream.effects().iter().any(|effect| {
             matches!(effect.kind(), EffectKind::Filesystem { effect }
                 if effect.operation != nah_proto::action::FilesystemOperation::Read
-                    && effect.protection == Some(NahProtectionTier::Critical))
+                    && matches!(effect.protection, Some(NahProtectionTier::Critical | NahProtectionTier::Permanent)))
                 || matches!(
                         effect.kind(),
                     EffectKind::Invocation {

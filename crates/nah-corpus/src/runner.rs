@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use nah_cli::{DecisionResult, decide_with};
-use nah_proto::action::Coverage;
+use nah_proto::action::{Coverage, EffectKind, InvocationEffect};
 use nah_proto::ctx::{AbsolutePath, Platform, SchemaVersion};
 use nah_proto::decision::Verdict;
 use nah_proto::tool::ToolCallInput;
@@ -155,11 +155,11 @@ fn expectation_matches(expected: &Expectation, result: &DecisionResult) -> Resul
             if *verdict == ExpectedVerdict::Block
                 && guard.is_none()
                 && (!result.core().policy_attributions().is_empty()
-                    || !matches!(
+                    || !(result.action_stream().effects().iter().any(|effect| matches!(effect.kind(), EffectKind::Invocation { invocation: InvocationEffect::TerminalControl { control, .. } } if control.candidate.is_some())) || matches!(
                         result.core().reason(),
                         "nah self-protection blocked a change to nah or its runtime wiring; do not retry through another tool; if intended, ask the operator to run `nah nap` in a separate terminal"
                             | "nah nap must be started by the operator in a separate terminal"
-                    ))
+                    )))
             {
                 return Err("expected structural block".into());
             }

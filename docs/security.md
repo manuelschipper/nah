@@ -108,7 +108,36 @@ guards. `nah wake` ends either nap.
 
 Starting or extending a nap needs an operator terminal. Invalid or expired
 authenticated state fails awake; direct mutation of its state, key, or lock
-always blocks. A nap is user-global, and its changes persist.
+always blocks. Proven removal, rename, or recursive mutation of the home `.nah`
+container also stays protected during either nap; an agent doing that maintenance
+requires operator action. Whole-home/root operations retain their existing tiers.
+A nap is user-global, and its changes persist.
+
+Recognizable executable Nah protected commands delivered through supported Herdr
+pane input or tmux key input are restricted even without Enter. This also interrupts
+sending executable examples into an editor: delivery does not prove receiver execution.
+Nap commands remain blocked in both nap modes; Critical Nah maintenance commands
+are permitted during naps. Ordinary agent prompts, quoted printing, help, and
+`nah wake` add no self-protection block.
+
+This restriction does not reconstruct split input, Enter-only calls, hidden buffers,
+or earlier terminal state. Receiver shell, home, environment, cwd, and host are
+unknown; sending filesystem command text does not identify local protected files.
+Payload commands outside the bounded Nah/wrapper decoder retain incomplete coverage.
+Unsupported carrier options, key encodings, remote execution, Screen raw input,
+generic PTY and GUI automation remain outside this coverage. OpenClaw process input
+carries unknown content; it does not yet receive command-content matching.
+
+Tmux launches retain modeled repository deletion, environment disclosure, forkbomb,
+registry, secret-store, backup, power, filesystem and execution-flow effects.
+Compound statements retain commands; absolute redirects and patterns retain
+lexical intent without receiver alias or selection proof. Receiver variables, function
+calls, substitutions, descriptor state (including `/dev/tcp` input redirects), generated
+code, relative paths and home resources remain unresolved. Root-pattern moves such as
+`mv /* /tmp` need receiver destination-directory proof; forced Git clean needs
+project-root selection proof. Neither can use sender observations. Unknown recursive
+reads do not prove credential disclosure; explicit sensitive paths and recognized
+credential-search intent retain protection.
 
 Self-protection blocks understood mutation of nah, active wiring, executable
 aliases, and ancestors. Windows drive/UNC paths normalize; device/reparse paths

@@ -407,3 +407,62 @@ proptest! {
         prop_assert!(ids.into_iter().eq(expected.iter().map(String::as_str)));
     }
 }
+
+#[test]
+fn terminal_control_validates_candidate_authority_and_round_trips() {
+    use nah_proto::action::{
+        InvocationEffect, NahProtectionTier, ProtectedNahOperation, TerminalCandidate,
+        TerminalCarrier, TerminalContent, TerminalControl, TerminalOperation,
+    };
+    let control = TerminalControl {
+        carrier: TerminalCarrier::Herdr,
+        target: Some("example-pane".into()),
+        selector: None,
+        operation: TerminalOperation::Input,
+        content: TerminalContent::Literal {
+            text: "nah nap".into(),
+        },
+        candidate: Some(TerminalCandidate {
+            operation: ProtectedNahOperation::Nap,
+            tier: NahProtectionTier::Permanent,
+        }),
+    };
+    let stream = |control| {
+        ActionStream::new(
+            Coverage::Partial,
+            vec![vec![EffectKind::Invocation {
+                invocation: InvocationEffect::TerminalControl {
+                    program: "herdr".into(),
+                    control,
+                    input: InvocationInput::shell(
+                        "herdr",
+                        vec!["herdr".into()],
+                        Some(vec!["herdr".into()]),
+                    ),
+                    cwd: None,
+                },
+            }]],
+            vec![],
+        )
+    };
+    let valid = stream(control.clone()).unwrap();
+    assert_eq!(
+        serde_json::from_str::<ActionStream>(&valid.canonical_json().unwrap()).unwrap(),
+        valid
+    );
+    for operation in [
+        TerminalOperation::AgentPrompt,
+        TerminalOperation::Submit,
+        TerminalOperation::PasteUnknownBuffer,
+    ] {
+        let mut invalid = control.clone();
+        invalid.operation = operation;
+        assert!(stream(invalid).is_err());
+    }
+    let mut invalid = control.clone();
+    invalid.content = TerminalContent::Unknown;
+    assert!(stream(invalid).is_err());
+    let mut invalid = control;
+    invalid.candidate.as_mut().unwrap().tier = NahProtectionTier::Critical;
+    assert!(stream(invalid).is_err());
+}

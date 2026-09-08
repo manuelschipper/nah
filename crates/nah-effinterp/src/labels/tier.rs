@@ -7,7 +7,8 @@ use nah_proto::observation::Root;
 use super::{contains, join, selects};
 
 /// Classifies the nah self-protection tier a write or delete reaches, over both
-/// the resolved and the effective target path.
+/// the resolved and the effective target path. Whole-container evidence excludes
+/// recursive writes with unknown selected contents.
 #[allow(clippy::too_many_arguments)]
 pub fn classify(
     operation: FilesystemOperation,
@@ -19,6 +20,7 @@ pub fn classify(
     critical_paths: &[AbsolutePath],
     platform: Platform,
     pattern: bool,
+    whole_container: bool,
 ) -> Option<NahProtectionTier> {
     if operation == FilesystemOperation::Read {
         return None;
@@ -27,9 +29,12 @@ pub fn classify(
     let target = lexically_normalized(target.as_str(), platform);
     let paths = [resolved.as_str(), target.as_str()];
     if paths.iter().any(|path| {
-        [".nah/nap.json", ".nah/nap.key", ".nah/nap.lock"]
-            .iter()
-            .any(|entry| same_path(&join(home.as_str(), entry, platform), path, platform))
+        (!pattern
+            && whole_container
+            && same_path(&join(home.as_str(), ".nah", platform), path, platform))
+            || [".nah/nap.json", ".nah/nap.key", ".nah/nap.lock"]
+                .iter()
+                .any(|entry| same_path(&join(home.as_str(), entry, platform), path, platform))
     }) {
         return Some(NahProtectionTier::Permanent);
     }

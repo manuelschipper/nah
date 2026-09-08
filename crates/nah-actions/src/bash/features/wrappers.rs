@@ -62,9 +62,6 @@ pub(crate) fn wrapper_payload(program: &str, arguments: &[Word]) -> Option<Strin
     if program == "env" {
         return crate::bash_child_startup::env_payload(arguments);
     }
-    if program == "tmux" {
-        return tmux_payload(arguments);
-    }
     let start = match program {
         "command" | "builtin" | "exec" => direct_wrapper_payload_start(program, arguments)?,
         "coproc" => match arguments.first().map(Word::raw) {
@@ -999,23 +996,6 @@ fn systemd_run_command_start(arguments: &[Word]) -> Option<usize> {
         &["--unit="],
         &[],
     )
-}
-
-fn tmux_payload(arguments: &[Word]) -> Option<String> {
-    let [subcommand, rest @ ..] = arguments else {
-        return None;
-    };
-    if !matches!(
-        static_argument(subcommand).as_deref(),
-        Some("new-session" | "new")
-    ) {
-        return None;
-    }
-    let start = options_command_start(rest, &["-d"], &["-s", "-ds"], &[], &["-s", "-ds"])?;
-    let [command] = &rest[start..] else {
-        return None;
-    };
-    static_argument(command)
 }
 
 fn unshare_command_start(arguments: &[Word]) -> Option<usize> {

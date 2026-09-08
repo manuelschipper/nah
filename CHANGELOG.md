@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Terminal self-protection** — Restrict recognizable protected Nah commands sent through supported Herdr/tmux input, and keep proven removal or recursive mutation of the nap-state container protected during naps.
+
 ## nah 1.5.0 — Sep 6, 2026
 
 - **Subcommand coverage** — Invocations such as `git rm`, `npm rm`, `docker cp`,
