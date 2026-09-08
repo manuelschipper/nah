@@ -354,10 +354,7 @@ fn statement_candidate(statement: &Statement, depth: usize) -> (Option<TerminalC
 }
 
 /// Tmux launches carry exact argv or shell source, with no inherited receiver context.
-pub(crate) fn tmux_launch(
-    arguments: &[nah_parse::Word],
-) -> Option<Vec<crate::bash_model::InvocationDraft>> {
-    use crate::bash_model::InvocationDraft;
+pub(crate) fn tmux_launch(arguments: &[nah_parse::Word]) -> Option<String> {
     let values = arguments
         .iter()
         .map(|word| static_word(word.raw(), word.substitutions().is_empty()))
@@ -388,19 +385,19 @@ pub(crate) fn tmux_launch(
                     rest.get(index)?
                 };
                 if value.contains(['#', '\0']) {
-                    return Some(Vec::new());
+                    return Some(String::new());
                 }
                 break;
             }
             if !flags.contains(flag) {
-                return Some(Vec::new());
+                return Some(String::new());
             }
         }
         index += 1;
     }
     let payload = &rest[index..];
     if payload.is_empty() || payload.iter().any(|value| value.contains('#')) {
-        return Some(Vec::new());
+        return Some(String::new());
     }
     let source = if payload.len() == 1 {
         payload[0].clone()
@@ -411,101 +408,5 @@ pub(crate) fn tmux_launch(
             .collect::<Vec<_>>()
             .join(" ")
     };
-    let mut invocations = Vec::new();
-    launch_commands(&source, 0, &mut invocations);
-    Some(
-        invocations
-            .into_iter()
-            .map(|(program, arguments)| {
-                let mut argv = vec![program.clone()];
-                argv.extend(arguments);
-                InvocationDraft::Known {
-                    operation: nah_proto::action::SemanticCode::new(
-                        operation_for_values(&program, &argv[1..])
-                            .expect("recognized Nah operation"),
-                    )
-                    .expect("constant operation"),
-                    program,
-                    words: argv
-                        .iter()
-                        .map(|value| format!("'{}'", value.replace('\'', "'\\''")))
-                        .collect(),
-                    argv: Some(argv),
-                }
-            })
-            .collect(),
-    )
-}
-
-fn launch_commands(source: &str, depth: usize, commands: &mut Vec<(String, Vec<String>)>) {
-    if depth >= 8 || source.len() > CONTENT_CAP {
-        return;
-    }
-    let Ok(syntax) = nah_parse::normalize(source) else {
-        return;
-    };
-    if !syntax.complete() {
-        return;
-    }
-    for statement in syntax.statements() {
-        launch_statement(statement, depth, commands);
-    }
-}
-
-fn launch_statement(
-    statement: &Statement,
-    depth: usize,
-    commands: &mut Vec<(String, Vec<String>)>,
-) {
-    match statement {
-        Statement::Command {
-            name,
-            name_substitutions,
-            assignments,
-            arguments,
-            redirects,
-            ..
-        } => {
-            if !assignments.is_empty() || !redirects.is_empty() {
-                return;
-            }
-            let Some(program) = static_word(name, name_substitutions.is_empty()) else {
-                return;
-            };
-            let Some(values) = arguments
-                .iter()
-                .map(|word| static_word(word.raw(), word.substitutions().is_empty()))
-                .collect::<Option<Vec<_>>>()
-            else {
-                return;
-            };
-            if program == "nah" && operation_for_values(&program, &values).is_some() {
-                commands.push((program, values));
-            } else if matches!(
-                program.as_str(),
-                "command"
-                    | "exec"
-                    | "env"
-                    | "nohup"
-                    | "timeout"
-                    | "nice"
-                    | "setsid"
-                    | "bash"
-                    | "sh"
-                    | "script"
-                    | "screen"
-                    | "systemd-run"
-            ) && let Some(payload) = shell_payload(&program, arguments, &[])
-                .or_else(|| wrapper_payload(&program, arguments))
-            {
-                launch_commands(&payload, depth + 1, commands);
-            }
-        }
-        Statement::Chain { items, .. } | Statement::Pipeline { stages: items, .. } => {
-            for item in items {
-                launch_statement(item, depth, commands);
-            }
-        }
-        _ => {}
-    }
+    Some(source)
 }
