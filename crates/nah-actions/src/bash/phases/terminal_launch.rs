@@ -1,13 +1,13 @@
 //! Lowers static terminal launches without caller variables, paths, or receiver observations.
 
-use nah_parse::Statement;
+use nah_parse::{Redirect, Statement};
 use nah_proto::action::SemanticCode;
 use nah_proto::ctx::AbsolutePath;
 
 use super::{Lowered, Lowerer};
 use crate::bash_descriptor_state::DescriptorState;
-use crate::bash_model::{ProgramDraft, StageDraft, StdoutDraft};
-use crate::bash_wrappers::{shell_payload, wrapper_payload};
+use crate::bash_model::{FilesystemDraft, ProgramDraft, StageDraft, StdoutDraft};
+use crate::bash_wrappers::{executor_payloads, shell_payload, wrapper_payload};
 use crate::shell_word::{contains_unquoted_pattern, static_word};
 
 impl Lowerer {
@@ -27,10 +27,58 @@ impl Lowerer {
 
     fn lower_terminal_statement(&mut self, statement: &Statement) -> Lowered {
         match statement {
-            Statement::Chain { items, .. } => {
+            Statement::Chain { items, .. }
+            | Statement::Subshell { statements: items }
+            | Statement::Group { statements: items } => {
                 let mut lowered = Lowered::default();
                 for item in items {
                     lowered.extend(self.lower_terminal_statement(item));
+                }
+                lowered
+            }
+            Statement::Coprocess { body, .. } => self.lower_terminal_statement(body),
+            Statement::Redirected { body, redirects } => {
+                let mut lowered = self.lower_terminal_statement(body);
+                lowered.extend(self.lower_terminal_redirects(redirects));
+                lowered.inputs.clear();
+                lowered.outputs.clear();
+                lowered
+            }
+            Statement::RedirectOnly { redirects, .. } => self.lower_terminal_redirects(redirects),
+            Statement::If {
+                branches,
+                else_body,
+            } => {
+                let mut lowered = Lowered::default();
+                for statement in branches
+                    .iter()
+                    .flat_map(|branch| branch.condition().iter().chain(branch.body()))
+                    .chain(else_body)
+                {
+                    lowered.extend(self.lower_terminal_statement(statement));
+                }
+                lowered
+            }
+            Statement::Loop {
+                condition, body, ..
+            } => {
+                let mut lowered = Lowered::default();
+                for statement in condition.iter().chain(body) {
+                    lowered.extend(self.lower_terminal_statement(statement));
+                }
+                lowered
+            }
+            Statement::For { body, .. } => {
+                let mut lowered = Lowered::default();
+                for statement in body {
+                    lowered.extend(self.lower_terminal_statement(statement));
+                }
+                lowered
+            }
+            Statement::Case { arms, .. } => {
+                let mut lowered = Lowered::default();
+                for statement in arms.iter().flat_map(|arm| arm.body()) {
+                    lowered.extend(self.lower_terminal_statement(statement));
                 }
                 lowered
             }
@@ -63,15 +111,16 @@ impl Lowerer {
                 name_substitutions,
                 arguments,
                 redirects,
+                assignments,
                 ..
             } => {
-                // Assignments and redirects remain unmodeled, but do not erase
+                // Assignments and descriptor state remain unmodeled, but do not erase
                 // independently visible argv intent. Never expand receiver variables.
                 let Some(lexical_program) = static_word(name, name_substitutions.is_empty()) else {
-                    return Lowered::default();
+                    return self.lower_terminal_redirects(redirects);
                 };
                 if contains_unquoted_pattern(name) {
-                    return Lowered::default();
+                    return self.lower_terminal_redirects(redirects);
                 }
                 let program = self.normalized_program(&lexical_program);
                 let Some(values) = arguments
@@ -79,7 +128,7 @@ impl Lowerer {
                     .map(|word| static_word(word.raw(), word.substitutions().is_empty()))
                     .collect::<Option<Vec<_>>>()
                 else {
-                    return Lowered::default();
+                    return self.lower_terminal_redirects(redirects);
                 };
                 if let Some(payload) = shell_payload(&program, arguments, &[])
                     .or_else(|| wrapper_payload(&program, arguments))
@@ -89,11 +138,12 @@ impl Lowerer {
                         lowered.inputs.clear();
                         lowered.outputs.clear();
                     }
+                    lowered.extend(self.lower_terminal_redirects(redirects));
                     return lowered;
                 }
                 if crate::bash_filesystem::terminal_program_help(&program, arguments, self.platform)
                 {
-                    return Lowered::default();
+                    return self.lower_terminal_redirects(redirects);
                 }
                 let local = crate::bash_local_utilities::lower(&program, arguments);
                 let project = crate::bash_project::lower(&program, arguments);
@@ -104,6 +154,79 @@ impl Lowerer {
                     &[],
                     None,
                 );
+                let qualified = lexical_program != program;
+                let secret_store = crate::bash_secret_store::classify(
+                    &program,
+                    arguments,
+                    assignments,
+                    false,
+                    qualified,
+                );
+                let host_power = crate::bash_host_power::operation(
+                    &program,
+                    arguments,
+                    assignments.iter().any(|(name, _)| name == "PATH"),
+                    qualified,
+                    arguments
+                        .iter()
+                        .any(|word| contains_unquoted_pattern(word.raw())),
+                );
+                let mut system_states = local
+                    .as_ref()
+                    .map_or_else(Vec::new, |model| model.system_states.clone());
+                system_states.extend(
+                    secret_store
+                        .as_ref()
+                        .and_then(|model| model.system_state.clone()),
+                );
+                system_states.extend(
+                    crate::bash_registry::classify(
+                        &program,
+                        arguments,
+                        assignments,
+                        false,
+                        qualified,
+                    )
+                    .and_then(|model| model.system_state),
+                );
+                system_states.extend(
+                    crate::bash_storage::classify(
+                        &program,
+                        arguments,
+                        assignments,
+                        false,
+                        qualified,
+                    )
+                    .and_then(|model| model.system_state),
+                );
+                system_states.extend(
+                    crate::bash_infrastructure::classify(
+                        &program,
+                        arguments,
+                        assignments,
+                        &[],
+                        false,
+                        qualified,
+                    )
+                    .and_then(|model| model.system_state),
+                );
+                if let Some(model) = crate::bash_kubernetes::classify(
+                    &program,
+                    arguments,
+                    assignments,
+                    false,
+                    qualified,
+                ) {
+                    system_states.extend(model.system_states);
+                }
+                if crate::bash_logical_storage::logical_storage_destroy(&program, arguments) {
+                    system_states.push(SemanticCode::LOGICAL_STORAGE_DESTROY);
+                }
+                system_states.extend(crate::bash_startup_persistence::operation(
+                    &program,
+                    arguments,
+                    self.platform,
+                ));
                 let operation =
                     crate::bash_self_protection::operation_for_values(&program, &values)
                         .or_else(|| {
@@ -129,9 +252,18 @@ impl Lowerer {
                     std::iter::once(name.clone())
                         .chain(arguments.iter().map(|word| word.raw().to_owned()))
                         .collect(),
-                    Some(argv),
+                    (!arguments
+                        .iter()
+                        .any(|word| contains_unquoted_pattern(word.raw())))
+                    .then_some(argv),
                     false,
-                    operation,
+                    host_power
+                        .or_else(|| {
+                            secret_store
+                                .as_ref()
+                                .and_then(|model| model.known_invocation.clone())
+                        })
+                        .or(operation),
                     false,
                     false,
                     false,
@@ -157,21 +289,19 @@ impl Lowerer {
                             .into_iter()
                             .flat_map(|model| model.filesystems.clone()),
                     );
-                let mut filesystems = Vec::new();
+                let mut filesystems = self.terminal_redirect_filesystems(redirects);
+                let patterns = crate::bash_symlinks::pattern_targets(arguments);
                 for (target, operation, recursive) in specs {
                     // Absolute lexical intent survives without asking the caller's
                     // filesystem to resolve receiver aliases, patterns, home or cwd.
-                    if AbsolutePath::new(self.platform, &target).is_err()
-                        || arguments
-                            .iter()
-                            .any(|word| contains_unquoted_pattern(word.raw()))
-                    {
+                    if AbsolutePath::new(self.platform, &target).is_err() {
                         continue;
                     }
                     let mut filesystem = super::filesystem::unresolved_read(&target);
                     filesystem.operation = operation;
                     filesystem.recursive = recursive;
                     filesystem.unresolved_selection = false;
+                    filesystem.pattern = patterns.contains(&target);
                     if !filesystems.contains(&filesystem) {
                         filesystems.push(filesystem);
                     }
@@ -200,9 +330,7 @@ impl Lowerer {
                     network_endpoints: execution
                         .as_ref()
                         .map_or_else(Vec::new, |model| model.network_endpoints.clone()),
-                    system_states: local
-                        .as_ref()
-                        .map_or_else(Vec::new, |model| model.system_states.clone()),
+                    system_states,
                     fifo_creations: Vec::new(),
                     stdout: StdoutDraft::Unknown,
                     content_writes: Vec::new(),
@@ -210,7 +338,7 @@ impl Lowerer {
                     conditional_depth: self.conditional_depth,
                     execution_dominators: Vec::new(),
                 });
-                Lowered {
+                let mut lowered = Lowered {
                     stages: vec![stage],
                     // Unmodeled redirects cannot establish pipe connectivity.
                     inputs: if redirects.is_empty()
@@ -227,9 +355,67 @@ impl Lowerer {
                     } else {
                         Vec::new()
                     },
+                };
+                // Only reviewed local executors participate; remote payloads remain excluded.
+                if matches!(program.as_str(), "xargs" | "find" | "tar" | "bsdtar") {
+                    for executor in executor_payloads(&program, arguments, &[], None) {
+                        let nested = self.lower_terminal_launch(&executor.payload);
+                        if executor.substitutes_command && redirects.is_empty() {
+                            lowered.inputs.extend(nested.stages.iter().copied());
+                        }
+                        lowered.stages.extend(nested.stages);
+                    }
                 }
+                lowered
             }
             _ => Lowered::default(),
         }
+    }
+
+    fn terminal_redirect_filesystems(&self, redirects: &[Redirect]) -> Vec<FilesystemDraft> {
+        let mut filesystems = Vec::new();
+        for redirect in redirects {
+            let Some(raw) = redirect.target() else {
+                continue;
+            };
+            let Some(target) = static_word(raw, redirect.target_substitutions().is_empty()) else {
+                continue;
+            };
+            if AbsolutePath::new(self.platform, &target).is_err()
+                || contains_unquoted_pattern(raw)
+                || target.starts_with("/dev/tcp/")
+                || target.starts_with("/dev/udp/")
+            {
+                continue;
+            }
+            for operation in super::filesystem::redirect_operations(
+                redirect.fd(),
+                redirect.operator(),
+                redirect.target(),
+            )
+            .unwrap_or_default()
+            {
+                let mut filesystem = super::filesystem::unresolved_read(&target);
+                filesystem.operation = operation;
+                filesystem.unresolved_selection = false;
+                filesystems.push(filesystem);
+            }
+        }
+        filesystems
+    }
+
+    fn lower_terminal_redirects(&mut self, redirects: &[Redirect]) -> Lowered {
+        if redirects.is_empty() {
+            return Lowered::default();
+        }
+        // A redirect-only shell statement performs the null command.
+        self.lower_terminal_statement(&Statement::Command {
+            name: ":".into(),
+            name_substitutions: Vec::new(),
+            assignments: Vec::new(),
+            unmodeled_assignments: Vec::new(),
+            arguments: Vec::new(),
+            redirects: redirects.to_vec(),
+        })
     }
 }

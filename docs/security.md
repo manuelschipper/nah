@@ -128,6 +128,17 @@ Unsupported carrier options, key encodings, remote execution, Screen raw input,
 generic PTY and GUI automation remain outside this coverage. OpenClaw process input
 carries unknown content; it does not yet receive command-content matching.
 
+Tmux process launches retain static command intent, including modeled registry,
+secret-store, backup, power, filesystem and execution-flow effects. Subshells,
+coprocesses, conditionals and loop bodies retain visible command evidence. Absolute
+redirects and filesystem patterns retain lexical intent, without proving receiver
+aliases or pattern matches. Launch analysis remains partial: receiver variables,
+function calls, substitutions, descriptor state and stored or dynamically generated
+code are not reconstructed. Relative paths and home expansion stay unresolved.
+Root-pattern moves such as `mv /* /tmp` retain filesystem intent but cannot establish
+root relocation without proof that the receiver destination is a non-root directory;
+the sender's filesystem cannot supply that proof.
+
 Self-protection blocks understood mutation of nah, active wiring, executable
 aliases, and ancestors. Windows drive/UNC paths normalize; device/reparse paths
 fail. `%USERPROFILE%\.nah` has an inheritable user/SYSTEM/Administrators

@@ -31,7 +31,15 @@ pub(crate) fn invocation(effect: EffectKind, complete: &mut bool) -> EffectKind 
             let name = program.rsplit('/').next().unwrap_or(program);
             match name {
                 "herdr" => herdr(&argv[1..], complete),
-                "tmux" => tmux_input(&argv[1..]),
+                "tmux" => {
+                    if argv
+                        .get(1)
+                        .is_some_and(|argument| argument.starts_with('-'))
+                    {
+                        *complete = false;
+                    }
+                    tmux_input(&argv[1..])
+                }
                 _ => None,
             }
         }

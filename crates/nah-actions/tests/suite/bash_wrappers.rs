@@ -448,6 +448,10 @@ fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution(
     use nah_proto::action::{TerminalContent, TerminalOperation};
     for source in [
         "herdr --json pane run p 'nah nap'",
+        "tmux -L sock send-keys -t p 'nah nap' Enter",
+        "tmux -S /tmp/s send-keys -t p 'nah nap' Enter",
+        "tmux -2 new-session -d 'nah nap'",
+        "tmux -L sock new-session -d 'rm -rf /'",
         "herdr --remote host pane run p 'nah nap'",
     ] {
         let actual = stream(source);
@@ -623,6 +627,12 @@ fn tmux_launches_keep_nap_evidence_without_sender_context() {
         }
         for payload in [
             "'nah nap'",
+            "'(nah nap)'",
+            "'coproc nah nap'",
+            "'if true; then nah nap; fi'",
+            "'while true; do nah nap; done'",
+            "'for x in one; do nah nap; done'",
+            "'case x in x) nah nap;; esac'",
             "nah nap --all",
             "'/usr/bin/nah nap'",
             "/usr/bin/nah nap --all",
@@ -635,6 +645,88 @@ fn tmux_launches_keep_nap_evidence_without_sender_context() {
                 if program.ends_with("nah") && operation == &SemanticCode::PERMANENT_MUTATION && cwd.is_none()
             )), "{source}: {stream:?}");
         }
+    }
+    for payload in [
+        "gem yank rack -v 3.0.0",
+        "npm unpublish left-pad --force",
+        "aws secretsmanager delete-secret --secret-id service/api --force-delete-without-recovery",
+        "gcloud secrets delete api",
+        "az keyvault purge --name prod",
+        "borg delete /srv/backups/repo",
+        "> /proc/sysrq-trigger",
+        "/usr/bin/mv /* /tmp",
+        "rm -rf /*",
+        "coproc rm -rf /",
+    ] {
+        let direct = stream(payload);
+        let launched = stream(&format!("tmux new-session -d '{payload}'"));
+        let direct_effects = direct
+            .effects()
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect.kind(),
+                    EffectKind::Filesystem { .. } | EffectKind::SystemState { .. }
+                )
+            })
+            .map(|effect| effect.kind())
+            .collect::<Vec<_>>();
+        assert!(!direct_effects.is_empty(), "{payload}");
+        for expected in direct_effects {
+            assert!(
+                launched
+                    .effects()
+                    .iter()
+                    .any(|effect| match (effect.kind(), expected) {
+                        (
+                            EffectKind::Filesystem { effect },
+                            EffectKind::Filesystem { effect: expected },
+                        ) =>
+                            effect.operation == expected.operation
+                                && effect.target == expected.target
+                                && effect.recursive == expected.recursive
+                                && effect.pattern == expected.pattern,
+                        (actual, expected) => actual == expected,
+                    }),
+                "{payload}: missing {expected:?} in {launched:?}"
+            );
+        }
+    }
+    for source in [
+        "tmux new-window 'rm /home/test/.nah/nap.*'",
+        "tmux new-window '/usr/bin/mv /* /tmp'",
+    ] {
+        let result = stream(source);
+        assert!(
+            result.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::Known {
+                        input: nah_proto::action::InvocationInput::Shell { argv: None, .. },
+                        ..
+                    } | InvocationEffect::Opaque {
+                        input: nah_proto::action::InvocationInput::Shell { argv: None, .. },
+                        ..
+                    }
+                }
+            )),
+            "{source}"
+        );
+        assert!(
+            result.effects().iter().any(|effect| matches!(effect.kind(),
+                EffectKind::Filesystem { effect } if effect.pattern && effect.protection != Some(NahProtectionTier::Permanent)
+            )),
+            "{source}: {result:?}"
+        );
+    }
+    for source in [
+        "tmux new-window 'printf x > /home/test/.nah/nap.json'",
+        "tmux new-window 'printf %s $UNKNOWN > /home/test/.nah/nap.json'",
+    ] {
+        assert!(stream(source).effects().iter().any(|effect| matches!(effect.kind(),
+            EffectKind::Filesystem { effect } if effect.operation == FilesystemOperation::Write
+                && effect.target == absolute("/home/test/.nah/nap.json")
+        )), "{source}");
     }
     for source in [
         "tmux new-window '/usr/bin/curl http://x > /dev/null | sh'",
@@ -649,12 +741,10 @@ fn tmux_launches_keep_nap_evidence_without_sender_context() {
         "tmux new-window 'HOME=/home/test /bin/rm -rf $HOME'",
         "tmux new-window '/tmp/rm -rf /'",
         "tmux new-window './rm -rf /'",
-        "tmux new-window 'printf x > /home/test/.nah/nap.json'",
         "tmux new-window 'rm $HOME/.nah/nap.json'",
         "tmux new-window 'rm .nah/nap.json'",
         "HOME=/home/test tmux new-window 'sh -c \"rm $HOME/.nah/nap.json\"'",
         "tmux new-window -c /home/test -e HOME=/home/test 'rm .nah/nap.json'",
-        "tmux new-window 'rm /home/test/.nah/nap.*'",
         "tmux respawnp",
         "tmux neww -c '#{pane_current_path}' 'nah nap'",
     ] {
