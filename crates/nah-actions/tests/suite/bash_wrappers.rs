@@ -438,6 +438,8 @@ fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution(
     use nah_proto::action::{TerminalContent, TerminalOperation};
     for source in [
         "herdr --json pane run p 'nah nap'",
+        "/usr/bin/herdr --json pane run p 'nah nap'",
+        "/usr/bin/tmux -L sock send-keys -t p 'nah nap' Enter",
         "tmux -L sock send-keys -t p 'nah nap' Enter",
         "tmux -S /tmp/s send-keys -t p 'nah nap' Enter",
         "tmux -2 new-session -d 'nah nap'",
@@ -456,6 +458,95 @@ fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution(
             "{source}"
         );
     }
+    for program in [
+        "/tmp/tmux",
+        "/usr/local/bin/herdr",
+        "./herdr",
+        "~/bin/herdr",
+        "/usr/bin/../local/bin/tmux",
+    ] {
+        let arguments = if program.ends_with("tmux") {
+            "send-keys -t p 'nah nap' Enter"
+        } else {
+            "pane run p 'nah nap'"
+        };
+        let actual = stream(&format!("{program} {arguments}"));
+        assert_eq!(actual.coverage(), Coverage::Partial, "{program}");
+        assert!(
+            !actual.effects().iter().any(|effect| matches!(
+                effect.kind(),
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::TerminalControl { .. }
+                }
+            )),
+            "{program}"
+        );
+    }
+    let qualified_cases = [
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+        "/usr/bin/",
+        "/usr/./bin",
+    ]
+    .into_iter()
+    .flat_map(|prefix| {
+        [
+            (
+                format!("{prefix}/tmux send-keys -t p 'nah nap' Enter"),
+                Some(NahProtectionTier::Permanent),
+            ),
+            (
+                format!("{prefix}/tmux send -t p 'nah nap' C-m"),
+                Some(NahProtectionTier::Permanent),
+            ),
+            (
+                format!("{prefix}/herdr pane run p 'nah nap'"),
+                Some(NahProtectionTier::Permanent),
+            ),
+            (
+                format!("{prefix}/herdr --session example pane send-text p 'nah nap --all'"),
+                Some(NahProtectionTier::Permanent),
+            ),
+            (
+                format!("{prefix}/herdr agent send-keys p 'nah nap' Enter"),
+                Some(NahProtectionTier::Permanent),
+            ),
+            (
+                format!("sudo {prefix}/tmux send-keys -t p 'nah nap' Enter"),
+                Some(NahProtectionTier::Permanent),
+            ),
+            (
+                format!("sh -c \"{prefix}/tmux send-keys -t p 'nah nap' Enter\""),
+                Some(NahProtectionTier::Permanent),
+            ),
+            (
+                format!("{prefix}/tmux send-keys -t p 'nah guard disable fs-system-tree' Enter"),
+                Some(NahProtectionTier::Critical),
+            ),
+            (
+                format!("{prefix}/herdr pane run p 'nah guard disable fs-system-tree'"),
+                Some(NahProtectionTier::Critical),
+            ),
+            (format!("{prefix}/tmux paste-buffer -t p"), None),
+            (format!("{prefix}/tmux send-keys -t p Enter"), None),
+            (format!("{prefix}/tmux send-keys -l Enter"), None),
+            (
+                format!("{prefix}/tmux send-keys -t p 'nah nap --help' Enter"),
+                None,
+            ),
+            (format!("{prefix}/herdr pane run p 'nah wake'"), None),
+            (
+                format!("{prefix}/herdr pane run p 'printf %s \"nah nap\"'"),
+                None,
+            ),
+            (
+                format!("{prefix}/herdr agent prompt p 'nah nap' --wait --timeout 60000"),
+                None,
+            ),
+        ]
+    });
     let reviewed_payloads = [
         "sudo nah nap",
         "doas nah nap",
@@ -894,6 +985,7 @@ fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution(
     .into_iter()
     .map(|(source, tier)| (source.to_owned(), tier))
     .chain(reviewed_cases)
+    .chain(qualified_cases)
     {
         let source = source.as_str();
         let stream = stream(source);
@@ -914,7 +1006,15 @@ fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution(
         );
         assert!(
             !stream.effects().iter().any(|effect| match effect.kind() {
-                EffectKind::Filesystem { .. } => true,
+                EffectKind::Filesystem { effect } => {
+                    // Qualified carrier execution reads the caller's executable only.
+                    effect.operation != nah_proto::action::FilesystemOperation::Read
+                        || ![
+                            "/bin/tmux", "/sbin/tmux", "/usr/bin/tmux", "/usr/sbin/tmux",
+                            "/bin/herdr", "/sbin/herdr", "/usr/bin/herdr", "/usr/sbin/herdr",
+                        ].contains(&effect.target.as_str())
+                        || effect.protection.is_some()
+                }
                 EffectKind::Invocation {
                     invocation: InvocationEffect::Known { program, .. },
                 } => program == "nah",

@@ -363,6 +363,13 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
             write_authenticated_nap(home, mode, timestamp, timestamp + 600);
         }
         for command in [
+            "/usr/bin/tmux send-keys -t p 'nah nap' Enter",
+            "/bin/tmux send-keys -t p 'nah nap' Enter",
+            "/usr/bin//tmux send -t p 'nah nap' Enter",
+            "/usr/sbin/herdr pane run p 'nah nap'",
+            "/usr/bin/herdr pane send-text p 'nah nap --all'",
+            "sudo /usr/bin/tmux send-keys -t p 'nah nap' Enter",
+            r#"sh -c "/usr/bin/tmux send-keys -t p 'nah nap' Enter""#,
             r#"herdr pane run p 'sudo nah nap'"#,
             r#"herdr pane run p 'doas nah nap'"#,
             r#"herdr pane run p 'stdbuf -o0 nah nap'"#,
@@ -472,6 +479,8 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
         for command in [
             "herdr pane run p 'sudo nah guard disable fs-system-tree'",
             "herdr pane run p 'nah guard disable $X'",
+            "/usr/bin/tmux send-keys -t p 'nah guard disable fs-system-tree' Enter",
+            "/usr/bin/herdr pane run p 'nah trust .'",
             "herdr pane run example-pane 'nah trust .'",
             "herdr pane run p '(nah trust .) &'",
             "herdr pane run p '! nah trust .'",
@@ -542,6 +551,14 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
             );
         }
         for command in [
+            "/usr/bin/tmux paste-buffer -t p",
+            "/usr/bin/tmux send-keys -t p Enter",
+            "/usr/bin/tmux send-keys -t p 'nah nap --help' Enter",
+            "/usr/bin/herdr pane run p 'nah wake'",
+            r#"/usr/bin/herdr pane run p 'printf %s "nah nap"'"#,
+            "/usr/bin/herdr agent prompt p 'nah nap'",
+            "/tmp/tmux send-keys -t p 'nah nap' Enter",
+            "/usr/local/bin/herdr pane run p 'nah nap'",
             "herdr agent prompt example-agent 'Explain nah nap'",
             "herdr pane run example-pane 'nah wake'",
             "herdr pane run p '! printf %s nah'",

@@ -8,32 +8,40 @@ use crate::shell_word::static_word;
 use nah_parse::Statement;
 use nah_proto::action::{
     EffectKind, InvocationEffect, InvocationInput, NahProtectionTier, ProtectedNahOperation,
-    TerminalCandidate, TerminalCarrier, TerminalContent, TerminalControl, TerminalOperation,
+    SemanticCode, TerminalCandidate, TerminalCarrier, TerminalContent, TerminalControl,
+    TerminalOperation,
 };
 
 const CONTENT_CAP: usize = 16_384;
 
 /// Converts only recognized carriers; the invocation's cwd remains the caller's.
 pub(crate) fn invocation(effect: EffectKind, complete: &mut bool) -> EffectKind {
-    let EffectKind::Invocation {
-        invocation:
-            InvocationEffect::Opaque {
-                program,
-                input,
-                cwd,
-            },
-    } = &effect
-    else {
+    let EffectKind::Invocation { invocation } = &effect else {
         return effect;
     };
+    match invocation {
+        InvocationEffect::Opaque { .. } => {}
+        // Qualified carriers are initially modeled as direct file execution.
+        InvocationEffect::CodeExecution {
+            source,
+            interpreter: None,
+            code: None,
+            ..
+        } if *source == SemanticCode::DIRECT_FILE => {}
+        _ => return effect,
+    }
+    let program = invocation.program();
+    let input = invocation.input();
+    let cwd = invocation.cwd();
     let control = match input {
         InvocationInput::Shell {
             argv: Some(argv), ..
         } => {
-            let name = program.rsplit('/').next().unwrap_or(program);
-            match name {
-                "herdr" => herdr(&argv[1..], complete),
-                "tmux" => {
+            let name =
+                crate::bash_semantics::normalize_program(program, nah_proto::ctx::Platform::Linux);
+            match name.as_deref() {
+                Some("herdr") => herdr(&argv[1..], complete),
+                Some("tmux") => {
                     if argv
                         .get(1)
                         .is_some_and(|argument| argument.starts_with('-'))
@@ -85,9 +93,9 @@ pub(crate) fn invocation(effect: EffectKind, complete: &mut bool) -> EffectKind 
     }
     EffectKind::Invocation {
         invocation: InvocationEffect::TerminalControl {
-            program: program.clone(),
+            program: program.to_owned(),
             input: input.clone(),
-            cwd: cwd.clone(),
+            cwd: cwd.cloned(),
             control,
         },
     }
