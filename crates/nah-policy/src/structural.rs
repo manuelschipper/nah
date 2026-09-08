@@ -15,18 +15,19 @@ pub(crate) fn permanent_blocks(action_stream: &ActionStream) -> bool {
             EffectKind::Filesystem { effect }
                 if effect.operation != FilesystemOperation::Read
                     && effect.protection == Some(NahProtectionTier::Permanent)
-        ) || matches!(
-            effect.kind(),
-            EffectKind::Invocation {
-                invocation:
-                    InvocationEffect::Known {
-                        program,
-                        operation,
-                        ..
-                    },
-            } if program_name(program) == "nah"
-                && operation == &SemanticCode::PERMANENT_MUTATION
-        )
+        ) || terminal_candidate(effect.kind(), NahProtectionTier::Permanent)
+            || matches!(
+                effect.kind(),
+                EffectKind::Invocation {
+                    invocation:
+                        InvocationEffect::Known {
+                            program,
+                            operation,
+                            ..
+                        },
+                } if program_name(program) == "nah"
+                    && operation == &SemanticCode::PERMANENT_MUTATION
+            )
     })
 }
 
@@ -42,7 +43,7 @@ pub(crate) fn critical_blocks(action_stream: &ActionStream) -> bool {
             EffectKind::Invocation {
                 invocation: InvocationEffect::Known { operation, .. },
             } => operation == &SemanticCode::CRITICAL_MUTATION,
-            _ => false,
+            kind => terminal_candidate(kind, NahProtectionTier::Critical),
         })
 }
 
@@ -60,4 +61,27 @@ fn program_name(program: &str) -> &str {
     } else {
         program
     }
+}
+
+fn terminal_candidate(kind: &EffectKind, tier: NahProtectionTier) -> bool {
+    matches!(kind, EffectKind::Invocation { invocation: InvocationEffect::TerminalControl { control, .. } }
+        if control.candidate.is_some_and(|candidate| candidate.tier == tier))
+}
+
+pub(crate) fn terminal_reason(
+    stream: &ActionStream,
+    tier: NahProtectionTier,
+) -> Option<&'static str> {
+    stream.effects().iter().find_map(|effect| {
+        if !terminal_candidate(effect.kind(), tier) { return None; }
+        let EffectKind::Invocation { invocation: InvocationEffect::TerminalControl { control, .. } } = effect.kind() else { return None; };
+        use nah_proto::action::TerminalCarrier;
+        Some(match (control.carrier, tier) {
+            (TerminalCarrier::Herdr, NahProtectionTier::Permanent) => "nah self-protection restricted Permanent protected-command input through Herdr; operator action is required",
+            (TerminalCarrier::Tmux, NahProtectionTier::Permanent) => "nah self-protection restricted Permanent protected-command input through tmux; operator action is required",
+            (TerminalCarrier::Herdr, _) => "nah self-protection restricted Critical protected-command input through Herdr; operator action is required",
+            (TerminalCarrier::Tmux, _) => "nah self-protection restricted Critical protected-command input through tmux; operator action is required",
+            (TerminalCarrier::OpenclawProcess, _) => "nah self-protection restricted protected-command input through OpenClaw; operator action is required",
+        })
+    })
 }

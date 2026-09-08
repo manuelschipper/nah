@@ -652,6 +652,7 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
                 &[],
                 Platform::Linux,
                 false,
+                false,
             ),
             expected,
             "{path:?}"
@@ -672,6 +673,7 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             &[],
             Platform::Linux,
             false,
+            false,
         ),
         Some(NahProtectionTier::Proposal)
     );
@@ -690,6 +692,7 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             &[],
             Platform::Windows,
             false,
+            false,
         ),
         Some(NahProtectionTier::Critical)
     );
@@ -703,6 +706,7 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             &windows_home,
             &[],
             Platform::Windows,
+            false,
             false,
         ),
         None
@@ -719,6 +723,7 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             &windows_home,
             &[],
             Platform::Windows,
+            false,
             false,
         ),
         Some(NahProtectionTier::Permanent)
@@ -739,6 +744,7 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             &[],
             Platform::Windows,
             false,
+            false,
         ),
         Some(NahProtectionTier::Critical)
     );
@@ -757,6 +763,7 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             &windows_home,
             &[],
             Platform::Windows,
+            false,
             false,
         ),
         Some(NahProtectionTier::Critical)
@@ -777,6 +784,7 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             &[],
             Platform::Windows,
             false,
+            false,
         ),
         None
     );
@@ -792,6 +800,7 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             &windows_home,
             &[],
             Platform::Windows,
+            false,
             false,
         ),
         None
@@ -826,6 +835,7 @@ fn critical_aliases_cannot_be_downgraded_by_proposal_paths() {
                 &[],
                 Platform::Linux,
                 false,
+                false,
             ),
             Some(NahProtectionTier::Critical),
             "{resolved} -> {target}"
@@ -847,6 +857,7 @@ fn critical_aliases_cannot_be_downgraded_by_proposal_paths() {
             &windows_home,
             &[],
             Platform::Windows,
+            false,
             false,
         ),
         Some(NahProtectionTier::Critical)
@@ -1080,4 +1091,49 @@ fn help_and_version_argv_never_recognize_a_runtime() {
         ),
         Some(RuntimeCli::Nah)
     );
+}
+
+#[test]
+fn nap_container_requires_whole_container_mutation_evidence() {
+    use nah_proto::action::{FilesystemOperation, NahProtectionTier};
+    use nah_proto::ctx::{AbsolutePath, Platform};
+    for (platform, home, container) in [
+        (Platform::Linux, "/home/test", "/home/test/.nah"),
+        (Platform::Windows, r"C:\Users\Test", r"c:\users\test\.NAH"),
+    ] {
+        let home = AbsolutePath::new(platform, home).unwrap();
+        let target = AbsolutePath::new(platform, container).unwrap();
+        for operation in [FilesystemOperation::Write, FilesystemOperation::Delete] {
+            assert_eq!(
+                tier::classify(
+                    operation,
+                    &target,
+                    &target,
+                    &[],
+                    &[],
+                    &home,
+                    &[],
+                    platform,
+                    false,
+                    true
+                ),
+                Some(NahProtectionTier::Permanent)
+            );
+            assert_eq!(
+                tier::classify(
+                    operation,
+                    &target,
+                    &target,
+                    &[],
+                    &[],
+                    &home,
+                    &[],
+                    platform,
+                    false,
+                    false
+                ),
+                Some(NahProtectionTier::Critical)
+            );
+        }
+    }
 }

@@ -126,3 +126,62 @@ fn incomplete_analysis_does_not_hide_a_recognized_guard_effect() {
     assert_eq!(decision.verdict(), Verdict::Block);
     assert_eq!(decision.policy_attributions()[0].name(), "fs-system-tree");
 }
+
+#[test]
+fn terminal_candidates_follow_structural_nap_modes() {
+    use nah_proto::action::{
+        InvocationEffect, InvocationInput, ProtectedNahOperation, TerminalCandidate,
+        TerminalCarrier, TerminalContent, TerminalControl, TerminalOperation,
+    };
+    for (operation, tier) in [
+        (ProtectedNahOperation::Nap, NahProtectionTier::Permanent),
+        (
+            ProtectedNahOperation::Maintenance,
+            NahProtectionTier::Critical,
+        ),
+    ] {
+        let stream = ActionStream::new(
+            Coverage::Partial,
+            vec![vec![EffectKind::Invocation {
+                invocation: InvocationEffect::TerminalControl {
+                    program: "tmux".into(),
+                    input: InvocationInput::shell("tmux", vec!["tmux".into()], None),
+                    cwd: None,
+                    control: TerminalControl {
+                        carrier: TerminalCarrier::Tmux,
+                        target: None,
+                        selector: None,
+                        operation: TerminalOperation::Input,
+                        content: TerminalContent::Literal {
+                            text: "protected command".into(),
+                        },
+                        candidate: Some(TerminalCandidate { operation, tier }),
+                    },
+                },
+            }]],
+            vec![],
+        )
+        .unwrap();
+        for mode in [
+            EnforcementMode::Normal,
+            EnforcementMode::SelfProtectionPaused,
+            EnforcementMode::AllPaused,
+        ] {
+            let decision = nah_policy::decide_with_mode(
+                &stream,
+                &guard_policy("fs-system-tree", false),
+                &[],
+                mode,
+            )
+            .unwrap();
+            assert_eq!(
+                decision.verdict(),
+                if tier == NahProtectionTier::Permanent || mode == EnforcementMode::Normal {
+                    Verdict::Block
+                } else {
+                    Verdict::Delegate
+                }
+            );
+        }
+    }
+}

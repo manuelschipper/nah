@@ -1592,7 +1592,7 @@ fn exact_external(command: &str) -> bool {
         || lowercase.contains(['/', '\\'])
         || matches!(
             lowercase.as_str(),
-            "git" | "nah" | "cmd" | "powershell" | "pwsh"
+            "git" | "nah" | "herdr" | "tmux" | "cmd" | "powershell" | "pwsh"
         )
 }
 

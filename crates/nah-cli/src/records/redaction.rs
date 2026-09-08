@@ -1095,6 +1095,10 @@ fn redact_plan_effect(effect: &RedactedPlanEffect) -> RedactedText {
 fn redact_effect(kind: &EffectKind) -> RedactedText {
     let description = match kind {
         EffectKind::Invocation { invocation } => match invocation {
+            InvocationEffect::TerminalControl { control, .. } => format!(
+                "terminal {:?} {:?} {:?}",
+                control.carrier, control.operation, control.candidate
+            ),
             InvocationEffect::Known {
                 program, operation, ..
             } => {

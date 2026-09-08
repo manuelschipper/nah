@@ -753,7 +753,7 @@ fn finalize_invocation(
     observation: &Observation,
     complete: &mut bool,
 ) -> Option<EffectKind> {
-    Some(match invocation {
+    let effect = match invocation {
         InvocationDraft::Opaque {
             program,
             words,
@@ -896,7 +896,8 @@ fn finalize_invocation(
                 }
             }
         }
-    })
+    };
+    Some(crate::bash_terminal_control::invocation(effect, complete))
 }
 
 fn add_observed_identity_flows(
@@ -1336,6 +1337,8 @@ fn classify_filesystem(
         critical_paths,
         platform,
         pattern,
+        filesystem.operation == FilesystemOperation::Delete
+            || filesystem.recursive && !filesystem.content_access,
     );
     if filesystem.protects_descendants {
         direct_protection = strongest_protection(
@@ -1350,6 +1353,8 @@ fn classify_filesystem(
                 critical_paths,
                 platform,
                 pattern,
+                filesystem.operation == FilesystemOperation::Delete
+                    || filesystem.recursive && !filesystem.content_access,
             ),
         );
     }
@@ -1367,6 +1372,8 @@ fn classify_filesystem(
                 critical_paths,
                 platform,
                 false,
+                filesystem.operation == FilesystemOperation::Delete
+                    || filesystem.recursive && !filesystem.content_access,
             )
         });
     let host_integrity = [

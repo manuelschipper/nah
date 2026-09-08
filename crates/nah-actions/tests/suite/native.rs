@@ -791,3 +791,27 @@ fn observation(path: Option<(&str, Observed<PathObservation>)>) -> Observation {
 fn absolute(path: &str) -> AbsolutePath {
     AbsolutePath::new(Platform::Linux, path).unwrap()
 }
+
+#[test]
+fn native_process_input_preserves_an_unknown_receiver_boundary() {
+    use nah_proto::action::{TerminalContent, TerminalOperation};
+    for (action, operation) in [
+        ("write", TerminalOperation::Input),
+        ("send-keys", TerminalOperation::Input),
+        ("submit", TerminalOperation::Submit),
+        ("paste", TerminalOperation::PasteUnknownBuffer),
+    ] {
+        let input = call(
+            "process",
+            json!({"action":action, "sessionId":"example", "data":"nah nap"}),
+        );
+        let call_site = input.call_site(Platform::Linux).unwrap();
+        let plan = plan(AnalysisInput::Native(&input), &ctx(), &call_site);
+        let stream = finalize(plan, observation_without_path("process"));
+        assert_eq!(stream.coverage(), Coverage::Partial);
+        assert!(stream.effects().iter().any(|effect| matches!(effect.kind(),
+            EffectKind::Invocation { invocation: InvocationEffect::TerminalControl { control, .. } }
+            if control.operation == operation && control.content == TerminalContent::Unknown && control.candidate.is_none()
+        )));
+    }
+}

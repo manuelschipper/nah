@@ -195,7 +195,14 @@ fn nap_requires_an_operator_terminal_and_agents_cannot_start_it() {
 
     let timestamp = now();
     write_authenticated_nap(home, "all", timestamp, timestamp + 600);
-    for command in ["nah nap", "script -qec 'nah nap' /dev/null"] {
+    for command in [
+        "nah nap",
+        "script -qec 'nah nap' /dev/null",
+        "herdr pane run example-pane 'nah nap'",
+        "herdr pane send-text example-pane 'nah nap'",
+        "tmux send-keys -t example-pane 'nah nap' Enter",
+        "tmux new-window nah nap",
+    ] {
         let (decision, _) = decide(home, &project, command);
         assert_eq!(decision.verdict(), Verdict::Block, "{command}");
         assert!(decision.reason().contains("operator"), "{command}");
@@ -262,7 +269,7 @@ fn all_nap_delegates_every_non_permanent_call_and_wake_restores_enforcement() {
     assert!(refusal.status.success(), "{refusal:?}");
     assert!(refusal.stdout.is_empty(), "{refusal:?}");
 
-    for protected in ["nap.json", "nap.key"] {
+    for protected in ["nap.json", "nap.key", "nap.lock"] {
         let command = format!(
             "printf forged > {}",
             bash_path(&home.join(".nah").join(protected))
@@ -342,4 +349,80 @@ fn expired_or_invalid_state_fails_awake() {
     assert_eq!(invalid.verdict(), Verdict::Block);
     assert!(stderr.contains("invalid-nap-state"));
     assert!(stderr.contains("self-protection remains awake"));
+}
+
+#[test]
+fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mode() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = support::test_temp_path(home_temp.path());
+    let home = home.as_path();
+    let project = repo(home);
+    let timestamp = now();
+    for mode in [None, Some("self-protection"), Some("all")] {
+        if let Some(mode) = mode {
+            write_authenticated_nap(home, mode, timestamp, timestamp + 600);
+        }
+        for command in [
+            "herdr pane run example-pane 'nah nap'",
+            "herdr pane send-text example-pane 'nah nap --all'",
+            "tmux send-keys -t example-pane 'nah nap' Enter",
+            "tmux splitw nah nap --all",
+            r#"python3 -c "import subprocess; subprocess.run(['herdr','pane','run','example-pane','nah nap'])""#,
+            r#"node -e "const {spawn}=require('child_process'); spawn('tmux', ['send-keys','nah nap','Enter'])""#,
+            r#"pwsh -Command "herdr pane run example-pane 'nah nap'""#,
+            "rm -rf ~/.nah",
+            "mv ~/.nah ~/.nah-backup",
+            "chmod -R 755 ~/.nah",
+            "chown -R root ~/.nah",
+            "printf x > ~/.nah/./nap.json",
+            "rm ~/.nah/nap.key",
+            "mv ~/.nah/nap.lock ~/.nah/lock-backup",
+            "mv /tmp/replacement ~/.nah/nap.json",
+            "ln -sf /tmp/replacement ~/.nah/nap.key",
+            "chmod 644 ~/.nah/nap.key",
+            "chown root ~/.nah/nap.lock",
+            "herdr pane run example-pane pwd > ~/.nah/nap.json",
+        ] {
+            let (decision, _) = decide(home, &project, command);
+            assert_eq!(
+                decision.verdict(),
+                Verdict::Block,
+                "{mode:?}: {command}: {}",
+                decision.reason()
+            );
+        }
+        for command in [
+            "herdr pane run example-pane 'nah trust .'",
+            "printf x > ~/.nah/trust.json",
+            "tar -xf /tmp/unknown.tar -C ~/.nah",
+        ] {
+            let (decision, _) = decide(home, &project, command);
+            assert_eq!(
+                decision.verdict(),
+                if mode.is_some() {
+                    Verdict::Delegate
+                } else {
+                    Verdict::Block
+                },
+                "{mode:?}: {command}"
+            );
+        }
+        for command in [
+            "herdr agent prompt example-agent 'Explain nah nap'",
+            "herdr pane run example-pane 'nah wake'",
+            "tmux send-keys Enter",
+            "tmux pasteb -t example-pane",
+            "herdr pane run example-pane 'rm ~/.nah/nap.json'",
+            "ls ~/.nah",
+            "cat ~/.nah/nap.json",
+        ] {
+            let (decision, _) = decide(home, &project, command);
+            assert_eq!(
+                decision.verdict(),
+                Verdict::Delegate,
+                "{mode:?}: {command}: {}",
+                decision.reason()
+            );
+        }
+    }
 }

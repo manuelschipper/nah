@@ -86,9 +86,6 @@ fn reviewed_wrappers_preserve_nested_guard_evidence() {
         "unshare --mount rm -rf /",
         "unshare --mount-proc rm -rf /",
         "unshare --mount-proc=/proc rm -rf /",
-        "tmux new-session -d 'rm -rf /'",
-        "tmux new-session -d -s probe 'rm -rf /'",
-        "tmux new-session -ds probe 'rm -rf /'",
         "screen -dm rm -rf /",
         "screen -dmS probe rm -rf /",
     ] {
@@ -418,6 +415,134 @@ fn tar_visible_executor_options_lower_their_commands() {
             )),
             "{source}: {:?}",
             stream.effects()
+        );
+    }
+}
+
+#[test]
+fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution() {
+    use nah_proto::action::{TerminalContent, TerminalOperation};
+    for (source, tier) in [
+        (
+            "herdr pane run example-pane 'nah nap'",
+            Some(NahProtectionTier::Permanent),
+        ),
+        (
+            "herdr --session example pane send-text example-pane 'nah nap --all'",
+            Some(NahProtectionTier::Permanent),
+        ),
+        (
+            "herdr pane send-keys example-pane 'nah nap' Enter",
+            Some(NahProtectionTier::Permanent),
+        ),
+        (
+            "tmux send-keys -t example-pane 'nah nap' C-m",
+            Some(NahProtectionTier::Permanent),
+        ),
+        ("tmux send -l 'nah nap'", Some(NahProtectionTier::Permanent)),
+        (
+            "herdr pane run example-pane 'pwd; command nah trust .'",
+            Some(NahProtectionTier::Critical),
+        ),
+        ("herdr pane run example-pane 'pwd'", None),
+        (
+            "herdr pane run example-pane \"printf '%s' 'nah nap'\"",
+            None,
+        ),
+        ("herdr pane run example-pane 'nah nap --help'", None),
+        ("herdr pane run example-pane '# nah nap'", None),
+        ("herdr pane run example-pane 'Explain nah nap'", None),
+        (
+            "herdr agent prompt example-agent 'nah nap' --wait --timeout 60000",
+            None,
+        ),
+        ("herdr pane run example-pane 'nah wake'", None),
+        ("herdr pane run example-pane 'rm -rf ~/.nah'", None),
+        ("tmux send-keys -t example-pane Enter", None),
+        ("tmux send-keys -l Enter", None),
+        ("tmux send-keys 'nah '", None),
+        ("tmux send-keys nap Enter", None),
+        ("tmux send-keys -H 6e6168206e6170", None),
+        (
+            "tmux paste-buffer -t example-pane -b example -d -p -r -s x",
+            None,
+        ),
+    ] {
+        let stream = stream(source);
+        let control = stream
+            .effects()
+            .iter()
+            .find_map(|effect| match effect.kind() {
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::TerminalControl { control, .. },
+                } => Some(control),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing terminal boundary: {source}: {stream:?}"));
+        assert_eq!(
+            control.candidate.map(|candidate| candidate.tier),
+            tier,
+            "{source}"
+        );
+        assert!(
+            !stream.effects().iter().any(|effect| match effect.kind() {
+                EffectKind::Filesystem { .. } => true,
+                EffectKind::Invocation {
+                    invocation: InvocationEffect::Known { program, .. },
+                } => program == "nah",
+                _ => false,
+            }),
+            "{source}"
+        );
+        if source == "tmux send-keys -l Enter" {
+            assert_eq!(control.operation, TerminalOperation::Input);
+            assert_eq!(
+                control.content,
+                TerminalContent::Literal {
+                    text: "Enter".into()
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn tmux_launches_keep_nap_evidence_without_sender_context() {
+    for command in [
+        "new-session",
+        "new",
+        "new-window",
+        "neww",
+        "split-window",
+        "splitw",
+        "respawn-pane",
+        "respawnp",
+        "respawn-window",
+        "respawnw",
+    ] {
+        for payload in ["'nah nap'", "nah nap --all"] {
+            let source = format!("tmux {command} -c /receiver -e HOME=/receiver {payload}");
+            let stream = stream(&source);
+            assert!(stream.effects().iter().any(|effect| matches!(effect.kind(),
+                EffectKind::Invocation { invocation: InvocationEffect::Known { program, operation, cwd, .. } }
+                if program == "nah" && operation == &SemanticCode::PERMANENT_MUTATION && cwd.is_none()
+            )), "{source}: {stream:?}");
+        }
+    }
+    for source in [
+        "tmux new-session -d 'rm -rf /'",
+        "tmux new-window 'rm ~/.nah/nap.json'",
+        "tmux respawnp",
+        "tmux neww -c '#{pane_current_path}' 'nah nap'",
+    ] {
+        let stream = stream(source);
+        assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
+        assert!(
+            !stream
+                .effects()
+                .iter()
+                .any(|effect| matches!(effect.kind(), EffectKind::Filesystem { .. })),
+            "{source}"
         );
     }
 }

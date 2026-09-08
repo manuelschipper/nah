@@ -6,6 +6,8 @@ use nah_proto::observation::Root;
 
 use crate::paths::{contains, join, selects};
 
+// Whole-container evidence means removal/replacement or recursive metadata mutation,
+// not merely a recursive write whose selected contents are unknown.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn classify(
     operation: FilesystemOperation,
@@ -17,6 +19,7 @@ pub(crate) fn classify(
     critical_paths: &[AbsolutePath],
     platform: Platform,
     pattern: bool,
+    whole_container: bool,
 ) -> Option<NahProtectionTier> {
     if operation == FilesystemOperation::Read {
         return None;
@@ -26,9 +29,12 @@ pub(crate) fn classify(
     let target = lexically_normalized(target.as_str(), platform);
     let paths = [resolved.as_str(), target.as_str()];
     if paths.iter().any(|path| {
-        [".nah/nap.json", ".nah/nap.key", ".nah/nap.lock"]
-            .iter()
-            .any(|entry| same_path(&join(home.as_str(), entry, platform), path, platform))
+        (!pattern
+            && whole_container
+            && same_path(&join(home.as_str(), ".nah", platform), path, platform))
+            || [".nah/nap.json", ".nah/nap.key", ".nah/nap.lock"]
+                .iter()
+                .any(|entry| same_path(&join(home.as_str(), entry, platform), path, platform))
     }) {
         return Some(NahProtectionTier::Permanent);
     }
@@ -312,6 +318,7 @@ mod tests {
                     &[],
                     Platform::Linux,
                     false,
+                    false,
                 ),
                 expected,
                 "{path:?}"
@@ -332,6 +339,7 @@ mod tests {
                 &[],
                 Platform::Linux,
                 false,
+                false,
             ),
             Some(NahProtectionTier::Proposal)
         );
@@ -350,6 +358,7 @@ mod tests {
                 &[],
                 Platform::Windows,
                 false,
+                false,
             ),
             Some(NahProtectionTier::Critical)
         );
@@ -363,6 +372,7 @@ mod tests {
                 &windows_home,
                 &[],
                 Platform::Windows,
+                false,
                 false,
             ),
             None
@@ -379,6 +389,7 @@ mod tests {
                 &windows_home,
                 &[],
                 Platform::Windows,
+                false,
                 false,
             ),
             Some(NahProtectionTier::Permanent)
@@ -399,6 +410,7 @@ mod tests {
                 &[],
                 Platform::Windows,
                 false,
+                false,
             ),
             Some(NahProtectionTier::Critical)
         );
@@ -417,6 +429,7 @@ mod tests {
                 &windows_home,
                 &[],
                 Platform::Windows,
+                false,
                 false,
             ),
             Some(NahProtectionTier::Critical)
@@ -437,6 +450,7 @@ mod tests {
                 &[],
                 Platform::Windows,
                 false,
+                false,
             ),
             None
         );
@@ -453,9 +467,57 @@ mod tests {
                 &[],
                 Platform::Windows,
                 false,
+                false,
             ),
             None
         );
+    }
+
+    #[test]
+    fn nap_container_promotion_requires_consequential_operation_evidence() {
+        for (platform, home, container) in [
+            (Platform::Linux, "/home/test", "/home/test/.nah"),
+            (Platform::Windows, r"C:\Users\Test", r"c:\users\test\.NAH"),
+        ] {
+            let home = AbsolutePath::new(platform, home).unwrap();
+            let container = AbsolutePath::new(platform, container).unwrap();
+            for whole_container in [false, true] {
+                assert_eq!(
+                    classify(
+                        FilesystemOperation::Write,
+                        &container,
+                        &container,
+                        &[],
+                        &[],
+                        &home,
+                        &[],
+                        platform,
+                        false,
+                        whole_container
+                    ),
+                    Some(if whole_container {
+                        NahProtectionTier::Permanent
+                    } else {
+                        NahProtectionTier::Critical
+                    })
+                );
+            }
+            assert_eq!(
+                classify(
+                    FilesystemOperation::Delete,
+                    &home,
+                    &home,
+                    &[],
+                    &[],
+                    &home,
+                    &[],
+                    platform,
+                    false,
+                    true
+                ),
+                None
+            );
+        }
     }
 
     #[test]
@@ -486,6 +548,7 @@ mod tests {
                     &[],
                     Platform::Linux,
                     false,
+                    false,
                 ),
                 Some(NahProtectionTier::Critical),
                 "{resolved} -> {target}"
@@ -507,6 +570,7 @@ mod tests {
                 &windows_home,
                 &[],
                 Platform::Windows,
+                false,
                 false,
             ),
             Some(NahProtectionTier::Critical)

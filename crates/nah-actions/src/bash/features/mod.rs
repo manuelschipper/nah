@@ -36,5 +36,6 @@ pub(crate) mod storage;
 pub(crate) mod symlinks;
 pub(crate) mod tar;
 pub(crate) mod targets;
+pub(crate) mod terminal_control;
 pub(crate) mod transforms;
 pub(crate) mod wrappers;

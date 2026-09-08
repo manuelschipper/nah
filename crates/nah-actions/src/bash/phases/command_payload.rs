@@ -280,7 +280,7 @@ impl Lowerer {
         } else {
             Lowered::default()
         };
-        let lowered_payload = payload.and_then(|(payload, transparent, execution)| {
+        let mut lowered_payload = payload.and_then(|(payload, transparent, execution)| {
             if !self.enter_payload(payload.len()) {
                 return None;
             }
@@ -382,6 +382,41 @@ impl Lowerer {
             self.payload_depth -= 1;
             lowered
         });
+        if matches!(program, ProgramDraft::Static(program) if program == "tmux")
+            && let Some(invocations) = crate::bash_terminal_control::tmux_launch(local_arguments)
+        {
+            // The server's shell, host, home and working directory remain unknown.
+            self.complete = false;
+            let mut lowered = Lowered::default();
+            for invocation in invocations {
+                let stage = self.stages.len();
+                self.stages.push(crate::bash_model::StageDraft {
+                    language_safety_only: false,
+                    invocation,
+                    invocation_cwd: None,
+                    child_cwd_keys: Vec::new(),
+                    filesystems: Vec::new(),
+                    root_move_destination_key: None,
+                    git_operations: Vec::new(),
+                    git_project_scoped: false,
+                    network_outbound: false,
+                    network_endpoints: Vec::new(),
+                    system_states: Vec::new(),
+                    fifo_creations: Vec::new(),
+                    stdout: StdoutDraft::Unknown,
+                    content_writes: Vec::new(),
+                    payload_depth: self.payload_depth + 1,
+                    conditional_depth: self.conditional_depth,
+                    execution_dominators: Vec::new(),
+                });
+                lowered.stages.push(stage);
+                lowered.inputs.push(stage);
+                lowered.outputs.push(stage);
+            }
+            if !lowered.stages.is_empty() {
+                lowered_payload = Some((lowered, false));
+            }
+        }
         let variables = self.visible_variables();
         let mut executor_candidates = match program {
             ProgramDraft::Static(program) => executor_payloads(
