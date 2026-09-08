@@ -30,7 +30,7 @@ pub(crate) fn invocation(effect: EffectKind, complete: &mut bool) -> EffectKind 
         } => {
             let name = program.rsplit('/').next().unwrap_or(program);
             match name {
-                "herdr" => herdr(&argv[1..]),
+                "herdr" => herdr(&argv[1..], complete),
                 "tmux" => tmux_input(&argv[1..]),
                 _ => None,
             }
@@ -94,7 +94,7 @@ fn unknown(carrier: TerminalCarrier, operation: TerminalOperation) -> TerminalCo
     }
 }
 
-fn herdr(arguments: &[String]) -> Option<TerminalControl> {
+fn herdr(arguments: &[String], complete: &mut bool) -> Option<TerminalControl> {
     let mut args = Vec::new();
     let mut selector = None;
     let mut index = 0;
@@ -104,6 +104,7 @@ fn herdr(arguments: &[String]) -> Option<TerminalControl> {
             selector = Some(arguments.get(index + 1)?.clone());
             index += 2;
         } else if args.len() < 2 && arguments[index].starts_with('-') {
+            *complete = false;
             return None;
         } else {
             args.push(arguments[index].as_str());

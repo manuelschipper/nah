@@ -62,24 +62,18 @@ impl Lowerer {
                 name,
                 name_substitutions,
                 arguments,
-                assignments,
-                unmodeled_assignments,
                 redirects,
+                ..
             } => {
-                // Only shared static command positions are established for the unknown
-                // server shell. Expansion, redirection and shell state remain incomplete.
-                if !assignments.is_empty()
-                    || !unmodeled_assignments.is_empty()
-                    || !redirects.is_empty()
-                {
-                    return Lowered::default();
-                }
-                let Some(program) = static_word(name, name_substitutions.is_empty()) else {
+                // Assignments and redirects remain unmodeled, but do not erase
+                // independently visible argv intent. Never expand receiver variables.
+                let Some(lexical_program) = static_word(name, name_substitutions.is_empty()) else {
                     return Lowered::default();
                 };
-                if program.contains(['/', '\\']) || contains_unquoted_pattern(name) {
+                if contains_unquoted_pattern(name) {
                     return Lowered::default();
                 }
+                let program = self.normalized_program(&lexical_program);
                 let Some(values) = arguments
                     .iter()
                     .map(|word| static_word(word.raw(), word.substitutions().is_empty()))
@@ -90,7 +84,12 @@ impl Lowerer {
                 if let Some(payload) = shell_payload(&program, arguments, &[])
                     .or_else(|| wrapper_payload(&program, arguments))
                 {
-                    return self.lower_terminal_launch(&payload);
+                    let mut lowered = self.lower_terminal_launch(&payload);
+                    if !redirects.is_empty() {
+                        lowered.inputs.clear();
+                        lowered.outputs.clear();
+                    }
+                    return lowered;
                 }
                 if crate::bash_filesystem::terminal_program_help(&program, arguments, self.platform)
                 {
@@ -121,11 +120,11 @@ impl Lowerer {
                         })
                         .or_else(|| execution.as_ref().and_then(|model| model.operation))
                         .map(|operation| SemanticCode::new(operation).expect("modeled operation"));
-                let mut argv = vec![program.clone()];
+                let mut argv = vec![lexical_program.clone()];
                 argv.extend(values);
                 let invocation = crate::bash_invocation::invocation(
                     &ProgramDraft::Static(program.clone()),
-                    None,
+                    Some(&lexical_program),
                     arguments,
                     std::iter::once(name.clone())
                         .chain(arguments.iter().map(|word| word.raw().to_owned()))
@@ -213,12 +212,17 @@ impl Lowerer {
                 });
                 Lowered {
                     stages: vec![stage],
-                    inputs: if execution.as_ref().is_none_or(|model| model.stdin_flows) {
+                    // Unmodeled redirects cannot establish pipe connectivity.
+                    inputs: if redirects.is_empty()
+                        && execution.as_ref().is_none_or(|model| model.stdin_flows)
+                    {
                         vec![stage]
                     } else {
                         Vec::new()
                     },
-                    outputs: if execution.as_ref().is_none_or(|model| model.stdout_flows) {
+                    outputs: if redirects.is_empty()
+                        && execution.as_ref().is_none_or(|model| model.stdout_flows)
+                    {
                         vec![stage]
                     } else {
                         Vec::new()
