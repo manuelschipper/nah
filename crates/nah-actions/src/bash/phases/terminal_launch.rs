@@ -415,7 +415,18 @@ impl Lowerer {
                 }
                 lowered
             }
-            _ => Lowered::default(),
+            Statement::Unsupported { statements, .. }
+            | Statement::UnmodeledStateMutation { statements, .. } => {
+                self.complete = false;
+                let mut lowered = Lowered::default();
+                for statement in statements {
+                    lowered.extend(self.lower_terminal_statement(statement));
+                }
+                lowered
+            }
+            Statement::Assignments { .. }
+            | Statement::FunctionDefinition { .. }
+            | Statement::LoopControl { .. } => Lowered::default(),
         }
     }
 

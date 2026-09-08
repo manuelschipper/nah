@@ -316,6 +316,8 @@ fn statement_candidate(statement: &Statement, depth: usize) -> (Option<TerminalC
                 program.as_str(),
                 "command"
                     | "exec"
+                    | "time"
+                    | "eval"
                     | "env"
                     | "nohup"
                     | "timeout"
@@ -361,7 +363,17 @@ fn statement_candidate(statement: &Statement, depth: usize) -> (Option<TerminalC
         Statement::Case { arms, .. } => {
             statements_candidate(arms.iter().flat_map(|arm| arm.body()), depth)
         }
-        _ => (None, false),
+        Statement::Unsupported { statements, .. }
+        | Statement::UnmodeledStateMutation { statements, .. } => {
+            // The parser retains executable descendants even when surrounding semantics
+            // are unknown, such as negation or a C-style loop header.
+            let (candidate, _) = statements_candidate(statements.iter(), depth);
+            (candidate, false)
+        }
+        Statement::Assignments { .. }
+        | Statement::FunctionDefinition { .. }
+        | Statement::LoopControl { .. }
+        | Statement::RedirectOnly { .. } => (None, false),
     }
 }
 
