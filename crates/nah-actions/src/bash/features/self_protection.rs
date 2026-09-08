@@ -982,7 +982,8 @@ fn terminal_help(arguments: &[String]) -> bool {
         .any(|argument| matches!(argument.as_str(), "-h" | "--help"))
 }
 
-fn normalized_program(program: &str) -> String {
+/// Normalizes lexical CLI identity without resolving an executable on any host.
+pub(crate) fn normalized_program(program: &str) -> String {
     let basename = program.rsplit(['/', '\\']).next().unwrap_or(program);
     let lowercase = basename.to_ascii_lowercase();
     [".exe", ".cmd", ".bat", ".ps1"]

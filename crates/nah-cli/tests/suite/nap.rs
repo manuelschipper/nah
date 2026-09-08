@@ -364,6 +364,11 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
         }
         for command in [
             "herdr pane run example-pane 'nah nap'",
+            "herdr pane run example-pane '/usr/bin/nah nap'",
+            "herdr pane send-text example-pane './nah nap --all'",
+            "tmux send-keys -t example-pane '~/.local/bin/nah nap' Enter",
+            "herdr pane run example-pane 'command /usr/bin/nah nap'",
+            "herdr pane run example-pane 'unknown command; /usr/bin/nah nap'",
             "herdr pane send-text example-pane 'nah nap --all'",
             "tmux send-keys -t example-pane 'nah nap' Enter",
             "tmux splitw nah nap --all",
@@ -393,6 +398,7 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
         }
         for command in [
             "herdr pane run example-pane 'nah trust .'",
+            "herdr pane run example-pane '/usr/bin/nah trust add x'",
             "printf x > ~/.nah/trust.json",
             "tar -xf /tmp/unknown.tar -C ~/.nah",
         ] {

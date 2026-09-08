@@ -123,9 +123,10 @@ are permitted during naps. Ordinary agent prompts, quoted printing, help, and
 This restriction does not reconstruct split input, Enter-only calls, hidden buffers,
 or earlier terminal state. Receiver shell, home, environment, cwd, and host are
 unknown; sending filesystem command text does not identify local protected files.
-Unsupported key encodings, remote execution, Screen raw input, generic PTY and
-GUI automation remain outside this coverage. OpenClaw process input carries unknown
-content; it does not yet receive command-content matching.
+Payload commands outside the bounded Nah/wrapper decoder retain incomplete coverage.
+Unsupported carrier options, key encodings, remote execution, Screen raw input,
+generic PTY and GUI automation remain outside this coverage. OpenClaw process input
+carries unknown content; it does not yet receive command-content matching.
 
 Self-protection blocks understood mutation of nah, active wiring, executable
 aliases, and ancestors. Windows drive/UNC paths normalize; device/reparse paths

@@ -1,6 +1,6 @@
 //! Recognizes bounded terminal delivery without receiver state or host observations.
 
-use crate::bash_self_protection::operation_for_values;
+use crate::bash_self_protection::{normalized_program, operation_for_values};
 use crate::bash_wrappers::{shell_payload, wrapper_payload};
 use crate::shell_word::static_word;
 use nah_parse::Statement;
@@ -295,8 +295,8 @@ fn statement_candidate(statement: &Statement, depth: usize) -> (Option<TerminalC
             else {
                 return (None, false);
             };
-            // Qualified paths need receiver identity observations; a basename is insufficient.
-            if program == "nah" {
+            // Share direct Nah CLI identity rules without resolving receiver paths.
+            if normalized_program(&program) == "nah" {
                 let operation = match operation_for_values(&program, &values) {
                     Some("permanent-mutation") => Some(TerminalCandidate {
                         operation: ProtectedNahOperation::Nap,
@@ -333,7 +333,8 @@ fn statement_candidate(statement: &Statement, depth: usize) -> (Option<TerminalC
                 }
                 return (None, false);
             }
-            (None, true)
+            // Unmodeled executable positions may themselves carry a command.
+            (None, false)
         }
         Statement::Chain { items, .. } | Statement::Pipeline { stages: items, .. } => {
             let mut best = None;

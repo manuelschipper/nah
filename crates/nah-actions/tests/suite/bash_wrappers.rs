@@ -318,6 +318,18 @@ fn an_undecoded_payload_never_reports_full_coverage() {
     // The wrapper class cannot be enumerated, so a program nobody listed must
     // not report arguments that could themselves be a command as understood.
     for source in [
+        "herdr pane run p 'sudo nah nap'",
+        r#"herdr pane run p 'eval "nah nap"'"#,
+        "herdr pane run p 'watch nah nap'",
+        r#"herdr pane run p 'su -c "nah nap"'"#,
+        "herdr pane run p 'strace nah nap'",
+        "herdr pane run p 'busybox nah nap'",
+        "herdr pane run p 'unshare nah nap'",
+        "herdr pane run p 'xargs nah nap'",
+        "herdr pane run p 'time nah nap'",
+        "herdr pane run p 'stdbuf -o0 nah nap'",
+        r#"herdr pane run p 'zsh -c "nah nap"'"#,
+        "tmux send-keys 'notarealwrapper nah nap' Enter",
         "notarealwrapper rm -rf /",
         "notarealwrapper --isolate rm -rf /",
         "sudo --chdir /tmp rm -rf /",
@@ -452,6 +464,42 @@ fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution(
         ),
         ("tmux send -l 'nah nap'", Some(NahProtectionTier::Permanent)),
         (
+            "herdr pane run p '/usr/bin/nah nap'",
+            Some(NahProtectionTier::Permanent),
+        ),
+        (
+            "herdr pane run p './nah nap'",
+            Some(NahProtectionTier::Permanent),
+        ),
+        (
+            "herdr pane run p '~/.local/bin/nah nap'",
+            Some(NahProtectionTier::Permanent),
+        ),
+        (
+            "herdr pane send-text p '/usr/bin/nah nap'",
+            Some(NahProtectionTier::Permanent),
+        ),
+        (
+            "tmux send-keys -t p '/usr/bin/nah nap' Enter",
+            Some(NahProtectionTier::Permanent),
+        ),
+        (
+            "herdr pane run p 'command /usr/bin/nah nap'",
+            Some(NahProtectionTier::Permanent),
+        ),
+        (
+            "herdr pane run p 'screen -dm /usr/bin/nah nap'",
+            Some(NahProtectionTier::Permanent),
+        ),
+        (
+            "herdr pane run p '/usr/bin/nah trust add x'",
+            Some(NahProtectionTier::Critical),
+        ),
+        (
+            "herdr pane run p 'unknown command; /usr/bin/nah nap'",
+            Some(NahProtectionTier::Permanent),
+        ),
+        (
             "herdr pane run example-pane 'pwd; command nah trust .'",
             Some(NahProtectionTier::Critical),
         ),
@@ -468,6 +516,9 @@ fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution(
             None,
         ),
         ("herdr pane run example-pane 'nah wake'", None),
+        ("herdr pane run p '/usr/bin/nah nap --help'", None),
+        ("herdr pane run p '/usr/bin/nah wake'", None),
+        ("herdr pane run p '/usr/bin/notnah nap'", None),
         ("herdr pane run example-pane 'rm -rf ~/.nah'", None),
         ("tmux send-keys -t example-pane Enter", None),
         ("tmux send-keys -l Enter", None),

