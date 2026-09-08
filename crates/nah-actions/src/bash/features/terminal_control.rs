@@ -1,7 +1,9 @@
 //! Recognizes bounded terminal delivery without receiver state or host observations.
 
 use crate::bash_self_protection::{normalized_program, operation_for_values};
-use crate::bash_wrappers::{shell_payload, wrapper_payload};
+use crate::bash_wrappers::{
+    executor_payloads, shell_payload, shell_string_wrapper_payload, wrapper_payload,
+};
 use crate::shell_word::static_word;
 use nah_parse::Statement;
 use nah_proto::action::{
@@ -283,22 +285,27 @@ fn statement_candidate(statement: &Statement, depth: usize) -> (Option<TerminalC
             let Some(program) = static_word(name, name_substitutions.is_empty()) else {
                 return (None, false);
             };
-            if assignments.iter().any(|(name, value)| {
-                name == "PATH"
-                    || static_word(value.raw(), value.substitutions().is_empty()).is_none()
-            }) {
-                return (None, false);
-            }
-            let Some(values) = arguments
+            let values = arguments
                 .iter()
                 .map(|word| static_word(word.raw(), word.substitutions().is_empty()))
-                .collect::<Option<Vec<_>>>()
-            else {
-                return (None, false);
-            };
-            // Share direct Nah CLI identity rules without resolving receiver paths.
+                .collect::<Vec<_>>();
+            let complete = values.iter().all(Option::is_some)
+                && assignments.iter().all(|(_, value)| {
+                    static_word(value.raw(), value.substitutions().is_empty()).is_some()
+                });
+            // Only the literal prefix can establish the operation. Later known words
+            // can still veto it (notably --help), but cannot fill an unknown verb.
             if normalized_program(&program) == "nah" {
-                let operation = match operation_for_values(&program, &values) {
+                let prefix = values
+                    .iter()
+                    .cloned()
+                    .take_while(Option::is_some)
+                    .flatten()
+                    .collect::<Vec<_>>();
+                let known = values.into_iter().flatten().collect::<Vec<_>>();
+                let operation = operation_for_values(&program, &prefix)
+                    .filter(|operation| operation_for_values(&program, &known) == Some(*operation));
+                let operation = match operation {
                     Some("permanent-mutation") => Some(TerminalCandidate {
                         operation: ProtectedNahOperation::Nap,
                         tier: NahProtectionTier::Permanent,
@@ -309,32 +316,38 @@ fn statement_candidate(statement: &Statement, depth: usize) -> (Option<TerminalC
                     }),
                     _ => None,
                 };
-                return (operation, true);
+                return (operation, complete);
             }
-            // These reviewed wrappers establish argv or explicit shell-source operands.
-            if matches!(
-                program.as_str(),
-                "command"
-                    | "exec"
-                    | "time"
-                    | "eval"
-                    | "env"
-                    | "nohup"
-                    | "timeout"
-                    | "nice"
-                    | "setsid"
-                    | "bash"
-                    | "sh"
-                    | "script"
-                    | "screen"
-                    | "systemd-run"
-            ) {
-                if let Some(payload) = shell_payload(&program, arguments, &[])
-                    .or_else(|| wrapper_payload(&program, arguments))
-                {
-                    return candidate(&payload, depth + 1);
+            // Reuse reviewed operand decoders and standard POSIX executable identity;
+            // their payloads establish syntax, never receiver cwd or environment.
+            let program =
+                crate::bash_semantics::normalize_program(&program, nah_proto::ctx::Platform::Linux)
+                    .unwrap_or(program);
+            if let Some(payload) = shell_payload(&program, arguments, &[])
+                .or_else(|| wrapper_payload(&program, arguments))
+                .or_else(|| {
+                    shell_string_wrapper_payload(&program, arguments)
+                        .ok()
+                        .flatten()
+                        .map(|(payload, _)| payload)
+                })
+            {
+                let (found, understood) = candidate(&payload, depth + 1);
+                return (found, complete && understood);
+            }
+            // These local executors expose explicit operands. Remote executors and
+            // commands supplied only by unknown stdin remain outside input matching.
+            if matches!(program.as_str(), "xargs" | "find" | "tar" | "bsdtar") {
+                let mut best = None;
+                for executor in executor_payloads(&program, arguments, &[], None) {
+                    let (found, _) = candidate(&executor.payload, depth + 1);
+                    if found.is_some_and(|found| found.tier == NahProtectionTier::Permanent)
+                        || best.is_none()
+                    {
+                        best = found;
+                    }
                 }
-                return (None, false);
+                return (best, false);
             }
             // Unmodeled executable positions may themselves carry a command.
             (None, false)

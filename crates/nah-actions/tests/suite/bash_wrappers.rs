@@ -320,15 +320,6 @@ fn an_undecoded_payload_never_reports_full_coverage() {
     // The wrapper class cannot be enumerated, so a program nobody listed must
     // not report arguments that could themselves be a command as understood.
     for source in [
-        "herdr pane run p 'sudo nah nap'",
-        "herdr pane run p 'watch nah nap'",
-        r#"herdr pane run p 'su -c "nah nap"'"#,
-        "herdr pane run p 'strace nah nap'",
-        "herdr pane run p 'busybox nah nap'",
-        "herdr pane run p 'unshare nah nap'",
-        "herdr pane run p 'xargs nah nap'",
-        "herdr pane run p 'stdbuf -o0 nah nap'",
-        r#"herdr pane run p 'zsh -c "nah nap"'"#,
         "tmux send-keys 'notarealwrapper nah nap' Enter",
         "notarealwrapper rm -rf /",
         "notarealwrapper --isolate rm -rf /",
@@ -465,6 +456,54 @@ fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution(
             "{source}"
         );
     }
+    let reviewed_payloads = [
+        "sudo nah nap",
+        "doas nah nap",
+        "stdbuf -o0 nah nap",
+        "unshare nah nap",
+        "strace nah nap",
+        "ionice nah nap",
+        "taskset 1 nah nap",
+        "busybox nah nap",
+        "firejail nah nap",
+        "pkexec nah nap",
+        "xargs nah nap",
+        "watch nah nap",
+        "toybox nah nap",
+        "eatmydata nah nap",
+        "ltrace nah nap",
+        "proot nah nap",
+        "dbus-run-session -- nah nap",
+        "chrt 1 nah nap",
+        "prlimit -- nah nap",
+        r#"su -c "nah nap""#,
+        r#"runuser -c "nah nap""#,
+        r#"sg group -c "nah nap""#,
+        r#"/bin/sh -c "nah nap""#,
+        r#"/bin/bash -c "nah nap""#,
+        "/usr/bin/env nah nap",
+        "/usr/bin/timeout 5 nah nap",
+        "/usr/bin/nohup nah nap",
+        r#"zsh -c "nah nap""#,
+        r#"dash -c "nah nap""#,
+        r#"ksh -c "nah nap""#,
+        "nah nap $X",
+        "FOO=$X nah nap",
+        "PATH=$X nah nap",
+        "sudo nah nap $X",
+        "nah nap -- $X --help",
+        "find /tmp -exec nah nap {} +",
+        "parallel nah nap ::: x",
+        r#"tar -cf out.tar --checkpoint=1 --checkpoint-action="exec=nah nap" src"#,
+    ];
+    let reviewed_cases = reviewed_payloads.into_iter().flat_map(|payload| {
+        [
+            format!("herdr pane run p '{payload}'"),
+            format!("herdr pane send-text p '{payload}'"),
+            format!("tmux send-keys -t p '{payload}' Enter"),
+        ]
+        .map(|source| (source, Some(NahProtectionTier::Permanent)))
+    });
     for (source, tier) in [
         (
             "herdr pane run example-pane 'nah nap'",
@@ -802,6 +841,29 @@ fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution(
         (r#"herdr pane run p 'time nah wake'"#, None),
         (r#"herdr pane run p 'eval nah nap --help'"#, None),
         (r#"herdr pane run p '! f() { nah nap; }'"#, None),
+        (r#"herdr pane run p 'bsdtar -cf out.tar --checkpoint=1 --checkpoint-action="exec=nah nap" src'"#, None),
+        (r#"herdr pane run p 'sudo nah nap --help'"#, None),
+        (r#"herdr pane run p '/usr/bin/env printf nah nap'"#, None),
+        (r#"herdr pane run p 'watch echo nah nap'"#, None),
+        (r#"herdr pane run p 'su -c "echo nah nap"'"#, None),
+        (r#"herdr pane run p 'sh -n -c "nah nap"'"#, None),
+        (r#"herdr pane run p 'nah $X nap'"#, None),
+        (r#"herdr pane run p 'nah guard $X disable'"#, None),
+        (r#"herdr pane run p 'nah nap $X --help'"#, None),
+        (r#"herdr pane run p 'nah wake $X'"#, None),
+        (r#"herdr pane run p 'FOO=$X printf nah nap'"#, None),
+        (r#"herdr pane run p 'sudo $X nah nap'"#, None),
+        (r#"herdr pane run p 'ssh host nah nap'"#, None),
+        (r#"herdr pane run p 'xargs echo nah nap'"#, None),
+        (r#"herdr pane run p 'notarealwrapper nah nap'"#, None),
+        (
+            "herdr pane run p 'sudo nah guard disable fs-system-tree'",
+            Some(NahProtectionTier::Critical),
+        ),
+        (
+            "herdr pane run p 'nah guard disable $X'",
+            Some(NahProtectionTier::Critical),
+        ),
         ("herdr pane run example-pane 'pwd'", None),
         (
             "herdr pane run example-pane \"printf '%s' 'nah nap'\"",
@@ -828,7 +890,12 @@ fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution(
             "tmux paste-buffer -t example-pane -b example -d -p -r -s x",
             None,
         ),
-    ] {
+    ]
+    .into_iter()
+    .map(|(source, tier)| (source.to_owned(), tier))
+    .chain(reviewed_cases)
+    {
+        let source = source.as_str();
         let stream = stream(source);
         let control = stream
             .effects()
@@ -855,7 +922,7 @@ fn terminal_input_restricts_executable_nah_without_inventing_receiver_execution(
             }),
             "{source}"
         );
-        if source.contains("! ") || source.contains("for ((") {
+        if source.contains("! ") || source.contains("for ((") || source.contains("$X") {
             assert_eq!(stream.coverage(), Coverage::Partial, "{source}");
         }
         if source == "tmux send-keys -l Enter" {
