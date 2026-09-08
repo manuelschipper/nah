@@ -7,7 +7,9 @@ use nah_proto::ctx::AbsolutePath;
 use super::{Lowered, Lowerer};
 use crate::bash_descriptor_state::DescriptorState;
 use crate::bash_model::{FilesystemDraft, ProgramDraft, StageDraft, StdoutDraft};
-use crate::bash_wrappers::{executor_payloads, shell_payload, wrapper_payload};
+use crate::bash_wrappers::{
+    executor_payloads, shell_payload, shell_string_wrapper_payload, wrapper_payload,
+};
 use crate::shell_word::{contains_unquoted_pattern, static_word};
 
 impl Lowerer {
@@ -17,6 +19,7 @@ impl Lowerer {
         }
         let mut lowered = Lowered::default();
         if let Ok(syntax) = nah_parse::normalize(source) {
+            self.detected_fork_bomb |= syntax.fork_bomb();
             for statement in syntax.statements() {
                 lowered.extend(self.lower_terminal_statement(statement));
             }
@@ -130,8 +133,27 @@ impl Lowerer {
                 else {
                     return self.lower_terminal_redirects(redirects);
                 };
+                let source_arguments = arguments;
+                let normalized_arguments =
+                    crate::bash_semantics::normalize_arguments(&program, arguments, self.platform);
+                let arguments = normalized_arguments.as_slice();
                 if let Some(payload) = shell_payload(&program, arguments, &[])
                     .or_else(|| wrapper_payload(&program, arguments))
+                    .or_else(|| {
+                        (program == "tmux")
+                            .then(|| crate::bash_terminal_control::tmux_launch(arguments))
+                            .flatten()
+                    })
+                    .or_else(|| {
+                        (program == "watch")
+                            .then(|| {
+                                shell_string_wrapper_payload(&program, arguments)
+                                    .ok()
+                                    .flatten()
+                            })
+                            .flatten()
+                            .map(|(payload, _)| payload)
+                    })
                 {
                     let mut lowered = self.lower_terminal_launch(&payload);
                     if !redirects.is_empty() {
@@ -227,8 +249,17 @@ impl Lowerer {
                     arguments,
                     self.platform,
                 ));
+                let environment_disclosure = crate::bash_environment_disclosure::operation(
+                    &program,
+                    arguments,
+                    source_arguments,
+                    !assignments.is_empty(),
+                    &[],
+                    &[],
+                );
                 let operation =
                     crate::bash_self_protection::operation_for_values(&program, &values)
+                        .or(environment_disclosure)
                         .or_else(|| {
                             local
                                 .as_ref()
@@ -250,7 +281,7 @@ impl Lowerer {
                     Some(&lexical_program),
                     arguments,
                     std::iter::once(name.clone())
-                        .chain(arguments.iter().map(|word| word.raw().to_owned()))
+                        .chain(source_arguments.iter().map(|word| word.raw().to_owned()))
                         .collect(),
                     (!arguments
                         .iter()
@@ -306,6 +337,25 @@ impl Lowerer {
                         filesystems.push(filesystem);
                     }
                 }
+                let mut git_operations =
+                    crate::bash_git::git_command_operations(&program, arguments)
+                        .into_iter()
+                        .map(|operation| {
+                            SemanticCode::new(operation).expect("modeled Git operation")
+                        })
+                        .collect::<Vec<_>>();
+                if let Some(deletion) =
+                    crate::bash_remote_source_control::classify_remote_deletion(&program, arguments)
+                {
+                    git_operations.push(match deletion {
+                        crate::bash_remote_source_control::RemoteDeletion::Repository => {
+                            SemanticCode::GIT_REMOTE_REPO_DELETE
+                        }
+                        crate::bash_remote_source_control::RemoteDeletion::Resource => {
+                            SemanticCode::GIT_REMOTE_RESOURCE_DELETE
+                        }
+                    });
+                }
                 let stage = self.stages.len();
                 // Generic visible-source lowering has caller context; this stage must
                 // remain in the isolated terminal analyzer even if an artifact matches.
@@ -317,12 +367,7 @@ impl Lowerer {
                     child_cwd_keys: Vec::new(),
                     filesystems,
                     root_move_destination_key: None,
-                    git_operations: crate::bash_git::git_command_operations(&program, arguments)
-                        .into_iter()
-                        .map(|operation| {
-                            SemanticCode::new(operation).expect("modeled Git operation")
-                        })
-                        .collect(),
+                    git_operations,
                     git_project_scoped: false,
                     network_outbound: execution
                         .as_ref()

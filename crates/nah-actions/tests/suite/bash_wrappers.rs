@@ -607,6 +607,7 @@ fn tmux_launches_keep_nap_evidence_without_sender_context() {
             "'rm -rf /'",
             "rm -rf /",
             "'command rm -rf /'",
+            "'watch -x rm -rf /'",
             "'/bin/rm -rf /'",
             "/bin/rm -rf /",
             "'X=1 rm -rf /'",
@@ -629,6 +630,7 @@ fn tmux_launches_keep_nap_evidence_without_sender_context() {
             "'nah nap'",
             "'(nah nap)'",
             "'coproc nah nap'",
+            "'tmux neww nah nap'",
             "'if true; then nah nap; fi'",
             "'while true; do nah nap; done'",
             "'for x in one; do nah nap; done'",
@@ -647,6 +649,13 @@ fn tmux_launches_keep_nap_evidence_without_sender_context() {
         }
     }
     for payload in [
+        "gh repo delete owner/project --yes",
+        "glab repo delete owner/project --yes",
+        "gh api -X DELETE repos/owner/project",
+        "gh release delete v1 --yes",
+        "while true; do work & done",
+        ":(){ :|:& };:",
+        "/usr/bin/chmod --rec 000 /",
         "gem yank rack -v 3.0.0",
         "npm unpublish left-pad --force",
         "aws secretsmanager delete-secret --secret-id service/api --force-delete-without-recovery",
@@ -666,7 +675,9 @@ fn tmux_launches_keep_nap_evidence_without_sender_context() {
             .filter(|effect| {
                 matches!(
                     effect.kind(),
-                    EffectKind::Filesystem { .. } | EffectKind::SystemState { .. }
+                    EffectKind::Filesystem { .. }
+                        | EffectKind::SystemState { .. }
+                        | EffectKind::Git { .. }
                 )
             })
             .map(|effect| effect.kind())
