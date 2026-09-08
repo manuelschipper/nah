@@ -2,6 +2,7 @@
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Syntax {
+    syntactically_valid: bool,
     complete: bool,
     fork_bomb: bool,
     statements: Vec<Statement>,
@@ -10,17 +11,24 @@ pub struct Syntax {
 
 impl Syntax {
     pub(crate) fn new(
+        syntactically_valid: bool,
         complete: bool,
         fork_bomb: bool,
         statements: Vec<Statement>,
         parse_unit_starts: Vec<usize>,
     ) -> Self {
         Self {
+            syntactically_valid,
             complete,
             fork_bomb,
             statements,
             parse_unit_starts,
         }
+    }
+
+    /// Distinguishes complete source from parser recovery, independently of modeled coverage.
+    pub const fn syntactically_valid(&self) -> bool {
+        self.syntactically_valid
     }
 
     pub const fn complete(&self) -> bool {

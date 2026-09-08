@@ -88,11 +88,13 @@ pub fn normalize(source: &str) -> Result<Syntax, ParseError> {
     if let Some(reason) = syntax_limit(&tree) {
         return Err(ParseError::ExceedsLimit(reason));
     }
-    let mut complete = tree_is_clean(&tree, source);
+    let syntactically_valid = tree_is_clean(&tree, source);
+    let mut complete = syntactically_valid;
     let (fork_bomb, fork_bomb_uncertain) = fork_bomb::detect(tree.root_node(), source);
     complete &= !fork_bomb_uncertain;
     let parsed = statement_children_with_units(tree.root_node(), source, &mut complete);
     Ok(Syntax::new(
+        syntactically_valid,
         complete,
         fork_bomb,
         parsed.statements,

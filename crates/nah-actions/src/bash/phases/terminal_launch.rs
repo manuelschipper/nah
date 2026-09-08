@@ -340,6 +340,8 @@ impl Lowerer {
                 let mut git_operations =
                     crate::bash_git::git_command_operations(&program, arguments)
                         .into_iter()
+                        // Clean requires observed project-root selection, unavailable in the receiver.
+                        .filter(|operation| *operation != SemanticCode::CLEAN_FORCE.as_str())
                         .map(|operation| {
                             SemanticCode::new(operation).expect("modeled Git operation")
                         })

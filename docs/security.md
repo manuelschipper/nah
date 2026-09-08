@@ -130,13 +130,14 @@ carries unknown content; it does not yet receive command-content matching.
 
 Tmux launches retain modeled repository deletion, environment disclosure, forkbomb,
 registry, secret-store, backup, power, filesystem and execution-flow effects.
-Subshells, coprocesses, conditionals and loop bodies retain visible command evidence.
-Absolute redirects and filesystem patterns retain lexical intent without proving
-receiver aliases or pattern matches. Analysis remains partial: receiver variables,
-function calls, substitutions, descriptor state and stored/generated code remain
-unresolved, as do relative paths, home expansion and implicit home resources such as
-`security dump-keychain`. Root-pattern moves such as `mv /* /tmp` require proof that
-the receiver destination is a non-root directory; the sender cannot supply that proof.
+Compound statements retain commands; absolute redirects and patterns retain
+lexical intent without receiver alias or selection proof. Receiver variables, function
+calls, substitutions, descriptor state (including `/dev/tcp` input redirects), generated
+code, relative paths and home resources remain unresolved. Root-pattern moves such as
+`mv /* /tmp` need receiver destination-directory proof; forced Git clean needs
+project-root selection proof. Neither can use sender observations. Unknown recursive
+reads do not prove credential disclosure; explicit sensitive paths and recognized
+credential-search intent retain protection.
 
 Self-protection blocks understood mutation of nah, active wiring, executable
 aliases, and ancestors. Windows drive/UNC paths normalize; device/reparse paths

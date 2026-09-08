@@ -264,19 +264,11 @@ fn candidate(source: &str, depth: usize) -> (Option<TerminalCandidate>, bool) {
     let Ok(syntax) = nah_parse::normalize(source) else {
         return (None, false);
     };
-    if !syntax.complete() {
+    if !syntax.syntactically_valid() {
         return (None, false);
     }
-    let mut best = None;
-    let mut complete = true;
-    for statement in syntax.statements() {
-        let (found, understood) = statement_candidate(statement, depth);
-        complete &= understood;
-        if found.is_some_and(|found| found.tier == NahProtectionTier::Permanent) || best.is_none() {
-            best = found;
-        }
-    }
-    (best, complete)
+    let (candidate, complete) = statements_candidate(syntax.statements().iter(), depth);
+    (candidate, complete && syntax.complete())
 }
 
 fn statement_candidate(statement: &Statement, depth: usize) -> (Option<TerminalCandidate>, bool) {
@@ -345,22 +337,49 @@ fn statement_candidate(statement: &Statement, depth: usize) -> (Option<TerminalC
             // Unmodeled executable positions may themselves carry a command.
             (None, false)
         }
-        Statement::Chain { items, .. } | Statement::Pipeline { stages: items, .. } => {
-            let mut best = None;
-            let mut complete = true;
-            for item in items {
-                let (found, understood) = statement_candidate(item, depth);
-                complete &= understood;
-                if found.is_some_and(|found| found.tier == NahProtectionTier::Permanent)
-                    || best.is_none()
-                {
-                    best = found;
-                }
-            }
-            (best, complete)
+        Statement::Chain { items, .. }
+        | Statement::Pipeline { stages: items, .. }
+        | Statement::Subshell { statements: items }
+        | Statement::Group { statements: items }
+        | Statement::For { body: items, .. } => statements_candidate(items.iter(), depth),
+        Statement::Coprocess { body, .. } | Statement::Redirected { body, .. } => {
+            statement_candidate(body, depth)
+        }
+        Statement::If {
+            branches,
+            else_body,
+        } => statements_candidate(
+            branches
+                .iter()
+                .flat_map(|branch| branch.condition().iter().chain(branch.body()))
+                .chain(else_body),
+            depth,
+        ),
+        Statement::Loop {
+            condition, body, ..
+        } => statements_candidate(condition.iter().chain(body), depth),
+        Statement::Case { arms, .. } => {
+            statements_candidate(arms.iter().flat_map(|arm| arm.body()), depth)
         }
         _ => (None, false),
     }
+}
+
+// Visit executable positions only: function definitions and quoted data are not input candidates.
+fn statements_candidate<'a>(
+    statements: impl Iterator<Item = &'a Statement>,
+    depth: usize,
+) -> (Option<TerminalCandidate>, bool) {
+    let mut best = None;
+    let mut complete = true;
+    for statement in statements {
+        let (found, understood) = statement_candidate(statement, depth);
+        complete &= understood;
+        if found.is_some_and(|found| found.tier == NahProtectionTier::Permanent) || best.is_none() {
+            best = found;
+        }
+    }
+    (best, complete)
 }
 
 /// Tmux launches carry exact argv or shell source, with no inherited receiver context.

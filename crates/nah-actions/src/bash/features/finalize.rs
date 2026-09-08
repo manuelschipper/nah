@@ -997,12 +997,18 @@ fn mark_observed_network_reads(stages: &mut [StageDraft], flows: &[(usize, usize
     }
     let mut incomplete = false;
     for stage in reachable {
+        let unknown_context = stages[stage].invocation_cwd.is_none();
         for filesystem in &mut stages[stage].filesystems {
             if filesystem.operation != FilesystemOperation::Read || !filesystem.content_access {
                 continue;
             }
             filesystem.network_bound = true;
-            if (filesystem.recursive || filesystem.pattern) && filesystem.descendant_key.is_none() {
+            // A receiver with no observation context cannot turn unknown descendants
+            // into sensitive content. Keep lexical sensitivity and credential-search intent.
+            if (filesystem.recursive || filesystem.pattern)
+                && filesystem.descendant_key.is_none()
+                && !(unknown_context && filesystem.key.is_none())
+            {
                 filesystem.unresolved_selection = true;
                 incomplete = true;
             }
