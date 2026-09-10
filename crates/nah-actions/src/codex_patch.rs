@@ -4,6 +4,7 @@ use nah_proto::action::FilesystemOperation;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PatchEffect {
+    pub(crate) move_destination: Option<String>,
     pub(crate) operation: FilesystemOperation,
     pub(crate) requested_path: String,
 }
@@ -48,10 +49,12 @@ pub(crate) fn effects(command: &str) -> Option<Vec<PatchEffect>> {
                 Header::Delete(path) => Mode::Delete(owned_path(path)?),
                 Header::Move(path, destination) => {
                     effects.push(PatchEffect {
+                        move_destination: Some(owned_path(destination)?),
                         operation: FilesystemOperation::Delete,
                         requested_path: owned_path(path)?,
                     });
                     effects.push(PatchEffect {
+                        move_destination: None,
                         operation: FilesystemOperation::Write,
                         requested_path: owned_path(destination)?,
                     });
@@ -162,6 +165,7 @@ fn owned_path(path: &str) -> Option<String> {
 fn finish(mode: Mode, effects: &mut Vec<PatchEffect>) -> Option<()> {
     let mut push = |operation, requested_path| {
         effects.push(PatchEffect {
+            move_destination: None,
             operation,
             requested_path,
         });
@@ -179,7 +183,9 @@ fn finish(mode: Mode, effects: &mut Vec<PatchEffect>) -> Option<()> {
         } => match move_path {
             Some(destination) => {
                 push(FilesystemOperation::Delete, path);
-                push(FilesystemOperation::Write, destination);
+                push(FilesystemOperation::Write, destination.clone());
+                let source = effects.len() - 2;
+                effects[source].move_destination = Some(destination);
             }
             None => push(FilesystemOperation::Write, path),
         },
@@ -211,26 +217,32 @@ mod tests {
             effects(patch),
             Some(vec![
                 PatchEffect {
+                    move_destination: None,
                     operation: FilesystemOperation::Write,
                     requested_path: "added".into(),
                 },
                 PatchEffect {
+                    move_destination: Some("moved".into()),
                     operation: FilesystemOperation::Delete,
                     requested_path: "old".into(),
                 },
                 PatchEffect {
+                    move_destination: None,
                     operation: FilesystemOperation::Write,
                     requested_path: "moved".into(),
                 },
                 PatchEffect {
+                    move_destination: None,
                     operation: FilesystemOperation::Delete,
                     requested_path: "deleted".into(),
                 },
                 PatchEffect {
+                    move_destination: Some("final".into()),
                     operation: FilesystemOperation::Delete,
                     requested_path: "moved-again".into(),
                 },
                 PatchEffect {
+                    move_destination: None,
                     operation: FilesystemOperation::Write,
                     requested_path: "final".into(),
                 },

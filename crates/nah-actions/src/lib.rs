@@ -42,6 +42,7 @@ use bash::features::{
     wrappers as bash_wrappers,
 };
 mod codex_patch;
+mod filesystem_effects;
 mod language_effects;
 mod native;
 mod paths;
@@ -312,7 +313,7 @@ fn plan_with_ambient_variables(
 }
 
 pub fn finalize(plan: AnalysisPlan, observation: Observation) -> ActionStream {
-    finalize_inner(plan, observation, false)
+    finalize_inner(plan, observation, false, None)
 }
 
 /// Returns (public action stream, language safety stream) for the same analysis.
@@ -332,7 +333,7 @@ pub fn finalize_with_language_safety_stream(
         let stream = finalize(plan, observation);
         return (stream.clone(), stream);
     }
-    let language_safety_stream = finalize_inner(plan.clone(), observation.clone(), true);
+    let language_safety_stream = finalize_inner(plan.clone(), observation.clone(), true, None);
     let action_stream = finalize(plan, observation);
     (action_stream, language_safety_stream)
 }
@@ -341,6 +342,7 @@ fn finalize_inner(
     plan: AnalysisPlan,
     observation: Observation,
     include_language_safety: bool,
+    mut graph: Option<&mut nah_proto::effects::EffectGraph>,
 ) -> ActionStream {
     if observation.bind(&plan.observation_request).is_err() {
         return partial();
@@ -353,6 +355,8 @@ fn finalize_inner(
         return partial();
     };
 
+    let mut patch_moves = Vec::new();
+    let bash = matches!(&plan.draft, Draft::Bash(_));
     let (coverage, stages, flows) = match plan.draft {
         Draft::Native(native::Draft::Native {
             tool,
@@ -437,6 +441,9 @@ fn finalize_inner(
             let mut effects = vec![invocation];
             let mut complete = input_complete;
             for (index, draft) in drafts.into_iter().enumerate() {
+                if draft.move_destination.is_some() {
+                    patch_moves.push((index + 1, index + 2));
+                }
                 if let Some(Ok(path)) = observed_path(&observation, &patch_path_key(index)) {
                     effects.push(filesystem_effect(
                         draft.operation,
@@ -529,6 +536,7 @@ fn finalize_inner(
                         &plan.critical_paths,
                         plan.platform,
                         include_language_safety,
+                        None,
                     )
                 })
                 .is_some_and(|(complete, _, _)| complete);
@@ -542,6 +550,7 @@ fn finalize_inner(
                 &plan.critical_paths,
                 plan.platform,
                 include_language_safety,
+                graph.as_deref_mut(),
             ) else {
                 return partial();
             };
@@ -554,6 +563,17 @@ fn finalize_inner(
         }
     };
 
+    if !bash && let Some(graph) = graph {
+        for stage in &stages {
+            filesystem_effects::emit_stage(
+                graph,
+                stage,
+                None,
+                &patch_moves,
+                &(1..stage.len()).collect::<Vec<_>>(),
+            );
+        }
+    }
     let coverage = if ambient_variables_stable {
         coverage
     } else {
@@ -867,6 +887,15 @@ impl AnalysisPlan {
         let mut graph = self.effect_graph.clone();
         if let Some(cwd) = observed_cwd(observation) {
             graph.calls[0].cwd = Knowledge::Known(cwd.clone());
+        }
+        let retained_facts = graph.facts.len();
+        let retained_resources = graph.resources.len();
+        let stream = finalize_inner(self.clone(), observation.clone(), true, Some(&mut graph));
+        if stream.effects().is_empty() {
+            // Failed normal finalization discards its provisional filesystem facts.
+            // Independently established inline summaries remain available.
+            graph.facts.truncate(retained_facts);
+            graph.resources.truncate(retained_resources);
         }
         GuardEvidence::new(
             graph,

@@ -1,8 +1,8 @@
 //! Pure runtime protection rules over caller-provided evidence.
 
-use nah_proto::ctx::{AbsolutePath, Platform};
+use crate::ctx::{AbsolutePath, Platform};
 
-use crate::normalized_program;
+use crate::labels::normalized_program;
 
 /// Classifies environment hook bypass after the caller admits the command.
 /// Lookups provide visible values and the runtime baseline; terminal help/version

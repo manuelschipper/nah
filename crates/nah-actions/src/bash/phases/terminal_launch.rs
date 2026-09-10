@@ -329,6 +329,7 @@ impl Lowerer {
                         continue;
                     }
                     let mut filesystem = super::filesystem::unresolved_read(&target);
+                    filesystem.command_operand = true;
                     filesystem.operation = operation;
                     filesystem.recursive = recursive;
                     filesystem.unresolved_selection = false;
@@ -363,6 +364,11 @@ impl Lowerer {
                 // remain in the isolated terminal analyzer even if an artifact matches.
                 self.prelowered_visible_stages.insert(stage);
                 self.stages.push(StageDraft {
+                    permission_grants: if program == "chmod" {
+                        crate::bash_filesystem::chmod_permission_grants(arguments)
+                    } else {
+                        None
+                    },
                     language_safety_only: false,
                     invocation,
                     invocation_cwd: None,

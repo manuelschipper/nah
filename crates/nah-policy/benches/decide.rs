@@ -108,10 +108,14 @@ fn fixture() -> (ActionStream, nah_proto::ctx::PolicyCtx) {
     (stream, policy)
 }
 
+#[path = "../tests/suite/support/mod.rs"]
+mod support;
+
 fn captured_policy(c: &mut Criterion) {
     let (stream, policy) = fixture();
+    let evidence = support::evidence(&stream, &nah_inline::InlineReport::default());
     c.bench_function("captured_policy_project_read", |b| {
-        b.iter(|| black_box(nah_policy::decide(&stream, &policy, &[]).unwrap()))
+        b.iter(|| black_box(nah_policy::decide(&stream, &evidence, &policy, &[]).unwrap()))
     });
 }
 

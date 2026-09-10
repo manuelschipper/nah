@@ -179,3 +179,273 @@ pub(crate) fn guarded_stream(effect: EffectKind) -> ActionStream {
 pub(crate) fn guard_policy(name: &str, enabled: bool) -> PolicyCtx {
     context(&[(name, enabled)], vec![], ProjectGuardDeclaration::Absent).1
 }
+
+/// Supplies shared facts alongside the suite's legacy fixtures for unmigrated families.
+/// These are test subjects, not a runtime adapter or a policy fallback.
+pub(crate) fn evidence(
+    stream: &ActionStream,
+    report: &nah_inline::InlineReport,
+) -> nah_proto::effects::GuardEvidence {
+    use Knowledge::{Known, Unknown};
+    use nah_proto::action::{InvocationEffect, SemanticCode};
+    use nah_proto::effects::*;
+    let mut graph = EffectGraph {
+        calls: vec![EffectCall {
+            id: CallId(0),
+            parent: None,
+            kind: InvocationKind::Native,
+            identity: Unknown,
+            input: None,
+            cwd: Unknown,
+            payload_group: Unknown,
+            visibility_ordinal: Unknown,
+            coverage: Coverage::Full,
+        }],
+        resources: vec![],
+        facts: vec![],
+        occurrences: vec![],
+        relations: vec![],
+        conditions: vec![],
+        coverage: vec![],
+        gaps: vec![],
+        causality: CausalAvailability::Unavailable,
+    };
+    for effect in stream.effects() {
+        let target = ResourceId(graph.resources.len() as u32);
+        let mut resource = EffectResource {
+            id: target,
+            realm: Realm::Host,
+            identity: ResourceIdentity {
+                kind: ResourceKind::Unknown,
+                details: Unknown,
+                provider: Unknown,
+                name: Unknown,
+            },
+            selection: Selection::Unknown,
+            labels: None,
+        };
+        let unknown_grants = PermissionGrants {
+            world_write: Unknown,
+            setuid: Unknown,
+            setgid: Unknown,
+        };
+        let mut payload = match effect.kind() {
+            EffectKind::Filesystem { effect: fs } => {
+                resource.identity.kind = ResourceKind::HostPath;
+                resource.selection = if fs.pattern {
+                    Selection::Pattern {
+                        pattern: fs.target.as_str().into(),
+                        bound: Bound::Unknown,
+                    }
+                } else {
+                    Selection::Exact
+                };
+                resource.labels = Some(ResourceLabels {
+                    lexical: Known(fs.target.clone()),
+                    canonical: Unknown,
+                    scope: Known(fs.scope.clone()),
+                    sensitivity: Known(fs.sensitivity),
+                    protection: Known(fs.protection),
+                    host_integrity: Known(fs.host_integrity.into_iter().collect()),
+                    selects_project: if fs.selects_root {
+                        Reach::Yes
+                    } else {
+                        Reach::No
+                    },
+                    selects_home: if fs.selects_home {
+                        Reach::Yes
+                    } else {
+                        Reach::No
+                    },
+                    selects_root: Reach::Unknown,
+                    is_symlink: Unknown,
+                    link_target: Unknown,
+                    descendants_complete: Unknown,
+                    reach: vec![],
+                });
+                let permission = stream.effects().iter().any(|candidate| candidate.stage() == effect.stage() && matches!(candidate.kind(), EffectKind::Invocation { invocation: InvocationEffect::Known { operation, .. } } if operation.is_permission_change()));
+                let operation = match fs.operation {
+                    nah_proto::action::FilesystemOperation::Read => FilesystemOperation::Read,
+                    nah_proto::action::FilesystemOperation::Write if permission => {
+                        FilesystemOperation::PermissionChange
+                    }
+                    nah_proto::action::FilesystemOperation::Write => FilesystemOperation::Write,
+                    nah_proto::action::FilesystemOperation::Delete => FilesystemOperation::Delete,
+                };
+                FactPayload::FilesystemAccess {
+                    target,
+                    destination: None,
+                    operation,
+                    recursive: Known(fs.recursive),
+                    truncate: Unknown,
+                    permissions: unknown_grants,
+                    purpose: AccessPurpose::Explicit,
+                }
+            }
+            EffectKind::FilesystemUnresolved {
+                operation,
+                recursive,
+            } => {
+                let permission = stream.effects().iter().any(|candidate| candidate.stage() == effect.stage() && matches!(candidate.kind(), EffectKind::Invocation { invocation: InvocationEffect::Known { operation, .. } } if operation.is_permission_change()));
+                FactPayload::FilesystemAccess {
+                    target,
+                    destination: None,
+                    operation: match operation {
+                        nah_proto::action::FilesystemOperation::Read => FilesystemOperation::Read,
+                        nah_proto::action::FilesystemOperation::Write if permission => {
+                            FilesystemOperation::PermissionChange
+                        }
+                        nah_proto::action::FilesystemOperation::Write => FilesystemOperation::Write,
+                        nah_proto::action::FilesystemOperation::Delete => {
+                            FilesystemOperation::Delete
+                        }
+                    },
+                    recursive: Known(*recursive),
+                    truncate: Unknown,
+                    permissions: unknown_grants,
+                    purpose: AccessPurpose::Explicit,
+                }
+            }
+            EffectKind::Invocation {
+                invocation:
+                    InvocationEffect::Known {
+                        operation, program, ..
+                    },
+            } => {
+                if operation == &SemanticCode::PERMISSION_WEAKEN {
+                    FactPayload::FilesystemAccess {
+                        target,
+                        destination: None,
+                        operation: FilesystemOperation::PermissionChange,
+                        recursive: Known(false),
+                        truncate: Unknown,
+                        permissions: PermissionGrants {
+                            world_write: Known(true),
+                            ..unknown_grants
+                        },
+                        purpose: AccessPurpose::Explicit,
+                    }
+                } else if operation == &SemanticCode::CRITICAL_MUTATION
+                    || operation == &SemanticCode::PERMANENT_MUTATION && program == "nah"
+                {
+                    FactPayload::ControlMutation {
+                        target,
+                        action: ControlAction::Other,
+                        candidate_identity: Unknown,
+                        tier: Known(if operation == &SemanticCode::CRITICAL_MUTATION {
+                            NahProtectionTier::Critical
+                        } else {
+                            NahProtectionTier::Permanent
+                        }),
+                    }
+                } else {
+                    continue;
+                }
+            }
+            EffectKind::Invocation {
+                invocation: InvocationEffect::TerminalControl { control, .. },
+            } => {
+                use nah_proto::action::{TerminalCarrier, TerminalOperation};
+                resource.identity.provider = Known(
+                    match control.carrier {
+                        TerminalCarrier::Herdr => "herdr",
+                        TerminalCarrier::Tmux => "tmux",
+                        TerminalCarrier::OpenclawProcess => "openclaw",
+                    }
+                    .into(),
+                );
+                FactPayload::ControlInput {
+                    target,
+                    action: ControlAction::Deliver,
+                    transport: match control.operation {
+                        TerminalOperation::Input => ControlTransport::Input,
+                        TerminalOperation::Submit => ControlTransport::Submit,
+                        TerminalOperation::InputAndSubmit => ControlTransport::InputAndSubmit,
+                        TerminalOperation::PasteUnknownBuffer => {
+                            ControlTransport::UnknownBufferPaste
+                        }
+                        TerminalOperation::AgentPrompt => ControlTransport::AgentPrompt,
+                    },
+                    payload_certainty: Certainty::Conservative,
+                    candidate_identity: Unknown,
+                    tier: control.candidate.map_or(Unknown, |c| Known(c.tier)),
+                }
+            }
+            EffectKind::SystemState { operation } if operation == &SemanticCode::FORK_BOMB => {
+                FactPayload::ProcessGrowth {
+                    background: Unknown,
+                    repetition: Unknown,
+                    launch_cycle: Unknown,
+                    wait: Unknown,
+                    dominator: Unknown,
+                    growth: Bound::Unknown,
+                    abstract_unbounded_spawn: Known(true),
+                }
+            }
+            EffectKind::SystemState { operation }
+                if operation == &SemanticCode::LOGICAL_STORAGE_DESTROY =>
+            {
+                resource.identity.kind = ResourceKind::LiveVolume;
+                FactPayload::StorageChange {
+                    target,
+                    destination: None,
+                    operation: StorageOperation::Destroy,
+                    kind: StorageTarget::LiveVolume,
+                    selection: Selection::Unknown,
+                    recursive: Unknown,
+                    destination_deletion: Unknown,
+                }
+            }
+            EffectKind::SystemState { operation }
+                if operation == &SemanticCode::STARTUP_MANAGEMENT =>
+            {
+                FactPayload::SystemChange {
+                    target,
+                    operation: SystemOperation::StartupChange,
+                    selection: Selection::Unknown,
+                    runtime_only: Known(false),
+                    persistent: Known(true),
+                    active: Known(true),
+                    cancel: Known(false),
+                    help: Known(false),
+                }
+            }
+            _ => continue,
+        };
+        graph.resources.push(resource);
+        if let FactPayload::FilesystemAccess { operation, destination, .. } = &mut payload
+            && *operation == FilesystemOperation::Delete
+            && stream.effects().iter().any(|candidate| candidate.stage() == effect.stage() && matches!(candidate.kind(), EffectKind::Invocation { invocation: InvocationEffect::Known { operation, .. } } if operation == &SemanticCode::MOVE))
+        {
+            *operation = FilesystemOperation::Move;
+            let id = ResourceId(graph.resources.len() as u32);
+            *destination = Some(id);
+            graph.resources.push(EffectResource { id, realm: Realm::Host, identity: ResourceIdentity { kind: ResourceKind::HostPath, details: Unknown, provider: Unknown, name: Unknown }, selection: Selection::Unknown, labels: None });
+        }
+        graph.facts.push(EffectFact {
+            id: FactId(graph.facts.len() as u32),
+            call: CallId(0),
+            realm: Realm::Host,
+            certainty: Certainty::Exact,
+            modality: Modality::May,
+            condition: None,
+            occurrences: None,
+            payload,
+        });
+    }
+    for finding in report.findings() {
+        finding.emit_effect(&mut graph, CallId(0));
+    }
+    GuardEvidence::new(
+        graph,
+        PublicSelection {
+            calls: Default::default(),
+            facts: Default::default(),
+            resources: Default::default(),
+            occurrences: Default::default(),
+            relations: Default::default(),
+            complete: false,
+        },
+    )
+    .unwrap()
+}

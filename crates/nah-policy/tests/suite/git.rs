@@ -28,11 +28,23 @@ fn git_guards_block_only_their_one_sentence_operation() {
         let stream = guarded_stream(EffectKind::Git {
             operation: nah_proto::action::SemanticCode::new(operation).unwrap(),
         });
-        let decision = nah_policy::decide(&stream, &guard_policy(guard, true), &[]).unwrap();
+        let decision = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy(guard, true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(decision.verdict(), Verdict::Block, "{guard}");
         assert_eq!(decision.policy_attributions()[0].name(), guard);
 
-        let disabled = nah_policy::decide(&stream, &guard_policy(guard, false), &[]).unwrap();
+        let disabled = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy(guard, false),
+            &[],
+        )
+        .unwrap();
         assert_eq!(disabled.verdict(), Verdict::Delegate, "{guard}");
     }
 
@@ -61,7 +73,13 @@ fn git_guards_block_only_their_one_sentence_operation() {
                 nah_proto::observation::ProjectGuardDeclaration::Absent,
             )
             .1;
-            let decision = nah_policy::decide(&stream, &policy, &[]).unwrap();
+            let decision = nah_policy::decide(
+                &stream,
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                &policy,
+                &[],
+            )
+            .unwrap();
             let expected = [
                 ("git-history-rewrite", history),
                 ("git-protected-push", protected),
@@ -131,9 +149,14 @@ fn path_discard_matches_same_stage_show_read_and_write_of_one_project_path() {
         )
         .unwrap();
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy("git-path-discard", true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &stream,
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                &guard_policy("git-path-discard", true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             expected
         );
     }
@@ -170,9 +193,14 @@ fn path_discard_does_not_join_show_effects_across_stages() {
     )
     .unwrap();
     assert_eq!(
-        nah_policy::decide(&stream, &guard_policy("git-path-discard", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy("git-path-discard", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
 }
@@ -205,9 +233,14 @@ fn root_filesystem_effects_cannot_substitute_for_guard_evidence() {
         )
         .unwrap();
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy(guard, true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &stream,
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                &guard_policy(guard, true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Delegate,
             "{guard}"
         );
@@ -242,7 +275,13 @@ fn git_loss_and_ref_deletion_guards_match_independently() {
                 vec![],
                 nah_proto::observation::ProjectGuardDeclaration::Absent,
             );
-            let decision = nah_policy::decide(&stream, &policy, &[]).unwrap();
+            let decision = nah_policy::decide(
+                &stream,
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                &policy,
+                &[],
+            )
+            .unwrap();
             assert_eq!(
                 decision.verdict(),
                 if loss_enabled || ref_enabled {

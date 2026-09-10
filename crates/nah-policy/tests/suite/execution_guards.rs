@@ -129,7 +129,13 @@ fn execution_guards_match_visible_flow_paths_and_obfuscation_evidence() {
 
     for (guard, stages, flows) in cases {
         let stream = ActionStream::new(Coverage::Partial, stages, flows).unwrap();
-        let decision = nah_policy::decide(&stream, &guard_policy(guard, true), &[]).unwrap();
+        let decision = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy(guard, true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(decision.verdict(), Verdict::Block, "{guard}");
         assert_eq!(decision.policy_attributions()[0].name(), guard);
         if guard == "exec-remote" {
@@ -141,9 +147,14 @@ fn execution_guards_match_visible_flow_paths_and_obfuscation_evidence() {
             assert!(decision.reason().contains("prompt injection"));
         }
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy(guard, false), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &stream,
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                &guard_policy(guard, false),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Delegate,
             "{guard}"
         );
@@ -246,9 +257,14 @@ fn execution_guards_require_their_complete_positive_evidence() {
     for (guard, stages, flows) in cases {
         let stream = ActionStream::new(Coverage::Partial, stages, flows).unwrap();
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy(guard, true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &stream,
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                &guard_policy(guard, true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Delegate,
             "{guard}"
         );
@@ -276,9 +292,14 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
         )
         .unwrap();
         assert_eq!(
-            nah_policy::decide(&source, &guard_policy("secrets-exfil", true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &source,
+                &crate::support::evidence(&source, &nah_inline::InlineReport::default()),
+                &guard_policy("secrets-exfil", true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Block,
             "{operation}"
         );
@@ -315,9 +336,14 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
         )
         .unwrap();
         assert_eq!(
-            nah_policy::decide(&search, &guard_policy("secrets-exfil", true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &search,
+                &crate::support::evidence(&search, &nah_inline::InlineReport::default()),
+                &guard_policy("secrets-exfil", true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             expected,
             "{target}"
         );
@@ -333,9 +359,14 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
     )
     .unwrap();
     assert_eq!(
-        nah_policy::decide(&disconnected, &guard_policy("secrets-exfil", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &disconnected,
+            &crate::support::evidence(&disconnected, &nah_inline::InlineReport::default()),
+            &guard_policy("secrets-exfil", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
 }
@@ -352,9 +383,14 @@ fn directional_shell_endpoints_are_execution_sources_and_exfiltration_sinks() {
     )
     .unwrap();
     assert_eq!(
-        nah_policy::decide(&remote_exec, &guard_policy("exec-remote", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &remote_exec,
+            &crate::support::evidence(&remote_exec, &nah_inline::InlineReport::default()),
+            &guard_policy("exec-remote", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Block
     );
 
@@ -374,9 +410,14 @@ fn directional_shell_endpoints_are_execution_sources_and_exfiltration_sinks() {
     )
     .unwrap();
     assert_eq!(
-        nah_policy::decide(&exfiltration, &guard_policy("secrets-exfil", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &exfiltration,
+            &crate::support::evidence(&exfiltration, &nah_inline::InlineReport::default()),
+            &guard_policy("secrets-exfil", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Block
     );
 
@@ -390,9 +431,14 @@ fn directional_shell_endpoints_are_execution_sources_and_exfiltration_sinks() {
     )
     .unwrap();
     assert_eq!(
-        nah_policy::decide(&output_only_shell, &guard_policy("exec-remote", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &output_only_shell,
+            &crate::support::evidence(&output_only_shell, &nah_inline::InlineReport::default()),
+            &guard_policy("exec-remote", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
 }
@@ -427,9 +473,14 @@ fn evaluated_shell_is_an_execution_sink_only_when_its_code_is_unknown() {
         )
         .unwrap();
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy(guard, true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &stream,
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                &guard_policy(guard, true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Block,
             "{guard}"
         );
@@ -453,9 +504,14 @@ fn evaluated_shell_is_an_execution_sink_only_when_its_code_is_unknown() {
         )
         .unwrap();
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy(guard, true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &stream,
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                &guard_policy(guard, true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Delegate,
             "{guard}"
         );

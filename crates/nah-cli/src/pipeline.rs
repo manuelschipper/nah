@@ -666,6 +666,7 @@ where
         }
         return match decide_policy(
             &action_stream,
+            guard_evidence.as_ref().expect("normal evidence result"),
             &language_safety_stream,
             &inline_report,
             derivation.policy_ctx(),
@@ -722,6 +723,7 @@ where
     }
     match decide_policy(
         &action_stream,
+        guard_evidence.as_ref().expect("normal evidence result"),
         &language_safety_stream,
         &inline_report,
         derivation.policy_ctx(),
@@ -767,15 +769,18 @@ where
 
 fn decide_policy(
     action_stream: &ActionStream,
+    evidence: &Result<nah_proto::effects::GuardEvidence, nah_proto::effects::EvidenceError>,
     language_safety_stream: &ActionStream,
     inline_report: &nah_inline::InlineReport,
     policy_ctx: &nah_proto::ctx::PolicyCtx,
     responses: &[ValidatedExtensionResponse],
     mode: nah_policy::EnforcementMode,
 ) -> Result<DecisionCore, ()> {
+    let evidence = evidence.as_ref().map_err(|_| ())?;
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         nah_policy::decide_with_mode_and_inline_language_safety_stream(
             action_stream,
+            evidence,
             language_safety_stream,
             inline_report,
             policy_ctx,

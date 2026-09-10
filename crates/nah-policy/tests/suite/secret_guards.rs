@@ -30,11 +30,23 @@ fn secret_guards_keep_their_operation_and_sensitivity_boundaries() {
     ] {
         for operation in operations {
             let stream = guarded_stream(filesystem(operation, target, scope.clone(), sensitivity));
-            let decision = nah_policy::decide(&stream, &guard_policy(guard, true), &[]).unwrap();
+            let decision = nah_policy::decide(
+                &stream,
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                &guard_policy(guard, true),
+                &[],
+            )
+            .unwrap();
             assert_eq!(decision.verdict(), Verdict::Block, "{guard} {operation:?}");
             assert_eq!(decision.policy_attributions()[0].name(), guard);
 
-            let disabled = nah_policy::decide(&stream, &guard_policy(guard, false), &[]).unwrap();
+            let disabled = nah_policy::decide(
+                &stream,
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                &guard_policy(guard, false),
+                &[],
+            )
+            .unwrap();
             assert_eq!(disabled.verdict(), Verdict::Delegate, "{guard}");
         }
     }
@@ -53,9 +65,14 @@ fn secret_guards_keep_their_operation_and_sensitivity_boundaries() {
         ));
         for guard in ["secrets-credentials", "secrets-env"] {
             assert_eq!(
-                nah_policy::decide(&stream, &guard_policy(guard, true), &[])
-                    .unwrap()
-                    .verdict(),
+                nah_policy::decide(
+                    &stream,
+                    &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                    &guard_policy(guard, true),
+                    &[]
+                )
+                .unwrap()
+                .verdict(),
                 Verdict::Delegate,
                 "{guard} {operation:?} {sensitivity:?}"
             );
@@ -75,17 +92,27 @@ fn secrets_env_blocks_named_credential_disclosure_but_not_whole_environment_insp
     };
     let credential = operation("echo", "credential-disclosure");
     assert_eq!(
-        nah_policy::decide(&credential, &guard_policy("secrets-env", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &credential,
+            &crate::support::evidence(&credential, &nah_inline::InlineReport::default()),
+            &guard_policy("secrets-env", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Block
     );
 
     let environment = operation("env", "environment-disclosure");
     assert_eq!(
-        nah_policy::decide(&environment, &guard_policy("secrets-env", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &environment,
+            &crate::support::evidence(&environment, &nah_inline::InlineReport::default()),
+            &guard_policy("secrets-env", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
 }
@@ -107,9 +134,14 @@ fn secrets_credentials_deletion_delegates_cross_platform() {
         },
     });
     assert_eq!(
-        nah_policy::decide(&stream, &guard_policy("secrets-credentials", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy("secrets-credentials", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
 }
@@ -129,10 +161,22 @@ fn secrets_store_deletion_requires_its_matching_enabled_code() {
         ),
     ] {
         let stream = guarded_stream(EffectKind::SystemState { operation: code });
-        let enabled = nah_policy::decide(&stream, &guard_policy(name, true), &[]).unwrap();
+        let enabled = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy(name, true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(enabled.verdict(), Verdict::Block);
         assert_eq!(enabled.policy_attributions()[0].name(), name);
-        let disabled = nah_policy::decide(&stream, &guard_policy(name, false), &[]).unwrap();
+        let disabled = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy(name, false),
+            &[],
+        )
+        .unwrap();
         assert_eq!(disabled.verdict(), Verdict::Delegate);
         for guard in [
             "secrets-credentials",
@@ -141,9 +185,14 @@ fn secrets_store_deletion_requires_its_matching_enabled_code() {
             other,
         ] {
             assert_eq!(
-                nah_policy::decide(&stream, &guard_policy(guard, true), &[])
-                    .unwrap()
-                    .verdict(),
+                nah_policy::decide(
+                    &stream,
+                    &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                    &guard_policy(guard, true),
+                    &[]
+                )
+                .unwrap()
+                .verdict(),
                 Verdict::Delegate,
                 "{guard}"
             );
@@ -161,23 +210,38 @@ fn secrets_store_read_requires_its_matching_enabled_code() {
         vec![],
     )
     .unwrap();
-    let enabled =
-        nah_policy::decide(&stream, &guard_policy("secrets-store-read", true), &[]).unwrap();
+    let enabled = nah_policy::decide(
+        &stream,
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+        &guard_policy("secrets-store-read", true),
+        &[],
+    )
+    .unwrap();
     assert_eq!(enabled.verdict(), Verdict::Block);
     assert_eq!(
         enabled.policy_attributions()[0].name(),
         "secrets-store-read"
     );
 
-    let disabled =
-        nah_policy::decide(&stream, &guard_policy("secrets-store-read", false), &[]).unwrap();
+    let disabled = nah_policy::decide(
+        &stream,
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+        &guard_policy("secrets-store-read", false),
+        &[],
+    )
+    .unwrap();
     assert_eq!(disabled.verdict(), Verdict::Delegate);
 
     for guard in ["secrets-credentials", "secrets-env", "secrets-store-delete"] {
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy(guard, true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &stream,
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+                &guard_policy(guard, true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Delegate,
             "{guard}"
         );

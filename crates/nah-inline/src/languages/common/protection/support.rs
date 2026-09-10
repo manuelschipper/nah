@@ -1,8 +1,8 @@
-use crate::runtime_protection::environment_operation;
-pub(super) use crate::runtime_protection::{
+use nah_proto::ctx::{AbsolutePath, Platform};
+use nah_proto::runtime_protection::environment_operation;
+pub(super) use nah_proto::runtime_protection::{
     installed_binary_paths, protected_path, runtime_launch_bypass,
 };
-use nah_proto::ctx::{AbsolutePath, Platform};
 
 use crate::EnvironmentValue;
 use crate::normalized_program;

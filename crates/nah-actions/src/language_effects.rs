@@ -118,6 +118,7 @@ impl LanguageEffectDraftTarget<'_> {
                         Vec::new()
                     };
                 filesystems.push(FilesystemDraft {
+                    command_operand: true,
                     key,
                     descendant_key,
                     requested,
@@ -169,6 +170,7 @@ impl LanguageEffectDraftTarget<'_> {
             execution_dominators.sort_unstable();
             execution_dominators.dedup();
             self.stages.push(StageDraft {
+                permission_grants: None,
                 language_safety_only: call_ordinal >= public_calls,
                 invocation: InvocationDraft::Native {
                     program: execution.program.to_owned(),
