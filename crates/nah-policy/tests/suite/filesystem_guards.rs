@@ -101,8 +101,13 @@ fn scoped_filesystem_effect(
 
 fn assert_project_root_block(stages: Vec<Vec<EffectKind>>, label: &str) {
     let stream = ActionStream::new(Coverage::Partial, stages, vec![]).unwrap();
-    let decision =
-        nah_policy::decide(&stream, &guard_policy("fs-project-root", true), &[]).unwrap();
+    let decision = nah_policy::decide(
+        &stream,
+        &crate::support::empty_evidence(),
+        &guard_policy("fs-project-root", true),
+        &[],
+    )
+    .unwrap();
     assert_eq!(decision.verdict(), Verdict::Block, "{label}");
     assert_eq!(
         decision.policy_attributions()[0].name(),
@@ -124,6 +129,7 @@ fn host_integrity_guards_are_independent_and_require_mutation() {
         for operation in [FilesystemOperation::Write, FilesystemOperation::Delete] {
             let decision = nah_policy::decide(
                 &host_integrity_stream(operation, class),
+                &crate::support::empty_evidence(),
                 &guard_policy(guard, true),
                 &[],
             )
@@ -133,6 +139,7 @@ fn host_integrity_guards_are_independent_and_require_mutation() {
         }
         let read = nah_policy::decide(
             &host_integrity_stream(FilesystemOperation::Read, class),
+            &crate::support::empty_evidence(),
             &guard_policy(guard, true),
             &[],
         )
@@ -145,6 +152,7 @@ fn host_integrity_guards_are_independent_and_require_mutation() {
             FilesystemOperation::Write,
             HostIntegrityClass::StartupPersistence,
         ),
+        &crate::support::empty_evidence(),
         &guard_policy("fs-auth-identity", true),
         &[],
     )
@@ -159,6 +167,7 @@ fn startup_management_is_optional_and_independent_from_startup_paths() {
     });
     let enabled = nah_policy::decide(
         &management,
+        &crate::support::empty_evidence(),
         &guard_policy("fs-startup-management", true),
         &[],
     )
@@ -172,6 +181,7 @@ fn startup_management_is_optional_and_independent_from_startup_paths() {
 
     let disabled = nah_policy::decide(
         &management,
+        &crate::support::empty_evidence(),
         &guard_policy("fs-startup-management", false),
         &[],
     )
@@ -183,14 +193,20 @@ fn startup_management_is_optional_and_independent_from_startup_paths() {
         HostIntegrityClass::StartupPersistence,
     );
     assert_eq!(
-        nah_policy::decide(&path, &guard_policy("fs-startup-management", true), &[],)
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &path,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-startup-management", true),
+            &[],
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
     assert_eq!(
         nah_policy::decide(
             &management,
+            &crate::support::empty_evidence(),
             &guard_policy("fs-startup-persistence", true),
             &[],
         )
@@ -199,9 +215,14 @@ fn startup_management_is_optional_and_independent_from_startup_paths() {
         Verdict::Delegate
     );
     assert_eq!(
-        nah_policy::decide(&path, &guard_policy("fs-startup-persistence", true), &[],)
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &path,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-startup-persistence", true),
+            &[],
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Block
     );
 }
@@ -281,8 +302,13 @@ fn fs_system_tree_blocks_delete_or_recursive_permission_effects_selecting_root_a
             vec![],
         )
         .unwrap();
-        let decision =
-            nah_policy::decide(&stream, &guard_policy("fs-system-tree", true), &[]).unwrap();
+        let decision = nah_policy::decide(
+            &stream,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-system-tree", true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(decision.verdict(), Verdict::Block, "{target}");
         assert_eq!(decision.policy_attributions()[0].name(), "fs-system-tree");
     }
@@ -303,9 +329,14 @@ fn fs_system_tree_blocks_delete_or_recursive_permission_effects_selecting_root_a
             },
         });
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy("fs-system-tree", true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &stream,
+                &crate::support::empty_evidence(),
+                &guard_policy("fs-system-tree", true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Block,
             "{target}"
         );
@@ -328,7 +359,13 @@ fn fs_home_blocks_delete_or_recursive_permission_effects_selecting_the_home_root
             pattern: false,
         },
     });
-    let decision = nah_policy::decide(&stream, &guard_policy("fs-home", true), &[]).unwrap();
+    let decision = nah_policy::decide(
+        &stream,
+        &crate::support::empty_evidence(),
+        &guard_policy("fs-home", true),
+        &[],
+    )
+    .unwrap();
     assert_eq!(decision.verdict(), Verdict::Block);
     assert_eq!(decision.policy_attributions()[0].name(), "fs-home");
 
@@ -355,9 +392,14 @@ fn fs_home_blocks_delete_or_recursive_permission_effects_selecting_the_home_root
     )
     .unwrap();
     assert_eq!(
-        nah_policy::decide(&permission, &guard_policy("fs-home", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &permission,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-home", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Block
     );
 }
@@ -392,7 +434,8 @@ fn permission_weaken_is_optional_and_can_overlap_a_tree_guard() {
         ProjectGuardDeclaration::Absent,
     )
     .1;
-    let decision = nah_policy::decide(&stream, &policy, &[]).unwrap();
+    let decision =
+        nah_policy::decide(&stream, &crate::support::empty_evidence(), &policy, &[]).unwrap();
     assert_eq!(decision.verdict(), Verdict::Block);
     assert_eq!(
         decision
@@ -404,9 +447,14 @@ fn permission_weaken_is_optional_and_can_overlap_a_tree_guard() {
     );
 
     assert_eq!(
-        nah_policy::decide(&stream, &guard_policy("fs-permission-weaken", false), &[],)
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &stream,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-permission-weaken", false),
+            &[],
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
     let ordinary = ActionStream::new(
@@ -418,9 +466,14 @@ fn permission_weaken_is_optional_and_can_overlap_a_tree_guard() {
     )
     .unwrap();
     assert_eq!(
-        nah_policy::decide(&ordinary, &guard_policy("fs-permission-weaken", true), &[],)
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &ordinary,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-permission-weaken", true),
+            &[],
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
 }
@@ -441,6 +494,7 @@ fn fs_outside_workspace_delete_blocks_only_concrete_recursive_deletes_outside_pr
         ));
         let decision = nah_policy::decide(
             &stream,
+            &crate::support::empty_evidence(),
             &guard_policy("fs-outside-workspace-delete", true),
             &[],
         )
@@ -478,6 +532,7 @@ fn fs_outside_workspace_delete_blocks_only_concrete_recursive_deletes_outside_pr
     ] {
         let decision = nah_policy::decide(
             &guarded_stream(effect),
+            &crate::support::empty_evidence(),
             &guard_policy("fs-outside-workspace-delete", true),
             &[],
         )
@@ -494,6 +549,7 @@ fn fs_outside_workspace_delete_blocks_only_concrete_recursive_deletes_outside_pr
     assert_eq!(
         nah_policy::decide(
             &unresolved,
+            &crate::support::empty_evidence(),
             &guard_policy("fs-outside-workspace-delete", true),
             &[],
         )
@@ -530,6 +586,7 @@ fn fs_outside_workspace_delete_excludes_only_reviewed_temporary_roots() {
         assert_eq!(
             nah_policy::decide(
                 &stream,
+                &crate::support::empty_evidence(),
                 &guard_policy("fs-outside-workspace-delete", true),
                 &[],
             )
@@ -557,6 +614,7 @@ fn fs_outside_workspace_delete_excludes_only_reviewed_temporary_roots() {
         assert_eq!(
             nah_policy::decide(
                 &stream,
+                &crate::support::empty_evidence(),
                 &guard_policy("fs-outside-workspace-delete", true),
                 &[],
             )
@@ -608,7 +666,8 @@ fn fs_outside_workspace_delete_preserves_home_and_system_guard_attribution() {
                 pattern: false,
             },
         });
-        let decision = nah_policy::decide(&stream, &policy, &[]).unwrap();
+        let decision =
+            nah_policy::decide(&stream, &crate::support::empty_evidence(), &policy, &[]).unwrap();
         assert_eq!(decision.verdict(), Verdict::Block);
         assert_eq!(decision.policy_attributions().len(), expected.len());
         for guard in expected {
@@ -801,8 +860,13 @@ fn fs_project_root_delegates_below_its_exact_scope_operation_and_stage_boundary(
 
     for control in controls {
         let stream = ActionStream::new(Coverage::Partial, control, vec![]).unwrap();
-        let decision =
-            nah_policy::decide(&stream, &guard_policy("fs-project-root", true), &[]).unwrap();
+        let decision = nah_policy::decide(
+            &stream,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-project-root", true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(decision.verdict(), Verdict::Delegate, "{stream:?}");
         assert!(decision.policy_attributions().is_empty(), "{stream:?}");
     }
@@ -828,7 +892,13 @@ fn unbounded_destructive_tree_effects_select_both_root_and_home_guards() {
                 true,
             ),
         ] {
-            let decision = nah_policy::decide(&stream, &guard_policy(guard, true), &[]).unwrap();
+            let decision = nah_policy::decide(
+                &stream,
+                &crate::support::empty_evidence(),
+                &guard_policy(guard, true),
+                &[],
+            )
+            .unwrap();
             assert_eq!(decision.verdict(), Verdict::Block, "{guard}");
             assert_eq!(decision.policy_attributions()[0].name(), guard);
         }
@@ -861,9 +931,14 @@ fn unbounded_filesystem_effects_fail_closed_only_at_the_tree_destruction_boundar
     ] {
         for guard in ["fs-system-tree", "fs-home"] {
             assert_eq!(
-                nah_policy::decide(&stream, &guard_policy(guard, true), &[])
-                    .unwrap()
-                    .verdict(),
+                nah_policy::decide(
+                    &stream,
+                    &crate::support::empty_evidence(),
+                    &guard_policy(guard, true),
+                    &[]
+                )
+                .unwrap()
+                .verdict(),
                 Verdict::Delegate,
                 "{guard}"
             );
@@ -892,9 +967,14 @@ fn file_only_delete_effects_do_not_claim_directory_tree_destruction() {
             },
         });
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy(guard, true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &stream,
+                &crate::support::empty_evidence(),
+                &guard_policy(guard, true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Delegate,
             "{guard}: {target}"
         );
@@ -928,16 +1008,26 @@ fn fs_system_tree_blocks_only_same_stage_known_root_relocation() {
         )
         .unwrap();
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy("fs-system-tree", true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &stream,
+                &crate::support::empty_evidence(),
+                &guard_policy("fs-system-tree", true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Block,
             "{program}"
         );
         assert_eq!(
-            nah_policy::decide(&stream, &guard_policy("fs-home", true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &stream,
+                &crate::support::empty_evidence(),
+                &guard_policy("fs-home", true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Delegate,
             "{program}"
         );
@@ -988,9 +1078,14 @@ fn fs_system_tree_blocks_only_same_stage_known_root_relocation() {
     ];
     for control in controls {
         assert_eq!(
-            nah_policy::decide(&control, &guard_policy("fs-system-tree", true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &control,
+                &crate::support::empty_evidence(),
+                &guard_policy("fs-system-tree", true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Delegate,
             "{control:?}"
         );
@@ -1031,8 +1126,13 @@ fn fs_raw_device_blocks_visible_writes_to_raw_storage_and_the_sysrq_trigger() {
                 pattern: false,
             },
         });
-        let decision =
-            nah_policy::decide(&stream, &guard_policy("fs-raw-device", true), &[]).unwrap();
+        let decision = nah_policy::decide(
+            &stream,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-raw-device", true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(decision.verdict(), Verdict::Block, "{target}");
         assert_eq!(decision.policy_attributions()[0].name(), "fs-raw-device");
     }
@@ -1043,7 +1143,13 @@ fn fs_forkbomb_blocks_positive_shell_fork_bomb_evidence() {
     let stream = guarded_stream(EffectKind::SystemState {
         operation: nah_proto::action::SemanticCode::FORK_BOMB,
     });
-    let decision = nah_policy::decide(&stream, &guard_policy("fs-forkbomb", true), &[]).unwrap();
+    let decision = nah_policy::decide(
+        &stream,
+        &crate::support::empty_evidence(),
+        &guard_policy("fs-forkbomb", true),
+        &[],
+    )
+    .unwrap();
     assert_eq!(decision.verdict(), Verdict::Block);
     assert_eq!(decision.policy_attributions()[0].name(), "fs-forkbomb");
 }
@@ -1053,8 +1159,13 @@ fn fs_volume_destroy_blocks_only_typed_logical_destruction() {
     let destructive = guarded_stream(EffectKind::SystemState {
         operation: nah_proto::action::SemanticCode::LOGICAL_STORAGE_DESTROY,
     });
-    let decision =
-        nah_policy::decide(&destructive, &guard_policy("fs-volume-destroy", true), &[]).unwrap();
+    let decision = nah_policy::decide(
+        &destructive,
+        &crate::support::empty_evidence(),
+        &guard_policy("fs-volume-destroy", true),
+        &[],
+    )
+    .unwrap();
     assert_eq!(decision.verdict(), Verdict::Block);
     assert_eq!(
         decision.policy_attributions()[0].name(),
@@ -1065,9 +1176,14 @@ fn fs_volume_destroy_blocks_only_typed_logical_destruction() {
         operation: nah_proto::action::SemanticCode::new("storage-inspect").unwrap(),
     });
     assert_eq!(
-        nah_policy::decide(&inspect, &guard_policy("fs-volume-destroy", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &inspect,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-volume-destroy", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
 }
@@ -1089,9 +1205,14 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
         },
     });
     assert_eq!(
-        nah_policy::decide(&home_child, &guard_policy("fs-home", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &home_child,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-home", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
 
@@ -1110,9 +1231,14 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
         },
     });
     assert_eq!(
-        nah_policy::decide(&root, &guard_policy("fs-system-tree", false), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &root,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-system-tree", false),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
 
@@ -1138,9 +1264,14 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
             },
         });
         assert_eq!(
-            nah_policy::decide(&child, &guard_policy("fs-system-tree", true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &child,
+                &crate::support::empty_evidence(),
+                &guard_policy("fs-system-tree", true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Delegate,
             "{target}"
         );
@@ -1161,9 +1292,14 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
         },
     });
     assert_eq!(
-        nah_policy::decide(&windows_child, &guard_policy("fs-system-tree", true), &[])
-            .unwrap()
-            .verdict(),
+        nah_policy::decide(
+            &windows_child,
+            &crate::support::empty_evidence(),
+            &guard_policy("fs-system-tree", true),
+            &[]
+        )
+        .unwrap()
+        .verdict(),
         Verdict::Delegate
     );
 
@@ -1189,9 +1325,14 @@ fn filesystem_guards_do_not_fire_when_disabled_or_below_their_boundary() {
             },
         });
         assert_eq!(
-            nah_policy::decide(&ordinary, &guard_policy("fs-raw-device", true), &[])
-                .unwrap()
-                .verdict(),
+            nah_policy::decide(
+                &ordinary,
+                &crate::support::empty_evidence(),
+                &guard_policy("fs-raw-device", true),
+                &[]
+            )
+            .unwrap()
+            .verdict(),
             Verdict::Delegate,
             "{target}"
         );

@@ -5,7 +5,7 @@
     clippy::disallowed_types
 )]
 
-//! Pure decision reduction from ActionStream, PolicyCtx, and validated guard
+//! Pure decision reduction from shared evidence, ActionStream, PolicyCtx, and validated guard
 //! responses into DecisionCore. Shipped guards live here as plain
 //! Rust code; transport, validation, and orchestration do not.
 
@@ -90,11 +90,13 @@ pub const SHIPPED_GUARDS: &[&str] = &[
 /// only when a guard or self-protection positively identifies it.
 pub fn decide(
     action_stream: &ActionStream,
+    evidence: &nah_proto::effects::GuardEvidence,
     policy_ctx: &PolicyCtx,
     responses: &[ValidatedExtensionResponse],
 ) -> Result<DecisionCore, DecisionError> {
     decide_with_mode(
         action_stream,
+        evidence,
         policy_ctx,
         responses,
         EnforcementMode::Normal,
@@ -103,12 +105,14 @@ pub fn decide(
 
 pub fn decide_with_mode(
     action_stream: &ActionStream,
+    evidence: &nah_proto::effects::GuardEvidence,
     policy_ctx: &PolicyCtx,
     responses: &[ValidatedExtensionResponse],
     mode: EnforcementMode,
 ) -> Result<DecisionCore, DecisionError> {
     decide_with_mode_and_inline(
         action_stream,
+        evidence,
         &InlineReport::default(),
         policy_ctx,
         responses,
@@ -118,6 +122,7 @@ pub fn decide_with_mode(
 
 pub fn decide_with_mode_and_inline(
     action_stream: &ActionStream,
+    evidence: &nah_proto::effects::GuardEvidence,
     inline_report: &InlineReport,
     policy_ctx: &PolicyCtx,
     responses: &[ValidatedExtensionResponse],
@@ -125,6 +130,7 @@ pub fn decide_with_mode_and_inline(
 ) -> Result<DecisionCore, DecisionError> {
     decide_with_mode_and_inline_language_safety_stream(
         action_stream,
+        evidence,
         action_stream,
         inline_report,
         policy_ctx,
@@ -134,12 +140,14 @@ pub fn decide_with_mode_and_inline(
 }
 
 /// Reduces evidence from a public action stream and its language safety stream.
-/// Shipped guards and permanent protection inspect `language_safety_stream`;
+/// Git guards inspect shared `evidence`; other shipped guards and permanent
+/// protection inspect `language_safety_stream`;
 /// `DecisionCore` is bound to `action_stream`, which custom guards inspect.
-/// Callers must supply both projections of the same tool call and extension
+/// Callers must supply evidence and both projections of the same tool call and extension
 /// responses validated against that public action stream.
 pub fn decide_with_mode_and_inline_language_safety_stream(
     action_stream: &ActionStream,
+    evidence: &nah_proto::effects::GuardEvidence,
     language_safety_stream: &ActionStream,
     inline_report: &InlineReport,
     policy_ctx: &PolicyCtx,
@@ -180,7 +188,7 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
         policy_ctx,
         &mut contributions,
     )?;
-    let git_block = git_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
+    let git_block = git_guards::add(evidence, policy_ctx, &mut contributions)?;
     let infrastructure_block =
         infrastructure_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let registry_block =
@@ -242,3 +250,6 @@ pub type StructuralPredicate = fn(
     &mut Vec<GuardContribution>,
     EnforcementMode,
 ) -> Result<bool, DecisionError>;
+
+/// Git predicates shared by normal enforcement and non-enforcing producer checks.
+pub const GIT_PREDICATE: FamilyPredicate = git_guards::add;

@@ -89,16 +89,13 @@ fn git_abbreviations_are_canonical_only_for_semantic_lowering() {
         ("git reflog expire --expire-=now --a", "recovery-destroy"),
         ("git push --force-w=other origin +main", "force-push"),
     ] {
-        let stream = stream(source);
+        let plan = support::bash_plan(source);
+        let observation = support::observe(plan.observation_request(), "echo");
         assert!(
-            stream.effects().iter().any(|effect| {
-                matches!(
-                    effect.kind(),
-                    EffectKind::Git { operation: actual } if actual.as_str() == operation
-                )
-            }),
-            "{source}: {:?}",
-            stream.effects()
+            support::git_guard_operations(&plan, &observation)
+                .iter()
+                .any(|actual| actual == operation),
+            "{source}"
         );
     }
 

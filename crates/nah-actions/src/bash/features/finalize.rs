@@ -35,6 +35,7 @@ pub(crate) fn finalize(
     critical_paths: &[AbsolutePath],
     platform: Platform,
     include_language_safety: bool,
+    mut git_graph: Option<&mut nah_proto::effects::EffectGraph>,
 ) -> Option<(bool, Vec<Vec<EffectKind>>, Vec<FlowOrdinals>)> {
     let mut complete = draft.complete;
     let analysis_refused = draft.analysis_refused;
@@ -123,7 +124,11 @@ pub(crate) fn finalize(
                 None => invocation,
             };
             let mut effects = vec![invocation];
+            let mut lexical_paths = Vec::new();
+            // Git discards describe selections, not direct filesystem mutations.
+            let mut explicit_filesystems = Vec::new();
             for filesystem in stage.filesystems {
+                let git_managed = filesystem.git_discard.is_some();
                 if filesystem.key.is_none()
                     && filesystem.requested.is_empty()
                     && filesystem.unresolved_selection
@@ -181,7 +186,11 @@ pub(crate) fn finalize(
                             push_sensitivity(&mut sensitivities, Sensitivity::OtherSensitive);
                         }
                         set_effect_sensitivity(&mut effect, Sensitivity::None);
-                        effects.extend(effects_with_sensitivities(effect, &sensitivities));
+                        let filesystem_effects = effects_with_sensitivities(effect, &sensitivities);
+                        if !git_managed {
+                            explicit_filesystems.extend(filesystem_effects.iter().cloned());
+                        }
+                        effects.extend(filesystem_effects);
                     }
                     continue;
                 };
@@ -351,21 +360,60 @@ pub(crate) fn finalize(
                         }
                     }
                 }
-                if selects_root
-                    && let Some(operation) = filesystem.git_guard.as_ref()
-                    && !stage.git_operations.contains(operation)
+                if let EffectKind::Filesystem {
+                    effect: filesystem_effect,
+                } = &effect
+                    && let Some(Ok(path)) = observed_path(observation, key)
                 {
-                    stage.git_operations.push(operation.clone());
+                    lexical_paths.push((filesystem_effect.target.clone(), path.resolved().clone()));
                 }
-                if !selects_root
-                    && !filesystem.pattern
-                    && selects_project
-                    && filesystem.git_guard.as_ref() == Some(&SemanticCode::WORKTREE_DISCARD)
-                    && !stage.git_operations.contains(&SemanticCode::PATH_DISCARD)
-                {
-                    stage.git_operations.push(SemanticCode::PATH_DISCARD);
+                if let Some(mut discard) = filesystem.git_discard {
+                    use nah_proto::effects::{FactPayload, GitDiscardMode, Selection};
+                    if (selects_root || selects_project && !filesystem.pattern)
+                        && let FactPayload::GitDiscard {
+                            mode, selection, ..
+                        } = &mut discard
+                    {
+                        *selection = if selects_root {
+                            Selection::Whole
+                        } else {
+                            Selection::Exact
+                        };
+                        let operation = match (*mode, selects_root) {
+                            (GitDiscardMode::Clean, true) => Some(SemanticCode::CLEAN_FORCE),
+                            (GitDiscardMode::Clean, false) => None,
+                            (_, true) => Some(SemanticCode::WORKTREE_DISCARD),
+                            (_, false) => Some(SemanticCode::PATH_DISCARD),
+                        };
+                        if let Some(operation) = operation
+                            && !stage.git_operations.contains(&operation)
+                        {
+                            stage.git_operations.push(operation);
+                        }
+                        stage.git_facts.push(discard);
+                    }
                 }
-                effects.extend(effects_with_sensitivities(effect, &sensitivities));
+                let filesystem_effects = effects_with_sensitivities(effect, &sensitivities);
+                if !git_managed {
+                    explicit_filesystems.extend(filesystem_effects.iter().cloned());
+                }
+                effects.extend(filesystem_effects);
+            }
+            if let Some(graph) = git_graph.as_deref_mut() {
+                crate::git_evidence::emit_git(
+                    graph,
+                    stage
+                        .evidence_call
+                        .expect("evidence finalization assigned stage calls"),
+                    &explicit_filesystems,
+                    stage.git_facts,
+                    &lexical_paths,
+                    stage
+                        .git_operations
+                        .iter()
+                        .any(|operation| operation.as_str() == "show"),
+                    platform,
+                );
             }
             effects.extend(
                 stage

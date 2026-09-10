@@ -125,7 +125,7 @@ impl LanguageEffectDraftTarget<'_> {
                         .requested()
                         .is_some_and(|requested| cwd_relative(requested, self.platform)),
                     operation: filesystem.operation(),
-                    git_guard: None,
+                    git_discard: None,
                     recursive: filesystem.recursive(),
                     symlink_traversal: SymlinkTraversal::None,
                     network_bound: false,
@@ -180,6 +180,8 @@ impl LanguageEffectDraftTarget<'_> {
                 filesystems,
                 root_move_destination_key: None,
                 git_operations: Vec::new(),
+                evidence_call: None,
+                git_facts: Vec::new(),
                 git_project_scoped: false,
                 network_outbound,
                 network_endpoints,

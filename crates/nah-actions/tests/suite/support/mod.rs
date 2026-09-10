@@ -393,3 +393,43 @@ fn lexically_normalized(platform: Platform, value: &str) -> String {
     }
     format!("{root}{}", components.join("/"))
 }
+
+/// Exercises retained lowering cases through the same common Git predicates as runtime.
+pub(crate) fn git_guard_operations(
+    plan: &nah_actions::AnalysisPlan,
+    observation: &Observation,
+) -> Vec<String> {
+    let evidence = plan.guard_evidence(observation).unwrap();
+    let ctx = Ctx::new(
+        Platform::Linux,
+        absolute_on(Platform::Linux, "/home/test"),
+        nah_policy::SHIPPED_GUARDS
+            .iter()
+            .map(|name| nah_proto::ctx::ShippedGuardState::new(*name, true).unwrap())
+            .collect(),
+        vec![],
+        TrustProjection::new(vec![]).unwrap(),
+    )
+    .unwrap();
+    let policy = nah_proto::ctx::derive_policy_ctx(&ctx, observation).unwrap();
+    let stream =
+        nah_proto::action::ActionStream::new(nah_proto::action::Coverage::Partial, vec![], vec![])
+            .unwrap();
+    let decision = nah_policy::decide(&stream, &evidence, policy.policy_ctx(), &[]).unwrap();
+    let mut operations = decision
+        .policy_attributions()
+        .iter()
+        .map(|c| {
+            let name = c.name();
+            if name == "git-metadata" {
+                "metadata-mutation".to_owned()
+            } else if name.starts_with("git-remote-") {
+                name.to_owned()
+            } else {
+                name.strip_prefix("git-").unwrap().to_owned()
+            }
+        })
+        .collect::<Vec<_>>();
+    operations.sort();
+    operations
+}

@@ -42,6 +42,7 @@ use bash::features::{
     wrappers as bash_wrappers,
 };
 mod codex_patch;
+mod git_evidence;
 mod language_effects;
 mod native;
 mod paths;
@@ -312,7 +313,7 @@ fn plan_with_ambient_variables(
 }
 
 pub fn finalize(plan: AnalysisPlan, observation: Observation) -> ActionStream {
-    finalize_inner(plan, observation, false)
+    finalize_inner(plan, observation, false, None)
 }
 
 /// Returns (public action stream, language safety stream) for the same analysis.
@@ -332,7 +333,7 @@ pub fn finalize_with_language_safety_stream(
         let stream = finalize(plan, observation);
         return (stream.clone(), stream);
     }
-    let language_safety_stream = finalize_inner(plan.clone(), observation.clone(), true);
+    let language_safety_stream = finalize_inner(plan.clone(), observation.clone(), true, None);
     let action_stream = finalize(plan, observation);
     (action_stream, language_safety_stream)
 }
@@ -341,6 +342,7 @@ fn finalize_inner(
     plan: AnalysisPlan,
     observation: Observation,
     include_language_safety: bool,
+    mut git_graph: Option<&mut nah_proto::effects::EffectGraph>,
 ) -> ActionStream {
     if observation.bind(&plan.observation_request).is_err() {
         return partial();
@@ -353,6 +355,7 @@ fn finalize_inner(
         return partial();
     };
 
+    let native_evidence = matches!(&plan.draft, Draft::Native(_));
     let (coverage, stages, flows) = match plan.draft {
         Draft::Native(native::Draft::Native {
             tool,
@@ -529,6 +532,7 @@ fn finalize_inner(
                         &plan.critical_paths,
                         plan.platform,
                         include_language_safety,
+                        None,
                     )
                 })
                 .is_some_and(|(complete, _, _)| complete);
@@ -542,6 +546,7 @@ fn finalize_inner(
                 &plan.critical_paths,
                 plan.platform,
                 include_language_safety,
+                git_graph.as_deref_mut(),
             ) else {
                 return partial();
             };
@@ -559,6 +564,11 @@ fn finalize_inner(
     } else {
         Coverage::Partial
     };
+    if native_evidence && let Some(graph) = git_graph {
+        for stage in &stages {
+            crate::git_evidence::emit_filesystems(graph, stage, &observation, plan.platform);
+        }
+    }
     ActionStream::new(coverage, stages, flows).unwrap_or_else(|_| partial())
 }
 
@@ -834,7 +844,7 @@ fn partial() -> ActionStream {
 }
 
 /// Both transition representations are finalized from the same interpreted draft.
-/// Family migrations add facts to `AnalysisPlan::effect_graph_mut` at interpretation.
+/// Git facts are retained during interpretation and bound to paths at finalization.
 /// No facts are recovered from legacy policy decisions or semantic guard codes.
 pub fn finalize_with_guard_evidence(
     plan: AnalysisPlan,
@@ -868,6 +878,13 @@ impl AnalysisPlan {
         if let Some(cwd) = observed_cwd(observation) {
             graph.calls[0].cwd = Knowledge::Known(cwd.clone());
         }
+        let mut finalized_plan = self.clone();
+        if let Draft::Bash(draft) = &mut finalized_plan.draft {
+            for (index, stage) in draft.stages.iter_mut().enumerate() {
+                stage.evidence_call = Some(CallId(index as u32 + 1));
+            }
+        }
+        finalize_inner(finalized_plan, observation.clone(), true, Some(&mut graph));
         GuardEvidence::new(
             graph,
             PublicSelection {

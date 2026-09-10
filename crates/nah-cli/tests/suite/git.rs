@@ -447,6 +447,27 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         );
     }
 
+    for (path, expected) in [(".git/packed-refs", true), ("src/generated.rs", false)] {
+        let result = decide_with(
+            &call(
+                "Write",
+                json!({"file_path": repo.join(path), "content": "replacement"}),
+                &repo,
+            ),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .any(|guard| guard.name() == "git-metadata"),
+            expected
+        );
+        assert_eq!(result.core().verdict() == Verdict::Block, expected);
+    }
+
     // Each push protection remains independent of the other guard settings.
     for force in [false, true] {
         for history in [false, true] {

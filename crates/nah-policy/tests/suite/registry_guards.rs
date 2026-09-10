@@ -13,11 +13,23 @@ fn registry_guards_require_their_matching_enabled_code() {
         ("registry-unpublish", SemanticCode::REGISTRY_UNPUBLISH),
     ] {
         let stream = guarded_stream(EffectKind::SystemState { operation });
-        let enabled = nah_policy::decide(&stream, &guard_policy(name, true), &[]).unwrap();
+        let enabled = nah_policy::decide(
+            &stream,
+            &crate::support::empty_evidence(),
+            &guard_policy(name, true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(enabled.verdict(), Verdict::Block, "{name}");
         assert_eq!(enabled.policy_attributions()[0].name(), name);
 
-        let disabled = nah_policy::decide(&stream, &guard_policy(name, false), &[]).unwrap();
+        let disabled = nah_policy::decide(
+            &stream,
+            &crate::support::empty_evidence(),
+            &guard_policy(name, false),
+            &[],
+        )
+        .unwrap();
         assert_eq!(disabled.verdict(), Verdict::Delegate, "{name}");
     }
 }
@@ -29,7 +41,13 @@ fn publish_and_unpublish_guards_are_isolated() {
         ("registry-unpublish", SemanticCode::REGISTRY_PUBLISH),
     ] {
         let stream = guarded_stream(EffectKind::SystemState { operation });
-        let decision = nah_policy::decide(&stream, &guard_policy(enabled, true), &[]).unwrap();
+        let decision = nah_policy::decide(
+            &stream,
+            &crate::support::empty_evidence(),
+            &guard_policy(enabled, true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(decision.verdict(), Verdict::Delegate, "{enabled}");
     }
 }
@@ -57,7 +75,13 @@ fn registry_guards_match_only_system_state_codes() {
             } else {
                 guarded_stream(effect)
             };
-            let decision = nah_policy::decide(&stream, &guard_policy(name, true), &[]).unwrap();
+            let decision = nah_policy::decide(
+                &stream,
+                &crate::support::empty_evidence(),
+                &guard_policy(name, true),
+                &[],
+            )
+            .unwrap();
             assert_eq!(decision.verdict(), Verdict::Delegate, "{name}");
         }
     }

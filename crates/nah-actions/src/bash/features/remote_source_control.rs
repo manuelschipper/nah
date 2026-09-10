@@ -11,6 +11,23 @@ pub(crate) enum RemoteDeletion {
     Resource,
 }
 
+impl RemoteDeletion {
+    pub(crate) fn fact(self, program: &str) -> nah_proto::effects::FactPayload {
+        use nah_proto::effects::*;
+        FactPayload::HostedDeletion {
+            target: ResourceId(0),
+            kind: match self {
+                Self::Repository => HostedTarget::Repository,
+                Self::Resource => HostedTarget::Resource,
+            },
+            provider: Knowledge::Known(if program == "gh" { "github" } else { "gitlab" }.into()),
+            object_kind: Knowledge::Unknown,
+            selection: Selection::Unknown,
+            delete: Knowledge::Known(true),
+        }
+    }
+}
+
 pub(crate) fn classify_remote_deletion(
     program: &str,
     arguments: &[Word],

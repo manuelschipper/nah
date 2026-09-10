@@ -179,3 +179,29 @@ pub(crate) fn guarded_stream(effect: EffectKind) -> ActionStream {
 pub(crate) fn guard_policy(name: &str, enabled: bool) -> PolicyCtx {
     context(&[(name, enabled)], vec![], ProjectGuardDeclaration::Absent).1
 }
+
+pub(crate) fn empty_evidence() -> nah_proto::effects::GuardEvidence {
+    use nah_proto::effects::*;
+    GuardEvidence::new(
+        EffectGraph {
+            calls: vec![],
+            resources: vec![],
+            facts: vec![],
+            occurrences: vec![],
+            relations: vec![],
+            conditions: vec![],
+            coverage: vec![],
+            gaps: vec![],
+            causality: CausalAvailability::Unavailable,
+        },
+        PublicSelection {
+            calls: Default::default(),
+            facts: Default::default(),
+            resources: Default::default(),
+            occurrences: Default::default(),
+            relations: Default::default(),
+            complete: false,
+        },
+    )
+    .unwrap()
+}
