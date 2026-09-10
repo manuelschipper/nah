@@ -486,6 +486,40 @@ pub fn impure_source_violations(krate: &str, file: &Path, text: &str) -> Vec<Str
     violations
 }
 
+/// Shared predicates must not depend on producers; direct analysis must not gain
+/// ambient resolution or command execution while the optional seam is qualified.
+pub fn evidence_boundary_violations(shared: &str, adapter: &str) -> Vec<String> {
+    let mut violations = Vec::new();
+    for token in [
+        "effinterp_",
+        "nah_actions",
+        "nah_inline",
+        "serde_json::Value",
+    ] {
+        if shared.contains(token) {
+            violations.push(format!(
+                "shared effects contain producer or untyped payload token {token}"
+            ));
+        }
+    }
+    for token in [
+        "with_resolver",
+        "analyze_with_resolver",
+        "std::process",
+        "std::fs",
+        "std::env",
+        "run_daemon",
+        "consult_extensions",
+    ] {
+        if adapter.contains(token) {
+            violations.push(format!(
+                "evidence adapter contains side-effect token {token}"
+            ));
+        }
+    }
+    violations
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

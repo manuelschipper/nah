@@ -66,3 +66,19 @@ fn pure_crate_targets_cannot_escape_the_scanned_source_tree() {
         }
     }
 }
+
+#[test]
+fn shared_evidence_and_direct_adapter_keep_their_pure_boundaries() {
+    let root = workspace_root();
+    let shared = std::fs::read_to_string(root.join("crates/nah-proto/src/effects.rs")).unwrap();
+    let adapter = std::fs::read_to_string(root.join("crates/nah-effinterp/src/bridge.rs")).unwrap();
+    assert!(gates::evidence_boundary_violations(&shared, &adapter).is_empty());
+    assert_eq!(
+        gates::evidence_boundary_violations(
+            "use effinterp_proto::Plan;",
+            "Engine::new().with_resolver(resolver)"
+        )
+        .len(),
+        2
+    );
+}

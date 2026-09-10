@@ -4,6 +4,7 @@
     "platform": "linux"
   },
   "expected": [
+    {},
     {
       "path": {
         "kind": "resolved",
@@ -39,6 +40,8 @@
     "analysis": {
       "engine_version": "0.1.0",
       "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 32768,
         "max_boundaries": 4096,
         "max_causal_depth": 256,
         "max_causal_edges": 32768,
@@ -48,26 +51,161 @@
         "max_execution_depth": 8,
         "max_execution_fanout": 256,
         "max_execution_nodes": 4096,
+        "max_go_nodes": 20000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
         "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
         "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
         "max_source_bytes": 4194304
       },
-      "model_set": "builtin:blake3:61c1192f9b70c53dc4bee47d1528fb1cbfc5b529a50c0a90f7080ceceea86750"
+      "model_set": "builtin:blake3:90bafbc72e55b33ccdd279730f1b3906b1df40cf072ce3a60e5f6685664b6b20"
     },
     "causality": {
-      "coverage": "full",
-      "edges": [],
-      "nodes": []
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:86e05fed3431a49f743d46f2b2b9d4a09970ce9a3af394a27ec6a60c6c1cd32f",
+            "modality": "may",
+            "order": 0,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:5bdee839d2a9bc29412a94a561de5b804a407b86c62a58ad49f08d264af5d2e4"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:86e05fed3431a49f743d46f2b2b9d4a09970ce9a3af394a27ec6a60c6c1cd32f",
+            "modality": "may",
+            "order": 1,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:9eed35baa92025cd57967fb844e9041924985e4352cd8225a301fbc5f3e5a616"
+          }
+        ],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:86e05fed3431a49f743d46f2b2b9d4a09970ce9a3af394a27ec6a60c6c1cd32f",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:5bdee839d2a9bc29412a94a561de5b804a407b86c62a58ad49f08d264af5d2e4",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "environment.read",
+            "order": 1,
+            "provenance": [
+              1,
+              0
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "environment_variable",
+                "name": "HOME"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:9eed35baa92025cd57967fb844e9041924985e4352cd8225a301fbc5f3e5a616",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "order": 2,
+            "provenance": [
+              1,
+              0
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/home/test/.nah/trust.json"
+              }
+            }
+          }
+        ]
+      }
     },
     "coverage": {
-      "filesystem": "full"
+      "environment": {
+        "level": "full"
+      },
+      "filesystem": {
+        "level": "full"
+      },
+      "process": {
+        "level": "full"
+      }
     },
     "effects": [
       {
         "execution": 0,
+        "id": "effect:blake3:1a02aeb4da2fce1c80cd6b91c0a30e154288025c38ef6fabfcf13178a5e6ba74",
+        "modality": "may",
+        "operation": "environment.read",
+        "provenance": [
+          1,
+          0
+        ],
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "environment_variable",
+            "name": "HOME"
+          }
+        }
+      },
+      {
+        "execution": 0,
+        "id": "effect:blake3:c7ccfc768427f2364fa90f84e7e7fbad8455301487b6f6df517f2ccc83b7afee",
         "modality": "may",
         "operation": "filesystem.write",
-        "provenance": [],
+        "provenance": [
+          1,
+          0
+        ],
         "resource": {
           "expr": "concrete",
           "identity": {
@@ -94,6 +232,11 @@
           },
           "streams": {},
           "subject": {
+            "context": {
+              "env": {
+                "HOME": "/home/test"
+              }
+            },
             "cwd": "/repo",
             "kind": "shell",
             "source": "echo x > ~/.nah/trust.json"
@@ -101,8 +244,29 @@
         }
       ]
     },
+    "provenance": [
+      {
+        "kind": "host_context",
+        "name": "HOME"
+      },
+      {
+        "end": 26,
+        "kind": "source_span",
+        "start": 9
+      },
+      {
+        "end": 26,
+        "kind": "source_span",
+        "start": 0
+      }
+    ],
     "schema": "effinterp/plan/v1",
     "subject": {
+      "context": {
+        "env": {
+          "HOME": "/home/test"
+        }
+      },
       "cwd": "/repo",
       "kind": "shell",
       "source": "echo x > ~/.nah/trust.json"

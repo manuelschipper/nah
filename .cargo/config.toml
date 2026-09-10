@@ -1,6 +1,6 @@
 [source.effinterp]
 git = "https://github.com/manuelschipper/effectinterp.git"
-rev = "c6a8d6122a6f0817b927068c0bc08e5434f59370"
+rev = "80ad17d8f48828565369c92a372b321c6124fc11"
 replace-with = "effinterp-stubs"
 
 [source.effinterp-stubs]

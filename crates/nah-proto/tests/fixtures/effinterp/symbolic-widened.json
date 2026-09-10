@@ -1,340 +1,610 @@
 {
-  "schema": "effinterp/plan/v1",
-  "subject": {
-    "kind": "shell",
-    "source": "cleanup --purge"
-  },
   "analysis": {
     "engine_version": "0.1.0",
-    "model_set": "dev",
     "limits": {
-      "deadline_ms": 100,
-      "max_effects": 256,
-      "max_flows": 16
+      "max_analysis_bytes": 33554432,
+      "max_analysis_steps": 32768,
+      "max_boundaries": 4096,
+      "max_causal_depth": 256,
+      "max_causal_edges": 32768,
+      "max_causal_nodes": 16384,
+      "max_causal_pairs": 32768,
+      "max_effects": 4096,
+      "max_execution_depth": 8,
+      "max_execution_fanout": 256,
+      "max_execution_nodes": 4096,
+      "max_go_nodes": 20000,
+      "max_heredoc_expansions": 4096,
+      "max_java_nodes": 30000,
+      "max_js_nodes": 20000,
+      "max_patch_bytes": 4194304,
+      "max_patch_files": 2048,
+      "max_php_nodes": 20000,
+      "max_provenance_nodes": 65536,
+      "max_python_nodes": 80000,
+      "max_resolved_source_files": 64,
+      "max_ruby_nodes": 20000,
+      "max_rust_nodes": 20000,
+      "max_shell_function_depth": 8,
+      "max_shell_words": 4096,
+      "max_source_bytes": 4194304
+    },
+    "model_set": "builtin:blake3:90bafbc72e55b33ccdd279730f1b3906b1df40cf072ce3a60e5f6685664b6b20"
+  },
+  "boundaries": [
+    {
+      "class": "unmodeled",
+      "detail": "no model for command \"cleanup\"",
+      "domains": [
+        "artifact",
+        "filesystem",
+        "process",
+        "environment",
+        "network",
+        "database",
+        "container",
+        "git",
+        "cloud",
+        "messaging",
+        "system",
+        "credential"
+      ],
+      "provenance": [
+        2
+      ],
+      "reason": "unmodeled_command"
+    }
+  ],
+  "causality": {
+    "coverage": {
+      "level": "full"
+    },
+    "graph": {
+      "edges": [
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:04789d5cc9bbae1a36aa444dd10bdfe25b82e19e441477230857318e17159551",
+          "modality": "must-on-success",
+          "order": 0,
+          "provenance": [
+            0
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:87cb1f04aa1b9e21e09f8bd95ba2e7c27a1273596eafa0e5080b1068933abd52"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:14f111b2e1787c0986ceccaef5d71365d1b32120ff73989011e7b11a37db193d",
+          "modality": "may",
+          "order": 1,
+          "provenance": [
+            0
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:21054edc95ea84c763b2d0e0a2e7866da2d82c2622a40853bcca1eed7d52adb0"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:33940130fdb5bf4066ea5ab91bf9b1ca29b4be1bffa87dcae7d030a13df8bea9",
+          "modality": "must-on-success",
+          "order": 2,
+          "provenance": [
+            0
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:87cb1f04aa1b9e21e09f8bd95ba2e7c27a1273596eafa0e5080b1068933abd52"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:4fed0758acdb2b948e11e8b958206e8777da278c1b8560972c71e0108b0b64a7",
+          "modality": "may",
+          "order": 3,
+          "provenance": [
+            0
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:57640796b0aa15ab25899879cc3962ae12c3fbe069d1f9efb788a361eca62994"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:59c2f56bc1fe76ea7e95d2b61591f71c616ebbde4064b6c96cf329da684570b8",
+          "modality": "must-on-success",
+          "order": 4,
+          "provenance": [
+            0
+          ],
+          "reason": "containment",
+          "to": "occurrence:blake3:04789d5cc9bbae1a36aa444dd10bdfe25b82e19e441477230857318e17159551"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:79f60126bc77ced569fe864584a90ff66ef93836269f8f651ca8764f679d7cfc",
+          "modality": "may",
+          "order": 5,
+          "provenance": [
+            0
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:491acf338fd16f4d126ab40e22a8a0b7a60b9e33e55cef7cdd54d6ef385f9f76"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:87cb1f04aa1b9e21e09f8bd95ba2e7c27a1273596eafa0e5080b1068933abd52",
+          "modality": "may",
+          "order": 6,
+          "provenance": [
+            2
+          ],
+          "reason": "control_dependency",
+          "to": "occurrence:blake3:cf33b991743bf45854fb1f440def8d46ef014f7fbbbbdd806f6f3f7338c972d4"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:acc3c7163413ba5b9efa785dc92d47a10b8351655b3dcc7f713547595f34f083",
+          "modality": "must-on-success",
+          "order": 7,
+          "provenance": [
+            0
+          ],
+          "reason": "containment",
+          "to": "occurrence:blake3:33940130fdb5bf4066ea5ab91bf9b1ca29b4be1bffa87dcae7d030a13df8bea9"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:bf5b1e08e069a33c59a8cd8ead6f474f6f16a128d482f5e0aca73dbf0ce16380",
+          "modality": "must-on-success",
+          "order": 8,
+          "provenance": [
+            0
+          ],
+          "reason": "launch",
+          "to": "occurrence:blake3:87cb1f04aa1b9e21e09f8bd95ba2e7c27a1273596eafa0e5080b1068933abd52"
+        }
+      ],
+      "nodes": [
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 0,
+          "id": "occurrence:blake3:bf5b1e08e069a33c59a8cd8ead6f474f6f16a128d482f5e0aca73dbf0ce16380",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 0,
+          "port": "code"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:87cb1f04aa1b9e21e09f8bd95ba2e7c27a1273596eafa0e5080b1068933abd52",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 1,
+          "port": "code",
+          "provenance": [
+            0
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:acc3c7163413ba5b9efa785dc92d47a10b8351655b3dcc7f713547595f34f083",
+          "kind": "value",
+          "modality": "must-on-success",
+          "order": 2,
+          "provenance": [
+            0
+          ],
+          "value": {
+            "expr": "literal",
+            "value": "cleanup"
+          }
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:33940130fdb5bf4066ea5ab91bf9b1ca29b4be1bffa87dcae7d030a13df8bea9",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 3,
+          "port": {
+            "arg": 0
+          },
+          "provenance": [
+            0
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:59c2f56bc1fe76ea7e95d2b61591f71c616ebbde4064b6c96cf329da684570b8",
+          "kind": "value",
+          "modality": "must-on-success",
+          "order": 4,
+          "provenance": [
+            0
+          ],
+          "value": {
+            "expr": "literal",
+            "value": "--purge"
+          }
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:04789d5cc9bbae1a36aa444dd10bdfe25b82e19e441477230857318e17159551",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 5,
+          "port": {
+            "arg": 1
+          },
+          "provenance": [
+            0
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 0,
+          "id": "occurrence:blake3:79f60126bc77ced569fe864584a90ff66ef93836269f8f651ca8764f679d7cfc",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 6,
+          "port": "stdin"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 0,
+          "id": "occurrence:blake3:57640796b0aa15ab25899879cc3962ae12c3fbe069d1f9efb788a361eca62994",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 7,
+          "port": "stdout"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 0,
+          "id": "occurrence:blake3:21054edc95ea84c763b2d0e0a2e7866da2d82c2622a40853bcca1eed7d52adb0",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 8,
+          "port": "stderr"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:491acf338fd16f4d126ab40e22a8a0b7a60b9e33e55cef7cdd54d6ef385f9f76",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 9,
+          "port": "stdin",
+          "provenance": [
+            0
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:4fed0758acdb2b948e11e8b958206e8777da278c1b8560972c71e0108b0b64a7",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 10,
+          "port": "stdout",
+          "provenance": [
+            0
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:14f111b2e1787c0986ceccaef5d71365d1b32120ff73989011e7b11a37db193d",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 11,
+          "port": "stderr",
+          "provenance": [
+            0
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:cf33b991743bf45854fb1f440def8d46ef014f7fbbbbdd806f6f3f7338c972d4",
+          "kind": "resource_interaction",
+          "modality": "may",
+          "operation": "process.exec",
+          "order": 12,
+          "provenance": [
+            2
+          ],
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "argv": [
+                {
+                  "expr": "literal",
+                  "value": "--purge"
+                }
+              ],
+              "executable": "cleanup",
+              "family": "process"
+            }
+          }
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "detail": "no model for command \"cleanup\"",
+          "id": "occurrence:blake3:6673d081422d840d6e01e354653b9acd9d8300f35f40084f21bb81088fa4be9f",
+          "kind": "boundary",
+          "modality": "may",
+          "order": 13,
+          "provenance": [
+            2
+          ],
+          "reason": "unmodeled_command"
+        }
+      ]
+    }
+  },
+  "coverage": {
+    "artifact": {
+      "gaps": [
+        0
+      ],
+      "level": "none"
+    },
+    "cloud": {
+      "gaps": [
+        0
+      ],
+      "level": "none"
+    },
+    "container": {
+      "gaps": [
+        0
+      ],
+      "level": "none"
+    },
+    "credential": {
+      "gaps": [
+        0
+      ],
+      "level": "none"
+    },
+    "database": {
+      "gaps": [
+        0
+      ],
+      "level": "none"
+    },
+    "environment": {
+      "gaps": [
+        0
+      ],
+      "level": "none"
+    },
+    "filesystem": {
+      "gaps": [
+        0
+      ],
+      "level": "none"
+    },
+    "git": {
+      "gaps": [
+        0
+      ],
+      "level": "none"
+    },
+    "messaging": {
+      "gaps": [
+        0
+      ],
+      "level": "none"
+    },
+    "network": {
+      "gaps": [
+        0
+      ],
+      "level": "none"
+    },
+    "process": {
+      "gaps": [
+        0
+      ],
+      "level": "partial"
+    },
+    "system": {
+      "gaps": [
+        0
+      ],
+      "level": "none"
     }
   },
   "effects": [
     {
-      "operation": "filesystem.delete",
-      "resource": {
-        "expr": "join",
-        "parts": [
-          {
-            "expr": "parameter",
-            "name": "cache_root"
-          },
-          {
-            "expr": "property",
-            "base": {
-              "expr": "parameter",
-              "name": "tenant"
-            },
-            "name": "id"
-          }
-        ]
-      },
+      "execution": 1,
+      "id": "effect:blake3:8a134bf84dfac5a1e154fb3110063e369320410c3c66e28c2e976bed472acd06",
       "modality": "may",
-      "condition": {
-        "expression": "options.purge == true"
-      },
-      "execution": 0,
+      "operation": "process.exec",
       "provenance": [
-        0
-      ]
-    },
-    {
-      "operation": "filesystem.delete",
+        2
+      ],
       "resource": {
-        "expr": "pattern",
-        "family": "filesystem",
-        "pattern": "/tmp/build-*"
-      },
-      "modality": "must-on-success",
-      "execution": 0,
-      "provenance": [
-        0
-      ]
-    },
-    {
-      "operation": "filesystem.read",
-      "resource": {
-        "expr": "union",
-        "alternatives": [
-          {
-            "expr": "concrete",
-            "identity": {
-              "family": "fs_path",
-              "path": "/etc/cleanup.conf"
+        "expr": "concrete",
+        "identity": {
+          "argv": [
+            {
+              "expr": "literal",
+              "value": "--purge"
             }
-          },
-          {
-            "expr": "concrete",
-            "identity": {
-              "family": "fs_path",
-              "path": "/home/user/.cleanup.conf"
-            }
-          }
-        ]
-      },
-      "modality": "may",
-      "execution": 0,
-      "provenance": [
-        0
-      ]
-    },
-    {
-      "operation": "network.request",
-      "resource": {
-        "expr": "unresolved",
-        "family": "network"
-      },
-      "modality": "may",
-      "execution": 0,
-      "provenance": [
-        0
-      ]
+          ],
+          "executable": "cleanup",
+          "family": "process"
+        }
+      }
     }
   ],
   "execution_graph": {
+    "edges": [
+      {
+        "evidence": [
+          0
+        ],
+        "from": 0,
+        "kind": "launch",
+        "to": 1
+      }
+    ],
     "entry": 0,
     "nodes": [
       {
-        "subject": {
-          "kind": "shell",
-          "source": "cleanup --purge"
-        },
-        "streams": {},
+        "assurance": "exact",
         "realm": {
           "realm": "host"
         },
-        "assurance": "exact"
+        "streams": {},
+        "subject": {
+          "kind": "shell",
+          "source": "cleanup --purge"
+        }
+      },
+      {
+        "argv": [
+          {
+            "expr": "literal",
+            "value": "cleanup"
+          },
+          {
+            "expr": "literal",
+            "value": "--purge"
+          }
+        ],
+        "assurance": "exact",
+        "evidence": [
+          0
+        ],
+        "realm": {
+          "realm": "host"
+        },
+        "source_span": {
+          "end": 15,
+          "start": 0
+        },
+        "streams": {
+          "stderr": {
+            "node": 0,
+            "stream": "stderr"
+          },
+          "stdin": {
+            "node": 0,
+            "stream": "stdin"
+          },
+          "stdout": {
+            "node": 0,
+            "stream": "stdout"
+          }
+        },
+        "subject": {
+          "argv": [
+            "cleanup",
+            "--purge"
+          ],
+          "kind": "exec"
+        }
       }
     ]
   },
   "provenance": [
     {
+      "end": 15,
       "kind": "source_span",
-      "start": 0,
-      "end": 15
-    }
-  ],
-  "boundaries": [
-    {
-      "reason": "partial_analysis",
-      "class": "unmodeled",
-      "domains": [
-        "filesystem"
-      ]
+      "start": 0
     },
     {
-      "reason": "limit_saturated",
-      "class": "limit",
-      "domains": [
-        "network"
+      "antecedents": [
+        0
       ],
-      "limit": "max_flows"
+      "kind": "execution",
+      "node": 1
+    },
+    {
+      "antecedents": [
+        1
+      ],
+      "index": 0,
+      "kind": "argument"
     }
   ],
-  "coverage": {
-    "filesystem": "partial",
-    "network": "none"
-  },
-  "causality": {
-    "nodes": [
-      {
-        "id": "occurrence:blake3:95772de6e5491b3458221a4f911165f99cc12108e0739173b4b1f9e7f23dc584",
-        "kind": "port",
-        "port": "code",
-        "execution": 0,
-        "modality": "must-on-success",
-        "order": 0,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        }
-      },
-      {
-        "id": "occurrence:blake3:53b6b6f5eb751d1500dfb4fdd41b7434698d831b68f1aa2556cdac6b2e825566",
-        "kind": "resource_interaction",
-        "operation": "filesystem.delete",
-        "resource": {
-          "expr": "join",
-          "parts": [
-            {
-              "expr": "parameter",
-              "name": "cache_root"
-            },
-            {
-              "expr": "property",
-              "base": {
-                "expr": "parameter",
-                "name": "tenant"
-              },
-              "name": "id"
-            }
-          ]
-        },
-        "execution": 0,
-        "modality": "may",
-        "condition": {
-          "expression": "options.purge == true"
-        },
-        "order": 1,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          0
-        ]
-      },
-      {
-        "id": "occurrence:blake3:f0e3c059282e643b5c7dbc9b57312b9dc17d2295c994712f86fc44c2db7bcde7",
-        "kind": "resource_interaction",
-        "operation": "filesystem.delete",
-        "resource": {
-          "expr": "pattern",
-          "family": "filesystem",
-          "pattern": "/tmp/build-*"
-        },
-        "execution": 0,
-        "modality": "must-on-success",
-        "order": 2,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          0
-        ]
-      },
-      {
-        "id": "occurrence:blake3:070187785b53a486cefabac27de8dd029f1399ffb46c1155477eb0e04d2e65cb",
-        "kind": "resource_interaction",
-        "operation": "filesystem.read",
-        "resource": {
-          "expr": "union",
-          "alternatives": [
-            {
-              "expr": "concrete",
-              "identity": {
-                "family": "fs_path",
-                "path": "/etc/cleanup.conf"
-              }
-            },
-            {
-              "expr": "concrete",
-              "identity": {
-                "family": "fs_path",
-                "path": "/home/user/.cleanup.conf"
-              }
-            }
-          ]
-        },
-        "execution": 0,
-        "modality": "may",
-        "order": 3,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          0
-        ]
-      },
-      {
-        "id": "occurrence:blake3:e5530d9f984dd4c6693906a20b144b0cbe2fddb65c3438699f100cff38f1c9c4",
-        "kind": "resource_interaction",
-        "operation": "network.request",
-        "resource": {
-          "expr": "unresolved",
-          "family": "network"
-        },
-        "execution": 0,
-        "modality": "may",
-        "order": 4,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          0
-        ]
-      },
-      {
-        "id": "occurrence:blake3:41e8c07338c7455531f426e0fdfae0b8a6ba5a1b81b5cd0efdd3d99e377caee0",
-        "kind": "boundary",
-        "reason": "limit_saturated",
-        "limit": "max_flows",
-        "modality": "may",
-        "order": 5,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        }
-      }
-    ],
-    "edges": [
-      {
-        "from": "occurrence:blake3:95772de6e5491b3458221a4f911165f99cc12108e0739173b4b1f9e7f23dc584",
-        "to": "occurrence:blake3:53b6b6f5eb751d1500dfb4fdd41b7434698d831b68f1aa2556cdac6b2e825566",
-        "reason": "control_dependency",
-        "modality": "may",
-        "condition": {
-          "expression": "options.purge == true"
-        },
-        "order": 0,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          0
-        ]
-      },
-      {
-        "from": "occurrence:blake3:95772de6e5491b3458221a4f911165f99cc12108e0739173b4b1f9e7f23dc584",
-        "to": "occurrence:blake3:f0e3c059282e643b5c7dbc9b57312b9dc17d2295c994712f86fc44c2db7bcde7",
-        "reason": "control_dependency",
-        "modality": "must-on-success",
-        "order": 1,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          0
-        ]
-      },
-      {
-        "from": "occurrence:blake3:95772de6e5491b3458221a4f911165f99cc12108e0739173b4b1f9e7f23dc584",
-        "to": "occurrence:blake3:070187785b53a486cefabac27de8dd029f1399ffb46c1155477eb0e04d2e65cb",
-        "reason": "control_dependency",
-        "modality": "may",
-        "order": 2,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          0
-        ]
-      },
-      {
-        "from": "occurrence:blake3:95772de6e5491b3458221a4f911165f99cc12108e0739173b4b1f9e7f23dc584",
-        "to": "occurrence:blake3:e5530d9f984dd4c6693906a20b144b0cbe2fddb65c3438699f100cff38f1c9c4",
-        "reason": "control_dependency",
-        "modality": "may",
-        "order": 3,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          0
-        ]
-      }
-    ],
-    "coverage": "full"
+  "schema": "effinterp/plan/v1",
+  "subject": {
+    "kind": "shell",
+    "source": "cleanup --purge"
   }
 }

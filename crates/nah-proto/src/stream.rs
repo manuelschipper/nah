@@ -115,12 +115,13 @@ impl ActionStream {
     }
 
     pub fn coverage(&self) -> Coverage {
-        if self
-            .plan
-            .coverage
-            .0
-            .values()
-            .all(|level| *level == CoverageLevel::Full)
+        if !self.plan.coverage.0.is_empty()
+            && self
+                .plan
+                .coverage
+                .0
+                .values()
+                .all(|claim| claim.level == CoverageLevel::Full && claim.gaps.is_empty())
         {
             Coverage::Full
         } else {
