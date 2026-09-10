@@ -83,6 +83,13 @@ pub(crate) struct ChildCwdDraft {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StageDraft {
+    pub(crate) network_response: bool,
+    pub(crate) environment_disclosure: Option<nah_proto::effects::EnvironmentSelection>,
+    pub(crate) credential_access: Option<(
+        nah_proto::effects::CredentialOperation,
+        nah_proto::effects::DeletionMode,
+    )>,
+    pub(crate) search_queries: Vec<String>,
     pub(crate) permission_grants: Option<nah_proto::effects::PermissionGrants>,
     pub(crate) language_safety_only: bool,
     pub(crate) invocation: InvocationDraft,

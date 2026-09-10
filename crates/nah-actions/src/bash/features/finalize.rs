@@ -93,6 +93,7 @@ pub(crate) fn finalize(
     if mark_observed_network_reads(&mut draft_stages, &draft_flows) {
         complete = false;
     }
+    let mut stage_ports = Vec::new();
     let mut prior_sensitive_writes: Vec<(AbsolutePath, Sensitivity)> = Vec::new();
     let mut stages = draft_stages
         .into_iter()
@@ -410,6 +411,7 @@ pub(crate) fn finalize(
                     .map(|operation| EffectKind::SystemState { operation }),
             );
             if let Some(graph) = graph.as_deref_mut() {
+                let filesystem_start = graph.facts.len();
                 crate::filesystem_effects::emit_stage(
                     graph,
                     &effects,
@@ -417,6 +419,15 @@ pub(crate) fn finalize(
                     &[],
                     &operand_indices,
                 );
+                stage_ports.push(crate::execution_effects::emit_stage(
+                    graph,
+                    &effects,
+                    filesystem_start,
+                    stage.network_response,
+                    stage.environment_disclosure,
+                    stage.credential_access,
+                    &stage.search_queries,
+                ));
             }
             Some(effects)
         })
@@ -426,6 +437,22 @@ pub(crate) fn finalize(
         effects.push(EffectKind::SystemState {
             operation: SemanticCode::ANALYSIS_REFUSED,
         });
+    }
+    if let Some(graph) = graph {
+        graph.causality = nah_proto::effects::CausalAvailability::Available;
+        for &(from, to) in &draft_flows {
+            use nah_proto::effects::{Certainty, EffectRelation, PortKind, RelationKind};
+            graph.relations.push(EffectRelation {
+                from: stage_ports[from].1,
+                to: stage_ports[to].0,
+                kind: RelationKind::ConservativeDataflow {
+                    source: PortKind::SemanticOutput,
+                    sink: PortKind::SemanticInput,
+                },
+                certainty: Certainty::Conservative,
+                condition: None,
+            });
+        }
     }
     let flows = draft_flows
         .into_iter()

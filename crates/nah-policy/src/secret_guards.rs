@@ -1,10 +1,10 @@
 //! Evaluates secret path and environment guards; it does not detect secret-shaped content.
 
-use nah_proto::action::{
-    ActionStream, EffectKind, FilesystemOperation, InvocationEffect, SemanticCode, Sensitivity,
-};
+use crate::execution_guards::{established, labels};
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
+use nah_proto::effects::*;
+use nah_proto::labels::Sensitivity;
 
 const SECRETS_CREDENTIALS: &str = "secrets-credentials";
 const SECRETS_ENV: &str = "secrets-env";
@@ -13,7 +13,7 @@ const SECRETS_STORE_DELETE: &str = "secrets-store-delete";
 const SECRETS_STORE_READ: &str = "secrets-store-read";
 
 pub(crate) fn add(
-    action_stream: &ActionStream,
+    evidence: &GuardEvidence,
     policy_ctx: &PolicyCtx,
     contributions: &mut Vec<GuardContribution>,
 ) -> Result<bool, DecisionError> {
@@ -44,7 +44,7 @@ pub(crate) fn add(
             .enabled_shipped_guards()
             .iter()
             .any(|enabled| enabled == name)
-            || !matches(name, action_stream)
+            || !matches(name, evidence)
         {
             continue;
         }
@@ -55,40 +55,75 @@ pub(crate) fn add(
     Ok(blocked)
 }
 
-fn matches(name: &str, action_stream: &ActionStream) -> bool {
-    action_stream
-        .effects()
+fn matches(name: &str, evidence: &GuardEvidence) -> bool {
+    evidence
+        .graph()
+        .facts
         .iter()
-        .any(|effect| match (name, effect.kind()) {
-            (SECRETS_CREDENTIALS, EffectKind::Filesystem { effect }) => {
-                effect.sensitivity == Sensitivity::CredentialSecret
-                    && matches!(
-                        effect.operation,
-                        FilesystemOperation::Read | FilesystemOperation::Write
-                    )
-            }
-            (SECRETS_ENV, EffectKind::Filesystem { effect }) => {
-                effect.sensitivity == Sensitivity::EnvironmentSecret
-                    && effect.operation == FilesystemOperation::Read
-            }
+        .filter(|fact| established(fact))
+        .any(|fact| match (&fact.payload, name) {
             (
+                FactPayload::FilesystemAccess {
+                    operation,
+                    target,
+                    purpose: AccessPurpose::Explicit | AccessPurpose::ProgramInput,
+                    ..
+                },
+                _,
+            ) => labels(evidence, *target).is_some_and(|labels| match name {
+                SECRETS_CREDENTIALS => {
+                    labels.sensitivity == Knowledge::Known(Sensitivity::CredentialSecret)
+                        && matches!(
+                            operation,
+                            FilesystemOperation::Read | FilesystemOperation::Write
+                        )
+                }
+                SECRETS_ENV => {
+                    labels.sensitivity == Knowledge::Known(Sensitivity::EnvironmentSecret)
+                        && *operation == FilesystemOperation::Read
+                }
+                _ => false,
+            }),
+            (
+                FactPayload::EnvironmentAccess {
+                    names: EnvironmentSelection::Names(names),
+                    operation: EnvironmentOperation::Read,
+                    purpose: AccessPurpose::Explicit | AccessPurpose::ProgramInput,
+                    output: Some(_),
+                    ..
+                },
                 SECRETS_ENV,
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. },
-                },
-            ) => operation == &SemanticCode::CREDENTIAL_DISCLOSURE,
-            (SECRETS_STORE_DESTROY, EffectKind::SystemState { operation }) => {
-                operation == &SemanticCode::SECRETS_STORE_DESTROY
-            }
-            (SECRETS_STORE_DELETE, EffectKind::SystemState { operation }) => {
-                operation == &SemanticCode::SECRETS_STORE_DELETE
-            }
+            ) => names
+                .iter()
+                .any(|name| nah_proto::labels::is_credential_name(name)),
             (
-                SECRETS_STORE_READ,
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. },
+                FactPayload::CredentialAccess {
+                    operation,
+                    deletion,
+                    workflow,
+                    purpose,
+                    ..
                 },
-            ) => operation == &SemanticCode::SECRETS_STORE_READ,
+                _,
+            ) => match name {
+                SECRETS_STORE_DELETE => {
+                    *operation == CredentialOperation::Delete
+                        && *deletion == DeletionMode::Recoverable
+                }
+                SECRETS_STORE_DESTROY => {
+                    *operation == CredentialOperation::Delete
+                        && *deletion == DeletionMode::Permanent
+                }
+                SECRETS_STORE_READ => {
+                    *operation == CredentialOperation::ReadValue
+                        && *workflow == CredentialWorkflow::Ordinary
+                        && matches!(
+                            purpose,
+                            AccessPurpose::Explicit | AccessPurpose::ProgramInput
+                        )
+                }
+                _ => false,
+            },
             _ => false,
         })
 }

@@ -7,36 +7,23 @@ use crate::bash_state::VariableBinding;
 use crate::bash_wrappers::direct_wrapper_payload_start;
 use crate::shell_word::static_word;
 
-const CREDENTIAL_NAMES: &[&str] = &[
-    "ANTHROPIC_API_KEY",
-    "AWS_SECRET_ACCESS_KEY",
-    "AWS_SESSION_TOKEN",
-    "AZURE_CLIENT_SECRET",
-    "DATABASE_URL",
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "GITLAB_TOKEN",
-    "NPM_TOKEN",
-    "OPENAI_API_KEY",
-    "PGPASSWORD",
-    "TWINE_PASSWORD",
-    "VAULT_TOKEN",
-];
+use nah_proto::effects::EnvironmentSelection;
+use nah_proto::labels::is_credential_name;
 
-pub(crate) fn operation(
+pub(crate) fn disclosure(
     program: &str,
     resolved_arguments: &[Word],
     source_arguments: &[Word],
     has_declaration_assignments: bool,
     local_variables: &[VariableBinding],
     ambient_variables: &[(String, VariableValue)],
-) -> Option<&'static str> {
+) -> Option<EnvironmentSelection> {
     if let Some(start) = direct_wrapper_payload_start(program, resolved_arguments)
         && let Some(wrapped_program) = resolved_arguments
             .get(start)
             .and_then(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
     {
-        return operation(
+        return disclosure(
             &wrapped_program,
             resolved_arguments.get(start + 1..).unwrap_or_default(),
             source_arguments.get(start + 1..).unwrap_or_default(),
@@ -50,18 +37,20 @@ pub(crate) fn operation(
         .map(|argument| static_word(argument.raw(), argument.substitutions().is_empty()))
         .collect::<Option<Vec<_>>>();
     match program {
-        "env" => environment_dump(arguments.as_deref()?).then_some("environment-disclosure"),
+        "env" => environment_dump(arguments.as_deref()?).then_some(EnvironmentSelection::Whole),
         "printenv" => printenv_operation(arguments.as_deref()?),
-        "set" if arguments.as_ref().is_some_and(Vec::is_empty) => Some("environment-disclosure"),
+        "set" if arguments.as_ref().is_some_and(Vec::is_empty) => Some(EnvironmentSelection::Whole),
         "export" | "declare" | "typeset" if !has_declaration_assignments => {
             builtin_operation(arguments.as_deref()?)
         }
-        "echo" | "printf"
-            if source_arguments.iter().any(|argument| {
-                discloses_credential_expansion(argument.raw(), local_variables, ambient_variables)
-            }) =>
-        {
-            Some("credential-disclosure")
+        "echo" | "printf" => {
+            let names = source_arguments
+                .iter()
+                .flat_map(|argument| {
+                    disclosed_expansions(argument.raw(), local_variables, ambient_variables)
+                })
+                .collect::<Vec<_>>();
+            (!names.is_empty()).then_some(EnvironmentSelection::Names(names))
         }
         _ => None,
     }
@@ -102,7 +91,7 @@ fn environment_dump(arguments: &[String]) -> bool {
     inherited
 }
 
-fn printenv_operation(arguments: &[String]) -> Option<&'static str> {
+fn printenv_operation(arguments: &[String]) -> Option<EnvironmentSelection> {
     let mut names = arguments;
     if names
         .first()
@@ -114,40 +103,33 @@ fn printenv_operation(arguments: &[String]) -> Option<&'static str> {
         return None;
     }
     if names.is_empty() {
-        Some("environment-disclosure")
-    } else if names.iter().any(|name| is_credential_name(name)) {
-        Some("credential-disclosure")
+        Some(EnvironmentSelection::Whole)
     } else {
-        None
+        Some(EnvironmentSelection::Names(names.to_vec()))
     }
 }
 
-fn builtin_operation(arguments: &[String]) -> Option<&'static str> {
+fn builtin_operation(arguments: &[String]) -> Option<EnvironmentSelection> {
     if arguments.is_empty() {
-        return Some("environment-disclosure");
+        return Some(EnvironmentSelection::Whole);
     }
     let (print, names) = arguments.split_first()?;
     if print != "-p" {
         return None;
     }
     if names.is_empty() {
-        Some("environment-disclosure")
-    } else if names.iter().any(|name| is_credential_name(name)) {
-        Some("credential-disclosure")
+        Some(EnvironmentSelection::Whole)
     } else {
-        None
+        Some(EnvironmentSelection::Names(names.to_vec()))
     }
 }
 
-fn is_credential_name(name: &str) -> bool {
-    CREDENTIAL_NAMES.contains(&name)
-}
-
-fn discloses_credential_expansion(
+fn disclosed_expansions(
     raw: &str,
     local_variables: &[VariableBinding],
     ambient_variables: &[(String, VariableValue)],
-) -> bool {
+) -> Vec<String> {
+    let mut names = Vec::new();
     let bytes = raw.as_bytes();
     let mut index = 0;
     let mut quote = None;
@@ -203,11 +185,10 @@ fn discloses_credential_expansion(
                 let name = &raw[name_start..name_end];
                 let non_value_check = bytes.get(name_end) == Some(&b'+')
                     || bytes.get(name_end) == Some(&b':') && bytes.get(name_end + 1) == Some(&b'+');
-                if is_credential_name(name)
-                    && credential_value_may_be_emitted(name, local_variables, ambient_variables)
+                if credential_value_may_be_emitted(name, local_variables, ambient_variables)
                     && !non_value_check
                 {
-                    return true;
+                    names.push(name.to_owned());
                 }
                 index = name_end + if non_value_check { 1 } else { 0 };
             }
@@ -222,10 +203,8 @@ fn discloses_credential_expansion(
                 }
                 if name_end > name_start {
                     let name = &raw[name_start..name_end];
-                    if is_credential_name(name)
-                        && credential_value_may_be_emitted(name, local_variables, ambient_variables)
-                    {
-                        return true;
+                    if credential_value_may_be_emitted(name, local_variables, ambient_variables) {
+                        names.push(name.to_owned());
                     }
                 }
                 index = name_end.max(index + 1);
@@ -233,7 +212,7 @@ fn discloses_credential_expansion(
             _ => index += 1,
         }
     }
-    false
+    names
 }
 
 fn credential_value_may_be_emitted(
@@ -269,4 +248,15 @@ fn is_assignment(argument: &str) -> bool {
         .next()
         .is_some_and(|character| character == '_' || character.is_ascii_alphabetic())
         && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
+}
+
+// Legacy display projection; shared consumers receive the complete name selection.
+pub(crate) fn operation(selection: &EnvironmentSelection) -> Option<&'static str> {
+    match selection {
+        EnvironmentSelection::Whole => Some("environment-disclosure"),
+        EnvironmentSelection::Names(names) if names.iter().any(|name| is_credential_name(name)) => {
+            Some("credential-disclosure")
+        }
+        _ => None,
+    }
 }

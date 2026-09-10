@@ -13,6 +13,7 @@ use crate::shell_word::{
 use crate::bash_model::FilesystemSpec;
 
 pub(crate) struct Lowering {
+    pub(crate) search_queries: Vec<String>,
     pub(crate) complete: bool,
     pub(crate) operation: Option<&'static str>,
     pub(crate) filesystems: Vec<FilesystemSpec>,
@@ -22,6 +23,7 @@ pub(crate) struct Lowering {
 impl Lowering {
     fn new() -> Self {
         Self {
+            search_queries: Vec::new(),
             complete: true,
             operation: None,
             filesystems: Vec::new(),
@@ -70,38 +72,27 @@ impl SearchEvidence {
         }
     }
 
-    fn qualifies(&self, require_no_config: bool) -> bool {
-        !self.pattern_file
-            && self.content_output
-            && (!require_no_config || self.no_config)
-            && self.patterns.iter().any(|pattern| {
+    fn queries(&self, require_no_config: bool) -> Vec<String> {
+        if self.pattern_file || !self.content_output || require_no_config && !self.no_config {
+            return vec![];
+        }
+        self.patterns
+            .iter()
+            .map(|pattern| {
                 let insensitive = match self.case_mode {
                     CaseMode::Sensitive => false,
                     CaseMode::Insensitive => true,
                     CaseMode::Smart => !pattern.bytes().any(|byte| byte.is_ascii_uppercase()),
                 };
-                CREDENTIAL_INDICATORS.iter().any(|indicator| {
-                    if insensitive {
-                        pattern
-                            .to_ascii_lowercase()
-                            .contains(&indicator.to_ascii_lowercase())
-                    } else {
-                        pattern.contains(indicator)
-                    }
-                })
+                if insensitive {
+                    format!("(?i){pattern}")
+                } else {
+                    pattern.clone()
+                }
             })
+            .collect()
     }
 }
-
-const CREDENTIAL_INDICATORS: &[&str] = &[
-    "AKIA",
-    "ASIA",
-    "ghp_",
-    "github_pat_",
-    "glpat-",
-    "xoxb-",
-    "xoxp-",
-];
 
 pub(crate) fn lower(program: &str, arguments: &[Word]) -> Option<Lowering> {
     let mut lowering = match program {
@@ -637,8 +628,15 @@ fn grep(arguments: &[Word]) -> Lowering {
     if !pattern_supplied {
         lowering.complete = false;
     }
-    if lowering.complete && evidence.qualifies(false) {
-        lowering.operation = Some("credential-search");
+    if lowering.complete {
+        lowering.search_queries = evidence.queries(false);
+        if lowering
+            .search_queries
+            .iter()
+            .any(|query| nah_proto::labels::is_credential_search(query))
+        {
+            lowering.operation = Some("credential-search");
+        }
     }
     lowering
 }
@@ -915,8 +913,15 @@ fn rg(arguments: &[Word]) -> Lowering {
     for path in paths.into_iter().filter(|path| path != "-") {
         lowering.recursive_filesystem(path, FilesystemOperation::Read);
     }
-    if lowering.complete && evidence.qualifies(true) {
-        lowering.operation = Some("credential-search");
+    if lowering.complete {
+        lowering.search_queries = evidence.queries(true);
+        if lowering
+            .search_queries
+            .iter()
+            .any(|query| nah_proto::labels::is_credential_search(query))
+        {
+            lowering.operation = Some("credential-search");
+        }
     }
     lowering
 }

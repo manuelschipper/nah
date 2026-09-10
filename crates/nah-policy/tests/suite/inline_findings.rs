@@ -21,10 +21,9 @@ fn exact_inline_findings_use_existing_guard_enablement() {
             vec![],
             ProjectGuardDeclaration::Absent,
         );
-        let decision = nah_policy::decide_with_mode_and_inline(
+        let decision = nah_policy::decide_with_mode(
             &stream,
             &crate::support::evidence(&stream, &report),
-            &report,
             &policy,
             &[],
             EnforcementMode::Normal,
@@ -53,10 +52,9 @@ fn multiple_inline_findings_keep_all_guard_attributions() {
         ProjectGuardDeclaration::Absent,
     );
 
-    let decision = nah_policy::decide_with_mode_and_inline(
+    let decision = nah_policy::decide_with_mode(
         &stream,
         &crate::support::evidence(&stream, &report),
-        &report,
         &policy,
         &[],
         EnforcementMode::Normal,
@@ -85,10 +83,9 @@ fn conservative_findings_never_reach_configurable_guards() {
         ProjectGuardDeclaration::Absent,
     );
 
-    let decision = nah_policy::decide_with_mode_and_inline(
+    let decision = nah_policy::decide_with_mode(
         &stream,
         &crate::support::evidence(&stream, &report),
-        &report,
         &policy,
         &[],
         EnforcementMode::Normal,
@@ -110,10 +107,9 @@ fn conservative_nah_findings_are_structural_and_follow_nap_mode() {
         (EnforcementMode::SelfProtectionPaused, Verdict::Delegate),
         (EnforcementMode::AllPaused, Verdict::Delegate),
     ] {
-        let decision = nah_policy::decide_with_mode_and_inline(
+        let decision = nah_policy::decide_with_mode(
             &stream,
             &crate::support::evidence(&stream, &report),
-            &report,
             &policy,
             &[],
             mode,

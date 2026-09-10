@@ -707,6 +707,10 @@ mod tests {
 
     fn stage(stdout: StdoutDraft) -> StageDraft {
         StageDraft {
+            network_response: false,
+            environment_disclosure: None,
+            credential_access: None,
+            search_queries: Vec::new(),
             permission_grants: None,
             language_safety_only: false,
             invocation: InvocationDraft::Opaque {

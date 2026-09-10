@@ -42,6 +42,7 @@ use bash::features::{
     wrappers as bash_wrappers,
 };
 mod codex_patch;
+mod execution_effects;
 mod filesystem_effects;
 mod language_effects;
 mod native;
@@ -888,14 +889,12 @@ impl AnalysisPlan {
         if let Some(cwd) = observed_cwd(observation) {
             graph.calls[0].cwd = Knowledge::Known(cwd.clone());
         }
-        let retained_facts = graph.facts.len();
-        let retained_resources = graph.resources.len();
+        let retained = graph.clone();
         let stream = finalize_inner(self.clone(), observation.clone(), true, Some(&mut graph));
         if stream.effects().is_empty() {
             // Failed normal finalization discards its provisional filesystem facts.
             // Independently established inline summaries remain available.
-            graph.facts.truncate(retained_facts);
-            graph.resources.truncate(retained_resources);
+            graph = retained;
         }
         GuardEvidence::new(
             graph,
@@ -987,74 +986,6 @@ fn normal_effect_graph(
             domain: None,
             code: "input-byte-limit".into(),
         });
-    }
-    if let Draft::Bash(draft) = draft {
-        graph.causality = CausalAvailability::Available;
-        for (index, stage) in draft.stages.iter().enumerate() {
-            use bash_model::{InvocationDraft, ProgramDraft};
-            let (kind, identity) = match &stage.invocation {
-                InvocationDraft::Known { program, .. } => {
-                    (InvocationKind::Argv, Known(program.clone()))
-                }
-                InvocationDraft::Native { program, .. } => {
-                    (InvocationKind::Native, Known(program.clone()))
-                }
-                InvocationDraft::CodeExecution { program, .. } => {
-                    (InvocationKind::VisibleCode, Known(program.clone()))
-                }
-                InvocationDraft::Opaque { program, .. } => (
-                    InvocationKind::Argv,
-                    match program {
-                        ProgramDraft::Static(program) => Known(program.clone()),
-                        _ => Unknown,
-                    },
-                ),
-            };
-            let call = CallId(index as u32 + 1);
-            graph.calls.push(EffectCall {
-                id: call,
-                parent: Some(CallId(0)),
-                kind,
-                identity,
-                input: None,
-                cwd: Unknown,
-                payload_group: Unknown,
-                visibility_ordinal: Unknown,
-                coverage: modeled_coverage,
-            });
-            for (offset, port) in [(0, PortKind::SemanticInput), (1, PortKind::SemanticOutput)] {
-                graph.occurrences.push(EffectOccurrence {
-                    condition: None,
-                    id: OccurrenceId(index as u32 * 2 + offset),
-                    call,
-                    fact: None,
-                    resource: None,
-                    port,
-                });
-            }
-        }
-        for &(from, to) in &draft.flows {
-            graph.relations.push(EffectRelation {
-                from: OccurrenceId(from as u32 * 2 + 1),
-                to: OccurrenceId(to as u32 * 2),
-                kind: RelationKind::ConservativeDataflow {
-                    source: PortKind::SemanticOutput,
-                    sink: PortKind::SemanticInput,
-                },
-                condition: None,
-                certainty: Certainty::Conservative,
-            });
-        }
-        if !draft.stages.is_empty() {
-            graph.gaps.push(EffectGap {
-                id: GapId(graph.gaps.len() as u32),
-                phase: GapPhase::Projection,
-                category: GapCategory::Unmodeled,
-                call: CallId(0),
-                domain: None,
-                code: "payload-group-unavailable".into(),
-            });
-        }
     }
     for finding in report.findings() {
         finding.emit_effect(&mut graph, CallId(0));

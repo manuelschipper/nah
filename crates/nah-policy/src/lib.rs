@@ -9,7 +9,6 @@
 //! responses into DecisionCore. Shipped guards live here as plain
 //! Rust code; transport, validation, and orchestration do not.
 
-use nah_inline::InlineReport;
 use nah_proto::action::ActionStream;
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{
@@ -110,29 +109,10 @@ pub fn decide_with_mode(
     responses: &[ValidatedExtensionResponse],
     mode: EnforcementMode,
 ) -> Result<DecisionCore, DecisionError> {
-    decide_with_mode_and_inline(
-        action_stream,
-        evidence,
-        &InlineReport::default(),
-        policy_ctx,
-        responses,
-        mode,
-    )
-}
-
-pub fn decide_with_mode_and_inline(
-    action_stream: &ActionStream,
-    evidence: &nah_proto::effects::GuardEvidence,
-    inline_report: &InlineReport,
-    policy_ctx: &PolicyCtx,
-    responses: &[ValidatedExtensionResponse],
-    mode: EnforcementMode,
-) -> Result<DecisionCore, DecisionError> {
-    decide_with_mode_and_inline_language_safety_stream(
+    decide_with_mode_and_language_safety_stream(
         action_stream,
         evidence,
         action_stream,
-        inline_report,
         policy_ctx,
         responses,
         mode,
@@ -140,16 +120,15 @@ pub fn decide_with_mode_and_inline(
 }
 
 /// Reduces evidence from a public action stream and its language safety stream.
-/// Filesystem and structural protection consume shared `evidence`. Remaining
-/// shipped families inspect `language_safety_stream` and the inline report;
+/// Filesystem, structural, execution and secret protection consume shared `evidence`.
+/// Remaining shipped families inspect `language_safety_stream`;
 /// `DecisionCore` is bound to `action_stream`, which custom guards inspect.
 /// Callers must supply evidence and both projections of the same tool call, with extension
 /// responses validated against that public action stream.
-pub fn decide_with_mode_and_inline_language_safety_stream(
+pub fn decide_with_mode_and_language_safety_stream(
     action_stream: &ActionStream,
     evidence: &nah_proto::effects::GuardEvidence,
     language_safety_stream: &ActionStream,
-    inline_report: &InlineReport,
     policy_ctx: &PolicyCtx,
     responses: &[ValidatedExtensionResponse],
     mode: EnforcementMode,
@@ -179,16 +158,11 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
         infrastructure_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let registry_block =
         registry_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
-    let secret_block = secret_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
+    let secret_block = secret_guards::add(evidence, policy_ctx, &mut contributions)?;
     let storage_block =
         storage_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let system_block = system_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
-    let execution_block = execution_guards::add(
-        language_safety_stream,
-        inline_report,
-        policy_ctx,
-        &mut contributions,
-    )?;
+    let execution_block = execution_guards::add(evidence, policy_ctx, &mut contributions)?;
     let shipped_block = filesystem_block
         || git_block
         || infrastructure_block
