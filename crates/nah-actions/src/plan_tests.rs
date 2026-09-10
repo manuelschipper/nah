@@ -28,6 +28,7 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
             analysis_refused: false,
             child_cwds: Vec::new(),
             stages: vec![StageDraft {
+                permission_grants: None,
                 language_safety_only: false,
                 invocation: InvocationDraft::Known {
                     program: "echo".into(),
@@ -38,6 +39,7 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
                 invocation_cwd: Some("/repo".into()),
                 child_cwd_keys: Vec::new(),
                 filesystems: vec![FilesystemDraft {
+                    command_operand: false,
                     key: Some("path-0".into()),
                     descendant_key: None,
                     requested: "/repo/out".into(),

@@ -32,7 +32,7 @@ fn secret_guards_keep_their_operation_and_sensitivity_boundaries() {
             let stream = guarded_stream(filesystem(operation, target, scope.clone(), sensitivity));
             let decision = nah_policy::decide(
                 &stream,
-                &crate::support::empty_evidence(),
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
                 &guard_policy(guard, true),
                 &[],
             )
@@ -42,7 +42,7 @@ fn secret_guards_keep_their_operation_and_sensitivity_boundaries() {
 
             let disabled = nah_policy::decide(
                 &stream,
-                &crate::support::empty_evidence(),
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
                 &guard_policy(guard, false),
                 &[],
             )
@@ -67,7 +67,7 @@ fn secret_guards_keep_their_operation_and_sensitivity_boundaries() {
             assert_eq!(
                 nah_policy::decide(
                     &stream,
-                    &crate::support::empty_evidence(),
+                    &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
                     &guard_policy(guard, true),
                     &[]
                 )
@@ -94,7 +94,7 @@ fn secrets_env_blocks_named_credential_disclosure_but_not_whole_environment_insp
     assert_eq!(
         nah_policy::decide(
             &credential,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&credential, &nah_inline::InlineReport::default()),
             &guard_policy("secrets-env", true),
             &[]
         )
@@ -107,7 +107,7 @@ fn secrets_env_blocks_named_credential_disclosure_but_not_whole_environment_insp
     assert_eq!(
         nah_policy::decide(
             &environment,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&environment, &nah_inline::InlineReport::default()),
             &guard_policy("secrets-env", true),
             &[]
         )
@@ -136,7 +136,7 @@ fn secrets_credentials_deletion_delegates_cross_platform() {
     assert_eq!(
         nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy("secrets-credentials", true),
             &[]
         )
@@ -163,7 +163,7 @@ fn secrets_store_deletion_requires_its_matching_enabled_code() {
         let stream = guarded_stream(EffectKind::SystemState { operation: code });
         let enabled = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy(name, true),
             &[],
         )
@@ -172,7 +172,7 @@ fn secrets_store_deletion_requires_its_matching_enabled_code() {
         assert_eq!(enabled.policy_attributions()[0].name(), name);
         let disabled = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy(name, false),
             &[],
         )
@@ -187,7 +187,7 @@ fn secrets_store_deletion_requires_its_matching_enabled_code() {
             assert_eq!(
                 nah_policy::decide(
                     &stream,
-                    &crate::support::empty_evidence(),
+                    &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
                     &guard_policy(guard, true),
                     &[]
                 )
@@ -212,7 +212,7 @@ fn secrets_store_read_requires_its_matching_enabled_code() {
     .unwrap();
     let enabled = nah_policy::decide(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
         &guard_policy("secrets-store-read", true),
         &[],
     )
@@ -225,7 +225,7 @@ fn secrets_store_read_requires_its_matching_enabled_code() {
 
     let disabled = nah_policy::decide(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
         &guard_policy("secrets-store-read", false),
         &[],
     )
@@ -236,7 +236,7 @@ fn secrets_store_read_requires_its_matching_enabled_code() {
         assert_eq!(
             nah_policy::decide(
                 &stream,
-                &crate::support::empty_evidence(),
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
                 &guard_policy(guard, true),
                 &[]
             )

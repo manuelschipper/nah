@@ -135,6 +135,25 @@ fn annotate_path(
 }
 
 fn annotate_process(plan: &Plan, effect: &Effect, ctx: &Ctx) -> Option<String> {
+    let (executable, argv) = process_arguments(plan, effect)?;
+    runtime_cli::classify(executable, &argv, ctx.home(), ctx.platform())
+        .map(|runtime| runtime.as_str().to_owned())
+}
+
+pub(crate) fn process_protection_tier(
+    plan: &Plan,
+    effect: &Effect,
+    ctx: &Ctx,
+) -> Option<nah_proto::labels::NahProtectionTier> {
+    let (executable, argv) = process_arguments(plan, effect)?;
+    nah_proto::labels::invocation_protection_tier(
+        executable,
+        &argv,
+        Some((ctx.home().as_str(), ctx.platform())),
+    )
+}
+
+fn process_arguments<'a>(plan: &'a Plan, effect: &'a Effect) -> Option<(&'a str, Vec<String>)> {
     let ResourceExpr::Concrete {
         identity: ResourceIdentity::Process {
             executable, argv, ..
@@ -153,8 +172,7 @@ fn annotate_process(plan: &Plan, effect: &Effect, ctx: &Ctx) -> Option<String> {
         argv
     };
     let argv = literal_argv(argv)?;
-    runtime_cli::classify(executable, &argv, ctx.home(), ctx.platform())
-        .map(|runtime| runtime.as_str().to_owned())
+    Some((executable, argv))
 }
 
 fn literal_argv(argv: &[ResourceExpr]) -> Option<Vec<String>> {

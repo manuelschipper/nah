@@ -35,7 +35,7 @@ pub(crate) fn finalize(
     critical_paths: &[AbsolutePath],
     platform: Platform,
     include_language_safety: bool,
-    mut git_graph: Option<&mut nah_proto::effects::EffectGraph>,
+    mut graph: Option<&mut nah_proto::effects::EffectGraph>,
 ) -> Option<(bool, Vec<Vec<EffectKind>>, Vec<FlowOrdinals>)> {
     let mut complete = draft.complete;
     let analysis_refused = draft.analysis_refused;
@@ -124,79 +124,37 @@ pub(crate) fn finalize(
                 None => invocation,
             };
             let mut effects = vec![invocation];
+            let mut operand_indices = Vec::new();
+            let mut git_managed_indices = Vec::new();
             let mut lexical_paths = Vec::new();
-            // Git discards describe selections, not direct filesystem mutations.
-            let mut explicit_filesystems = Vec::new();
             for filesystem in stage.filesystems {
-                let git_managed = filesystem.git_discard.is_some();
-                if filesystem.key.is_none()
-                    && filesystem.requested.is_empty()
-                    && filesystem.unresolved_selection
-                {
-                    complete = false;
-                    effects.push(EffectKind::FilesystemUnresolved {
-                        operation: filesystem.operation,
-                        recursive: filesystem.recursive,
-                    });
-                    continue;
-                }
-                if platform == Platform::Windows
-                    && filesystem.unresolved_selection
-                    && filesystem.operation != FilesystemOperation::Read
-                {
-                    complete = false;
-                    effects.push(EffectKind::FilesystemUnresolved {
-                        operation: filesystem.operation,
-                        recursive: filesystem.recursive,
-                    });
-                }
-                let Some(key) = filesystem.key.as_deref() else {
-                    // An expanded pattern has no observable path. Keep the
-                    // effect so guards still see it, bounded by its literal
-                    // prefix, and report the target as unresolved.
-                    complete = false;
-                    if let Some(mut effect) = lexical_filesystem_effect(
-                        &filesystem,
-                        roots,
-                        cwd,
-                        home,
-                        trusted_roots,
-                        critical_paths,
-                        platform,
-                    ) {
-                        let mut sensitivities = effect_sensitivities(&effect);
-                        if let Some(descendant_key) = filesystem.descendant_key.as_deref() {
-                            collect_descendant_sensitivities(
-                                observation,
-                                descendant_key,
-                                &filesystem,
-                                home,
-                                platform,
-                                &mut complete,
-                                &mut sensitivities,
-                            );
-                            collect_prior_sensitivities(
-                                observation,
-                                descendant_key,
-                                &prior_sensitive_writes,
-                                platform,
-                                &mut sensitivities,
-                            );
-                        } else if filesystem.network_bound && filesystem.unresolved_selection {
-                            push_sensitivity(&mut sensitivities, Sensitivity::OtherSensitive);
-                        }
-                        set_effect_sensitivity(&mut effect, Sensitivity::None);
-                        let filesystem_effects = effects_with_sensitivities(effect, &sensitivities);
-                        if !git_managed {
-                            explicit_filesystems.extend(filesystem_effects.iter().cloned());
-                        }
-                        effects.extend(filesystem_effects);
+                let first_effect = effects.len();
+                'filesystem: {
+                    if filesystem.key.is_none()
+                        && filesystem.requested.is_empty()
+                        && filesystem.unresolved_selection
+                    {
+                        complete = false;
+                        effects.push(EffectKind::FilesystemUnresolved {
+                            operation: filesystem.operation,
+                            recursive: filesystem.recursive,
+                        });
+                        break 'filesystem;
                     }
-                    continue;
-                };
-                let path = match observed_path(observation, key) {
-                    Some(Ok(path)) => path,
-                    Some(Err(error)) => {
+                    if platform == Platform::Windows
+                        && filesystem.unresolved_selection
+                        && filesystem.operation != FilesystemOperation::Read
+                    {
+                        complete = false;
+                        effects.push(EffectKind::FilesystemUnresolved {
+                            operation: filesystem.operation,
+                            recursive: filesystem.recursive,
+                        });
+                    }
+                    let Some(key) = filesystem.key.as_deref() else {
+                        // An expanded pattern has no observable path. Keep the
+                        // effect so guards still see it, bounded by its literal
+                        // prefix, and report the target as unresolved.
                         complete = false;
                         if let Some(mut effect) = lexical_filesystem_effect(
                             &filesystem,
@@ -206,213 +164,256 @@ pub(crate) fn finalize(
                             trusted_roots,
                             critical_paths,
                             platform,
-                        ) && (error == ObservationFailure::Unavailable
-                            || filesystem.network_bound
-                            || matches!(
-                                error,
-                                ObservationFailure::PermissionDenied | ObservationFailure::Timeout
-                            ) && block_relevant_lexical_filesystem(&effect))
-                        {
-                            if filesystem.network_bound {
-                                elevate_filesystem_sensitivity(
-                                    &mut effect,
-                                    Sensitivity::OtherSensitive,
+                        ) {
+                            let mut sensitivities = effect_sensitivities(&effect);
+                            if let Some(descendant_key) = filesystem.descendant_key.as_deref() {
+                                collect_descendant_sensitivities(
+                                    observation,
+                                    descendant_key,
+                                    &filesystem,
+                                    home,
+                                    platform,
+                                    &mut complete,
+                                    &mut sensitivities,
                                 );
+                                collect_prior_sensitivities(
+                                    observation,
+                                    descendant_key,
+                                    &prior_sensitive_writes,
+                                    platform,
+                                    &mut sensitivities,
+                                );
+                            } else if filesystem.network_bound && filesystem.unresolved_selection {
+                                push_sensitivity(&mut sensitivities, Sensitivity::OtherSensitive);
                             }
-                            effects.push(effect);
+                            set_effect_sensitivity(&mut effect, Sensitivity::None);
+                            effects.extend(effects_with_sensitivities(effect, &sensitivities));
                         }
-                        continue;
-                    }
-                    None => return None,
-                };
-                if filesystem.file_only
-                    && matches!(
-                        path.kind(),
-                        PathKind::Directory | PathKind::Symlink | PathKind::Fifo | PathKind::Other
-                    )
-                {
-                    // A file-only command such as cmd `del` leaves the observed
-                    // directory itself in place but still erases the files it
-                    // contains, so keep the deletion visible as an unresolved
-                    // selection instead of dropping the effect.
-                    complete = false;
-                    effects.push(EffectKind::FilesystemUnresolved {
-                        operation: filesystem.operation,
-                        recursive: filesystem.recursive,
-                    });
-                    continue;
-                }
-                if filesystem.read_if_existing_file {
-                    match path.kind() {
-                        PathKind::File => {}
-                        PathKind::Missing => continue,
-                        PathKind::Directory
-                        | PathKind::Symlink
-                        | PathKind::Fifo
-                        | PathKind::Other => {
+                        break 'filesystem;
+                    };
+                    let path = match observed_path(observation, key) {
+                        Some(Ok(path)) => path,
+                        Some(Err(error)) => {
                             complete = false;
-                            continue;
+                            if let Some(mut effect) = lexical_filesystem_effect(
+                                &filesystem,
+                                roots,
+                                cwd,
+                                home,
+                                trusted_roots,
+                                critical_paths,
+                                platform,
+                            ) && (error == ObservationFailure::Unavailable
+                                || filesystem.network_bound
+                                || matches!(
+                                    error,
+                                    ObservationFailure::PermissionDenied
+                                        | ObservationFailure::Timeout
+                                ) && block_relevant_lexical_filesystem(&effect))
+                            {
+                                if filesystem.network_bound {
+                                    elevate_filesystem_sensitivity(
+                                        &mut effect,
+                                        Sensitivity::OtherSensitive,
+                                    );
+                                }
+                                effects.push(effect);
+                            }
+                            break 'filesystem;
                         }
-                    }
-                }
-                let target = if let Some(canonical) = filesystem
-                    .cwd_relative
-                    .then(|| {
-                        canonical_child_cwd_target(
-                            &filesystem.requested,
-                            &child_cwd_keys,
-                            &child_cwds,
-                            platform,
+                        None => return None,
+                    };
+                    if filesystem.file_only
+                        && matches!(
+                            path.kind(),
+                            PathKind::Directory
+                                | PathKind::Symlink
+                                | PathKind::Fifo
+                                | PathKind::Other
                         )
-                    })
-                    .flatten()
-                {
-                    AbsolutePath::new(platform, canonical).ok()?
-                } else if path.kind() == PathKind::Symlink
-                    && (!filesystem.follows_final_symlink
-                        || filesystem.operation == nah_proto::action::FilesystemOperation::Delete)
-                    || filesystem.recursive
-                        && filesystem.symlink_traversal
-                            == nah_proto::observation::SymlinkTraversal::None
-                        && path.kind() == PathKind::Symlink
-                {
-                    path.resolved().clone()
-                } else {
-                    path.realpath().unwrap_or_else(|| path.resolved()).clone()
-                };
-                let scope = path_scope(&target, roots, home, platform);
-                let (target_sensitivity, target_protection, host_integrity) = classify_filesystem(
-                    &filesystem,
-                    &target,
-                    Some(path.resolved()),
-                    roots,
-                    trusted_roots,
-                    home,
-                    critical_paths,
-                    platform,
-                    false,
-                );
-                let mut sensitivities = Vec::new();
-                push_sensitivity(&mut sensitivities, target_sensitivity);
-                if filesystem.network_bound && filesystem.unresolved_selection {
-                    push_sensitivity(&mut sensitivities, Sensitivity::OtherSensitive);
-                }
-                if let Some(descendant_key) = filesystem.descendant_key.as_deref() {
-                    collect_descendant_sensitivities(
-                        observation,
-                        descendant_key,
-                        &filesystem,
-                        home,
-                        platform,
-                        &mut complete,
-                        &mut sensitivities,
+                    {
+                        // A file-only command such as cmd `del` leaves the observed
+                        // directory itself in place but still erases the files it
+                        // contains, so keep the deletion visible as an unresolved
+                        // selection instead of dropping the effect.
+                        complete = false;
+                        effects.push(EffectKind::FilesystemUnresolved {
+                            operation: filesystem.operation,
+                            recursive: filesystem.recursive,
+                        });
+                        break 'filesystem;
+                    }
+                    if filesystem.read_if_existing_file {
+                        match path.kind() {
+                            PathKind::File => {}
+                            PathKind::Missing => break 'filesystem,
+                            PathKind::Directory
+                            | PathKind::Symlink
+                            | PathKind::Fifo
+                            | PathKind::Other => {
+                                complete = false;
+                                break 'filesystem;
+                            }
+                        }
+                    }
+                    let target = if let Some(canonical) = filesystem
+                        .cwd_relative
+                        .then(|| {
+                            canonical_child_cwd_target(
+                                &filesystem.requested,
+                                &child_cwd_keys,
+                                &child_cwds,
+                                platform,
+                            )
+                        })
+                        .flatten()
+                    {
+                        AbsolutePath::new(platform, canonical).ok()?
+                    } else if path.kind() == PathKind::Symlink
+                        && (!filesystem.follows_final_symlink
+                            || filesystem.operation
+                                == nah_proto::action::FilesystemOperation::Delete)
+                        || filesystem.recursive
+                            && filesystem.symlink_traversal
+                                == nah_proto::observation::SymlinkTraversal::None
+                            && path.kind() == PathKind::Symlink
+                    {
+                        path.resolved().clone()
+                    } else {
+                        path.realpath().unwrap_or_else(|| path.resolved()).clone()
+                    };
+                    let scope = path_scope(&target, roots, home, platform);
+                    let (target_sensitivity, target_protection, host_integrity) =
+                        classify_filesystem(
+                            &filesystem,
+                            &target,
+                            Some(path.resolved()),
+                            roots,
+                            trusted_roots,
+                            home,
+                            critical_paths,
+                            platform,
+                            false,
+                        );
+                    let mut sensitivities = Vec::new();
+                    push_sensitivity(&mut sensitivities, target_sensitivity);
+                    if filesystem.network_bound && filesystem.unresolved_selection {
+                        push_sensitivity(&mut sensitivities, Sensitivity::OtherSensitive);
+                    }
+                    if let Some(descendant_key) = filesystem.descendant_key.as_deref() {
+                        collect_descendant_sensitivities(
+                            observation,
+                            descendant_key,
+                            &filesystem,
+                            home,
+                            platform,
+                            &mut complete,
+                            &mut sensitivities,
+                        );
+                        for (written, written_sensitivity) in &prior_sensitive_writes {
+                            if contains(target.as_str(), written.as_str(), platform) {
+                                push_sensitivity(&mut sensitivities, *written_sensitivity);
+                            }
+                        }
+                    }
+                    let selects_root = matches!(
+                        &scope,
+                        nah_proto::action::PathScope::Project { root } if root == &target
                     );
-                    for (written, written_sensitivity) in &prior_sensitive_writes {
-                        if contains(target.as_str(), written.as_str(), platform) {
-                            push_sensitivity(&mut sensitivities, *written_sensitivity);
-                        }
-                    }
-                }
-                let selects_root = matches!(
-                    &scope,
-                    nah_proto::action::PathScope::Project { root } if root == &target
-                );
-                let selects_project =
-                    matches!(&scope, nah_proto::action::PathScope::Project { .. });
-                let selects_home = selects_home(target.as_str(), home.as_str(), platform, false)
-                    || selects_home(&filesystem.requested, home.as_str(), platform, false);
-                if filesystem.operation == FilesystemOperation::Delete && !conditional_execution {
-                    prior_sensitive_writes.retain(|(written, _)| {
-                        target != *written
-                            && !(filesystem.recursive
-                                && contains(target.as_str(), written.as_str(), platform))
-                    });
-                }
-                let effect = EffectKind::Filesystem {
-                    effect: FilesystemEffect {
-                        operation: filesystem.operation,
-                        target,
-                        scope,
-                        sensitivity: Sensitivity::None,
-                        protection: target_protection,
-                        host_integrity,
-                        selects_root,
-                        selects_home,
-                        recursive: filesystem.recursive,
-                        pattern: false,
-                    },
-                };
-                if filesystem.operation == FilesystemOperation::Write {
-                    if !conditional_execution
-                        && filesystem.content_access
-                        && let EffectKind::Filesystem {
-                            effect: written_effect,
-                        } = &effect
+                    let selects_project =
+                        matches!(&scope, nah_proto::action::PathScope::Project { .. });
+                    let selects_home =
+                        selects_home(target.as_str(), home.as_str(), platform, false)
+                            || selects_home(&filesystem.requested, home.as_str(), platform, false);
+                    if filesystem.operation == FilesystemOperation::Delete && !conditional_execution
                     {
-                        prior_sensitive_writes
-                            .retain(|(written, _)| written != &written_effect.target);
+                        prior_sensitive_writes.retain(|(written, _)| {
+                            target != *written
+                                && !(filesystem.recursive
+                                    && contains(target.as_str(), written.as_str(), platform))
+                        });
                     }
-                    for sensitivity in &sensitivities {
-                        if *sensitivity != Sensitivity::None
-                            && let EffectKind::Filesystem { effect } = &effect
+                    let effect = EffectKind::Filesystem {
+                        effect: FilesystemEffect {
+                            operation: filesystem.operation,
+                            target,
+                            scope,
+                            sensitivity: Sensitivity::None,
+                            protection: target_protection,
+                            host_integrity,
+                            selects_root,
+                            selects_home,
+                            recursive: filesystem.recursive,
+                            pattern: false,
+                        },
+                    };
+                    if filesystem.operation == FilesystemOperation::Write {
+                        if !conditional_execution
+                            && filesystem.content_access
+                            && let EffectKind::Filesystem {
+                                effect: written_effect,
+                            } = &effect
                         {
-                            prior_sensitive_writes.push((effect.target.clone(), *sensitivity));
+                            prior_sensitive_writes
+                                .retain(|(written, _)| written != &written_effect.target);
+                        }
+                        for sensitivity in &sensitivities {
+                            if *sensitivity != Sensitivity::None
+                                && let EffectKind::Filesystem { effect } = &effect
+                            {
+                                prior_sensitive_writes.push((effect.target.clone(), *sensitivity));
+                            }
                         }
                     }
-                }
-                if let EffectKind::Filesystem {
-                    effect: filesystem_effect,
-                } = &effect
-                    && let Some(Ok(path)) = observed_path(observation, key)
-                {
-                    lexical_paths.push((filesystem_effect.target.clone(), path.resolved().clone()));
-                }
-                if let Some(mut discard) = filesystem.git_discard {
-                    use nah_proto::effects::{FactPayload, GitDiscardMode, Selection};
-                    if (selects_root || selects_project && !filesystem.pattern)
-                        && let FactPayload::GitDiscard {
-                            mode, selection, ..
-                        } = &mut discard
-                    {
-                        *selection = if selects_root {
-                            Selection::Whole
-                        } else {
-                            Selection::Exact
-                        };
-                        let operation = match (*mode, selects_root) {
-                            (GitDiscardMode::Clean, true) => Some(SemanticCode::CLEAN_FORCE),
-                            (GitDiscardMode::Clean, false) => None,
-                            (_, true) => Some(SemanticCode::WORKTREE_DISCARD),
-                            (_, false) => Some(SemanticCode::PATH_DISCARD),
-                        };
-                        if let Some(operation) = operation
-                            && !stage.git_operations.contains(&operation)
-                        {
-                            stage.git_operations.push(operation);
-                        }
-                        stage.git_facts.push(discard);
+                    if let EffectKind::Filesystem { effect } = &effect {
+                        lexical_paths.push((effect.target.clone(), path.resolved().clone()));
                     }
+                    if let Some(mut discard) = filesystem.git_discard.clone() {
+                        use nah_proto::effects::{FactPayload, GitDiscardMode, Selection};
+                        if (selects_root || selects_project && !filesystem.pattern)
+                            && let FactPayload::GitDiscard {
+                                mode, selection, ..
+                            } = &mut discard
+                        {
+                            *selection = if selects_root {
+                                Selection::Whole
+                            } else {
+                                Selection::Exact
+                            };
+                            let operation = match (*mode, selects_root) {
+                                (GitDiscardMode::Clean, true) => Some(SemanticCode::CLEAN_FORCE),
+                                (GitDiscardMode::Clean, false) => None,
+                                (_, true) => Some(SemanticCode::WORKTREE_DISCARD),
+                                (_, false) => Some(SemanticCode::PATH_DISCARD),
+                            };
+                            if let Some(operation) = operation
+                                && !stage.git_operations.contains(&operation)
+                            {
+                                stage.git_operations.push(operation);
+                            }
+                            stage.git_facts.push(discard);
+                        }
+                    }
+                    effects.extend(effects_with_sensitivities(effect, &sensitivities));
                 }
-                let filesystem_effects = effects_with_sensitivities(effect, &sensitivities);
-                if !git_managed {
-                    explicit_filesystems.extend(filesystem_effects.iter().cloned());
+                if filesystem.git_discard.is_some() {
+                    git_managed_indices.extend(first_effect..effects.len());
                 }
-                effects.extend(filesystem_effects);
+                if filesystem.command_operand {
+                    operand_indices.extend(first_effect..effects.len());
+                }
             }
-            if let Some(graph) = git_graph.as_deref_mut() {
+            if let Some(graph) = graph.as_deref_mut() {
                 crate::git_evidence::emit_git(
                     graph,
                     stage
                         .evidence_call
                         .expect("evidence finalization assigned stage calls"),
-                    &explicit_filesystems,
                     stage.git_facts,
-                    &lexical_paths,
                     stage
                         .git_operations
                         .iter()
                         .any(|operation| operation.as_str() == "show"),
-                    platform,
                 );
             }
             effects.extend(
@@ -441,6 +442,23 @@ pub(crate) fn finalize(
                     .into_iter()
                     .map(|operation| EffectKind::SystemState { operation }),
             );
+            if let Some(graph) = graph.as_deref_mut() {
+                crate::filesystem_effects::emit_stage(
+                    graph,
+                    &effects,
+                    stage.permission_grants.as_ref(),
+                    &[],
+                    &operand_indices,
+                    crate::filesystem_effects::FilesystemEvidenceContext {
+                        call: stage
+                            .evidence_call
+                            .expect("evidence finalization assigned stage calls"),
+                        lexical_paths: &lexical_paths,
+                        git_managed_indices: &git_managed_indices,
+                        platform,
+                    },
+                );
+            }
             Some(effects)
         })
         .collect::<Option<Vec<_>>>()?;

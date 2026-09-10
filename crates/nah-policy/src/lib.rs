@@ -140,10 +140,10 @@ pub fn decide_with_mode_and_inline(
 }
 
 /// Reduces evidence from a public action stream and its language safety stream.
-/// Git guards inspect shared `evidence`; other shipped guards and permanent
-/// protection inspect `language_safety_stream`;
+/// Git, filesystem and structural protection consume shared `evidence`. Remaining
+/// shipped families inspect `language_safety_stream` and the inline report;
 /// `DecisionCore` is bound to `action_stream`, which custom guards inspect.
-/// Callers must supply evidence and both projections of the same tool call and extension
+/// Callers must supply evidence and both projections of the same tool call, with extension
 /// responses validated against that public action stream.
 pub fn decide_with_mode_and_inline_language_safety_stream(
     action_stream: &ActionStream,
@@ -154,40 +154,26 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
     responses: &[ValidatedExtensionResponse],
     mode: EnforcementMode,
 ) -> Result<DecisionCore, DecisionError> {
-    if structural::permanent_blocks(language_safety_stream) {
+    if structural::permanent_blocks(evidence) {
         return DecisionCore::structural_block(
             action_stream,
-            structural::terminal_reason(
-                language_safety_stream,
-                nah_proto::action::NahProtectionTier::Permanent,
-            )
-            .unwrap_or(structural::PERMANENT_REASON),
+            structural::terminal_reason(evidence, nah_proto::action::NahProtectionTier::Permanent)
+                .unwrap_or(structural::PERMANENT_REASON),
         );
     }
     if mode == EnforcementMode::AllPaused {
         return DecisionCore::new(action_stream, Verdict::Delegate, vec![]);
     }
-    if mode == EnforcementMode::Normal
-        && (structural::critical_blocks(language_safety_stream)
-            || inline_report.contains_conservative(nah_inline::FindingKind::NahTampering))
-    {
+    if mode == EnforcementMode::Normal && (structural::critical_blocks(evidence)) {
         return DecisionCore::structural_block(
             action_stream,
-            structural::terminal_reason(
-                language_safety_stream,
-                nah_proto::action::NahProtectionTier::Critical,
-            )
-            .unwrap_or(structural::CRITICAL_REASON),
+            structural::terminal_reason(evidence, nah_proto::action::NahProtectionTier::Critical)
+                .unwrap_or(structural::CRITICAL_REASON),
         );
     }
 
     let mut contributions = Vec::new();
-    let filesystem_block = filesystem_guards::add(
-        language_safety_stream,
-        inline_report,
-        policy_ctx,
-        &mut contributions,
-    )?;
+    let filesystem_block = filesystem_guards::add(evidence, policy_ctx, &mut contributions)?;
     let git_block = git_guards::add(evidence, policy_ctx, &mut contributions)?;
     let infrastructure_block =
         infrastructure_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;

@@ -127,13 +127,24 @@ where
                 ObservationQuery::Env { name, .. } => ObservationValue::Env {
                     observed: environment(name),
                 },
-                ObservationQuery::Path { requested, .. } => {
+                ObservationQuery::Path {
+                    requested,
+                    inspect_descendants,
+                    ..
+                } => {
                     let resolved = AbsolutePath::new(Platform::Linux, requested)
                         .unwrap_or_else(|_| absolute(&format!("/repo/{requested}")));
+                    let path = PathObservation::new(resolved, None, PathKind::Missing);
+                    let path = if *inspect_descendants {
+                        path.with_descendants(
+                            nah_proto::observation::DescendantObservation::new(vec![], true)
+                                .unwrap(),
+                        )
+                    } else {
+                        path
+                    };
                     ObservationValue::Path {
-                        observed: Observed::Ok {
-                            value: PathObservation::new(resolved, None, PathKind::Missing),
-                        },
+                        observed: Observed::Ok { value: path },
                     }
                 }
             };
@@ -776,4 +787,243 @@ fn normal_evidence_keeps_semantic_flows_without_changing_enforcement() {
     ) && r.certainty
         == nah_proto::effects::Certainty::Conservative));
     assert_eq!(result.core().verdict(), Verdict::Delegate);
+}
+
+#[test]
+fn normal_filesystem_evidence_retains_permissions_and_move_endpoints() {
+    use nah_proto::effects::{FactPayload, FilesystemOperation, Knowledge};
+    for (command, expected) in [
+        ("chmod 0777 /repo/file", [true, false, false]),
+        ("chmod 4755 /repo/file", [false, true, false]),
+        ("chmod 2755 /repo/file", [false, false, true]),
+    ] {
+        let result = decide_with(&input(command), &context(), |request| {
+            Ok(observed(request, |_| value("")))
+        });
+        let evidence = result.guard_evidence().unwrap().unwrap();
+        assert!(evidence.graph().facts.iter().any(|fact| matches!(&fact.payload,
+            FactPayload::FilesystemAccess { operation: FilesystemOperation::PermissionChange, permissions, .. }
+                if [permissions.world_write, permissions.setuid, permissions.setgid] == expected.map(Knowledge::Known)
+        )), "{command}");
+    }
+    for (command, expected_operation) in [
+        (
+            "mv /repo/source /repo/destination > /repo/log",
+            FilesystemOperation::Move,
+        ),
+        (
+            "chmod 777 /repo/file > /repo/log",
+            FilesystemOperation::PermissionChange,
+        ),
+    ] {
+        let result = decide_with(&input(command), &context(), |request| {
+            Ok(observed(request, |_| value("")))
+        });
+        let evidence = result.guard_evidence().unwrap().unwrap();
+        assert!(evidence.graph().facts.iter().any(|fact| matches!(fact.payload,
+            FactPayload::FilesystemAccess { operation, .. } if operation == expected_operation
+        )), "{command}");
+        assert_eq!(
+            evidence
+                .graph()
+                .facts
+                .iter()
+                .filter(|fact| matches!(fact.payload, FactPayload::FilesystemAccess { .. }))
+                .count(),
+            if expected_operation == FilesystemOperation::Move {
+                3
+            } else {
+                2
+            },
+            "one filesystem contribution per endpoint: {command}",
+        );
+        let path_of = |id| {
+            evidence
+                .graph()
+                .resources
+                .iter()
+                .find(|resource| resource.id == id)
+                .and_then(|resource| resource.labels.as_ref())
+                .map(|labels| &labels.lexical)
+        };
+        assert!(evidence.graph().facts.iter().any(|fact| matches!(fact.payload,
+            FactPayload::FilesystemAccess { operation: FilesystemOperation::Write, target, .. }
+                if path_of(target) == Some(&Knowledge::Known(absolute("/repo/log")))
+        )), "{command}");
+        for fact in &evidence.graph().facts {
+            match fact.payload {
+                FactPayload::FilesystemAccess {
+                    operation: FilesystemOperation::Move,
+                    destination: Some(destination),
+                    ..
+                } => {
+                    assert_eq!(
+                        path_of(destination),
+                        Some(&Knowledge::Known(absolute("/repo/destination")))
+                    );
+                }
+                FactPayload::FilesystemAccess {
+                    operation: FilesystemOperation::PermissionChange,
+                    target,
+                    ..
+                } => {
+                    assert_eq!(
+                        path_of(target),
+                        Some(&Knowledge::Known(absolute("/repo/file")))
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+    let patch = ToolCallInput::new(SchemaVersion::V1, "apply_patch", json!({"command":"*** Begin Patch\n*** Move File: /repo/source -> /repo/destination\n*** End Patch"}), "/repo", None).unwrap();
+    let result = decide_with(&patch, &context(), |request| {
+        Ok(observed(request, |_| value("")))
+    });
+    let evidence = result.guard_evidence().unwrap().unwrap();
+    let (source, destination) = evidence
+        .graph()
+        .facts
+        .iter()
+        .find_map(|fact| match fact.payload {
+            FactPayload::FilesystemAccess {
+                operation: FilesystemOperation::Move,
+                target,
+                destination: Some(destination),
+                ..
+            } => Some((target, destination)),
+            _ => None,
+        })
+        .expect("a native rename retains both endpoints");
+    for (id, path) in [(source, "/repo/source"), (destination, "/repo/destination")] {
+        let resource = evidence
+            .graph()
+            .resources
+            .iter()
+            .find(|resource| resource.id == id)
+            .unwrap();
+        assert_eq!(
+            resource.labels.as_ref().unwrap().lexical,
+            Knowledge::Known(absolute(path))
+        );
+    }
+    assert!(!evidence.graph().facts.iter().any(|fact| matches!(
+        fact.payload,
+        FactPayload::FilesystemAccess {
+            operation: FilesystemOperation::Delete,
+            ..
+        }
+    )));
+}
+
+#[cfg(feature = "effinterp")]
+#[test]
+fn optional_filesystem_baseline_reports_missing_models_without_a_private_verdict() {
+    use nah_effinterp::SelectedInput;
+    use nah_proto::effects::{FactPayload, FilesystemOperation, Knowledge, Realm};
+    let analyze = |command: &str| {
+        super::analyze_optional_with(
+            SelectedInput::Shell(&input(command)),
+            &context(),
+            |request| Ok(observed(request, |_| value(""))),
+        )
+        .unwrap()
+        .evidence
+    };
+    let delete = analyze("rm -rf /home/test");
+    assert!(
+        delete
+            .graph()
+            .facts
+            .iter()
+            .any(|fact| fact.realm == Realm::Host
+                && matches!(
+                    fact.payload,
+                    FactPayload::FilesystemAccess {
+                        operation: FilesystemOperation::Delete,
+                        recursive: Knowledge::Known(true),
+                        ..
+                    }
+                ))
+    );
+    for (command, operation) in [
+        ("chmod 777 /repo/file", "filesystem.metadata"),
+        ("systemctl enable ssh", "system.service_enable"),
+        ("zfs destroy pool/data", "system.storage_destroy"),
+    ] {
+        let evidence = analyze(command);
+        assert!(evidence.graph().facts.iter().any(|fact| matches!(&fact.payload, FactPayload::Other { operation: actual, .. } if actual == operation)), "{command}: {:?}", evidence.graph().facts);
+        assert!(
+            evidence
+                .graph()
+                .gaps
+                .iter()
+                .any(|gap| gap.code == "semantic-fields-unavailable"),
+            "{command}"
+        );
+        assert!(
+            !evidence.graph().facts.iter().any(|fact| matches!(
+                fact.payload,
+                FactPayload::FilesystemAccess {
+                    operation: FilesystemOperation::PermissionChange,
+                    ..
+                } | FactPayload::StorageChange { .. }
+                    | FactPayload::SystemChange { .. }
+            )),
+            "{command}"
+        );
+    }
+    let nap = analyze("nah nap");
+    assert!(nap.graph().facts.iter().any(|fact| matches!(
+        fact.payload,
+        FactPayload::ControlMutation {
+            tier: Knowledge::Known(nah_proto::labels::NahProtectionTier::Permanent),
+            ..
+        }
+    )));
+    let inspection = analyze("nah log");
+    assert!(
+        !inspection
+            .graph()
+            .facts
+            .iter()
+            .any(|fact| matches!(fact.payload, FactPayload::ControlMutation { .. }))
+    );
+    let growth = analyze(":(){ :|:& };:");
+    assert!(
+        !growth
+            .graph()
+            .facts
+            .iter()
+            .any(|fact| matches!(fact.payload, FactPayload::ProcessGrowth { .. }))
+    );
+    assert!(
+        growth
+            .graph()
+            .gaps
+            .iter()
+            .any(|gap| gap.code == "semantic-fields-unavailable")
+    );
+    for command in [
+        "herdr pane run p 'nah nap'",
+        "tmux send-keys 'nah nap' Enter",
+    ] {
+        let evidence = analyze(command);
+        assert!(
+            !evidence
+                .graph()
+                .facts
+                .iter()
+                .any(|fact| matches!(fact.payload, FactPayload::ControlInput { .. })),
+            "{command}"
+        );
+        assert!(
+            evidence
+                .graph()
+                .gaps
+                .iter()
+                .any(|gap| gap.code == "semantic-fields-unavailable"),
+            "{command}"
+        );
+    }
 }

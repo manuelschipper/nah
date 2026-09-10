@@ -131,7 +131,7 @@ fn execution_guards_match_visible_flow_paths_and_obfuscation_evidence() {
         let stream = ActionStream::new(Coverage::Partial, stages, flows).unwrap();
         let decision = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy(guard, true),
             &[],
         )
@@ -149,7 +149,7 @@ fn execution_guards_match_visible_flow_paths_and_obfuscation_evidence() {
         assert_eq!(
             nah_policy::decide(
                 &stream,
-                &crate::support::empty_evidence(),
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
                 &guard_policy(guard, false),
                 &[]
             )
@@ -259,7 +259,7 @@ fn execution_guards_require_their_complete_positive_evidence() {
         assert_eq!(
             nah_policy::decide(
                 &stream,
-                &crate::support::empty_evidence(),
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
                 &guard_policy(guard, true),
                 &[]
             )
@@ -294,7 +294,7 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
         assert_eq!(
             nah_policy::decide(
                 &source,
-                &crate::support::empty_evidence(),
+                &crate::support::evidence(&source, &nah_inline::InlineReport::default()),
                 &guard_policy("secrets-exfil", true),
                 &[]
             )
@@ -338,7 +338,7 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
         assert_eq!(
             nah_policy::decide(
                 &search,
-                &crate::support::empty_evidence(),
+                &crate::support::evidence(&search, &nah_inline::InlineReport::default()),
                 &guard_policy("secrets-exfil", true),
                 &[]
             )
@@ -361,7 +361,7 @@ fn exfiltration_accepts_only_the_new_proven_source_shapes() {
     assert_eq!(
         nah_policy::decide(
             &disconnected,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&disconnected, &nah_inline::InlineReport::default()),
             &guard_policy("secrets-exfil", true),
             &[]
         )
@@ -385,7 +385,7 @@ fn directional_shell_endpoints_are_execution_sources_and_exfiltration_sinks() {
     assert_eq!(
         nah_policy::decide(
             &remote_exec,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&remote_exec, &nah_inline::InlineReport::default()),
             &guard_policy("exec-remote", true),
             &[]
         )
@@ -412,7 +412,7 @@ fn directional_shell_endpoints_are_execution_sources_and_exfiltration_sinks() {
     assert_eq!(
         nah_policy::decide(
             &exfiltration,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&exfiltration, &nah_inline::InlineReport::default()),
             &guard_policy("secrets-exfil", true),
             &[]
         )
@@ -433,7 +433,7 @@ fn directional_shell_endpoints_are_execution_sources_and_exfiltration_sinks() {
     assert_eq!(
         nah_policy::decide(
             &output_only_shell,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&output_only_shell, &nah_inline::InlineReport::default()),
             &guard_policy("exec-remote", true),
             &[]
         )
@@ -475,7 +475,7 @@ fn evaluated_shell_is_an_execution_sink_only_when_its_code_is_unknown() {
         assert_eq!(
             nah_policy::decide(
                 &stream,
-                &crate::support::empty_evidence(),
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
                 &guard_policy(guard, true),
                 &[]
             )
@@ -506,7 +506,7 @@ fn evaluated_shell_is_an_execution_sink_only_when_its_code_is_unknown() {
         assert_eq!(
             nah_policy::decide(
                 &stream,
-                &crate::support::empty_evidence(),
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
                 &guard_policy(guard, true),
                 &[]
             )

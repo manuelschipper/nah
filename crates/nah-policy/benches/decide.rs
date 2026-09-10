@@ -108,9 +108,12 @@ fn fixture() -> (ActionStream, nah_proto::ctx::PolicyCtx) {
     (stream, policy)
 }
 
+#[path = "../tests/suite/support/mod.rs"]
+mod support;
+
 fn captured_policy(c: &mut Criterion) {
     let (stream, policy) = fixture();
-    let evidence = empty_evidence();
+    let evidence = support::evidence(&stream, &nah_inline::InlineReport::default());
     c.bench_function("captured_policy_project_read", |b| {
         b.iter(|| black_box(nah_policy::decide(&stream, &evidence, &policy, &[]).unwrap()))
     });
@@ -118,29 +121,3 @@ fn captured_policy(c: &mut Criterion) {
 
 criterion_group!(benches, captured_policy);
 criterion_main!(benches);
-
-fn empty_evidence() -> nah_proto::effects::GuardEvidence {
-    use nah_proto::effects::*;
-    GuardEvidence::new(
-        EffectGraph {
-            calls: vec![],
-            resources: vec![],
-            facts: vec![],
-            occurrences: vec![],
-            relations: vec![],
-            conditions: vec![],
-            coverage: vec![],
-            gaps: vec![],
-            causality: CausalAvailability::Unavailable,
-        },
-        PublicSelection {
-            calls: Default::default(),
-            facts: Default::default(),
-            resources: Default::default(),
-            occurrences: Default::default(),
-            relations: Default::default(),
-            complete: false,
-        },
-    )
-    .unwrap()
-}

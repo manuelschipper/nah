@@ -1,13 +1,15 @@
 //! Tags visible nah state mutations; it does not enforce structural protection.
 
-pub(crate) use nah_inline::runtime_protection::protected_path;
-use nah_inline::runtime_protection::{
-    environment_operation, lexical_normalized_path, runtime_launch_bypass,
-};
 use nah_parse::Word;
 use nah_proto::action::FilesystemOperation;
 use nah_proto::ctx::{AbsolutePath, Platform};
+pub(crate) use nah_proto::labels::normalized_program;
+use nah_proto::labels::{
+    cargo_subcommand_arguments, nah_package_spec, runtime_terminal_information, terminal_help,
+};
 use nah_proto::runtime::HOOK_RUNTIME_NAMES;
+pub(crate) use nah_proto::runtime_protection::protected_path;
+use nah_proto::runtime_protection::{environment_operation, lexical_normalized_path};
 
 use crate::bash_filesystem::command_filesystems;
 use crate::bash_model::VariableValue;
@@ -236,58 +238,6 @@ pub(crate) fn protected_access_control_operation(
         .then_some("critical-mutation")
 }
 
-fn operation_for_values_at(
-    program: &str,
-    words: &[String],
-    runtime: Option<(&str, Platform)>,
-) -> Option<&'static str> {
-    let program = normalized_program(program);
-    if program == "cargo" {
-        return cargo_uninstalls_nah(words).then_some("critical-mutation");
-    }
-    if runtime_terminal_information(words) {
-        return None;
-    }
-    if runtime_mutation(&program, words)
-        || runtime_launch_bypass(
-            &program,
-            words,
-            runtime.map(|(home, _)| home),
-            runtime.map(|(_, platform)| platform),
-        )
-    {
-        return Some("critical-mutation");
-    }
-    if program != "nah" {
-        return None;
-    }
-    if terminal_help(words) {
-        return None;
-    }
-    match words {
-        [command, ..] if command == "nap" => Some("permanent-mutation"),
-        [command, ..] if matches!(command.as_str(), "tui" | "effinterp") => {
-            Some("critical-mutation")
-        }
-        [command, ..] if matches!(command.as_str(), "trust" | "untrust") => {
-            Some("critical-mutation")
-        }
-        [kind, command, ..]
-            if kind == "guard" && matches!(command.as_str(), "enable" | "disable" | "reset") =>
-        {
-            Some("critical-mutation")
-        }
-        [kind, runtime, action, ..]
-            if kind == "hook"
-                && HOOK_RUNTIME_NAMES.contains(&runtime.as_str())
-                && matches!(action.as_str(), "install" | "uninstall") =>
-        {
-            Some("critical-mutation")
-        }
-        _ => None,
-    }
-}
-
 pub(crate) fn environment_operation_for_command(
     program: &str,
     words: &[String],
@@ -325,80 +275,6 @@ pub(crate) fn environment_operation_for_command(
             .filter(|value| !value.is_empty())
     };
     environment_operation(program, value, baseline, home, critical_paths, platform)
-}
-
-fn runtime_mutation(program: &str, words: &[String]) -> bool {
-    let exact_or_child = |value: &str, parent: &str| {
-        value == parent
-            || value
-                .strip_prefix(parent)
-                .is_some_and(|suffix| suffix.starts_with(['.', '[']))
-    };
-    let names_nah = |word: Option<&String>| {
-        word.is_some_and(|word| matches!(word.as_str(), "nah" | "nah.ts" | "nah.json"))
-    };
-    match program {
-        "amp" => words.windows(3).any(|parts| {
-            parts[0] == "plugins"
-                && matches!(parts[1].as_str(), "remove" | "rm")
-                && names_nah(parts.get(2))
-        }),
-        "agy" => words.windows(3).any(|parts| {
-            parts[0] == "plugin"
-                && matches!(parts[1].as_str(), "disable" | "uninstall")
-                && names_nah(parts.get(2))
-        }),
-        "droid" => words.windows(3).any(|parts| {
-            parts[0] == "plugin"
-                && matches!(parts[1].as_str(), "remove" | "uninstall")
-                && names_nah(parts.get(2))
-        }),
-        "hermes" => {
-            words.windows(3).any(|parts| {
-                parts[0] == "hooks"
-                    && matches!(parts[1].as_str(), "revoke" | "remove" | "rm")
-                    && parts[2] == "nah hook hermes run"
-            }) || words.windows(3).any(|parts| {
-                parts[0] == "config"
-                    && matches!(parts[1].as_str(), "set" | "unset")
-                    && exact_or_child(&parts[2], "hooks.pre_tool_call")
-            })
-        }
-        "copilot" => words.windows(3).any(|parts| {
-            matches!(parts[0].as_str(), "plugin" | "plugins")
-                && matches!(parts[1].as_str(), "disable" | "remove" | "uninstall")
-                && names_nah(parts.get(2))
-        }),
-        "openclaw" => {
-            words.windows(3).any(|parts| {
-                parts[0] == "plugins"
-                    && matches!(parts[1].as_str(), "disable" | "uninstall")
-                    && names_nah(parts.get(2))
-            }) || words.windows(4).any(|parts| {
-                parts[0] == "plugins"
-                    && parts[1] == "uninstall"
-                    && parts[2] == "--force"
-                    && names_nah(parts.get(3))
-            }) || words.windows(4).any(|parts| {
-                parts[0] == "config"
-                    && parts[1] == "set"
-                    && parts[2] == "plugins.enabled"
-                    && parts[3] == "false"
-            }) || words.windows(3).any(|parts| {
-                parts[0] == "config"
-                    && parts[1] == "unset"
-                    && exact_or_child(&parts[2], "plugins.entries.nah")
-            })
-        }
-        _ => false,
-    }
-}
-
-fn runtime_terminal_information(words: &[String]) -> bool {
-    words
-        .iter()
-        .take_while(|word| word.as_str() != "--")
-        .any(|word| matches!(word.as_str(), "-h" | "--help" | "-V" | "--version"))
 }
 
 pub(crate) fn hardlink_operation(
@@ -752,42 +628,6 @@ fn wildcard_may_match(pattern: &str, candidate: &str) -> bool {
     pattern_index == pattern.len()
 }
 
-fn cargo_uninstalls_nah(words: &[String]) -> bool {
-    let Some(mut index) = cargo_subcommand_arguments(words, "uninstall") else {
-        return false;
-    };
-    let mut after_options = false;
-    while index < words.len() {
-        let word = words[index].as_str();
-        if !after_options && word == "--" {
-            after_options = true;
-        } else if !after_options && matches!(word, "--root" | "--color" | "--config" | "-Z") {
-            index += 1;
-        } else if !after_options && matches!(word, "-p" | "--package" | "--bin") {
-            let Some(value) = words.get(index + 1) else {
-                return false;
-            };
-            if (word == "--bin" && value == "nah") || (word != "--bin" && nah_package_spec(value)) {
-                return true;
-            }
-            index += 1;
-        } else if (!after_options
-            && (word
-                .strip_prefix("--package=")
-                .is_some_and(nah_package_spec)
-                || word
-                    .strip_prefix("-p")
-                    .is_some_and(|value| !value.is_empty() && nah_package_spec(value))
-                || word.strip_prefix("--bin=") == Some("nah")))
-            || ((after_options || !word.starts_with('-')) && nah_package_spec(word))
-        {
-            return true;
-        }
-        index += 1;
-    }
-    false
-}
-
 fn cargo_install(words: &[String]) -> Option<(bool, Option<&str>)> {
     let mut index = cargo_subcommand_arguments(words, "install")?;
     let mut source_is_nah = false;
@@ -897,33 +737,6 @@ fn cargo_install(words: &[String]) -> Option<(bool, Option<&str>)> {
     ))
 }
 
-fn cargo_subcommand_arguments(words: &[String], subcommand: &str) -> Option<usize> {
-    if terminal_help(words) {
-        return None;
-    }
-    let mut index = usize::from(words.first().is_some_and(|word| word.starts_with('+')));
-    while index < words.len() {
-        let word = words[index].as_str();
-        if word == subcommand {
-            return Some(index + 1);
-        }
-        if matches!(
-            word,
-            "-v" | "--verbose" | "-q" | "--quiet" | "--frozen" | "--locked" | "--offline"
-        ) || word.starts_with("-vv")
-            || word.starts_with("--color=")
-            || word.starts_with("--config=")
-        {
-            index += 1;
-        } else if matches!(word, "--color" | "--config" | "-Z") {
-            index += 2;
-        } else {
-            return None;
-        }
-    }
-    None
-}
-
 fn cargo_nah_path(value: &str) -> bool {
     matches!(
         value
@@ -931,13 +744,6 @@ fn cargo_nah_path(value: &str) -> bool {
             .rsplit(['/', '\\'])
             .next(),
         Some("nah" | "nah-cli")
-    )
-}
-
-fn nah_package_spec(value: &str) -> bool {
-    matches!(
-        value.split_once('@').map_or(value, |(name, _)| name),
-        "nah" | "nah-cli"
     )
 }
 
@@ -973,23 +779,6 @@ pub(crate) fn inspection_operation(program: &str, arguments: &[Word]) -> Option<
         _ => false,
     };
     inspected.then_some("inspect")
-}
-
-fn terminal_help(arguments: &[String]) -> bool {
-    arguments
-        .iter()
-        .take_while(|argument| argument.as_str() != "--")
-        .any(|argument| matches!(argument.as_str(), "-h" | "--help"))
-}
-
-/// Normalizes lexical CLI identity without resolving an executable on any host.
-pub(crate) fn normalized_program(program: &str) -> String {
-    let basename = program.rsplit(['/', '\\']).next().unwrap_or(program);
-    let lowercase = basename.to_ascii_lowercase();
-    [".exe", ".cmd", ".bat", ".ps1"]
-        .iter()
-        .find_map(|suffix| lowercase.strip_suffix(suffix).map(str::to_owned))
-        .unwrap_or(lowercase)
 }
 
 fn log_arguments(arguments: &[String]) -> bool {
@@ -1065,3 +854,17 @@ fn protected_path_ancestor(
 
 #[cfg(test)]
 mod tests;
+
+fn operation_for_values_at(
+    program: &str,
+    words: &[String],
+    runtime: Option<(&str, Platform)>,
+) -> Option<&'static str> {
+    nah_proto::labels::invocation_protection_tier(program, words, runtime).map(|tier| match tier {
+        nah_proto::labels::NahProtectionTier::Permanent => "permanent-mutation",
+        nah_proto::labels::NahProtectionTier::Critical => "critical-mutation",
+        nah_proto::labels::NahProtectionTier::Proposal => {
+            unreachable!("invocations do not propose policy")
+        }
+    })
+}

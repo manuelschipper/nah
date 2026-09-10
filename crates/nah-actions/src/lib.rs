@@ -42,6 +42,7 @@ use bash::features::{
     wrappers as bash_wrappers,
 };
 mod codex_patch;
+mod filesystem_effects;
 mod git_evidence;
 mod language_effects;
 mod native;
@@ -342,7 +343,7 @@ fn finalize_inner(
     plan: AnalysisPlan,
     observation: Observation,
     include_language_safety: bool,
-    mut git_graph: Option<&mut nah_proto::effects::EffectGraph>,
+    mut graph: Option<&mut nah_proto::effects::EffectGraph>,
 ) -> ActionStream {
     if observation.bind(&plan.observation_request).is_err() {
         return partial();
@@ -355,7 +356,8 @@ fn finalize_inner(
         return partial();
     };
 
-    let native_evidence = matches!(&plan.draft, Draft::Native(_));
+    let mut patch_moves = Vec::new();
+    let bash = matches!(&plan.draft, Draft::Bash(_));
     let (coverage, stages, flows) = match plan.draft {
         Draft::Native(native::Draft::Native {
             tool,
@@ -440,6 +442,9 @@ fn finalize_inner(
             let mut effects = vec![invocation];
             let mut complete = input_complete;
             for (index, draft) in drafts.into_iter().enumerate() {
+                if draft.move_destination.is_some() {
+                    patch_moves.push((index + 1, index + 2));
+                }
                 if let Some(Ok(path)) = observed_path(&observation, &patch_path_key(index)) {
                     effects.push(filesystem_effect(
                         draft.operation,
@@ -546,7 +551,7 @@ fn finalize_inner(
                 &plan.critical_paths,
                 plan.platform,
                 include_language_safety,
-                git_graph.as_deref_mut(),
+                graph.as_deref_mut(),
             ) else {
                 return partial();
             };
@@ -559,16 +564,41 @@ fn finalize_inner(
         }
     };
 
+    if !bash && let Some(graph) = graph {
+        let lexical_paths = observation
+            .facts()
+            .iter()
+            .filter_map(|fact| match fact.value() {
+                ObservationValue::Path {
+                    observed: Observed::Ok { value },
+                } => Some((
+                    value.realpath().unwrap_or_else(|| value.resolved()).clone(),
+                    value.resolved().clone(),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for stage in &stages {
+            filesystem_effects::emit_stage(
+                graph,
+                stage,
+                None,
+                &patch_moves,
+                &(1..stage.len()).collect::<Vec<_>>(),
+                filesystem_effects::FilesystemEvidenceContext {
+                    call: nah_proto::effects::CallId(0),
+                    lexical_paths: &lexical_paths,
+                    git_managed_indices: &[],
+                    platform: plan.platform,
+                },
+            );
+        }
+    }
     let coverage = if ambient_variables_stable {
         coverage
     } else {
         Coverage::Partial
     };
-    if native_evidence && let Some(graph) = git_graph {
-        for stage in &stages {
-            crate::git_evidence::emit_filesystems(graph, stage, &observation, plan.platform);
-        }
-    }
     ActionStream::new(coverage, stages, flows).unwrap_or_else(|_| partial())
 }
 
@@ -884,7 +914,15 @@ impl AnalysisPlan {
                 stage.evidence_call = Some(CallId(index as u32 + 1));
             }
         }
-        finalize_inner(finalized_plan, observation.clone(), true, Some(&mut graph));
+        let retained_facts = graph.facts.len();
+        let retained_resources = graph.resources.len();
+        let stream = finalize_inner(finalized_plan, observation.clone(), true, Some(&mut graph));
+        if stream.effects().is_empty() {
+            // Failed normal finalization discards its provisional filesystem facts.
+            // Independently established inline summaries remain available.
+            graph.facts.truncate(retained_facts);
+            graph.resources.truncate(retained_resources);
+        }
         GuardEvidence::new(
             graph,
             PublicSelection {

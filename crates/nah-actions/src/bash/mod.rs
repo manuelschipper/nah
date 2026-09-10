@@ -305,6 +305,7 @@ fn visible_language_effect_draft_with_profile(
         critical_paths,
     );
     lowerer.stages.push(StageDraft {
+        permission_grants: None,
         language_safety_only: false,
         invocation: InvocationDraft::CodeExecution {
             program: outer_program.to_owned(),
@@ -532,6 +533,7 @@ impl Lowerer {
             return;
         }
         self.stages.push(StageDraft {
+            permission_grants: None,
             language_safety_only: false,
             invocation: InvocationDraft::Opaque {
                 program: ProgramDraft::Static("bash".into()),
@@ -563,6 +565,7 @@ impl Lowerer {
             return;
         }
         self.stages.push(StageDraft {
+            permission_grants: None,
             language_safety_only: false,
             invocation: InvocationDraft::Opaque {
                 program: ProgramDraft::Static("bash".into()),

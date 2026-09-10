@@ -16,7 +16,7 @@ fn critical_self_protection_is_not_a_disableable_guard() {
     let filesystem = protected_stream(NahProtectionTier::Critical);
     let decision = nah_policy::decide(
         &filesystem,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&filesystem, &nah_inline::InlineReport::default()),
         &guard_policy("fs-system-tree", false),
         &[],
     )
@@ -39,7 +39,7 @@ fn critical_self_protection_is_not_a_disableable_guard() {
         .unwrap();
         let decision = nah_policy::decide(
             &invocation,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&invocation, &nah_inline::InlineReport::default()),
             &guard_policy("fs-system-tree", false),
             &[],
         )
@@ -69,7 +69,7 @@ fn nap_modes_pause_only_the_agreed_enforcement_layers() {
 
     let self_paused = nah_policy::decide_with_mode(
         &critical,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&critical, &nah_inline::InlineReport::default()),
         &policy,
         &[],
         EnforcementMode::SelfProtectionPaused,
@@ -79,7 +79,7 @@ fn nap_modes_pause_only_the_agreed_enforcement_layers() {
 
     let all_paused = nah_policy::decide_with_mode(
         &critical,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&critical, &nah_inline::InlineReport::default()),
         &policy,
         &[],
         EnforcementMode::AllPaused,
@@ -94,7 +94,7 @@ fn nap_modes_pause_only_the_agreed_enforcement_layers() {
     ] {
         let decision = nah_policy::decide_with_mode(
             &permanent,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&permanent, &nah_inline::InlineReport::default()),
             &policy,
             &[],
             mode,
@@ -105,7 +105,7 @@ fn nap_modes_pause_only_the_agreed_enforcement_layers() {
 
         let decision = nah_policy::decide_with_mode(
             &refused,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&refused, &nah_inline::InlineReport::default()),
             &policy,
             &[],
             mode,
@@ -120,8 +120,13 @@ fn nap_modes_pause_only_the_agreed_enforcement_layers() {
 fn proposal_tier_delegates_to_the_runtime_instead_of_blocking() {
     let stream = protected_stream(NahProtectionTier::Proposal);
     let (_, policy) = context(&[], vec![], ProjectGuardDeclaration::Absent);
-    let decision =
-        nah_policy::decide(&stream, &crate::support::empty_evidence(), &policy, &[]).unwrap();
+    let decision = nah_policy::decide(
+        &stream,
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+        &policy,
+        &[],
+    )
+    .unwrap();
     assert_eq!(decision.verdict(), Verdict::Delegate);
     assert!(decision.policy_attributions().is_empty());
 }
@@ -156,7 +161,7 @@ fn incomplete_analysis_does_not_hide_a_recognized_guard_effect() {
 
     let decision = nah_policy::decide(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
         &guard_policy("fs-system-tree", true),
         &[],
     )
@@ -207,7 +212,7 @@ fn terminal_candidates_follow_structural_nap_modes() {
         ] {
             let decision = nah_policy::decide_with_mode(
                 &stream,
-                &crate::support::empty_evidence(),
+                &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
                 &guard_policy("fs-system-tree", false),
                 &[],
                 mode,

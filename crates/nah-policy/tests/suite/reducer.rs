@@ -17,14 +17,24 @@ fn full_and_partial_coverage_both_delegate_when_no_guard_blocks() {
     let partial = read_stream(Coverage::Partial, project_scope(), Sensitivity::None);
     let (_, policy) = context(&[], vec![], ProjectGuardDeclaration::Absent);
 
-    let full_decision =
-        nah_policy::decide(&full, &crate::support::empty_evidence(), &policy, &[]).unwrap();
+    let full_decision = nah_policy::decide(
+        &full,
+        &crate::support::evidence(&full, &nah_inline::InlineReport::default()),
+        &policy,
+        &[],
+    )
+    .unwrap();
     assert_eq!(full_decision.verdict(), Verdict::Delegate);
     assert_eq!(full_decision.reason(), "no guard blocked this call");
     assert!(full_decision.policy_attributions().is_empty());
 
-    let partial_decision =
-        nah_policy::decide(&partial, &crate::support::empty_evidence(), &policy, &[]).unwrap();
+    let partial_decision = nah_policy::decide(
+        &partial,
+        &crate::support::evidence(&partial, &nah_inline::InlineReport::default()),
+        &policy,
+        &[],
+    )
+    .unwrap();
     assert_eq!(partial_decision.verdict(), Verdict::Delegate);
     assert_eq!(partial_decision.reason(), "partial coverage");
 }
@@ -64,7 +74,7 @@ fn validated_extensions_can_only_add_a_block() {
 
     let quiet_decision = nah_policy::decide(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
         &policy,
         std::slice::from_ref(&abstained),
     )
@@ -75,7 +85,7 @@ fn validated_extensions_can_only_add_a_block() {
     assert_eq!(
         nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &policy,
             &[guard_response.clone(), guard_response.clone()]
         ),
@@ -84,7 +94,7 @@ fn validated_extensions_can_only_add_a_block() {
 
     let block = nah_policy::decide(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
         &policy,
         &[abstained, guard_response],
     )
@@ -97,23 +107,20 @@ fn validated_extensions_can_only_add_a_block() {
 #[ignore = "release-mode KPI; run isolated with --release --ignored --test-threads=1"]
 fn captured_policy_p99_is_below_one_millisecond() {
     let stream = read_stream(Coverage::Full, project_scope(), Sensitivity::None);
+    let evidence = crate::support::evidence(&stream, &nah_inline::InlineReport::default());
     let (_, policy) = context(
         &[("fs-system-tree", true)],
         vec![],
         ProjectGuardDeclaration::Absent,
     );
     for _ in 0..100 {
-        black_box(
-            nah_policy::decide(&stream, &crate::support::empty_evidence(), &policy, &[]).unwrap(),
-        );
+        black_box(nah_policy::decide(&stream, &evidence, &policy, &[]).unwrap());
     }
 
     let mut samples = Vec::with_capacity(2_000);
     for _ in 0..2_000 {
         let started = Instant::now();
-        black_box(
-            nah_policy::decide(&stream, &crate::support::empty_evidence(), &policy, &[]).unwrap(),
-        );
+        black_box(nah_policy::decide(&stream, &evidence, &policy, &[]).unwrap());
         samples.push(started.elapsed());
     }
     samples.sort_unstable();

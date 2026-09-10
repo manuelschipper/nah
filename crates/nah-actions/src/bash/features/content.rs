@@ -707,6 +707,7 @@ mod tests {
 
     fn stage(stdout: StdoutDraft) -> StageDraft {
         StageDraft {
+            permission_grants: None,
             language_safety_only: false,
             invocation: InvocationDraft::Opaque {
                 program: ProgramDraft::Static("test".into()),

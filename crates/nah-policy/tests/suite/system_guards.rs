@@ -14,7 +14,7 @@ fn sys_power_requires_its_enabled_guard() {
 
     let enabled = nah_policy::decide(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
         &guard_policy("sys-power", true),
         &[],
     )
@@ -24,7 +24,7 @@ fn sys_power_requires_its_enabled_guard() {
 
     let disabled = nah_policy::decide(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
         &guard_policy("sys-power", false),
         &[],
     )
@@ -39,8 +39,11 @@ fn sys_power_matches_only_the_known_host_power_operation() {
         EffectKind::opaque("shutdown").unwrap(),
     ] {
         let decision = nah_policy::decide(
-            &invocation_stream(effect),
-            &crate::support::empty_evidence(),
+            &invocation_stream(effect.clone()),
+            &crate::support::evidence(
+                &invocation_stream(effect),
+                &nah_inline::InlineReport::default(),
+            ),
             &guard_policy("sys-power", true),
             &[],
         )
@@ -52,7 +55,12 @@ fn sys_power_matches_only_the_known_host_power_operation() {
         &guarded_stream(EffectKind::SystemState {
             operation: SemanticCode::HOST_POWER,
         }),
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(
+            &guarded_stream(EffectKind::SystemState {
+                operation: SemanticCode::HOST_POWER,
+            }),
+            &nah_inline::InlineReport::default(),
+        ),
         &guard_policy("sys-power", true),
         &[],
     )
@@ -73,7 +81,7 @@ fn sys_service_stop_requires_its_enabled_guard() {
 
     let enabled = nah_policy::decide(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
         &guard_policy("sys-service-stop", true),
         &[],
     )
@@ -83,7 +91,7 @@ fn sys_service_stop_requires_its_enabled_guard() {
 
     let disabled = nah_policy::decide(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
         &guard_policy("sys-service-stop", false),
         &[],
     )
@@ -98,8 +106,11 @@ fn sys_service_stop_matches_only_the_system_state_operation() {
         EffectKind::opaque("systemctl").unwrap(),
     ] {
         let decision = nah_policy::decide(
-            &invocation_stream(effect),
-            &crate::support::empty_evidence(),
+            &invocation_stream(effect.clone()),
+            &crate::support::evidence(
+                &invocation_stream(effect),
+                &nah_inline::InlineReport::default(),
+            ),
             &guard_policy("sys-service-stop", true),
             &[],
         )
@@ -111,7 +122,12 @@ fn sys_service_stop_matches_only_the_system_state_operation() {
         &guarded_stream(EffectKind::SystemState {
             operation: SemanticCode::STARTUP_MANAGEMENT,
         }),
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(
+            &guarded_stream(EffectKind::SystemState {
+                operation: SemanticCode::STARTUP_MANAGEMENT,
+            }),
+            &nah_inline::InlineReport::default(),
+        ),
         &guard_policy("sys-service-stop", true),
         &[],
     )

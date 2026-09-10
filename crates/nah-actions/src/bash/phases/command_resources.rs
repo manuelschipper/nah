@@ -66,6 +66,7 @@ impl Lowerer {
             git_facts
                 .retain(|fact| !matches!(fact, nah_proto::effects::FactPayload::GitDiscard { .. }));
         }
+        let command_operand_start = filesystem_drafts.len();
         let mut system_states = Vec::new();
         let mut root_move_destination_key = None;
         let mut git_command_guards = match program {
@@ -455,6 +456,9 @@ impl Lowerer {
         }
         git_operations.sort_unstable();
         git_operations.dedup();
+        for filesystem in &mut filesystem_drafts[command_operand_start..] {
+            filesystem.command_operand = true;
+        }
         CommandResources {
             filesystems: filesystem_drafts,
             root_move_destination_key,

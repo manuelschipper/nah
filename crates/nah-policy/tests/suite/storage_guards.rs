@@ -25,7 +25,7 @@ fn each_storage_guard_requires_its_matching_enabled_code() {
         let stream = guarded_stream(EffectKind::SystemState { operation });
         let enabled = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy(name, true),
             &[],
         )
@@ -35,7 +35,7 @@ fn each_storage_guard_requires_its_matching_enabled_code() {
 
         let disabled = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy(name, false),
             &[],
         )
@@ -75,7 +75,7 @@ fn storage_guards_are_independent() {
         let stream = guarded_stream(EffectKind::SystemState { operation });
         let decision = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy(enabled, true),
             &[],
         )
@@ -111,7 +111,7 @@ fn storage_guards_match_only_system_state_evidence() {
         };
         let decision = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy("storage-backup-destroy", true),
             &[],
         )

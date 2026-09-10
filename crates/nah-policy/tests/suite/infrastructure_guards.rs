@@ -14,7 +14,7 @@ fn infrastructure_destroy_requires_its_enabled_guard() {
 
     let enabled = nah_policy::decide(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
         &guard_policy("infra-iac-destroy", true),
         &[],
     )
@@ -24,7 +24,7 @@ fn infrastructure_destroy_requires_its_enabled_guard() {
 
     let disabled = nah_policy::decide(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
         &guard_policy("infra-iac-destroy", false),
         &[],
     )
@@ -44,7 +44,7 @@ fn container_guards_require_their_matching_enabled_code() {
         let stream = guarded_stream(EffectKind::SystemState { operation });
         let enabled = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy(name, true),
             &[],
         )
@@ -54,7 +54,7 @@ fn container_guards_require_their_matching_enabled_code() {
 
         let disabled = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy(name, false),
             &[],
         )
@@ -78,7 +78,7 @@ fn container_reset_and_volume_delete_guards_are_isolated() {
         let stream = guarded_stream(EffectKind::SystemState { operation });
         let decision = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy(enabled, true),
             &[],
         )
@@ -114,7 +114,7 @@ fn infrastructure_guard_matches_only_its_system_state_code() {
         };
         let decision = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy("infra-iac-destroy", true),
             &[],
         )
@@ -133,7 +133,7 @@ fn kubernetes_guard_matches_each_reviewed_scope_when_enabled() {
         let stream = guarded_stream(EffectKind::SystemState { operation });
         let enabled = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy("infra-k8s-delete", true),
             &[],
         )
@@ -143,7 +143,7 @@ fn kubernetes_guard_matches_each_reviewed_scope_when_enabled() {
 
         let disabled = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy("infra-k8s-delete", false),
             &[],
         )
@@ -169,7 +169,7 @@ fn kubernetes_guard_requires_a_system_state_effect() {
         .unwrap();
         let decision = nah_policy::decide(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
             &guard_policy("infra-k8s-delete", true),
             &[],
         )

@@ -23,7 +23,7 @@ fn exact_inline_findings_use_existing_guard_enablement() {
         );
         let decision = nah_policy::decide_with_mode_and_inline(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &report),
             &report,
             &policy,
             &[],
@@ -55,7 +55,7 @@ fn multiple_inline_findings_keep_all_guard_attributions() {
 
     let decision = nah_policy::decide_with_mode_and_inline(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &report),
         &report,
         &policy,
         &[],
@@ -87,7 +87,7 @@ fn conservative_findings_never_reach_configurable_guards() {
 
     let decision = nah_policy::decide_with_mode_and_inline(
         &stream,
-        &crate::support::empty_evidence(),
+        &crate::support::evidence(&stream, &report),
         &report,
         &policy,
         &[],
@@ -112,7 +112,7 @@ fn conservative_nah_findings_are_structural_and_follow_nap_mode() {
     ] {
         let decision = nah_policy::decide_with_mode_and_inline(
             &stream,
-            &crate::support::empty_evidence(),
+            &crate::support::evidence(&stream, &report),
             &report,
             &policy,
             &[],
