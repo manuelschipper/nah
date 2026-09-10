@@ -823,6 +823,20 @@ fn normal_filesystem_evidence_retains_permissions_and_move_endpoints() {
         assert!(evidence.graph().facts.iter().any(|fact| matches!(fact.payload,
             FactPayload::FilesystemAccess { operation, .. } if operation == expected_operation
         )), "{command}");
+        assert_eq!(
+            evidence
+                .graph()
+                .facts
+                .iter()
+                .filter(|fact| matches!(fact.payload, FactPayload::FilesystemAccess { .. }))
+                .count(),
+            if expected_operation == FilesystemOperation::Move {
+                3
+            } else {
+                2
+            },
+            "one filesystem contribution per endpoint: {command}",
+        );
         let path_of = |id| {
             evidence
                 .graph()

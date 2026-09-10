@@ -10,7 +10,7 @@ use super::filesystem::unresolved_read;
 use crate::bash_descriptor_paths::descriptor_reference_path_from_cwd;
 use crate::bash_descriptor_state::{DescriptorFlow, DescriptorState, NetworkEndpoint};
 use crate::bash_descriptors::descriptor_reference_binding_from_cwd;
-use crate::bash_git::{git_command_operations, metadata_mutation};
+use crate::bash_git::git_command_operations;
 use crate::bash_infrastructure::Classification as InfrastructureClassification;
 use crate::bash_kubernetes::Classification as KubernetesClassification;
 use crate::bash_logical_storage::logical_storage_destroy;
@@ -34,6 +34,7 @@ pub(super) struct CommandResources {
     pub(super) descriptor_flows: Vec<DescriptorFlow>,
     pub(super) system_states: Vec<SemanticCode>,
     pub(super) git_operations: Vec<SemanticCode>,
+    pub(super) git_facts: Vec<nah_proto::effects::FactPayload>,
 }
 
 impl Lowerer {
@@ -57,6 +58,14 @@ impl Lowerer {
         mut network_endpoints: Vec<NetworkEndpoint>,
         mut descriptor_flows: Vec<DescriptorFlow>,
     ) -> CommandResources {
+        let mut git_facts = match program {
+            ProgramDraft::Static(program) => crate::bash_git::git_command_facts(program, arguments),
+            _ => Vec::new(),
+        };
+        if git_environment_override {
+            git_facts
+                .retain(|fact| !matches!(fact, nah_proto::effects::FactPayload::GitDiscard { .. }));
+        }
         let command_operand_start = filesystem_drafts.len();
         let mut system_states = Vec::new();
         let mut root_move_destination_key = None;
@@ -164,7 +173,19 @@ impl Lowerer {
                     &mut filesystem_drafts,
                 );
                 if let Some(filesystem) = filesystem_drafts.last_mut() {
-                    filesystem.git_guard = Some(SemanticCode::WORKTREE_DISCARD);
+                    filesystem.git_discard = Some(nah_proto::effects::FactPayload::GitDiscard {
+                        target: nah_proto::effects::ResourceId(0),
+                        mode: if git.operation == "restore-worktree" {
+                            nah_proto::effects::GitDiscardMode::Restore
+                        } else {
+                            nah_proto::effects::GitDiscardMode::Checkout
+                        },
+                        reset: nah_proto::effects::Knowledge::Unknown,
+                        selection: nah_proto::effects::Selection::Unknown,
+                        untracked: nah_proto::effects::Knowledge::Known(false),
+                        force: nah_proto::effects::Knowledge::Unknown,
+                        dry_run: nah_proto::effects::Knowledge::Known(false),
+                    });
                 }
             }
             for target in &git.deleted_filesystems {
@@ -181,7 +202,15 @@ impl Lowerer {
                 if git_command_guards.contains(&SemanticCode::CLEAN_FORCE.as_str())
                     && let Some(filesystem) = filesystem_drafts.last_mut()
                 {
-                    filesystem.git_guard = Some(SemanticCode::CLEAN_FORCE);
+                    filesystem.git_discard = Some(nah_proto::effects::FactPayload::GitDiscard {
+                        target: nah_proto::effects::ResourceId(0),
+                        mode: nah_proto::effects::GitDiscardMode::Clean,
+                        reset: nah_proto::effects::Knowledge::Unknown,
+                        selection: nah_proto::effects::Selection::Unknown,
+                        untracked: nah_proto::effects::Knowledge::Known(true),
+                        force: nah_proto::effects::Knowledge::Known(true),
+                        dry_run: nah_proto::effects::Knowledge::Known(false),
+                    });
                 }
             }
             for target in &git.existing_filesystems {
@@ -396,19 +425,7 @@ impl Lowerer {
         });
         network_endpoints.sort();
         network_endpoints.dedup();
-        let mut git_operations = filesystem_drafts
-            .iter()
-            .filter(|filesystem| filesystem.git_guard.is_none())
-            .filter(|filesystem| {
-                metadata_mutation(
-                    &filesystem.requested,
-                    filesystem.operation,
-                    filesystem.recursive,
-                    self.platform,
-                )
-            })
-            .map(|_| SemanticCode::METADATA_MUTATION)
-            .collect::<Vec<_>>();
+        let mut git_operations = Vec::new();
         for operation in git_command_guards
             .into_iter()
             .filter(|operation| *operation != SemanticCode::CLEAN_FORCE.as_str())
@@ -418,6 +435,9 @@ impl Lowerer {
             );
         }
         if let Some(remote_deletion) = remote_deletion {
+            if let ProgramDraft::Static(program) = program {
+                git_facts.push(remote_deletion.fact(program));
+            }
             git_operations.push(match remote_deletion {
                 RemoteDeletion::Repository => SemanticCode::GIT_REMOTE_REPO_DELETE,
                 RemoteDeletion::Resource => SemanticCode::GIT_REMOTE_RESOURCE_DELETE,
@@ -446,6 +466,7 @@ impl Lowerer {
             descriptor_flows,
             system_states,
             git_operations,
+            git_facts,
         }
     }
 }

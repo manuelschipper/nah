@@ -1,8 +1,6 @@
 //! Lowers destructive Git operations and metadata effects; it does not choose a verdict.
 
 use nah_parse::Word;
-use nah_proto::action::FilesystemOperation;
-use nah_proto::ctx::Platform;
 
 use crate::bash_git_config::git_boolean;
 use crate::bash_git_config::{ParsedGit, parse};
@@ -11,71 +9,39 @@ use crate::shell_word::static_word;
 
 /// Collects applicable Git meanings independently of guard enablement.
 pub(crate) fn git_command_operations(program: &str, arguments: &[Word]) -> Vec<&'static str> {
-    if program != "git" {
-        return Vec::new();
-    }
-    let parsed = parse(arguments);
-    let Some((subcommand, arguments)) = parsed.command() else {
-        return Vec::new();
-    };
-    if (!matches!(subcommand, "clean" | "checkout" | "switch") && has_help(subcommand, arguments))
-        || option_before_separator(arguments, "--version")
-        || has_no_side_effect(subcommand, arguments)
-    {
-        return Vec::new();
-    }
-    let deletion = match subcommand {
-        "worktree" => worktree_deletion(arguments),
-        "submodule" => submodule_deinit(arguments),
-        _ => None,
-    };
-    if let Some(force) = deletion {
-        return if force && parsed.complete() {
-            vec!["ref-delete", "worktree-discard"]
-        } else {
-            vec!["ref-delete"]
-        };
-    }
-    if subcommand == "stash"
-        && stash_delete_is_valid(arguments)
-        && arguments.first().and_then(static_argument).as_deref() == Some("clear")
-    {
-        return if parsed.complete() {
-            vec!["ref-delete", "recovery-destroy"]
-        } else {
-            vec!["ref-delete"]
-        };
-    }
-    let operation = match subcommand {
-        "clean" if clean_force(&parsed, arguments) => Some("clean-force"),
-        "checkout" if forced_checkout(arguments) => Some("worktree-discard"),
-        "switch" if forced_switch(arguments) => Some("worktree-discard"),
-        "push" => {
-            let mut operations = push_operations(arguments);
-            if operations.is_empty() && ref_delete(subcommand, arguments) {
-                operations.push("ref-delete");
-            }
-            return operations;
-        }
-        "reset" if option_before_separator(arguments, "--hard") => Some("hard-reset"),
-        "filter-repo" if option_before_separator(arguments, "--force") => Some("rewrite-force"),
-        "filter-branch"
-            if option_before_separator(arguments, "--force")
-                || short_option_before_separator(arguments, 'f') =>
+    use nah_proto::effects::{FactPayload, GitDiscardMode, GitHistoryOperation, Knowledge::Known};
+    let mut operations = git_command_facts(program, arguments)
+        .iter()
+        .filter_map(|fact| match fact {
+            FactPayload::GitPush {
+                dry_run: Known(false),
+                ..
+            } => Some("push"),
+            FactPayload::GitDiscard {
+                mode: GitDiscardMode::Reset,
+                ..
+            } => Some("hard-reset"),
+            FactPayload::GitDiscard { .. } => Some("worktree-discard"),
+            FactPayload::GitRecovery { .. } => Some("recovery-destroy"),
+            FactPayload::GitRefChange { .. } => Some("ref-delete"),
+            FactPayload::GitHistory {
+                operation: GitHistoryOperation::Filter,
+                force: Known(true),
+                ..
+            } => Some("rewrite-force"),
+            FactPayload::GitHistory { .. } => Some("history-rewrite"),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if program == "git" {
+        let parsed = parse(arguments);
+        if let Some(("clean", args)) = parsed.command()
+            && clean_force(&parsed, args)
         {
-            Some("rewrite-force")
+            operations.push("clean-force");
         }
-        "gc" if gc_destroys_recovery(&parsed, arguments) => Some("recovery-destroy"),
-        "prune" if immediate_expiry(arguments, "--expire") => Some("recovery-destroy"),
-        "reflog" if destroys_all_reflog_recovery(arguments) => Some("recovery-destroy"),
-        "rebase" if rebase_rewrites_history(arguments) => Some("history-rewrite"),
-        "filter-branch" | "filter-repo" => Some("history-rewrite"),
-        "reflog" if reflog_expires(arguments) => Some("history-rewrite"),
-        "gc" if gc_rewrites_history(arguments) => Some("history-rewrite"),
-        _ if ref_delete(subcommand, arguments) => Some("ref-delete"),
-        _ => None,
-    };
-    operation.into_iter().collect()
+    }
+    operations
 }
 
 fn rebase_rewrites_history(arguments: &[Word]) -> bool {
@@ -736,262 +702,6 @@ fn static_values(arguments: &[Word]) -> Option<Vec<String>> {
     arguments.iter().map(static_argument).collect()
 }
 
-pub(crate) fn metadata_mutation(
-    requested: &str,
-    operation: FilesystemOperation,
-    recursive: bool,
-    platform: Platform,
-) -> bool {
-    if !matches!(
-        operation,
-        FilesystemOperation::Write | FilesystemOperation::Delete
-    ) {
-        return false;
-    }
-    let path = if platform == Platform::Windows {
-        requested.replace('\\', "/").to_ascii_lowercase()
-    } else {
-        requested.replace('\\', "/")
-    };
-    let mut components = Vec::new();
-    for component in path.split('/') {
-        match component {
-            "" | "." => {}
-            ".." => {
-                components.pop();
-            }
-            _ => components.push(component),
-        }
-    }
-    let Some(index) = components
-        .iter()
-        .position(|component| *component == ".git" || component.ends_with(".git"))
-    else {
-        return false;
-    };
-    let dot_git = components[index] == ".git";
-    let Some(first) = components.get(index + 1) else {
-        return dot_git || operation == FilesystemOperation::Delete && recursive;
-    };
-    if matches!(
-        *first,
-        "logs" | "objects" | "packed-refs" | "refs" | "worktrees"
-    ) {
-        return true;
-    }
-    if matches!(*first, "*" | "**" | "{*,.*}") {
-        return true;
-    }
-    first
-        .strip_prefix('{')
-        .and_then(|value| value.strip_suffix('}'))
-        .is_some_and(|choices| {
-            choices.split(',').any(|choice| {
-                matches!(
-                    choice,
-                    "logs" | "objects" | "packed-refs" | "refs" | "worktrees"
-                )
-            })
-        })
-}
-
-fn push_operations(arguments: &[Word]) -> Vec<&'static str> {
-    let mut before_separator = true;
-    let mut explicit_force = false;
-    let mut mirror = false;
-    let mut all_refs_leased = false;
-    let mut force_with_lease = false;
-    let mut leased_refs = Vec::new();
-    let mut forced_refs = Vec::new();
-    let mut repository = false;
-    let mut delete = false;
-    let mut all = false;
-    let mut protected_destinations = Vec::new();
-    let mut protected_parse = true;
-    let mut dry_run = false;
-    let mut index = 0;
-    while let Some(word) = arguments.get(index) {
-        let Some(argument) = static_word(word.raw(), word.substitutions().is_empty()) else {
-            if before_separator {
-                protected_parse = false;
-            } else if protected_parse && !repository {
-                repository = true;
-            }
-            index += 1;
-            continue;
-        };
-        if argument == "--" {
-            before_separator = false;
-            index += 1;
-            continue;
-        }
-        if before_separator && push_option_takes_value(&argument) {
-            if arguments.get(index + 1).is_none() {
-                protected_parse = false;
-            }
-            index += 2;
-            continue;
-        }
-        if before_separator && push_short_option_takes_value(&argument) {
-            explicit_force |= push_short_switch(&argument, 'f');
-            dry_run |= push_short_switch(&argument, 'n');
-            index += 2;
-            continue;
-        }
-        if before_separator {
-            match argument.as_str() {
-                "--force" => explicit_force = true,
-                "--no-force" => explicit_force = false,
-                "--mirror" => mirror = true,
-                "--no-mirror" => mirror = false,
-                "--dry-run" => dry_run = true,
-                "--no-dry-run" => dry_run = false,
-                "--force-with-lease" => {
-                    all_refs_leased = true;
-                    force_with_lease = true;
-                }
-                "--no-force-with-lease" => {
-                    all_refs_leased = false;
-                    force_with_lease = false;
-                    leased_refs.clear();
-                }
-                argument if argument.starts_with('-') && !argument.starts_with("--") => {
-                    explicit_force |= push_short_switch(argument, 'f');
-                    dry_run |= push_short_switch(argument, 'n');
-                }
-                _ => {}
-            }
-            if let Some(lease) = argument
-                .strip_prefix("--force-with-lease=")
-                .filter(|lease| !lease.is_empty())
-            {
-                force_with_lease = true;
-                leased_refs.push(lease.split(':').next().unwrap_or(lease).to_owned());
-            }
-        }
-        if let Some(refspec) = argument.strip_prefix('+')
-            && !refspec.is_empty()
-        {
-            forced_refs.push(
-                refspec
-                    .split_once(':')
-                    .map_or(refspec, |(_, destination)| destination)
-                    .to_owned(),
-            );
-        }
-        if protected_parse && before_separator {
-            if argument.starts_with("--repo=") {
-                index += 1;
-                continue;
-            }
-            if [
-                "--receive-pack=",
-                "--exec=",
-                "--recurse-submodules=",
-                "--push-option=",
-            ]
-            .iter()
-            .any(|option| argument.starts_with(option))
-            {
-                index += 1;
-                continue;
-            }
-            match argument.as_str() {
-                "--all" | "--branches" => all = true,
-                "--no-all" | "--no-branches" => all = false,
-                "--delete" => delete = true,
-                "--no-delete" => delete = false,
-                argument
-                    if push_switch_option(argument)
-                        || argument.starts_with("--force-with-lease=")
-                        || argument.starts_with("--signed=") => {}
-                argument if argument.starts_with("--") => protected_parse = false,
-                argument if argument.starts_with('-') && argument != "-" => {
-                    let flags = &argument.as_bytes()[1..];
-                    let mut position = 0;
-                    while position < flags.len() {
-                        match flags[position] as char {
-                            'd' => delete = true,
-                            'v' | 'q' | 'n' | 'f' | 'u' | '4' | '6' => {}
-                            'o' => break,
-                            _ => protected_parse = false,
-                        }
-                        position += 1;
-                    }
-                }
-                _ if !repository => repository = true,
-                "tag" => {
-                    index += 2;
-                    continue;
-                }
-                _ => {
-                    if let Some(destination) = protected_push_refspec(&argument) {
-                        protected_destinations.push(destination.to_owned());
-                    }
-                }
-            }
-            index += 1;
-            continue;
-        }
-        if protected_parse {
-            if !repository {
-                repository = true;
-            } else if argument == "tag" {
-                index += 2;
-                continue;
-            } else if let Some(destination) = protected_push_refspec(&argument) {
-                protected_destinations.push(destination.to_owned());
-            }
-        }
-        index += 1;
-    }
-    if dry_run {
-        return Vec::new();
-    }
-    let lease_applies = |destination: &str| {
-        all_refs_leased
-            || leased_refs.iter().any(|leased: &String| {
-                leased.strip_prefix("refs/heads/").unwrap_or(leased)
-                    == destination
-                        .strip_prefix("refs/heads/")
-                        .unwrap_or(destination)
-            })
-    };
-    let protected_push = protected_parse && !protected_destinations.is_empty() && !delete && !all;
-    let mut operations = Vec::new();
-    if explicit_force
-        || mirror
-        || forced_refs.iter().any(|forced| !lease_applies(forced))
-        || (protected_push
-            && protected_destinations
-                .iter()
-                .any(|destination| lease_applies(destination)))
-    {
-        operations.push("force-push");
-    }
-    if protected_push {
-        operations.push("protected-push");
-    }
-    if force_with_lease {
-        operations.push("history-rewrite");
-    }
-    operations
-}
-
-fn protected_push_refspec(argument: &str) -> Option<&str> {
-    let refspec = argument.strip_prefix('+').unwrap_or(argument);
-    let destination = match refspec.split_once(':') {
-        Some(("", _)) => return None,
-        Some((_, destination)) => destination,
-        None => refspec,
-    };
-    matches!(
-        destination,
-        "main" | "master" | "refs/heads/main" | "refs/heads/master"
-    )
-    .then_some(destination)
-}
-
 fn push_option_takes_value(argument: &str) -> bool {
     matches!(
         argument,
@@ -1272,34 +982,330 @@ fn push_switch_option(argument: &str) -> bool {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn metadata_paths_are_compared_after_lexical_normalization() {
-        for path in ["/repo/.git//objects/aa", "/repo/.git/tmp/../objects/aa"] {
-            for operation in [FilesystemOperation::Write, FilesystemOperation::Delete] {
-                assert!(metadata_mutation(path, operation, false, Platform::Linux));
+fn push_fact(arguments: &[Word]) -> nah_proto::effects::FactPayload {
+    use Knowledge::Known;
+    use nah_proto::effects::*;
+    let mut before_separator = true;
+    let mut explicit_force = false;
+    let mut mirror = false;
+    let mut all_refs_leased = false;
+    let mut force_with_lease = false;
+    let mut leased_refs = Vec::new();
+    let mut forced_refs = Vec::new();
+    let mut repository = false;
+    let mut delete = false;
+    let mut all = false;
+    let mut tags = false;
+    let mut prune = false;
+    let mut destinations = Vec::new();
+    let mut destinations_complete = true;
+    let mut dry_run = false;
+    let mut index = 0;
+    while let Some(word) = arguments.get(index) {
+        let Some(argument) = static_word(word.raw(), word.substitutions().is_empty()) else {
+            if before_separator {
+                destinations_complete = false;
+            } else if destinations_complete && !repository {
+                repository = true;
+            }
+            index += 1;
+            continue;
+        };
+        if argument == "--" {
+            before_separator = false;
+            index += 1;
+            continue;
+        }
+        if before_separator && push_option_takes_value(&argument) {
+            if arguments.get(index + 1).is_none() {
+                destinations_complete = false;
+            }
+            index += 2;
+            continue;
+        }
+        if before_separator && push_short_option_takes_value(&argument) {
+            explicit_force |= push_short_switch(&argument, 'f');
+            dry_run |= push_short_switch(&argument, 'n');
+            index += 2;
+            continue;
+        }
+        if before_separator {
+            match argument.as_str() {
+                "--force" => explicit_force = true,
+                "--no-force" => explicit_force = false,
+                "--mirror" => mirror = true,
+                "--no-mirror" => mirror = false,
+                "--dry-run" => dry_run = true,
+                "--no-dry-run" => dry_run = false,
+                "--force-with-lease" => {
+                    all_refs_leased = true;
+                    force_with_lease = true;
+                }
+                "--no-force-with-lease" => {
+                    all_refs_leased = false;
+                    force_with_lease = false;
+                    leased_refs.clear();
+                }
+                argument if argument.starts_with('-') && !argument.starts_with("--") => {
+                    explicit_force |= push_short_switch(argument, 'f');
+                    dry_run |= push_short_switch(argument, 'n');
+                }
+                _ => {}
+            }
+            if let Some(lease) = argument
+                .strip_prefix("--force-with-lease=")
+                .filter(|lease| !lease.is_empty())
+            {
+                force_with_lease = true;
+                leased_refs.push(lease.split(':').next().unwrap_or(lease).to_owned());
             }
         }
-        assert!(!metadata_mutation(
-            "/repo/.git/objects/../index",
-            FilesystemOperation::Delete,
-            true,
-            Platform::Linux
-        ));
-        assert!(metadata_mutation(
-            "/repo/backup.git",
-            FilesystemOperation::Delete,
-            true,
-            Platform::Linux
-        ));
-        assert!(!metadata_mutation(
-            "/repo/backup.git",
-            FilesystemOperation::Delete,
-            false,
-            Platform::Linux
-        ));
+        if let Some(refspec) = argument.strip_prefix('+')
+            && !refspec.is_empty()
+        {
+            forced_refs.push(
+                refspec
+                    .split_once(':')
+                    .map_or(refspec, |(_, destination)| destination)
+                    .to_owned(),
+            );
+        }
+        if destinations_complete && before_separator {
+            if argument.starts_with("--repo=") {
+                index += 1;
+                continue;
+            }
+            if [
+                "--receive-pack=",
+                "--exec=",
+                "--recurse-submodules=",
+                "--push-option=",
+            ]
+            .iter()
+            .any(|option| argument.starts_with(option))
+            {
+                index += 1;
+                continue;
+            }
+            match argument.as_str() {
+                "--all" | "--branches" => all = true,
+                "--no-all" | "--no-branches" => all = false,
+                "--tags" => tags = true,
+                "--no-tags" => tags = false,
+                "--prune" => prune = true,
+                "--no-prune" => prune = false,
+                "--delete" => delete = true,
+                "--no-delete" => delete = false,
+                argument
+                    if push_switch_option(argument)
+                        || argument.starts_with("--force-with-lease=")
+                        || argument.starts_with("--signed=") => {}
+                argument if argument.starts_with("--") => destinations_complete = false,
+                argument if argument.starts_with('-') && argument != "-" => {
+                    let flags = &argument.as_bytes()[1..];
+                    let mut position = 0;
+                    while position < flags.len() {
+                        match flags[position] as char {
+                            'd' => delete = true,
+                            'v' | 'q' | 'n' | 'f' | 'u' | '4' | '6' => {}
+                            'o' => break,
+                            _ => destinations_complete = false,
+                        }
+                        position += 1;
+                    }
+                }
+                _ if !repository => repository = true,
+                "tag" => {
+                    index += 2;
+                    continue;
+                }
+                _ => {
+                    if let Some(destination) = push_destination(&argument) {
+                        destinations.push(destination);
+                    }
+                }
+            }
+            index += 1;
+            continue;
+        }
+        if destinations_complete {
+            if !repository {
+                repository = true;
+            } else if argument == "tag" {
+                index += 2;
+                continue;
+            } else if let Some(destination) = push_destination(&argument) {
+                destinations.push(destination);
+            }
+        }
+        index += 1;
+    }
+    for destination in forced_refs {
+        if !destinations
+            .iter()
+            .any(|d| d.destination == Known(destination.clone()) && d.forced == Known(true))
+        {
+            destinations.push(PushDestination {
+                source: Knowledge::Unknown,
+                destination: Known(destination),
+                forced: Known(true),
+            });
+        }
+    }
+    FactPayload::GitPush {
+        repository: ResourceId(0),
+        destinations,
+        destinations_complete: Known(destinations_complete),
+        selection: if all || tags {
+            Selection::Whole
+        } else {
+            Selection::Unknown
+        },
+        explicit_force: Known(explicit_force),
+        lease_requested: Known(force_with_lease),
+        all_refs_lease: Known(all_refs_leased),
+        leased_refs: Known(leased_refs),
+        delete: Known(delete),
+        all: Known(all),
+        branches: Known(all),
+        mirror: Known(mirror),
+        prune: Known(prune),
+        dry_run: Known(dry_run),
+    }
+}
+
+fn push_destination(argument: &str) -> Option<nah_proto::effects::PushDestination> {
+    use nah_proto::effects::{Knowledge::Known, PushDestination};
+    let refspec = argument.strip_prefix('+').unwrap_or(argument);
+    if refspec.is_empty() {
+        return None;
+    }
+    let (source, destination) = refspec.split_once(':').unwrap_or((refspec, refspec));
+    Some(PushDestination {
+        source: Known(source.into()),
+        destination: Known(destination.into()),
+        forced: Known(argument.starts_with('+')),
+    })
+}
+
+/// Retains command facts at interpretation, before the public semantic projection.
+pub(crate) fn git_command_facts(
+    program: &str,
+    arguments: &[Word],
+) -> Vec<nah_proto::effects::FactPayload> {
+    use Knowledge::{Known, Unknown};
+    use nah_proto::effects::*;
+    if program != "git" {
+        return vec![];
+    }
+    let parsed = parse(arguments);
+    let Some((subcommand, arguments)) = parsed.command() else {
+        return vec![];
+    };
+    if (!matches!(subcommand, "clean" | "checkout" | "switch") && has_help(subcommand, arguments))
+        || option_before_separator(arguments, "--version")
+        || has_no_side_effect(subcommand, arguments)
+    {
+        return vec![];
+    }
+    let target = ResourceId(0);
+    let deletion = || FactPayload::GitRefChange {
+        target,
+        operation: GitRefOperation::Delete,
+        selection: Selection::Unknown,
+        active: Known(true),
+        abort: Known(false),
+        dry_run: Known(false),
+        force: Unknown,
+    };
+    let discard = |mode, force| FactPayload::GitDiscard {
+        target,
+        mode,
+        reset: Unknown,
+        selection: Selection::Whole,
+        untracked: Known(false),
+        force: Known(force),
+        dry_run: Known(false),
+    };
+    let recovery = || FactPayload::GitRecovery {
+        target,
+        operation: GitRecoveryOperation::Remove,
+        selection: Selection::Whole,
+        active: Known(true),
+        abort: Known(false),
+        dry_run: Known(false),
+        force: Unknown,
+    };
+    let history = |operation, force| FactPayload::GitHistory {
+        target,
+        operation,
+        selection: Selection::Unknown,
+        active: Known(true),
+        abort: Known(false),
+        dry_run: Known(false),
+        force: Known(force),
+    };
+    if let Some(force) = match subcommand {
+        "worktree" => worktree_deletion(arguments),
+        "submodule" => submodule_deinit(arguments),
+        _ => None,
+    } {
+        let mut facts = vec![deletion()];
+        if force && parsed.complete() {
+            facts.push(discard(
+                if subcommand == "worktree" {
+                    GitDiscardMode::WorktreeRemove
+                } else {
+                    GitDiscardMode::SubmoduleDeinit
+                },
+                force,
+            ));
+        }
+        return facts;
+    }
+    if subcommand == "stash"
+        && stash_delete_is_valid(arguments)
+        && arguments.first().and_then(static_argument).as_deref() == Some("clear")
+    {
+        let mut facts = vec![deletion()];
+        if parsed.complete() {
+            facts.push(recovery());
+        }
+        return facts;
+    }
+    match subcommand {
+        "push" => {
+            let mut facts = vec![push_fact(arguments)];
+            if push_deletes_refs(arguments) {
+                facts.push(deletion());
+            }
+            facts
+        }
+        "reset" if option_before_separator(arguments, "--hard") => vec![FactPayload::GitDiscard {
+            target,
+            mode: GitDiscardMode::Reset,
+            reset: Known(ResetMode::Hard),
+            selection: Selection::Whole,
+            untracked: Unknown,
+            force: Unknown,
+            dry_run: Known(false),
+        }],
+        "checkout" if forced_checkout(arguments) => vec![discard(GitDiscardMode::Checkout, true)],
+        "switch" if forced_switch(arguments) => vec![discard(GitDiscardMode::Checkout, true)],
+        "filter-repo" | "filter-branch" => vec![history(
+            GitHistoryOperation::Filter,
+            option_before_separator(arguments, "--force")
+                || subcommand == "filter-branch" && short_option_before_separator(arguments, 'f'),
+        )],
+        "gc" if gc_destroys_recovery(&parsed, arguments) => vec![recovery()],
+        "prune" if immediate_expiry(arguments, "--expire") => vec![recovery()],
+        "reflog" if destroys_all_reflog_recovery(arguments) => vec![recovery()],
+        "rebase" if rebase_rewrites_history(arguments) => {
+            vec![history(GitHistoryOperation::Rebase, false)]
+        }
+        "reflog" if reflog_expires(arguments) => vec![history(GitHistoryOperation::Other, false)],
+        "gc" if gc_rewrites_history(arguments) => vec![history(GitHistoryOperation::Other, false)],
+        _ if ref_delete(subcommand, arguments) => vec![deletion()],
+        _ => vec![],
     }
 }

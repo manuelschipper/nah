@@ -719,6 +719,8 @@ mod tests {
             filesystems: Vec::new(),
             root_move_destination_key: None,
             git_operations: Vec::new(),
+            evidence_call: None,
+            git_facts: Vec::new(),
             git_project_scoped: false,
             network_outbound: false,
             network_endpoints: Vec::new(),

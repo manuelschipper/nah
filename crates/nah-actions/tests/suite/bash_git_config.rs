@@ -191,31 +191,23 @@ fn historical_secret_paths_and_bare_repository_metadata_stay_visible() {
         }));
     }
 
-    for source in [
-        "rm -rf backup.git",
-        "rm -rf backup.git/objects",
-        "echo corrupt > backup.git/refs/heads/main",
+    for (source, expected) in [
+        ("rm -rf backup.git", true),
+        ("rm -rf backup.git/objects", true),
+        ("echo corrupt > backup.git/refs/heads/main", true),
+        ("touch backup.git", false),
+        ("rm -f backup.git", false),
+        ("rm -rf assets.git/index", false),
+        ("rm -rf objects", false),
     ] {
-        let stream = stream(source);
-        assert!(stream.effects().iter().any(|effect| {
-            matches!(
-                effect.kind(),
-                EffectKind::Git { operation } if operation.as_str() == "metadata-mutation"
-            )
-        }));
-    }
-
-    for source in [
-        "touch backup.git",
-        "rm -f backup.git",
-        "rm -rf assets.git/index",
-        "rm -rf objects",
-    ] {
-        assert!(!stream(source).effects().iter().any(|effect| {
-            matches!(
-                effect.kind(),
-                EffectKind::Git { operation } if operation.as_str() == "metadata-mutation"
-            )
-        }));
+        let plan = bash_plan(source);
+        let observation = observe(plan.observation_request(), "echo");
+        assert_eq!(
+            support::git_guard_operations(&plan, &observation)
+                .iter()
+                .any(|operation| operation == "metadata-mutation"),
+            expected,
+            "{source}"
+        );
     }
 }

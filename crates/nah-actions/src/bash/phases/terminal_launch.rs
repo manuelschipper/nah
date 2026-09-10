@@ -338,6 +338,7 @@ impl Lowerer {
                         filesystems.push(filesystem);
                     }
                 }
+                let mut git_facts = crate::bash_git::git_command_facts(&program, arguments);
                 let mut git_operations =
                     crate::bash_git::git_command_operations(&program, arguments)
                         .into_iter()
@@ -350,6 +351,7 @@ impl Lowerer {
                 if let Some(deletion) =
                     crate::bash_remote_source_control::classify_remote_deletion(&program, arguments)
                 {
+                    git_facts.push(deletion.fact(&program));
                     git_operations.push(match deletion {
                         crate::bash_remote_source_control::RemoteDeletion::Repository => {
                             SemanticCode::GIT_REMOTE_REPO_DELETE
@@ -376,6 +378,8 @@ impl Lowerer {
                     filesystems,
                     root_move_destination_key: None,
                     git_operations,
+                    evidence_call: None,
+                    git_facts,
                     git_project_scoped: false,
                     network_outbound: execution
                         .as_ref()

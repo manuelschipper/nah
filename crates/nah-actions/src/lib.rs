@@ -43,6 +43,7 @@ use bash::features::{
 };
 mod codex_patch;
 mod filesystem_effects;
+mod git_evidence;
 mod language_effects;
 mod native;
 mod paths;
@@ -564,6 +565,19 @@ fn finalize_inner(
     };
 
     if !bash && let Some(graph) = graph {
+        let lexical_paths = observation
+            .facts()
+            .iter()
+            .filter_map(|fact| match fact.value() {
+                ObservationValue::Path {
+                    observed: Observed::Ok { value },
+                } => Some((
+                    value.realpath().unwrap_or_else(|| value.resolved()).clone(),
+                    value.resolved().clone(),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
         for stage in &stages {
             filesystem_effects::emit_stage(
                 graph,
@@ -571,6 +585,12 @@ fn finalize_inner(
                 None,
                 &patch_moves,
                 &(1..stage.len()).collect::<Vec<_>>(),
+                filesystem_effects::FilesystemEvidenceContext {
+                    call: nah_proto::effects::CallId(0),
+                    lexical_paths: &lexical_paths,
+                    git_managed_indices: &[],
+                    platform: plan.platform,
+                },
             );
         }
     }
@@ -854,7 +874,7 @@ fn partial() -> ActionStream {
 }
 
 /// Both transition representations are finalized from the same interpreted draft.
-/// Family migrations add facts to `AnalysisPlan::effect_graph_mut` at interpretation.
+/// Git facts are retained during interpretation and bound to paths at finalization.
 /// No facts are recovered from legacy policy decisions or semantic guard codes.
 pub fn finalize_with_guard_evidence(
     plan: AnalysisPlan,
@@ -888,9 +908,15 @@ impl AnalysisPlan {
         if let Some(cwd) = observed_cwd(observation) {
             graph.calls[0].cwd = Knowledge::Known(cwd.clone());
         }
+        let mut finalized_plan = self.clone();
+        if let Draft::Bash(draft) = &mut finalized_plan.draft {
+            for (index, stage) in draft.stages.iter_mut().enumerate() {
+                stage.evidence_call = Some(CallId(index as u32 + 1));
+            }
+        }
         let retained_facts = graph.facts.len();
         let retained_resources = graph.resources.len();
-        let stream = finalize_inner(self.clone(), observation.clone(), true, Some(&mut graph));
+        let stream = finalize_inner(finalized_plan, observation.clone(), true, Some(&mut graph));
         if stream.effects().is_empty() {
             // Failed normal finalization discards its provisional filesystem facts.
             // Independently established inline summaries remain available.

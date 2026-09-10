@@ -94,7 +94,7 @@ pub(crate) fn classify(
     tier
 }
 
-fn lexically_normalized(path: &str, platform: Platform) -> String {
+pub(crate) fn lexically_normalized(path: &str, platform: Platform) -> String {
     let windows = platform == Platform::Windows;
     let unc = windows && (path.starts_with(r"\\") || path.starts_with("//"));
     let mut components = Vec::new();

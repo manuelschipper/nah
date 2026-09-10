@@ -3,6 +3,7 @@
 
 use Knowledge::{Known, Unknown};
 use nah_proto::action::{EffectKind, InvocationEffect, SemanticCode};
+use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::effects::*;
 use nah_proto::labels::{NahProtectionTier, PathScope};
 
@@ -36,12 +37,36 @@ fn fact(graph: &mut EffectGraph, payload: FactPayload) {
     });
 }
 
+/// Retains call identity and distinguishes Git selection summaries from direct access.
+pub(crate) struct FilesystemEvidenceContext<'a> {
+    pub call: CallId,
+    pub lexical_paths: &'a [(AbsolutePath, AbsolutePath)],
+    pub git_managed_indices: &'a [usize],
+    pub platform: Platform,
+}
+
+fn normalized_path(path: &AbsolutePath, platform: Platform) -> AbsolutePath {
+    let mut normalized =
+        crate::self_protection_tiers::lexically_normalized(path.as_str(), platform);
+    if platform == Platform::Windows && normalized.ends_with(':') {
+        normalized.push('\\');
+    }
+    AbsolutePath::new(platform, normalized).expect("normalized absolute filesystem identity")
+}
+
 fn path_resource(
     graph: &mut EffectGraph,
     filesystem: &nah_proto::action::FilesystemEffect,
+    context: &FilesystemEvidenceContext<'_>,
 ) -> ResourceId {
     let id = resource(graph, ResourceKind::HostPath);
-    let target = &filesystem.target;
+    let target = normalized_path(&filesystem.target, context.platform);
+    let lexical = context
+        .lexical_paths
+        .iter()
+        .find(|(target, _)| target == &filesystem.target)
+        .map_or(&filesystem.target, |(_, lexical)| lexical);
+    let lexical = normalized_path(lexical, context.platform);
     let resource = graph.resources.last_mut().expect("inserted resource");
     resource.identity.details = Known(ResourceDetails::Path {
         lexical: Known(target.clone()),
@@ -55,8 +80,12 @@ fn path_resource(
         Selection::Exact
     };
     resource.labels = Some(ResourceLabels {
-        lexical: Known(target.clone()),
-        canonical: Unknown,
+        canonical: if lexical != target {
+            Known(target.clone())
+        } else {
+            Unknown
+        },
+        lexical: Known(lexical),
         scope: Known(filesystem.scope.clone()),
         sensitivity: Known(filesystem.sensitivity),
         protection: Known(filesystem.protection),
@@ -92,6 +121,7 @@ pub(crate) fn emit_stage(
     grants: Option<&PermissionGrants>,
     moves: &[(usize, usize)],
     operand_indices: &[usize],
+    context: FilesystemEvidenceContext<'_>,
 ) {
     use nah_proto::action::FilesystemOperation as LegacyOperation;
     let operation = effects.iter().find_map(|effect| match effect {
@@ -137,7 +167,7 @@ pub(crate) fn emit_stage(
             EffectKind::Filesystem { .. } | EffectKind::FilesystemUnresolved { .. } => {
                 let (target, operation, recursive) = match effect {
                     EffectKind::Filesystem { effect } => (
-                        path_resource(graph, effect),
+                        path_resource(graph, effect, &context),
                         effect.operation,
                         effect.recursive,
                     ),
@@ -169,7 +199,7 @@ pub(crate) fn emit_stage(
                 };
                 let destination = if operation == FilesystemOperation::Move {
                     Some(match patch_destination.or(destination) {
-                        Some(path) => path_resource(graph, path),
+                        Some(path) => path_resource(graph, path, &context),
                         None => resource(graph, ResourceKind::HostPath),
                     })
                 } else {
@@ -192,6 +222,13 @@ pub(crate) fn emit_stage(
                         purpose: AccessPurpose::Unknown,
                     },
                 );
+                let emitted = graph.facts.last_mut().expect("inserted filesystem fact");
+                emitted.call = context.call;
+                // Git-managed selections retain their abstract filesystem reach,
+                // but do not establish a direct metadata mutation.
+                if !context.git_managed_indices.contains(&index) {
+                    emitted.modality = Modality::MustOnSuccess;
+                }
             }
             EffectKind::SystemState { operation } if operation == &SemanticCode::FORK_BOMB => fact(
                 graph,

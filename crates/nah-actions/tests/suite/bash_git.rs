@@ -95,14 +95,10 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");
+        let guard_operations = support::git_guard_operations(&plan, &observation);
         let stream = finalize(plan, observation);
         assert!(
-            stream.effects().iter().any(|effect| {
-                matches!(
-                    effect.kind(),
-                    EffectKind::Git { operation: actual } if actual.as_str() == operation
-                )
-            }),
+            guard_operations.iter().any(|actual| actual == operation),
             "{source}: {:?}",
             stream.effects()
         );
@@ -224,14 +220,10 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");
-        let stream = finalize(plan, observation);
-        let operations = stream
-            .effects()
+        let guard_operations = support::git_guard_operations(&plan, &observation);
+        let operations = guard_operations
             .iter()
-            .filter_map(|effect| match effect.kind() {
-                EffectKind::Git { operation } => Some(operation.as_str()),
-                _ => None,
-            })
+            .map(String::as_str)
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(operations, expected.into_iter().collect(), "{source}");
     }
@@ -291,14 +283,10 @@ fn git_guard_evidence_is_semantic_and_flag_sensitive() {
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");
-        let stream = finalize(plan, observation);
+        let guard_operations = support::git_guard_operations(&plan, &observation);
         assert!(
-            !stream
-                .effects()
-                .iter()
-                .any(|effect| matches!(effect.kind(), EffectKind::Git { .. })),
-            "{source}: {:?}",
-            stream.effects()
+            guard_operations.is_empty(),
+            "{source}: {guard_operations:?}"
         );
     }
 }
@@ -321,14 +309,11 @@ fn git_history_rewrite_evidence_is_complementary_and_recovery_safe() {
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");
+        let guard_operations = support::git_guard_operations(&plan, &observation);
         let stream = finalize(plan, observation);
-        let operations = stream
-            .effects()
+        let operations = guard_operations
             .iter()
-            .filter_map(|effect| match effect.kind() {
-                EffectKind::Git { operation } => Some(operation.as_str()),
-                _ => None,
-            })
+            .map(String::as_str)
             .collect::<Vec<_>>();
         assert_eq!(
             operations,
@@ -345,14 +330,11 @@ fn git_history_rewrite_evidence_is_complementary_and_recovery_safe() {
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");
+        let guard_operations = support::git_guard_operations(&plan, &observation);
         let stream = finalize(plan, observation);
-        let operations = stream
-            .effects()
+        let operations = guard_operations
             .iter()
-            .filter_map(|effect| match effect.kind() {
-                EffectKind::Git { operation } => Some(operation.as_str()),
-                _ => None,
-            })
+            .map(String::as_str)
             .collect::<Vec<_>>();
         assert_eq!(operations, [operation], "{source}: {:?}", stream.effects());
     }
@@ -374,11 +356,12 @@ fn git_history_rewrite_evidence_is_complementary_and_recovery_safe() {
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");
+        let guard_operations = support::git_guard_operations(&plan, &observation);
         let stream = finalize(plan, observation);
         assert!(
-            !stream.effects().iter().any(|effect| {
-                matches!(effect.kind(), EffectKind::Git { operation } if operation.as_str() == "history-rewrite")
-            }),
+            !guard_operations
+                .iter()
+                .any(|operation| operation == "history-rewrite"),
             "{source}: {:?}",
             stream.effects()
         );
@@ -418,14 +401,11 @@ fn git_ref_deletes_preserve_independent_semantic_operations() {
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");
+        let guard_operations = support::git_guard_operations(&plan, &observation);
         let stream = finalize(plan, observation);
-        let operations = stream
-            .effects()
+        let operations = guard_operations
             .iter()
-            .filter_map(|effect| match effect.kind() {
-                EffectKind::Git { operation } => Some(operation.as_str()),
-                _ => None,
-            })
+            .map(String::as_str)
             .collect::<Vec<_>>();
         assert_eq!(
             operations,
@@ -594,11 +574,12 @@ fn git_ref_delete_rejects_nonexecuting_and_invalid_shapes() {
     ] {
         let plan = bash_plan(source);
         let observation = observe(plan.observation_request(), "echo");
+        let guard_operations = support::git_guard_operations(&plan, &observation);
         let stream = finalize(plan, observation);
         assert!(
-            !stream.effects().iter().any(|effect| {
-                matches!(effect.kind(), EffectKind::Git { operation } if operation.as_str() == "ref-delete")
-            }),
+            !guard_operations
+                .iter()
+                .any(|operation| operation == "ref-delete"),
             "{source}: {:?}",
             stream.effects()
         );
