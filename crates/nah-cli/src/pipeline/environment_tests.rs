@@ -596,3 +596,184 @@ fn environment_round_bound_stops_unique_drift() {
     assert_eq!(result.refusals()[0].component(), "environment");
     assert_eq!(result.refusals()[0].code(), "round-limit");
 }
+
+#[cfg(feature = "effinterp")]
+#[test]
+fn optional_evidence_binds_values_and_refuses_unset_without_substitution() {
+    use nah_effinterp::{RefusalKind, SelectedInput};
+    let input = input("cat \"$SELECTED_FILE\"");
+    let mut rounds = 0;
+    let super::OptionalEvidenceAnalysis {
+        evidence,
+        observation,
+        ..
+    } = super::analyze_optional_with(SelectedInput::Shell(&input), &context(), |request| {
+        rounds += 1;
+        assert!(
+            environment_names(request)
+                .iter()
+                .all(|name| *name == "SELECTED_FILE")
+        );
+        Ok(observed(request, |_| value("/repo/file")))
+    })
+    .unwrap();
+    assert!(rounds >= 2);
+    assert_eq!(
+        evidence.graph().causality,
+        nah_proto::effects::CausalAvailability::Available
+    );
+    assert!(
+        evidence
+            .graph()
+            .resources
+            .iter()
+            .any(|resource| resource.identity.name
+                == nah_proto::effects::Knowledge::Known("/repo/file".into()))
+    );
+    assert!(
+        observation
+            .facts()
+            .iter()
+            .any(|fact| matches!(fact.query(), ObservationQuery::Env { .. }))
+    );
+    let refusal =
+        super::analyze_optional_with(SelectedInput::Shell(&input), &context(), |request| {
+            Ok(observed(request, |_| Observed::Ok {
+                value: EnvObservation::Unset,
+            }))
+        })
+        .unwrap_err();
+    assert_eq!(refusal.kind, RefusalKind::UnsupportedContext);
+    assert_eq!(refusal.root_tool, "Bash");
+    let mut plan =
+        nah_effinterp::plan_evidence(SelectedInput::Shell(&input), &context(), Default::default())
+            .unwrap();
+    let empty = observed(plan.request(), |_| value(""));
+    let values = nah_effinterp::observed_environment(&plan, &empty).unwrap();
+    assert_eq!(values.get("SELECTED_FILE"), Some(&String::new()));
+    plan = nah_effinterp::plan_evidence(SelectedInput::Shell(&input), &context(), values).unwrap();
+    let drift = observed(plan.request(), |_| value("/other"));
+    assert_eq!(
+        nah_effinterp::finalize_evidence(plan, &drift, &context(), &[])
+            .unwrap_err()
+            .kind,
+        RefusalKind::EnvironmentDrift
+    );
+}
+
+#[cfg(feature = "effinterp")]
+#[test]
+fn optional_direct_inputs_preserve_literals_and_typed_refusals() {
+    use nah_effinterp::{RefusalKind, SelectedInput, SourceLanguage};
+    use nah_proto::effects::{FactPayload, FilesystemOperation, Knowledge};
+    for (tool, fields) in [
+        ("Read", json!({"file_path":"/repo/literal"})),
+        ("Write", json!({"file_path":"/repo/literal", "content":""})),
+        (
+            "Edit",
+            json!({"file_path":"/repo/literal", "old_string":"", "new_string":"", "replace_all":true}),
+        ),
+    ] {
+        let input = ToolCallInput::new(SchemaVersion::V1, tool, fields, "/repo", None).unwrap();
+        let super::OptionalEvidenceAnalysis { evidence, .. } =
+            super::analyze_optional_with(SelectedInput::Native(&input), &context(), |request| {
+                Ok(observed(request, |_| {
+                    panic!("native literal cannot request environment")
+                }))
+            })
+            .unwrap();
+        assert!(
+            evidence
+                .graph()
+                .resources
+                .iter()
+                .any(|r| r.identity.name == Knowledge::Known("/repo/literal".into()))
+        );
+        assert!(
+            evidence
+                .graph()
+                .occurrences
+                .iter()
+                .any(|occurrence| occurrence.fact.is_some()),
+            "native interaction must bind its fact"
+        );
+        assert!(evidence.graph().facts.iter().any(|f| matches!(
+            f.payload,
+            FactPayload::FilesystemAccess {
+                operation: FilesystemOperation::Read
+                    | FilesystemOperation::Write
+                    | FilesystemOperation::Create,
+                ..
+            }
+        )));
+    }
+    for (language, source) in [
+        (SourceLanguage::Python, "open('/repo/a').read()"),
+        (SourceLanguage::JavaScript, "console.log('ok')"),
+        (SourceLanguage::TypeScript, "const x: number = 1;"),
+    ] {
+        let input = python_input(source);
+        let super::OptionalEvidenceAnalysis { evidence, .. } = super::analyze_optional_with(
+            SelectedInput::Source {
+                input: &input,
+                source,
+                language,
+            },
+            &context(),
+            |request| Ok(observed(request, |_| value(""))),
+        )
+        .unwrap();
+        assert_eq!(
+            evidence.graph().calls[0].identity,
+            Knowledge::Known(input.tool().into())
+        );
+    }
+    let input = python_input("anything");
+    for language in [
+        SourceLanguage::Ipython,
+        SourceLanguage::PowerShell,
+        SourceLanguage::Pwsh,
+        SourceLanguage::Cmd,
+    ] {
+        let result = super::analyze_optional_with(
+            SelectedInput::Source {
+                input: &input,
+                source: "anything",
+                language,
+            },
+            &context(),
+            |_| panic!("refuse before observation"),
+        );
+        assert_eq!(result.unwrap_err().kind, RefusalKind::UnsupportedInput);
+    }
+    for (tool, fields) in [
+        ("Delete", json!({"file_path":"/repo/a"})),
+        ("Read", json!({"file_path":"/repo/$literal"})),
+        ("AmpUpload", json!({})),
+        ("Edit", json!({"file_path":"/repo/a","edits":[]})),
+        ("process", json!({"action":"poll"})),
+    ] {
+        let input = ToolCallInput::new(SchemaVersion::V1, tool, fields, "/repo", None).unwrap();
+        let refusal =
+            super::analyze_optional_with(SelectedInput::Native(&input), &context(), |_| {
+                panic!("refuse before observation")
+            })
+            .unwrap_err();
+        assert_eq!(refusal.kind, RefusalKind::UnsupportedInput);
+        assert_eq!(refusal.root_tool, tool);
+    }
+}
+
+#[test]
+fn normal_evidence_keeps_semantic_flows_without_changing_enforcement() {
+    let result = decide_with(&input("cat /repo/a | cat"), &context(), |request| {
+        Ok(observed(request, |_| value("")))
+    });
+    let evidence = result.guard_evidence().unwrap().unwrap();
+    assert!(evidence.graph().relations.iter().any(|r| matches!(
+        r.kind,
+        nah_proto::effects::RelationKind::ConservativeDataflow { .. }
+    ) && r.certainty
+        == nah_proto::effects::Certainty::Conservative));
+    assert_eq!(result.core().verdict(), Verdict::Delegate);
+}

@@ -58,6 +58,12 @@ fn decision_core_accepts_coverage_without_the_legacy_stream_shape() {
 
     assert_eq!(core.coverage(), Coverage::Partial);
     assert_eq!(core.reason(), "partial coverage");
+    let structural =
+        DecisionCore::structural_block_with_coverage(Coverage::Partial, "protected target")
+            .unwrap();
+    assert_eq!(structural.coverage(), Coverage::Partial);
+    assert_eq!(structural.verdict(), Verdict::Block);
+    assert!(structural.policy_attributions().is_empty());
 }
 
 #[test]

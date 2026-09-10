@@ -226,3 +226,19 @@ fn add_extension_guards(
     }
     Ok(())
 }
+
+/// Common predicate boundary for the staged family migration. Family owners replace
+/// their existing `add` function in place; producer identity is never an argument.
+pub type FamilyPredicate = fn(
+    &nah_proto::effects::GuardEvidence,
+    &PolicyCtx,
+    &mut Vec<GuardContribution>,
+) -> Result<bool, DecisionError>;
+
+/// Structural predicates additionally honor the reducer's enforcement mode.
+pub type StructuralPredicate = fn(
+    &nah_proto::effects::GuardEvidence,
+    &PolicyCtx,
+    &mut Vec<GuardContribution>,
+    EnforcementMode,
+) -> Result<bool, DecisionError>;

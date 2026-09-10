@@ -83,6 +83,7 @@ enum Draft {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AnalysisPlan {
     draft: Draft,
+    effect_graph: nah_proto::effects::EffectGraph,
     bash_coverage_draft: Option<bash_model::Draft>,
     observation_request: ObservationRequest,
     ambient_variables: Vec<(String, bash_model::VariableValue)>,
@@ -289,7 +290,9 @@ fn plan_with_ambient_variables(
         })
         .cloned()
         .collect();
+    let effect_graph = normal_effect_graph(&draft, input, &inline_report);
     AnalysisPlan {
+        effect_graph,
         draft,
         bash_coverage_draft,
         observation_request,
@@ -828,4 +831,204 @@ fn block_relevant_lexical_filesystem(effect: &EffectKind) -> bool {
 fn partial() -> ActionStream {
     ActionStream::new(Coverage::Partial, vec![], vec![])
         .expect("nah-proto accepts an empty partial action stream")
+}
+
+/// Both transition representations are finalized from the same interpreted draft.
+/// Family migrations add facts to `AnalysisPlan::effect_graph_mut` at interpretation.
+/// No facts are recovered from legacy policy decisions or semantic guard codes.
+pub fn finalize_with_guard_evidence(
+    plan: AnalysisPlan,
+    observation: Observation,
+) -> Result<
+    (
+        ActionStream,
+        ActionStream,
+        nah_proto::effects::GuardEvidence,
+    ),
+    nah_proto::effects::EvidenceError,
+> {
+    let evidence = plan.guard_evidence(&observation)?;
+    let (public, safety) = finalize_with_language_safety_stream(plan, observation);
+    Ok((public, safety, evidence))
+}
+
+impl AnalysisPlan {
+    /// Builds one owned neutral graph bound to the same observation as normal output.
+    pub fn guard_evidence(
+        &self,
+        observation: &Observation,
+    ) -> Result<nah_proto::effects::GuardEvidence, nah_proto::effects::EvidenceError> {
+        use nah_proto::effects::*;
+        if observation.bind(&self.observation_request).is_err()
+            || !ambient_variables_match(&self.ambient_variables, observation)
+        {
+            return Err(EvidenceError::InvalidPayload);
+        }
+        let mut graph = self.effect_graph.clone();
+        if let Some(cwd) = observed_cwd(observation) {
+            graph.calls[0].cwd = Knowledge::Known(cwd.clone());
+        }
+        GuardEvidence::new(
+            graph,
+            PublicSelection {
+                calls: [CallId(0)].into(),
+                facts: Default::default(),
+                resources: Default::default(),
+                occurrences: Default::default(),
+                relations: Default::default(),
+                complete: false,
+            },
+        )
+    }
+    /// Family-owned emitters retain interpreted facts before their legacy projection.
+    /// The finalized evidence boundary validates all IDs, realms and selections.
+    pub fn effect_graph_mut(&mut self) -> &mut nah_proto::effects::EffectGraph {
+        &mut self.effect_graph
+    }
+}
+
+fn normal_effect_graph(
+    draft: &Draft,
+    input: AnalysisInput<'_>,
+    report: &nah_inline::InlineReport,
+) -> nah_proto::effects::EffectGraph {
+    use Knowledge::{Known, Unknown};
+    use nah_proto::effects::*;
+    let (kind, input) = match input {
+        AnalysisInput::Native(input) => (InvocationKind::Native, input),
+        AnalysisInput::Bash(_, input) => (InvocationKind::Shell, input),
+        AnalysisInput::VisibleCode(_, input) => (InvocationKind::VisibleCode, input),
+    };
+    let modeled_coverage = match draft {
+        Draft::Bash(draft) => {
+            if draft.complete {
+                Coverage::Full
+            } else {
+                Coverage::Partial
+            }
+        }
+        Draft::Native(
+            native::Draft::Native { complete, .. }
+            | native::Draft::Patch { complete, .. }
+            | native::Draft::Opaque { complete, .. },
+        ) => {
+            if *complete {
+                Coverage::Full
+            } else {
+                Coverage::Partial
+            }
+        }
+        Draft::Native(native::Draft::Unsupported) => Coverage::Partial,
+    };
+    let mut graph = EffectGraph {
+        calls: vec![EffectCall {
+            id: CallId(0),
+            parent: None,
+            kind,
+            identity: Known(input.tool().to_owned()),
+            input: (input.invocation_input().to_string().len() <= INVOCATION_EVIDENCE_CAP)
+                .then(|| input.clone()),
+            cwd: Unknown,
+            payload_group: Known(PayloadGroupId(0)),
+            visibility_ordinal: Known(0),
+            coverage: modeled_coverage,
+        }],
+        resources: vec![],
+        facts: vec![],
+        occurrences: vec![],
+        relations: vec![],
+        conditions: vec![],
+        coverage: vec![],
+        gaps: vec![EffectGap {
+            id: GapId(0),
+            phase: GapPhase::Translation,
+            category: GapCategory::Unmodeled,
+            call: CallId(0),
+            domain: None,
+            code: "normal-family-emission-pending".into(),
+        }],
+        causality: CausalAvailability::Unavailable,
+    };
+    if graph.calls[0].input.is_none() {
+        graph.gaps.push(EffectGap {
+            id: GapId(graph.gaps.len() as u32),
+            phase: GapPhase::Projection,
+            category: GapCategory::Limit,
+            call: CallId(0),
+            domain: None,
+            code: "input-byte-limit".into(),
+        });
+    }
+    if let Draft::Bash(draft) = draft {
+        graph.causality = CausalAvailability::Available;
+        for (index, stage) in draft.stages.iter().enumerate() {
+            use bash_model::{InvocationDraft, ProgramDraft};
+            let (kind, identity) = match &stage.invocation {
+                InvocationDraft::Known { program, .. } => {
+                    (InvocationKind::Argv, Known(program.clone()))
+                }
+                InvocationDraft::Native { program, .. } => {
+                    (InvocationKind::Native, Known(program.clone()))
+                }
+                InvocationDraft::CodeExecution { program, .. } => {
+                    (InvocationKind::VisibleCode, Known(program.clone()))
+                }
+                InvocationDraft::Opaque { program, .. } => (
+                    InvocationKind::Argv,
+                    match program {
+                        ProgramDraft::Static(program) => Known(program.clone()),
+                        _ => Unknown,
+                    },
+                ),
+            };
+            let call = CallId(index as u32 + 1);
+            graph.calls.push(EffectCall {
+                id: call,
+                parent: Some(CallId(0)),
+                kind,
+                identity,
+                input: None,
+                cwd: Unknown,
+                payload_group: Unknown,
+                visibility_ordinal: Unknown,
+                coverage: modeled_coverage,
+            });
+            for (offset, port) in [(0, PortKind::SemanticInput), (1, PortKind::SemanticOutput)] {
+                graph.occurrences.push(EffectOccurrence {
+                    condition: None,
+                    id: OccurrenceId(index as u32 * 2 + offset),
+                    call,
+                    fact: None,
+                    resource: None,
+                    port,
+                });
+            }
+        }
+        for &(from, to) in &draft.flows {
+            graph.relations.push(EffectRelation {
+                from: OccurrenceId(from as u32 * 2 + 1),
+                to: OccurrenceId(to as u32 * 2),
+                kind: RelationKind::ConservativeDataflow {
+                    source: PortKind::SemanticOutput,
+                    sink: PortKind::SemanticInput,
+                },
+                condition: None,
+                certainty: Certainty::Conservative,
+            });
+        }
+        if !draft.stages.is_empty() {
+            graph.gaps.push(EffectGap {
+                id: GapId(graph.gaps.len() as u32),
+                phase: GapPhase::Projection,
+                category: GapCategory::Unmodeled,
+                call: CallId(0),
+                domain: None,
+                code: "payload-group-unavailable".into(),
+            });
+        }
+    }
+    for finding in report.findings() {
+        finding.emit_effect(&mut graph, CallId(0));
+    }
+    graph
 }

@@ -29,7 +29,10 @@ pub use {
 };
 #[cfg(feature = "engine")]
 pub use {
-    bridge::analyze_shell,
+    bridge::{
+        AdapterRefusal, EvidencePlan, RefusalKind, SelectedInput, SourceLanguage, analyze_shell,
+        finalize_evidence, observed_environment, plan_evidence,
+    },
     daemon::{
         DaemonRunOptions, PublishedSnapshotVerification, build_daemon_snapshot, daemon_status,
         run_daemon, stop_daemon, verify_published_snapshot,

@@ -50,4 +50,6 @@ mod tui;
 
 pub use catalog::{all_shipped_guard_states_enabled, shipped_guard_states, shipped_guards};
 pub use dispatch::run;
-pub use pipeline::{DecisionResult, decide_with};
+pub use pipeline::{DecisionResult, EvidenceProvenance, decide_with};
+#[cfg(feature = "effinterp")]
+pub use pipeline::{OptionalEvidenceAnalysis, analyze_optional_with};

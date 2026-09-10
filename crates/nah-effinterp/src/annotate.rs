@@ -72,9 +72,9 @@ fn annotate_path(
         ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },
         } => (path.as_str(), false),
-        ResourceExpr::Pattern { family, pattern } if family.0 == "filesystem" => {
-            (pattern.as_str(), true)
-        }
+        ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+        } => (pattern.as_str(), true),
         _ => return PathLabel::Unresolved,
     };
     let Some(query_path) = observation_path(&effect.resource) else {

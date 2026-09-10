@@ -1,48 +1,1148 @@
 {
-  "schema": "effinterp/plan/v1",
-  "subject": {
-    "kind": "shell",
-    "source": "rm -r \"$TMPDIR/build\" && ./deploy.sh",
-    "cwd": "/work/repo"
-  },
   "analysis": {
     "engine_version": "0.1.0",
-    "model_set": "builtin:blake3:abc69c5d8d950e1a3855491efb60e4726fddb9e5de84ebe583eedcd055d2ad0f",
     "limits": {
+      "max_analysis_bytes": 33554432,
+      "max_analysis_steps": 32768,
       "max_boundaries": 4096,
+      "max_causal_depth": 256,
       "max_causal_edges": 32768,
       "max_causal_nodes": 16384,
+      "max_causal_pairs": 32768,
       "max_effects": 4096,
       "max_execution_depth": 8,
       "max_execution_fanout": 256,
       "max_execution_nodes": 4096,
+      "max_go_nodes": 20000,
+      "max_heredoc_expansions": 4096,
+      "max_java_nodes": 30000,
+      "max_js_nodes": 20000,
+      "max_patch_bytes": 4194304,
+      "max_patch_files": 2048,
+      "max_php_nodes": 20000,
       "max_provenance_nodes": 65536,
+      "max_python_nodes": 80000,
+      "max_resolved_source_files": 64,
+      "max_ruby_nodes": 20000,
+      "max_rust_nodes": 20000,
+      "max_shell_function_depth": 8,
+      "max_shell_words": 4096,
       "max_source_bytes": 4194304
+    },
+    "model_set": "builtin:blake3:90bafbc72e55b33ccdd279730f1b3906b1df40cf072ce3a60e5f6685664b6b20"
+  },
+  "boundaries": [
+    {
+      "affected_resource": {
+        "expr": "concrete",
+        "identity": {
+          "family": "fs_path",
+          "path": "/work/repo/deploy.sh"
+        }
+      },
+      "class": "unresolved",
+      "detail": "execution input unobserved: ResolverUnavailable",
+      "domains": [
+        "artifact",
+        "filesystem",
+        "process",
+        "environment",
+        "network",
+        "database",
+        "container",
+        "git",
+        "cloud",
+        "messaging",
+        "system",
+        "credential"
+      ],
+      "reason": "unrecoverable_source"
+    },
+    {
+      "class": "unmodeled",
+      "detail": "no model for command \"deploy.sh\"",
+      "domains": [
+        "artifact",
+        "filesystem",
+        "process",
+        "environment",
+        "network",
+        "database",
+        "container",
+        "git",
+        "cloud",
+        "messaging",
+        "system",
+        "credential"
+      ],
+      "provenance": [
+        8
+      ],
+      "reason": "unmodeled_command"
+    }
+  ],
+  "causality": {
+    "coverage": {
+      "level": "full"
+    },
+    "graph": {
+      "edges": [
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:1573ea2bfa37626c34b42f8bdfff3fe0f87adb8df0d9759a9180c24ac9630bb5",
+          "modality": "may",
+          "order": 0,
+          "provenance": [
+            6
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:b7d2c829304023d89de88cced5fade65fca53009330ec26e1dcdabae54f5b5e2"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:2019695f404c652e501d91a8f6f3bced5d7ddf2671a759ad1b181eec41f84a75",
+          "modality": "must-on-success",
+          "order": 1,
+          "provenance": [
+            1
+          ],
+          "reason": "containment",
+          "to": "occurrence:blake3:c470584a8ebee06f034150c6ef3bd4012881159fd65363a23e76e8d090682991"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:5edf058ee840d64ddaf4ea3fd9e2a0db2362413f479377fe7f4ed1bedd846c4c",
+          "modality": "must-on-success",
+          "order": 2,
+          "provenance": [
+            1
+          ],
+          "reason": "containment",
+          "to": "occurrence:blake3:fb72e563b7dd9150b01e57b5bc54a6015b132af4de284ac312b22e5fc65f5e8e"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:72751b086e92946eab4ffd9261c0b6bdbcbea96b22438b05008943554894bc42",
+          "modality": "must-on-success",
+          "order": 3,
+          "provenance": [
+            1
+          ],
+          "reason": "containment",
+          "to": "occurrence:blake3:f66b2f42b0c3d927fecf0328356e7832ffe536dffc032aa13a82506e8061ec88"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:880b77f011d28c9543d31db7b308d7288de58cc561cadb7e4447ebdc7282f1d8",
+          "modality": "may",
+          "order": 4,
+          "provenance": [
+            1
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:5af5d7dc2d54bcb23dd677484fbf5cf5c6ac8a15a58f11dafccc9434520712e3"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:8b75fa255e825b387d16edb25d5ce7d15fa862ede3e808ca81f4534ebd0b03e0",
+          "modality": "must-on-success",
+          "order": 5,
+          "provenance": [
+            1
+          ],
+          "reason": "launch",
+          "to": "occurrence:blake3:9051366df65d4f63cf3a888a0f4cc0ed27c3d9092bb46c6d8be5f15e40089b1a"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:8b75fa255e825b387d16edb25d5ce7d15fa862ede3e808ca81f4534ebd0b03e0",
+          "modality": "must-on-success",
+          "order": 6,
+          "provenance": [
+            6
+          ],
+          "reason": "launch",
+          "to": "occurrence:blake3:bc174208738784c2a69edfb9e4552ccc0c64ff622f546f9df69fcc5827f18320"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:8b75fa255e825b387d16edb25d5ce7d15fa862ede3e808ca81f4534ebd0b03e0",
+          "modality": "may",
+          "order": 7,
+          "provenance": [
+            0
+          ],
+          "reason": "control_dependency",
+          "to": "occurrence:blake3:d0efffe08ab0d3cecb8a2c617a16c671a82e5f6b0e60ca085118a94fd88f391a"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:9025ad6358e35a861c9b6da696c29c86da9c47723da3ee2c4a4e54ca32101633",
+          "modality": "may",
+          "order": 8,
+          "provenance": [
+            1
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:5c066abf30a4e41126fcebe90a9fc2369268fc1c2698fa49eafb9df17c0df3d1"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:9051366df65d4f63cf3a888a0f4cc0ed27c3d9092bb46c6d8be5f15e40089b1a",
+          "modality": "may",
+          "order": 9,
+          "provenance": [
+            5,
+            4
+          ],
+          "reason": "control_dependency",
+          "to": "occurrence:blake3:5c066abf30a4e41126fcebe90a9fc2369268fc1c2698fa49eafb9df17c0df3d1"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:9051366df65d4f63cf3a888a0f4cc0ed27c3d9092bb46c6d8be5f15e40089b1a",
+          "modality": "may",
+          "order": 10,
+          "provenance": [
+            3
+          ],
+          "reason": "control_dependency",
+          "to": "occurrence:blake3:e4207eda88c2fba976a898519ed62d10a5db3ef8d37cdfa80f085fc657267f18"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "condition": {
+            "atom": {
+              "arm": 0,
+              "arms": 2,
+              "evidence": {
+                "excerpt": "rm -r \"$TMPDIR/build\"",
+                "kind": "source",
+                "path": null
+              },
+              "exhaustive": true,
+              "origin": {
+                "call_instance": null,
+                "kind": "short_circuit",
+                "ordinal": 0,
+                "source_digest": "blake3:10336b1869d171542b4474c856f1f09b4450d0547b7f7fdac325c46c52b7afeb",
+                "span": {
+                  "end": 21,
+                  "start": 0
+                }
+              },
+              "polarity": true
+            },
+            "kind": "atom"
+          },
+          "from": "occurrence:blake3:923e3e43b392faab4b2e1a3643d687894b29726890490271d594e0214b86ead7",
+          "modality": "may",
+          "order": 11,
+          "reason": "launch",
+          "to": "occurrence:blake3:2626278e2a7d78194e31aadaf09da18cfad333f9cb10bdd0e56e98d50a5ab66f"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:9922312969bcd1782492f1abb295ccfd1e253eae31be5ed6376d95eb2e0c7d66",
+          "modality": "must-on-success",
+          "order": 12,
+          "provenance": [
+            6
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:bc174208738784c2a69edfb9e4552ccc0c64ff622f546f9df69fcc5827f18320"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:a4c21a6634fa2eeef83f988a4b395d40bd8c6c7eaf5d95eff5f7c96764803aea",
+          "modality": "may",
+          "order": 13,
+          "provenance": [
+            1
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:b7d2c829304023d89de88cced5fade65fca53009330ec26e1dcdabae54f5b5e2"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:a82d382bb172daef7da99638976e56ec22ba886a142c6115f851492a6638126e",
+          "modality": "may",
+          "order": 14,
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:9025ad6358e35a861c9b6da696c29c86da9c47723da3ee2c4a4e54ca32101633"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:bc174208738784c2a69edfb9e4552ccc0c64ff622f546f9df69fcc5827f18320",
+          "modality": "must-on-success",
+          "order": 15,
+          "reason": "launch",
+          "to": "occurrence:blake3:2626278e2a7d78194e31aadaf09da18cfad333f9cb10bdd0e56e98d50a5ab66f"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "condition": {
+            "atom": {
+              "arm": 0,
+              "arms": 2,
+              "evidence": {
+                "excerpt": "rm -r \"$TMPDIR/build\"",
+                "kind": "source",
+                "path": null
+              },
+              "exhaustive": true,
+              "origin": {
+                "call_instance": null,
+                "kind": "short_circuit",
+                "ordinal": 0,
+                "source_digest": "blake3:10336b1869d171542b4474c856f1f09b4450d0547b7f7fdac325c46c52b7afeb",
+                "span": {
+                  "end": 21,
+                  "start": 0
+                }
+              },
+              "polarity": true
+            },
+            "kind": "atom"
+          },
+          "from": "occurrence:blake3:bc174208738784c2a69edfb9e4552ccc0c64ff622f546f9df69fcc5827f18320",
+          "modality": "may",
+          "order": 16,
+          "provenance": [
+            8
+          ],
+          "reason": "control_dependency",
+          "to": "occurrence:blake3:923e3e43b392faab4b2e1a3643d687894b29726890490271d594e0214b86ead7"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:c470584a8ebee06f034150c6ef3bd4012881159fd65363a23e76e8d090682991",
+          "modality": "must-on-success",
+          "order": 17,
+          "provenance": [
+            1
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:9051366df65d4f63cf3a888a0f4cc0ed27c3d9092bb46c6d8be5f15e40089b1a"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:d035a629a4496e130c5eeede25f994e19cd0e38570b5658978a29503b33f982e",
+          "modality": "may",
+          "order": 18,
+          "provenance": [
+            1
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:2aad6249df422fe1e7b50fb592efd01cd67a45d535456a4e07fd1f59dda76f6a"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:d035a629a4496e130c5eeede25f994e19cd0e38570b5658978a29503b33f982e",
+          "modality": "may",
+          "order": 19,
+          "provenance": [
+            6
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:bcb8bf026379eac7d2e1908655fc42e389474df3eee9ef85e06c7f0b07703a54"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:d0efffe08ab0d3cecb8a2c617a16c671a82e5f6b0e60ca085118a94fd88f391a",
+          "modality": "may",
+          "order": 20,
+          "provenance": [
+            0
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:a82d382bb172daef7da99638976e56ec22ba886a142c6115f851492a6638126e"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "from": "occurrence:blake3:edd6b3e240b75f3d9ceae55a53300de827164bb4bf27f68ec76d1a6032dcdac9",
+          "modality": "may",
+          "order": 21,
+          "provenance": [
+            6
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:5af5d7dc2d54bcb23dd677484fbf5cf5c6ac8a15a58f11dafccc9434520712e3"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:ee51bf47caf388477495933e201af0a9b0c4e8d5ca066c6ef588a38ebd610892",
+          "modality": "must-on-success",
+          "order": 22,
+          "provenance": [
+            6
+          ],
+          "reason": "containment",
+          "to": "occurrence:blake3:9922312969bcd1782492f1abb295ccfd1e253eae31be5ed6376d95eb2e0c7d66"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:f66b2f42b0c3d927fecf0328356e7832ffe536dffc032aa13a82506e8061ec88",
+          "modality": "must-on-success",
+          "order": 23,
+          "provenance": [
+            1
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:9051366df65d4f63cf3a888a0f4cc0ed27c3d9092bb46c6d8be5f15e40089b1a"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "from": "occurrence:blake3:fb72e563b7dd9150b01e57b5bc54a6015b132af4de284ac312b22e5fc65f5e8e",
+          "modality": "must-on-success",
+          "order": 24,
+          "provenance": [
+            1
+          ],
+          "reason": "value_dependency",
+          "to": "occurrence:blake3:9051366df65d4f63cf3a888a0f4cc0ed27c3d9092bb46c6d8be5f15e40089b1a"
+        }
+      ],
+      "nodes": [
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 0,
+          "id": "occurrence:blake3:8b75fa255e825b387d16edb25d5ce7d15fa862ede3e808ca81f4534ebd0b03e0",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 0,
+          "port": "code"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:9051366df65d4f63cf3a888a0f4cc0ed27c3d9092bb46c6d8be5f15e40089b1a",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 1,
+          "port": "code",
+          "provenance": [
+            1
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:2019695f404c652e501d91a8f6f3bced5d7ddf2671a759ad1b181eec41f84a75",
+          "kind": "value",
+          "modality": "must-on-success",
+          "order": 2,
+          "provenance": [
+            1
+          ],
+          "value": {
+            "expr": "literal",
+            "value": "rm"
+          }
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:c470584a8ebee06f034150c6ef3bd4012881159fd65363a23e76e8d090682991",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 3,
+          "port": {
+            "arg": 0
+          },
+          "provenance": [
+            1
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:5edf058ee840d64ddaf4ea3fd9e2a0db2362413f479377fe7f4ed1bedd846c4c",
+          "kind": "value",
+          "modality": "must-on-success",
+          "order": 4,
+          "provenance": [
+            1
+          ],
+          "value": {
+            "expr": "literal",
+            "value": "-r"
+          }
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:fb72e563b7dd9150b01e57b5bc54a6015b132af4de284ac312b22e5fc65f5e8e",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 5,
+          "port": {
+            "arg": 1
+          },
+          "provenance": [
+            1
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:72751b086e92946eab4ffd9261c0b6bdbcbea96b22438b05008943554894bc42",
+          "kind": "value",
+          "modality": "must-on-success",
+          "order": 6,
+          "provenance": [
+            1
+          ],
+          "value": {
+            "expr": "join",
+            "parts": [
+              {
+                "expr": "environment",
+                "name": "TMPDIR"
+              },
+              {
+                "expr": "literal",
+                "value": "/build"
+              }
+            ]
+          }
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:f66b2f42b0c3d927fecf0328356e7832ffe536dffc032aa13a82506e8061ec88",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 7,
+          "port": {
+            "arg": 2
+          },
+          "provenance": [
+            1
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 2,
+          "id": "occurrence:blake3:bc174208738784c2a69edfb9e4552ccc0c64ff622f546f9df69fcc5827f18320",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 8,
+          "port": "code",
+          "provenance": [
+            6
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 2,
+          "id": "occurrence:blake3:ee51bf47caf388477495933e201af0a9b0c4e8d5ca066c6ef588a38ebd610892",
+          "kind": "value",
+          "modality": "must-on-success",
+          "order": 9,
+          "provenance": [
+            6
+          ],
+          "value": {
+            "expr": "literal",
+            "value": "./deploy.sh"
+          }
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 2,
+          "id": "occurrence:blake3:9922312969bcd1782492f1abb295ccfd1e253eae31be5ed6376d95eb2e0c7d66",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 10,
+          "port": {
+            "arg": 0
+          },
+          "provenance": [
+            6
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 3,
+          "id": "occurrence:blake3:2626278e2a7d78194e31aadaf09da18cfad333f9cb10bdd0e56e98d50a5ab66f",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 11,
+          "port": "code"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 0,
+          "id": "occurrence:blake3:d035a629a4496e130c5eeede25f994e19cd0e38570b5658978a29503b33f982e",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 12,
+          "port": "stdin"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 0,
+          "id": "occurrence:blake3:b7d2c829304023d89de88cced5fade65fca53009330ec26e1dcdabae54f5b5e2",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 13,
+          "port": "stdout"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 0,
+          "id": "occurrence:blake3:5af5d7dc2d54bcb23dd677484fbf5cf5c6ac8a15a58f11dafccc9434520712e3",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 14,
+          "port": "stderr"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:2aad6249df422fe1e7b50fb592efd01cd67a45d535456a4e07fd1f59dda76f6a",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 15,
+          "port": "stdin",
+          "provenance": [
+            1
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:a4c21a6634fa2eeef83f988a4b395d40bd8c6c7eaf5d95eff5f7c96764803aea",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 16,
+          "port": "stdout",
+          "provenance": [
+            1
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:880b77f011d28c9543d31db7b308d7288de58cc561cadb7e4447ebdc7282f1d8",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 17,
+          "port": "stderr",
+          "provenance": [
+            1
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 2,
+          "id": "occurrence:blake3:bcb8bf026379eac7d2e1908655fc42e389474df3eee9ef85e06c7f0b07703a54",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 18,
+          "port": "stdin",
+          "provenance": [
+            6
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 2,
+          "id": "occurrence:blake3:1573ea2bfa37626c34b42f8bdfff3fe0f87adb8df0d9759a9180c24ac9630bb5",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 19,
+          "port": "stdout",
+          "provenance": [
+            6
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 1
+          },
+          "execution": 2,
+          "id": "occurrence:blake3:edd6b3e240b75f3d9ceae55a53300de827164bb4bf27f68ec76d1a6032dcdac9",
+          "kind": "port",
+          "modality": "must-on-success",
+          "order": 20,
+          "port": "stderr",
+          "provenance": [
+            6
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "execution": 0,
+          "id": "occurrence:blake3:d0efffe08ab0d3cecb8a2c617a16c671a82e5f6b0e60ca085118a94fd88f391a",
+          "kind": "resource_interaction",
+          "modality": "may",
+          "operation": "environment.read",
+          "order": 21,
+          "provenance": [
+            0
+          ],
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "environment_variable",
+              "name": "TMPDIR"
+            }
+          }
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:e4207eda88c2fba976a898519ed62d10a5db3ef8d37cdfa80f085fc657267f18",
+          "kind": "resource_interaction",
+          "modality": "may",
+          "operation": "process.exec",
+          "order": 22,
+          "provenance": [
+            3
+          ],
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "argv": [
+                {
+                  "expr": "literal",
+                  "value": "-r"
+                },
+                {
+                  "expr": "join",
+                  "parts": [
+                    {
+                      "expr": "environment",
+                      "name": "TMPDIR"
+                    },
+                    {
+                      "expr": "literal",
+                      "value": "/build"
+                    }
+                  ]
+                }
+              ],
+              "cwd": {
+                "expr": "concrete",
+                "identity": {
+                  "family": "fs_path",
+                  "path": "/work/repo"
+                }
+              },
+              "executable": "rm",
+              "family": "process"
+            }
+          }
+        },
+        {
+          "attributes": {
+            "recursive": true
+          },
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:5c066abf30a4e41126fcebe90a9fc2369268fc1c2698fa49eafb9df17c0df3d1",
+          "kind": "resource_interaction",
+          "modality": "may",
+          "operation": "filesystem.delete",
+          "order": 23,
+          "provenance": [
+            5,
+            4
+          ],
+          "resource": {
+            "expr": "join",
+            "parts": [
+              {
+                "expr": "environment",
+                "name": "TMPDIR"
+              },
+              {
+                "expr": "concrete",
+                "identity": {
+                  "family": "fs_path",
+                  "path": "/build"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "condition": {
+            "atom": {
+              "arm": 0,
+              "arms": 2,
+              "evidence": {
+                "excerpt": "rm -r \"$TMPDIR/build\"",
+                "kind": "source",
+                "path": null
+              },
+              "exhaustive": true,
+              "origin": {
+                "call_instance": null,
+                "kind": "short_circuit",
+                "ordinal": 0,
+                "source_digest": "blake3:10336b1869d171542b4474c856f1f09b4450d0547b7f7fdac325c46c52b7afeb",
+                "span": {
+                  "end": 21,
+                  "start": 0
+                }
+              },
+              "polarity": true
+            },
+            "kind": "atom"
+          },
+          "execution": 2,
+          "id": "occurrence:blake3:923e3e43b392faab4b2e1a3643d687894b29726890490271d594e0214b86ead7",
+          "kind": "resource_interaction",
+          "modality": "may",
+          "operation": "process.exec",
+          "order": 24,
+          "provenance": [
+            8
+          ],
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "cwd": {
+                "expr": "concrete",
+                "identity": {
+                  "family": "fs_path",
+                  "path": "/work/repo"
+                }
+              },
+              "executable": "deploy.sh",
+              "family": "process",
+              "path": "/work/repo/deploy.sh"
+            }
+          }
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "detail": "execution input unobserved: ResolverUnavailable",
+          "id": "occurrence:blake3:d54b7b07ae91028c9a5bfcfd0f49cd3976b4d359f8d040b5d5f87cd56eb4a591",
+          "kind": "boundary",
+          "modality": "may",
+          "order": 25,
+          "reason": "unrecoverable_source"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "detail": "no model for command \"deploy.sh\"",
+          "id": "occurrence:blake3:91ecac4889b07e27409a57e88f98948f9707b6887b3214f421c7d2fde6e0d611",
+          "kind": "boundary",
+          "modality": "may",
+          "order": 26,
+          "provenance": [
+            8
+          ],
+          "reason": "unmodeled_command"
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "execution": 0,
+          "id": "occurrence:blake3:a82d382bb172daef7da99638976e56ec22ba886a142c6115f851492a6638126e",
+          "kind": "port",
+          "modality": "may",
+          "order": 27,
+          "port": "value",
+          "provenance": [
+            0
+          ]
+        },
+        {
+          "cardinality": {
+            "max": 1,
+            "min": 0
+          },
+          "execution": 1,
+          "id": "occurrence:blake3:9025ad6358e35a861c9b6da696c29c86da9c47723da3ee2c4a4e54ca32101633",
+          "kind": "port",
+          "modality": "may",
+          "order": 28,
+          "port": {
+            "arg": 2
+          },
+          "provenance": [
+            1
+          ]
+        }
+      ]
+    }
+  },
+  "coverage": {
+    "artifact": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "none"
+    },
+    "cloud": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "none"
+    },
+    "container": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "none"
+    },
+    "credential": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "none"
+    },
+    "database": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "none"
+    },
+    "environment": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "none"
+    },
+    "filesystem": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "none"
+    },
+    "git": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "none"
+    },
+    "messaging": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "none"
+    },
+    "network": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "none"
+    },
+    "process": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "partial"
+    },
+    "system": {
+      "gaps": [
+        0,
+        1
+      ],
+      "level": "none"
     }
   },
   "effects": [
     {
+      "execution": 0,
+      "id": "effect:blake3:3beb3fae31d90b549cee3646eb2080bf559c0aed38309837414b8e802c0903db",
+      "modality": "may",
       "operation": "environment.read",
+      "provenance": [
+        0
+      ],
       "resource": {
         "expr": "concrete",
         "identity": {
           "family": "environment_variable",
           "name": "TMPDIR"
         }
-      },
-      "modality": "may",
-      "execution": 0,
-      "provenance": [
-        0
-      ]
+      }
     },
     {
+      "execution": 1,
+      "id": "effect:blake3:4ce45fcd18e4518339e6cc413be41697c8023855d88ae93c63ccbef73dde83ce",
+      "modality": "may",
       "operation": "process.exec",
+      "provenance": [
+        3
+      ],
       "resource": {
         "expr": "concrete",
         "identity": {
-          "family": "process",
-          "executable": "rm",
           "argv": [
             {
               "expr": "literal",
@@ -68,17 +1168,24 @@
               "family": "fs_path",
               "path": "/work/repo"
             }
-          }
+          },
+          "executable": "rm",
+          "family": "process"
         }
-      },
-      "modality": "may",
-      "execution": 1,
-      "provenance": [
-        3
-      ]
+      }
     },
     {
+      "attributes": {
+        "recursive": true
+      },
+      "execution": 1,
+      "id": "effect:blake3:9e7fdc45b47a4508d1da0c7de5239ecbbed7b6842aac3c0473ce65bcc1875030",
+      "modality": "may",
       "operation": "filesystem.delete",
+      "provenance": [
+        5,
+        4
+      ],
       "resource": {
         "expr": "join",
         "parts": [
@@ -94,50 +1201,85 @@
             }
           }
         ]
-      },
-      "attributes": {
-        "recursive": true
-      },
-      "modality": "may",
-      "execution": 1,
-      "provenance": [
-        5,
-        4
-      ]
+      }
     },
     {
+      "condition": {
+        "atom": {
+          "arm": 0,
+          "arms": 2,
+          "evidence": {
+            "excerpt": "rm -r \"$TMPDIR/build\"",
+            "kind": "source",
+            "path": null
+          },
+          "exhaustive": true,
+          "origin": {
+            "call_instance": null,
+            "kind": "short_circuit",
+            "ordinal": 0,
+            "source_digest": "blake3:10336b1869d171542b4474c856f1f09b4450d0547b7f7fdac325c46c52b7afeb",
+            "span": {
+              "end": 21,
+              "start": 0
+            }
+          },
+          "polarity": true
+        },
+        "kind": "atom"
+      },
+      "execution": 2,
+      "id": "effect:blake3:e5d47a1795509b04a9c872b6a6ac21ff341bbb6327649810a4402b4a208555ac",
+      "modality": "may",
       "operation": "process.exec",
+      "provenance": [
+        8
+      ],
       "resource": {
         "expr": "concrete",
         "identity": {
-          "family": "process",
-          "executable": "deploy.sh",
-          "path": "/work/repo/deploy.sh",
           "cwd": {
             "expr": "concrete",
             "identity": {
               "family": "fs_path",
               "path": "/work/repo"
             }
-          }
+          },
+          "executable": "deploy.sh",
+          "family": "process",
+          "path": "/work/repo/deploy.sh"
         }
-      },
-      "modality": "may",
-      "execution": 2,
-      "provenance": [
-        8
-      ]
+      }
     }
   ],
   "execution_graph": {
+    "edges": [
+      {
+        "evidence": [
+          1
+        ],
+        "from": 0,
+        "kind": "launch",
+        "to": 1
+      },
+      {
+        "evidence": [
+          6
+        ],
+        "from": 0,
+        "kind": "launch",
+        "to": 2
+      },
+      {
+        "from": 2,
+        "kind": "interpreter",
+        "to": 3
+      }
+    ],
     "entry": 0,
     "nodes": [
       {
-        "subject": {
-          "kind": "shell",
-          "source": "rm -r \"$TMPDIR/build\" && ./deploy.sh",
-          "cwd": "/work/repo"
-        },
+        "assurance": "exact",
         "cwd": {
           "expr": "concrete",
           "identity": {
@@ -145,22 +1287,17 @@
             "path": "/work/repo"
           }
         },
-        "streams": {},
         "realm": {
           "realm": "host"
         },
-        "assurance": "exact"
+        "streams": {},
+        "subject": {
+          "cwd": "/work/repo",
+          "kind": "shell",
+          "source": "rm -r \"$TMPDIR/build\" && ./deploy.sh"
+        }
       },
       {
-        "subject": {
-          "kind": "exec",
-          "argv": [
-            "rm",
-            "-r",
-            "\"$TMPDIR/build\""
-          ],
-          "cwd": "/work/repo"
-        },
         "argv": [
           {
             "expr": "literal",
@@ -184,6 +1321,7 @@
             ]
           }
         ],
+        "assurance": "exact",
         "cwd": {
           "expr": "concrete",
           "identity": {
@@ -191,7 +1329,21 @@
             "path": "/work/repo"
           }
         },
+        "evidence": [
+          1
+        ],
+        "realm": {
+          "realm": "host"
+        },
+        "source_span": {
+          "end": 21,
+          "start": 0
+        },
         "streams": {
+          "stderr": {
+            "node": 0,
+            "stream": "stderr"
+          },
           "stdin": {
             "node": 0,
             "stream": "stdin"
@@ -199,38 +1351,26 @@
           "stdout": {
             "node": 0,
             "stream": "stdout"
-          },
-          "stderr": {
-            "node": 0,
-            "stream": "stderr"
           }
         },
-        "source_span": {
-          "start": 0,
-          "end": 21
-        },
-        "realm": {
-          "realm": "host"
-        },
-        "assurance": "exact",
-        "evidence": [
-          1
-        ]
+        "subject": {
+          "argv": [
+            "rm",
+            "-r",
+            "\"$TMPDIR/build\""
+          ],
+          "cwd": "/work/repo",
+          "kind": "exec"
+        }
       },
       {
-        "subject": {
-          "kind": "exec",
-          "argv": [
-            "./deploy.sh"
-          ],
-          "cwd": "/work/repo"
-        },
         "argv": [
           {
             "expr": "literal",
             "value": "./deploy.sh"
           }
         ],
+        "assurance": "exact",
         "cwd": {
           "expr": "concrete",
           "identity": {
@@ -238,7 +1378,21 @@
             "path": "/work/repo"
           }
         },
+        "evidence": [
+          6
+        ],
+        "realm": {
+          "realm": "host"
+        },
+        "source_span": {
+          "end": 36,
+          "start": 25
+        },
         "streams": {
+          "stderr": {
+            "node": 0,
+            "stream": "stderr"
+          },
           "stdin": {
             "node": 0,
             "stream": "stdin"
@@ -246,888 +1400,129 @@
           "stdout": {
             "node": 0,
             "stream": "stdout"
-          },
-          "stderr": {
-            "node": 0,
-            "stream": "stderr"
           }
         },
-        "source_span": {
-          "start": 25,
-          "end": 36
+        "subject": {
+          "argv": [
+            "./deploy.sh"
+          ],
+          "cwd": "/work/repo",
+          "kind": "exec"
+        }
+      },
+      {
+        "assurance": "exact",
+        "boundary": 0,
+        "cwd": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/work/repo"
+          }
+        },
+        "input": {
+          "assurance": "exact",
+          "content": {
+            "kind": "unobserved",
+            "reason": {
+              "kind": "resolver_unavailable"
+            }
+          },
+          "phase": "main",
+          "requester": 2,
+          "requester_component": "./deploy.sh",
+          "role": "explicit_invocation",
+          "selected": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/work/repo/deploy.sh"
+            }
+          },
+          "selection": {
+            "kind": "direct",
+            "request": "/work/repo/deploy.sh"
+          },
+          "selector": {
+            "kind": "invocation_path"
+          }
         },
         "realm": {
           "realm": "host"
         },
-        "assurance": "exact",
-        "evidence": [
-          6
-        ]
-      }
-    ],
-    "edges": [
-      {
-        "from": 0,
-        "to": 1,
-        "kind": "launch",
-        "evidence": [
-          1
-        ]
-      },
-      {
-        "from": 0,
-        "to": 2,
-        "kind": "launch",
-        "evidence": [
-          6
-        ]
+        "streams": {},
+        "subject": {
+          "argv": [
+            "/work/repo/deploy.sh"
+          ],
+          "kind": "exec"
+        }
       }
     ]
   },
   "provenance": [
     {
+      "end": 21,
       "kind": "source_span",
-      "start": 6,
-      "end": 21
+      "start": 6
     },
     {
+      "end": 21,
       "kind": "source_span",
-      "start": 0,
-      "end": 21
+      "start": 0
     },
     {
-      "kind": "execution",
-      "node": 1,
       "antecedents": [
         1
-      ]
+      ],
+      "kind": "execution",
+      "node": 1
     },
     {
-      "kind": "argument",
-      "index": 0,
       "antecedents": [
         2
-      ]
+      ],
+      "index": 0,
+      "kind": "argument"
     },
     {
-      "kind": "model_application",
-      "model": "coreutils/rm@v0#blake3:25c0a08fceff74970b0a7d04623a2c1ebcf5a1a4ceddac9c8c84b0f2d5016eea",
       "antecedents": [
         3
-      ]
+      ],
+      "kind": "model_application",
+      "model": "coreutils/rm@v1#blake3:ba98bfda15a04c38041d020fb876fd54d1570e36bb2c44db3ab5fbbe958f322c"
     },
     {
-      "kind": "argument",
-      "index": 2,
       "antecedents": [
         2
-      ]
+      ],
+      "index": 2,
+      "kind": "argument"
     },
     {
+      "end": 36,
       "kind": "source_span",
-      "start": 25,
-      "end": 36
+      "start": 25
     },
     {
-      "kind": "execution",
-      "node": 2,
       "antecedents": [
         6
-      ]
+      ],
+      "kind": "execution",
+      "node": 2
     },
     {
-      "kind": "argument",
-      "index": 0,
       "antecedents": [
         7
-      ]
+      ],
+      "index": 0,
+      "kind": "argument"
     }
   ],
-  "boundaries": [
-    {
-      "reason": "unmodeled_command",
-      "class": "unmodeled",
-      "domains": [
-        "filesystem",
-        "process",
-        "environment",
-        "network",
-        "database",
-        "container",
-        "git",
-        "cloud",
-        "messaging"
-      ],
-      "provenance": [
-        8
-      ],
-      "detail": "no model for command \"deploy.sh\""
-    }
-  ],
-  "coverage": {
-    "cloud": "none",
-    "container": "none",
-    "database": "none",
-    "environment": "none",
-    "filesystem": "none",
-    "git": "none",
-    "messaging": "none",
-    "network": "none",
-    "process": "partial"
-  },
-  "causality": {
-    "nodes": [
-      {
-        "id": "occurrence:blake3:23fad3e98706dc4056a8858b2cda91d93fbc62d98fb953a5223f833108dcc97f",
-        "kind": "port",
-        "port": "code",
-        "execution": 0,
-        "modality": "must-on-success",
-        "order": 0,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        }
-      },
-      {
-        "id": "occurrence:blake3:d9927e6cad284e1a9b7829cf8c9a1974f47cb80bb8e29491e836dc1041360a41",
-        "kind": "port",
-        "port": "code",
-        "execution": 1,
-        "modality": "must-on-success",
-        "order": 1,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "id": "occurrence:blake3:69b8c7a347b3b695c1043587cc91a98f912e2a3542afa7c92c62b01094363d0b",
-        "kind": "value",
-        "value": {
-          "expr": "literal",
-          "value": "rm"
-        },
-        "execution": 1,
-        "modality": "must-on-success",
-        "order": 2,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "id": "occurrence:blake3:6949ec82e74167d8a9ae67255388cbea33aeae8ac5e615e33d5cb6fa0801baf6",
-        "kind": "port",
-        "port": {
-          "arg": 0
-        },
-        "execution": 1,
-        "modality": "must-on-success",
-        "order": 3,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "id": "occurrence:blake3:c1f86a5404370db1de47aa43aa542760f541ef7299fee22300c0a8d3aa399691",
-        "kind": "value",
-        "value": {
-          "expr": "literal",
-          "value": "-r"
-        },
-        "execution": 1,
-        "modality": "must-on-success",
-        "order": 4,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "id": "occurrence:blake3:122b9a40180b80b3de01885c5328d1455ac19d2201052e135d2f80e4ece8e0ba",
-        "kind": "port",
-        "port": {
-          "arg": 1
-        },
-        "execution": 1,
-        "modality": "must-on-success",
-        "order": 5,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "id": "occurrence:blake3:1bee5ff4ab2c96ae8cab077c225fb5898107fb34c640c4376265942dfbf52ebc",
-        "kind": "value",
-        "value": {
-          "expr": "join",
-          "parts": [
-            {
-              "expr": "environment",
-              "name": "TMPDIR"
-            },
-            {
-              "expr": "literal",
-              "value": "/build"
-            }
-          ]
-        },
-        "execution": 1,
-        "modality": "must-on-success",
-        "order": 6,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "id": "occurrence:blake3:d77d7409645311972487ca7aeb0e8fac2a1b3ac2f2b2c8791541b69482172853",
-        "kind": "port",
-        "port": {
-          "arg": 2
-        },
-        "execution": 1,
-        "modality": "must-on-success",
-        "order": 7,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "id": "occurrence:blake3:37ad3d59a31d01031d0ff7218ceb96c104aa3f3dabdc1e7fbe57a5fb2f5994d5",
-        "kind": "port",
-        "port": "code",
-        "execution": 2,
-        "modality": "must-on-success",
-        "order": 8,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "id": "occurrence:blake3:2b6398454e8f14404f4e485ffd651b94cea4d71f62df0e41ca5be003a6a35ed2",
-        "kind": "value",
-        "value": {
-          "expr": "literal",
-          "value": "./deploy.sh"
-        },
-        "execution": 2,
-        "modality": "must-on-success",
-        "order": 9,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "id": "occurrence:blake3:302dbbd2703dbb213d1e2f96c3e195aeef921f143604404dbb78f00c6454042b",
-        "kind": "port",
-        "port": {
-          "arg": 0
-        },
-        "execution": 2,
-        "modality": "must-on-success",
-        "order": 10,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "id": "occurrence:blake3:d7af3d4171ddb513f6de1bd15530a74420af9b7d47e1c4432e4d9fe44fd61d80",
-        "kind": "port",
-        "port": "stdin",
-        "execution": 0,
-        "modality": "must-on-success",
-        "order": 11,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        }
-      },
-      {
-        "id": "occurrence:blake3:944811ba1cbd2977ae895b0e711697ddc518e0b1b36aa51ebb4b94336c0143af",
-        "kind": "port",
-        "port": "stdout",
-        "execution": 0,
-        "modality": "must-on-success",
-        "order": 12,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        }
-      },
-      {
-        "id": "occurrence:blake3:a6d0b8ad0a94d49cc171ed1ec261398a354edf8a12871c33cbd71ccebb1810ce",
-        "kind": "port",
-        "port": "stderr",
-        "execution": 0,
-        "modality": "must-on-success",
-        "order": 13,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        }
-      },
-      {
-        "id": "occurrence:blake3:33006ec9aa0655c4184fb3143e0e05bc4722d317f9148ae15f1bd2c7847a7fc5",
-        "kind": "port",
-        "port": "stdin",
-        "execution": 1,
-        "modality": "must-on-success",
-        "order": 14,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "id": "occurrence:blake3:3fb7c1c1ce2e4ddf2b65fcd0483d55d7a37da4539a961cecb18206a65ee5056c",
-        "kind": "port",
-        "port": "stdout",
-        "execution": 1,
-        "modality": "must-on-success",
-        "order": 15,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "id": "occurrence:blake3:0b7a5de125f831e97247ab4f1738dacbf7945f8a27dec62f8783659c4f0e6406",
-        "kind": "port",
-        "port": "stderr",
-        "execution": 1,
-        "modality": "must-on-success",
-        "order": 16,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "id": "occurrence:blake3:0df7f694cf2e9bd580dc9be4809c9cbe549c55789baba56edd6158e83108fa98",
-        "kind": "port",
-        "port": "stdin",
-        "execution": 2,
-        "modality": "must-on-success",
-        "order": 17,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "id": "occurrence:blake3:37e0ff075bd51b5b145508957becaaf27919e524a46f9dd51b2a648712d872e1",
-        "kind": "port",
-        "port": "stdout",
-        "execution": 2,
-        "modality": "must-on-success",
-        "order": 18,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "id": "occurrence:blake3:75621e1ae7123a50d0b62e0b7ad5daafc71c9f5909263fa98830ad1703817efe",
-        "kind": "port",
-        "port": "stderr",
-        "execution": 2,
-        "modality": "must-on-success",
-        "order": 19,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "id": "occurrence:blake3:6f5a1bdb33cfd3aa694aa8b9358acbe41f6058846958eb641f978a37eeecb465",
-        "kind": "resource_interaction",
-        "operation": "environment.read",
-        "resource": {
-          "expr": "concrete",
-          "identity": {
-            "family": "environment_variable",
-            "name": "TMPDIR"
-          }
-        },
-        "execution": 0,
-        "modality": "may",
-        "order": 20,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          0
-        ]
-      },
-      {
-        "id": "occurrence:blake3:c0fec39457c7913bf9a54381ca9ddd3f569cf74fef96e5c9414307cadd997036",
-        "kind": "resource_interaction",
-        "operation": "process.exec",
-        "resource": {
-          "expr": "concrete",
-          "identity": {
-            "family": "process",
-            "executable": "rm",
-            "argv": [
-              {
-                "expr": "literal",
-                "value": "-r"
-              },
-              {
-                "expr": "join",
-                "parts": [
-                  {
-                    "expr": "environment",
-                    "name": "TMPDIR"
-                  },
-                  {
-                    "expr": "literal",
-                    "value": "/build"
-                  }
-                ]
-              }
-            ],
-            "cwd": {
-              "expr": "concrete",
-              "identity": {
-                "family": "fs_path",
-                "path": "/work/repo"
-              }
-            }
-          }
-        },
-        "execution": 1,
-        "modality": "may",
-        "order": 21,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          3
-        ]
-      },
-      {
-        "id": "occurrence:blake3:b4c8cc7271ba62b9fbe5992924c9aec111e5a2029bbd47bc809df872059ac2a4",
-        "kind": "resource_interaction",
-        "operation": "filesystem.delete",
-        "resource": {
-          "expr": "join",
-          "parts": [
-            {
-              "expr": "environment",
-              "name": "TMPDIR"
-            },
-            {
-              "expr": "concrete",
-              "identity": {
-                "family": "fs_path",
-                "path": "/build"
-              }
-            }
-          ]
-        },
-        "attributes": {
-          "recursive": true
-        },
-        "execution": 1,
-        "modality": "may",
-        "order": 22,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          5,
-          4
-        ]
-      },
-      {
-        "id": "occurrence:blake3:78c6e573b5004cc96008f1c3fbd1d1353710cd79127bf95764286725a01335af",
-        "kind": "resource_interaction",
-        "operation": "process.exec",
-        "resource": {
-          "expr": "concrete",
-          "identity": {
-            "family": "process",
-            "executable": "deploy.sh",
-            "path": "/work/repo/deploy.sh",
-            "cwd": {
-              "expr": "concrete",
-              "identity": {
-                "family": "fs_path",
-                "path": "/work/repo"
-              }
-            }
-          }
-        },
-        "execution": 2,
-        "modality": "may",
-        "order": 23,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          8
-        ]
-      },
-      {
-        "id": "occurrence:blake3:6cbdd744e1ffc8fc344e6531f110cb6e2aca9bb44784884132fd0f980548e014",
-        "kind": "boundary",
-        "reason": "unmodeled_command",
-        "detail": "no model for command \"deploy.sh\"",
-        "modality": "may",
-        "order": 24,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          8
-        ]
-      }
-    ],
-    "edges": [
-      {
-        "from": "occurrence:blake3:0b7a5de125f831e97247ab4f1738dacbf7945f8a27dec62f8783659c4f0e6406",
-        "to": "occurrence:blake3:a6d0b8ad0a94d49cc171ed1ec261398a354edf8a12871c33cbd71ccebb1810ce",
-        "reason": "value_dependency",
-        "modality": "may",
-        "order": 0,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "from": "occurrence:blake3:122b9a40180b80b3de01885c5328d1455ac19d2201052e135d2f80e4ece8e0ba",
-        "to": "occurrence:blake3:d9927e6cad284e1a9b7829cf8c9a1974f47cb80bb8e29491e836dc1041360a41",
-        "reason": "value_dependency",
-        "modality": "must-on-success",
-        "order": 1,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "from": "occurrence:blake3:1bee5ff4ab2c96ae8cab077c225fb5898107fb34c640c4376265942dfbf52ebc",
-        "to": "occurrence:blake3:d77d7409645311972487ca7aeb0e8fac2a1b3ac2f2b2c8791541b69482172853",
-        "reason": "containment",
-        "modality": "must-on-success",
-        "order": 2,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "from": "occurrence:blake3:23fad3e98706dc4056a8858b2cda91d93fbc62d98fb953a5223f833108dcc97f",
-        "to": "occurrence:blake3:37ad3d59a31d01031d0ff7218ceb96c104aa3f3dabdc1e7fbe57a5fb2f5994d5",
-        "reason": "launch",
-        "modality": "must-on-success",
-        "order": 3,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "from": "occurrence:blake3:23fad3e98706dc4056a8858b2cda91d93fbc62d98fb953a5223f833108dcc97f",
-        "to": "occurrence:blake3:6f5a1bdb33cfd3aa694aa8b9358acbe41f6058846958eb641f978a37eeecb465",
-        "reason": "control_dependency",
-        "modality": "may",
-        "order": 4,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          0
-        ]
-      },
-      {
-        "from": "occurrence:blake3:23fad3e98706dc4056a8858b2cda91d93fbc62d98fb953a5223f833108dcc97f",
-        "to": "occurrence:blake3:d9927e6cad284e1a9b7829cf8c9a1974f47cb80bb8e29491e836dc1041360a41",
-        "reason": "launch",
-        "modality": "must-on-success",
-        "order": 5,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "from": "occurrence:blake3:2b6398454e8f14404f4e485ffd651b94cea4d71f62df0e41ca5be003a6a35ed2",
-        "to": "occurrence:blake3:302dbbd2703dbb213d1e2f96c3e195aeef921f143604404dbb78f00c6454042b",
-        "reason": "containment",
-        "modality": "must-on-success",
-        "order": 6,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "from": "occurrence:blake3:302dbbd2703dbb213d1e2f96c3e195aeef921f143604404dbb78f00c6454042b",
-        "to": "occurrence:blake3:37ad3d59a31d01031d0ff7218ceb96c104aa3f3dabdc1e7fbe57a5fb2f5994d5",
-        "reason": "value_dependency",
-        "modality": "must-on-success",
-        "order": 7,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "from": "occurrence:blake3:37ad3d59a31d01031d0ff7218ceb96c104aa3f3dabdc1e7fbe57a5fb2f5994d5",
-        "to": "occurrence:blake3:78c6e573b5004cc96008f1c3fbd1d1353710cd79127bf95764286725a01335af",
-        "reason": "control_dependency",
-        "modality": "may",
-        "order": 8,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          8
-        ]
-      },
-      {
-        "from": "occurrence:blake3:37e0ff075bd51b5b145508957becaaf27919e524a46f9dd51b2a648712d872e1",
-        "to": "occurrence:blake3:944811ba1cbd2977ae895b0e711697ddc518e0b1b36aa51ebb4b94336c0143af",
-        "reason": "value_dependency",
-        "modality": "may",
-        "order": 9,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "from": "occurrence:blake3:3fb7c1c1ce2e4ddf2b65fcd0483d55d7a37da4539a961cecb18206a65ee5056c",
-        "to": "occurrence:blake3:944811ba1cbd2977ae895b0e711697ddc518e0b1b36aa51ebb4b94336c0143af",
-        "reason": "value_dependency",
-        "modality": "may",
-        "order": 10,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "from": "occurrence:blake3:6949ec82e74167d8a9ae67255388cbea33aeae8ac5e615e33d5cb6fa0801baf6",
-        "to": "occurrence:blake3:d9927e6cad284e1a9b7829cf8c9a1974f47cb80bb8e29491e836dc1041360a41",
-        "reason": "value_dependency",
-        "modality": "must-on-success",
-        "order": 11,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "from": "occurrence:blake3:69b8c7a347b3b695c1043587cc91a98f912e2a3542afa7c92c62b01094363d0b",
-        "to": "occurrence:blake3:6949ec82e74167d8a9ae67255388cbea33aeae8ac5e615e33d5cb6fa0801baf6",
-        "reason": "containment",
-        "modality": "must-on-success",
-        "order": 12,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "from": "occurrence:blake3:75621e1ae7123a50d0b62e0b7ad5daafc71c9f5909263fa98830ad1703817efe",
-        "to": "occurrence:blake3:a6d0b8ad0a94d49cc171ed1ec261398a354edf8a12871c33cbd71ccebb1810ce",
-        "reason": "value_dependency",
-        "modality": "may",
-        "order": 13,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "from": "occurrence:blake3:c1f86a5404370db1de47aa43aa542760f541ef7299fee22300c0a8d3aa399691",
-        "to": "occurrence:blake3:122b9a40180b80b3de01885c5328d1455ac19d2201052e135d2f80e4ece8e0ba",
-        "reason": "containment",
-        "modality": "must-on-success",
-        "order": 14,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "from": "occurrence:blake3:d77d7409645311972487ca7aeb0e8fac2a1b3ac2f2b2c8791541b69482172853",
-        "to": "occurrence:blake3:d9927e6cad284e1a9b7829cf8c9a1974f47cb80bb8e29491e836dc1041360a41",
-        "reason": "value_dependency",
-        "modality": "must-on-success",
-        "order": 15,
-        "cardinality": {
-          "min": 1,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "from": "occurrence:blake3:d7af3d4171ddb513f6de1bd15530a74420af9b7d47e1c4432e4d9fe44fd61d80",
-        "to": "occurrence:blake3:0df7f694cf2e9bd580dc9be4809c9cbe549c55789baba56edd6158e83108fa98",
-        "reason": "value_dependency",
-        "modality": "may",
-        "order": 16,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          6
-        ]
-      },
-      {
-        "from": "occurrence:blake3:d7af3d4171ddb513f6de1bd15530a74420af9b7d47e1c4432e4d9fe44fd61d80",
-        "to": "occurrence:blake3:33006ec9aa0655c4184fb3143e0e05bc4722d317f9148ae15f1bd2c7847a7fc5",
-        "reason": "value_dependency",
-        "modality": "may",
-        "order": 17,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          1
-        ]
-      },
-      {
-        "from": "occurrence:blake3:d9927e6cad284e1a9b7829cf8c9a1974f47cb80bb8e29491e836dc1041360a41",
-        "to": "occurrence:blake3:b4c8cc7271ba62b9fbe5992924c9aec111e5a2029bbd47bc809df872059ac2a4",
-        "reason": "control_dependency",
-        "modality": "may",
-        "order": 18,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          5,
-          4
-        ]
-      },
-      {
-        "from": "occurrence:blake3:d9927e6cad284e1a9b7829cf8c9a1974f47cb80bb8e29491e836dc1041360a41",
-        "to": "occurrence:blake3:c0fec39457c7913bf9a54381ca9ddd3f569cf74fef96e5c9414307cadd997036",
-        "reason": "control_dependency",
-        "modality": "may",
-        "order": 19,
-        "cardinality": {
-          "min": 0,
-          "max": 1
-        },
-        "provenance": [
-          3
-        ]
-      }
-    ],
-    "coverage": "full"
+  "schema": "effinterp/plan/v1",
+  "subject": {
+    "cwd": "/work/repo",
+    "kind": "shell",
+    "source": "rm -r \"$TMPDIR/build\" && ./deploy.sh"
   }
 }

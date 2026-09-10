@@ -51,7 +51,7 @@ Crate paths start under `crates/`; other paths are repository-relative.
 
 | Area | Owning module |
 | --- | --- |
-| Shared tool, context, observation, action, decision, and guard contracts | `nah-proto/src/{tool,ctx,observation,action,decision,exec_v1,extension}.rs` |
+| Shared tool, context, observation, action, decision, and guard contracts | `nah-proto/src/{tool,ctx,observation,action,effects,decision,exec_v1,extension}.rs` |
 | Bash syntax and fork-bomb graph parsing | `nah-parse/src/{model,parser}.rs`, `nah-parse/src/parser/fork_bomb.rs` |
 | Python/JS/TS effect interpreter, detectors, HIRs, drafts, and nested executions | `nah-inline/src/{lib,language_effects,finding,syntax}.rs`, `nah-inline/src/languages/` |
 | Plan/finalize, language integration, and native tools | `nah-actions/src/{lib,language_effects,native,codex_patch}.rs` |

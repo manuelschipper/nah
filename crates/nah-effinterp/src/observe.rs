@@ -60,7 +60,9 @@ pub(crate) fn observation_path(resource: &ResourceExpr) -> Option<&str> {
         ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },
         } => Some(path),
-        ResourceExpr::Pattern { family, pattern } if family.0 == "filesystem" => {
+        ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+        } => {
             let bound = pattern_bound(pattern);
             (!bound.is_empty()).then_some(bound)
         }

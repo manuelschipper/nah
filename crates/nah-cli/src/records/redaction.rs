@@ -803,7 +803,7 @@ fn redact_effinterp(shadow: &crate::pipeline::EffinterpShadow) -> AuditEffinterp
         .iter()
         .map(|(domain, level)| AuditEffinterpCoverage {
             domain: domain.0.clone(),
-            level: match level {
+            level: match level.level {
                 nah_effinterp::CoverageLevel::Full => "full",
                 nah_effinterp::CoverageLevel::Partial => "partial",
                 nah_effinterp::CoverageLevel::None => "none",
@@ -913,8 +913,9 @@ impl From<&EffinterpActionStream> for RedactedPlan {
         let subject = match &plan.subject {
             Subject::Exec { .. } => RedactedSubject::Exec,
             Subject::Shell { .. } => RedactedSubject::Shell,
-            Subject::Python { .. } => RedactedSubject::Python,
-            Subject::Js { .. } => RedactedSubject::Js,
+            Subject::Source { language, .. } if language == "python" => RedactedSubject::Python,
+            Subject::Source { language, .. } if language == "js" => RedactedSubject::Js,
+            Subject::ToolCall { .. } => RedactedSubject::Exec,
             Subject::Sql { .. } => RedactedSubject::Sql,
             Subject::Source { .. } => RedactedSubject::Source,
         };
@@ -1038,9 +1039,8 @@ fn redact_resource(resource: &ResourceExpr, annotation: &EffectAnnotation) -> Re
             value: Some(RedactedText(MASK.into())),
         },
         ResourceExpr::Concrete { identity } => masked_resource(identity_family(identity)),
-        ResourceExpr::Pattern { family, .. } | ResourceExpr::Unresolved { family } => {
-            masked_resource(&family.0)
-        }
+        ResourceExpr::Pattern { pattern } => masked_resource(&pattern.family().0),
+        ResourceExpr::Unresolved { family } => masked_resource(&family.0),
         ResourceExpr::Literal { .. } => masked_resource("literal"),
         ResourceExpr::Parameter { .. } => masked_resource("parameter"),
         ResourceExpr::Environment { .. } => masked_resource("environment"),

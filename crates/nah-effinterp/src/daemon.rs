@@ -11,8 +11,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use effinterp_daemon::{Daemon, RepositoryIdentity};
 use effinterp_proto::AnalysisStatus;
 use effinterp_repo::{
-    CrawlLimits, SkipCategory, UpdateOutcome, apply_changes, build_index, reconcile_working_tree,
-    validate_working_tree,
+    CrawlLimits, IndexLimits, SkipCategory, UpdateOutcome, apply_changes, build_index,
+    reconcile_working_tree, validate_working_tree,
 };
 use nah_proto::ctx::{AbsolutePath, Platform};
 use serde::{Deserialize, Serialize};
@@ -66,7 +66,7 @@ struct StoredRepositoryConfig<'a> {
     repository_id: &'a str,
     worktree_id: &'static str,
     root: &'a Path,
-    limits: CrawlLimits,
+    limits: IndexLimits,
 }
 
 // UNDOCUMENTED-EFFINTERP: durable per-root health and publication metadata.
@@ -95,7 +95,7 @@ struct StoredBuildRepository {
     repository_id: String,
     worktree_id: String,
     root: PathBuf,
-    limits: CrawlLimits,
+    limits: IndexLimits,
 }
 
 // UNDOCUMENTED-EFFINTERP: prepared state keeps errors isolated to their trusted root.
@@ -104,7 +104,7 @@ struct DaemonRoot {
     root: PathBuf,
     config_path: PathBuf,
     status_path: PathBuf,
-    limits: CrawlLimits,
+    limits: IndexLimits,
     ready: bool,
     status: DaemonRootStatus,
 }
@@ -340,7 +340,7 @@ pub fn build_daemon_snapshot(id: &str, max_memory_mib: u64, stderr: &mut dyn Wri
 }
 
 // UNDOCUMENTED-EFFINTERP: recover the crawl root and limits nah wrote for this repository id.
-fn read_build_target(config_path: &Path, id: &str) -> Result<(PathBuf, CrawlLimits), String> {
+fn read_build_target(config_path: &Path, id: &str) -> Result<(PathBuf, IndexLimits), String> {
     let text = std::fs::read_to_string(config_path).map_err(|error| error.to_string())?;
     let stored: StoredBuildTarget =
         serde_json::from_str(&text).map_err(|error| error.to_string())?;
@@ -410,9 +410,12 @@ fn prepare_roots(
             let base = daemon_root_directory(home, &id);
             let config_path = base.join("daemon.json");
             let status_path = base.join("status.json");
-            let limits = CrawlLimits {
-                max_files,
-                ..CrawlLimits::default()
+            let limits = IndexLimits {
+                crawl: CrawlLimits {
+                    max_files,
+                    ..CrawlLimits::default()
+                },
+                ..IndexLimits::default()
             };
             let mut daemon_root = DaemonRoot {
                 id,
@@ -852,7 +855,7 @@ fn write_daemon_config(root: &DaemonRoot) -> Result<(), String> {
             repository_id: &root.id,
             worktree_id: "tree",
             root: &root.root,
-            limits: root.limits,
+            limits: root.limits.clone(),
         }],
     };
     atomic_json(&root.config_path, &config)

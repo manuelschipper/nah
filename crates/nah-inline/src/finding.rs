@@ -232,6 +232,81 @@ impl InlineReport {
     }
 }
 
+impl Finding {
+    /// Retains the interpreter's abstract proof without inventing a concrete operation.
+    pub fn emit_effect(
+        &self,
+        graph: &mut nah_proto::effects::EffectGraph,
+        call: nah_proto::effects::CallId,
+    ) {
+        use Knowledge::{Known, Unknown};
+        use nah_proto::effects::*;
+        let target = ResourceId(graph.resources.len() as u32);
+        let payload = match self.kind {
+            FindingKind::RootDestruction | FindingKind::HomeDestruction => {
+                let class = if self.kind == FindingKind::RootDestruction {
+                    TreeClass::Root
+                } else {
+                    TreeClass::Home
+                };
+                graph.resources.push(EffectResource {
+                    id: target,
+                    realm: Realm::Host,
+                    identity: ResourceIdentity {
+                        details: Unknown,
+                        kind: ResourceKind::HostPath,
+                        provider: Unknown,
+                        name: Unknown,
+                    },
+                    selection: Selection::Whole,
+                    labels: None,
+                });
+                FactPayload::TreeStateLoss { target, class }
+            }
+            FindingKind::DecodedExecution => FactPayload::ExecutionInput {
+                resource: None,
+                port: None,
+                source: ExecutionSource::Unknown,
+                derivation: ExecutionDerivation::Decoded,
+                visible_payload: VisiblePayload::Absent,
+            },
+            FindingKind::NahTampering => {
+                graph.resources.push(EffectResource {
+                    id: target,
+                    realm: Realm::Host,
+                    identity: ResourceIdentity {
+                        details: Unknown,
+                        kind: ResourceKind::HostPath,
+                        provider: Unknown,
+                        name: Unknown,
+                    },
+                    selection: Selection::Unknown,
+                    labels: None,
+                });
+                FactPayload::ControlMutation {
+                    target,
+                    action: ControlAction::Other,
+                    candidate_identity: Unknown,
+                    tier: Known(nah_proto::labels::NahProtectionTier::Critical),
+                }
+            }
+        };
+        graph.facts.push(EffectFact {
+            id: FactId(graph.facts.len() as u32),
+            call,
+            realm: Realm::Host,
+            certainty: match self.evidence {
+                Evidence::Exact => Certainty::Exact,
+                Evidence::Conservative => Certainty::Conservative,
+            },
+            modality: Modality::May,
+            condition: None,
+            occurrences: None,
+            payload,
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

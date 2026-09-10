@@ -102,11 +102,18 @@ impl DecisionCore {
         action_stream: &ActionStream,
         reason: &str,
     ) -> Result<Self, DecisionError> {
+        Self::structural_block_with_coverage(action_stream.coverage(), reason)
+    }
+
+    pub fn structural_block_with_coverage(
+        coverage: Coverage,
+        reason: &str,
+    ) -> Result<Self, DecisionError> {
         Ok(Self {
             verdict: Verdict::Block,
             reason: text(reason)?,
             policy_attributions: vec![],
-            coverage: action_stream.coverage(),
+            coverage,
         })
     }
 

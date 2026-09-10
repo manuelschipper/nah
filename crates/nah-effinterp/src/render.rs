@@ -31,7 +31,7 @@ pub fn render(plan: &Plan) -> String {
         )
         .expect("writing to a string succeeds");
         if let Some(condition) = &effect.condition {
-            write!(out, " if {}", condition.expression).expect("writing to a string succeeds");
+            write!(out, " if {:?}", condition).expect("writing to a string succeeds");
         }
         out.push('\n');
     }
@@ -59,7 +59,7 @@ pub fn render(plan: &Plan) -> String {
         .coverage
         .0
         .iter()
-        .map(|(domain, level)| format!("{}={}", domain.0, coverage_name(level)))
+        .map(|(domain, level)| format!("{}={}", domain.0, coverage_name(&level.level)))
         .collect::<Vec<_>>()
         .join(" ");
     if coverage.is_empty() {

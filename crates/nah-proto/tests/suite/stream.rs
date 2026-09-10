@@ -89,12 +89,13 @@ fn path_labels_only_apply_to_host_filesystem_effects() {
     for effect in &mut plan.effects {
         effect.realm = realm.clone();
     }
-    for node in &mut plan.causality.nodes {
+    for node in &mut plan.causality.graph.as_mut().unwrap().nodes {
         if node.execution.is_some() {
             node.realm = realm.clone();
         }
     }
     let annotations = vec![EffectAnnotation::default(); plan.effects.len()];
+    plan.stamp_effect_ids().unwrap();
     assert!(ActionStream::new(plan.clone(), annotations).is_ok());
 
     let mut annotations = vec![EffectAnnotation::default(); plan.effects.len()];

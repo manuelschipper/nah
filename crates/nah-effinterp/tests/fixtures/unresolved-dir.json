@@ -26,6 +26,8 @@
     "analysis": {
       "engine_version": "0.1.0",
       "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 32768,
         "max_boundaries": 4096,
         "max_causal_depth": 256,
         "max_causal_edges": 32768,
@@ -35,28 +37,607 @@
         "max_execution_depth": 8,
         "max_execution_fanout": 256,
         "max_execution_nodes": 4096,
+        "max_go_nodes": 20000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
         "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
         "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
         "max_source_bytes": 4194304
       },
-      "model_set": "builtin:blake3:61c1192f9b70c53dc4bee47d1528fb1cbfc5b529a50c0a90f7080ceceea86750"
+      "model_set": "builtin:blake3:90bafbc72e55b33ccdd279730f1b3906b1df40cf072ce3a60e5f6685664b6b20"
     },
     "causality": {
-      "coverage": "full",
-      "edges": [],
-      "nodes": []
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:0762c31dcb4ae8e5ca5be3838e1c40fa285d9930d623043349ecce4c8388f401",
+            "modality": "may",
+            "order": 0,
+            "provenance": [
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:ff0874a985875950423244e8146c348feeba01601c31002d85eae5e2e402d25d"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:1039cec68c712cbec09849f2b9d832064af9f8df9ed4c04582e51a5a5157bb86",
+            "modality": "must-on-success",
+            "order": 1,
+            "provenance": [
+              1
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:2f8dc7c341f4965c68b9b23d2375276e24e8301fcef5176e27df83559a147824"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:26d6316ca51ab9cf325038c9341808f3c86831c7ca0d8bce7687940f63dc5d58",
+            "modality": "may",
+            "order": 2,
+            "provenance": [
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:446df8b8c981910f9206122edcdc260f73bca1212701a5bd5b51c6565fc5242e"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:2f8dc7c341f4965c68b9b23d2375276e24e8301fcef5176e27df83559a147824",
+            "modality": "must-on-success",
+            "order": 3,
+            "provenance": [
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:821e17e97d5ed6ad57a610db231e6ec889aedfbb2e993c0474c8a7562433ca0c"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:3b01794a77c4382dd30b575f3eff2b347ca7f48be071cca72350c649c917f722",
+            "modality": "must-on-success",
+            "order": 4,
+            "provenance": [
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:821e17e97d5ed6ad57a610db231e6ec889aedfbb2e993c0474c8a7562433ca0c"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:61a8bb8a8e9c2dd98092ca1ff11804577ff3020926f78606008ac38ad6df22c7",
+            "modality": "may",
+            "order": 5,
+            "provenance": [
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:11d85bfe4f520622e5bcb12b52c678b39a7c0e7c1163023f1988894ebeeb1da0"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:6688dfbdc6e48b96a65aeb55bd223e7a1a5356f7d4465e30ee334e9e62eb8276",
+            "modality": "must-on-success",
+            "order": 6,
+            "provenance": [
+              1
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:dc3b4bb760ea5ca2f6eea268fc91bcdab7712fabc8286fe837068246d7049aec"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:7a464d2b95149ca3ac5911249498a006017af68205d2d2721dec47481c92a874",
+            "modality": "must-on-success",
+            "order": 7,
+            "provenance": [
+              1
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:3b01794a77c4382dd30b575f3eff2b347ca7f48be071cca72350c649c917f722"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:821e17e97d5ed6ad57a610db231e6ec889aedfbb2e993c0474c8a7562433ca0c",
+            "modality": "may",
+            "order": 8,
+            "provenance": [
+              5,
+              4
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:446df8b8c981910f9206122edcdc260f73bca1212701a5bd5b51c6565fc5242e"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:821e17e97d5ed6ad57a610db231e6ec889aedfbb2e993c0474c8a7562433ca0c",
+            "modality": "may",
+            "order": 9,
+            "provenance": [
+              3
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:61eb84621d0428393888ff985cc136ff3f0bfd20c1df6fe7cd5b3c1b4090277a"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:a7e3eaa106323c867f0b20fc299653e14d6f45c02c09cc8be04ac9b01b149bee",
+            "modality": "may",
+            "order": 10,
+            "provenance": [
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:e9e019a2b0541633cd0ec2ea56cbde30cad83b29ff0f9513265cca1db13fc8c2"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:aa81f7a8d462833f38f00782dd3fe02aea53a345eaa3259d1f83f4416d444356",
+            "modality": "may",
+            "order": 11,
+            "provenance": [
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:925c724445d6d1c16e447a9786b0d1884550679a5b55118f03a466f216907957"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:d8bf124ec9c1f4ac21c4ecae0f058d08191cf66487a8f1afd0584ad1dab50da0",
+            "modality": "must-on-success",
+            "order": 12,
+            "provenance": [
+              1
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:821e17e97d5ed6ad57a610db231e6ec889aedfbb2e993c0474c8a7562433ca0c"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:d8bf124ec9c1f4ac21c4ecae0f058d08191cf66487a8f1afd0584ad1dab50da0",
+            "modality": "may",
+            "order": 13,
+            "provenance": [
+              0
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:a7e3eaa106323c867f0b20fc299653e14d6f45c02c09cc8be04ac9b01b149bee"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:dc3b4bb760ea5ca2f6eea268fc91bcdab7712fabc8286fe837068246d7049aec",
+            "modality": "must-on-success",
+            "order": 14,
+            "provenance": [
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:821e17e97d5ed6ad57a610db231e6ec889aedfbb2e993c0474c8a7562433ca0c"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:e9e019a2b0541633cd0ec2ea56cbde30cad83b29ff0f9513265cca1db13fc8c2",
+            "modality": "may",
+            "order": 15,
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:26d6316ca51ab9cf325038c9341808f3c86831c7ca0d8bce7687940f63dc5d58"
+          }
+        ],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:d8bf124ec9c1f4ac21c4ecae0f058d08191cf66487a8f1afd0584ad1dab50da0",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:821e17e97d5ed6ad57a610db231e6ec889aedfbb2e993c0474c8a7562433ca0c",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 1,
+            "port": "code",
+            "provenance": [
+              1
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:7a464d2b95149ca3ac5911249498a006017af68205d2d2721dec47481c92a874",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 2,
+            "provenance": [
+              1
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "rm"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:3b01794a77c4382dd30b575f3eff2b347ca7f48be071cca72350c649c917f722",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 3,
+            "port": {
+              "arg": 0
+            },
+            "provenance": [
+              1
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:1039cec68c712cbec09849f2b9d832064af9f8df9ed4c04582e51a5a5157bb86",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 4,
+            "provenance": [
+              1
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "-rf"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:2f8dc7c341f4965c68b9b23d2375276e24e8301fcef5176e27df83559a147824",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 5,
+            "port": {
+              "arg": 1
+            },
+            "provenance": [
+              1
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:6688dfbdc6e48b96a65aeb55bd223e7a1a5356f7d4465e30ee334e9e62eb8276",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 6,
+            "provenance": [
+              1
+            ],
+            "value": {
+              "expr": "environment",
+              "name": "DIR"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:dc3b4bb760ea5ca2f6eea268fc91bcdab7712fabc8286fe837068246d7049aec",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 7,
+            "port": {
+              "arg": 2
+            },
+            "provenance": [
+              1
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:61a8bb8a8e9c2dd98092ca1ff11804577ff3020926f78606008ac38ad6df22c7",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 8,
+            "port": "stdin"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:925c724445d6d1c16e447a9786b0d1884550679a5b55118f03a466f216907957",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 9,
+            "port": "stdout"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:ff0874a985875950423244e8146c348feeba01601c31002d85eae5e2e402d25d",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 10,
+            "port": "stderr"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:11d85bfe4f520622e5bcb12b52c678b39a7c0e7c1163023f1988894ebeeb1da0",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 11,
+            "port": "stdin",
+            "provenance": [
+              1
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:aa81f7a8d462833f38f00782dd3fe02aea53a345eaa3259d1f83f4416d444356",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 12,
+            "port": "stdout",
+            "provenance": [
+              1
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:0762c31dcb4ae8e5ca5be3838e1c40fa285d9930d623043349ecce4c8388f401",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 13,
+            "port": "stderr",
+            "provenance": [
+              1
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:a7e3eaa106323c867f0b20fc299653e14d6f45c02c09cc8be04ac9b01b149bee",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "environment.read",
+            "order": 14,
+            "provenance": [
+              0
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "environment_variable",
+                "name": "DIR"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:61eb84621d0428393888ff985cc136ff3f0bfd20c1df6fe7cd5b3c1b4090277a",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "process.exec",
+            "order": 15,
+            "provenance": [
+              3
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "argv": [
+                  {
+                    "expr": "literal",
+                    "value": "-rf"
+                  },
+                  {
+                    "expr": "environment",
+                    "name": "DIR"
+                  }
+                ],
+                "cwd": {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "/repo"
+                  }
+                },
+                "executable": "rm",
+                "family": "process"
+              }
+            }
+          },
+          {
+            "attributes": {
+              "force": true,
+              "recursive": true
+            },
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:446df8b8c981910f9206122edcdc260f73bca1212701a5bd5b51c6565fc5242e",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "filesystem.delete",
+            "order": 16,
+            "provenance": [
+              5,
+              4
+            ],
+            "resource": {
+              "expr": "environment",
+              "name": "DIR"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:e9e019a2b0541633cd0ec2ea56cbde30cad83b29ff0f9513265cca1db13fc8c2",
+            "kind": "port",
+            "modality": "may",
+            "order": 17,
+            "port": "value",
+            "provenance": [
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:26d6316ca51ab9cf325038c9341808f3c86831c7ca0d8bce7687940f63dc5d58",
+            "kind": "port",
+            "modality": "may",
+            "order": 18,
+            "port": {
+              "arg": 2
+            },
+            "provenance": [
+              1
+            ]
+          }
+        ]
+      }
     },
     "coverage": {
-      "environment": "full",
-      "filesystem": "full",
-      "process": "full"
+      "environment": {
+        "level": "full"
+      },
+      "filesystem": {
+        "level": "full"
+      },
+      "process": {
+        "level": "full"
+      }
     },
     "effects": [
       {
         "execution": 0,
+        "id": "effect:blake3:be904c817fd33c64f95e1324d567f8bee823d3b650fa612d503d2d230f26bc5d",
         "modality": "may",
         "operation": "environment.read",
-        "provenance": [],
+        "provenance": [
+          0
+        ],
         "resource": {
           "expr": "concrete",
           "identity": {
@@ -67,9 +648,12 @@
       },
       {
         "execution": 1,
+        "id": "effect:blake3:fa71df6c539b2dc93ae279e2f1699698dcf5df6f06a232b5062142d6c95e5af4",
         "modality": "may",
         "operation": "process.exec",
-        "provenance": [],
+        "provenance": [
+          3
+        ],
         "resource": {
           "expr": "concrete",
           "identity": {
@@ -101,9 +685,13 @@
           "recursive": true
         },
         "execution": 1,
+        "id": "effect:blake3:54fcbcf7b71ae9ae6752559b073484853f1429bb10541caf7ba0e76494791597",
         "modality": "may",
         "operation": "filesystem.delete",
-        "provenance": [],
+        "provenance": [
+          5,
+          4
+        ],
         "resource": {
           "expr": "environment",
           "name": "DIR"
@@ -201,6 +789,46 @@
         }
       ]
     },
+    "provenance": [
+      {
+        "end": 13,
+        "kind": "source_span",
+        "start": 7
+      },
+      {
+        "end": 13,
+        "kind": "source_span",
+        "start": 0
+      },
+      {
+        "antecedents": [
+          1
+        ],
+        "kind": "execution",
+        "node": 1
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 0,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          3
+        ],
+        "kind": "model_application",
+        "model": "coreutils/rm@v1#blake3:ba98bfda15a04c38041d020fb876fd54d1570e36bb2c44db3ab5fbbe958f322c"
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 2,
+        "kind": "argument"
+      }
+    ],
     "schema": "effinterp/plan/v1",
     "subject": {
       "cwd": "/repo",

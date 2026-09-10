@@ -222,16 +222,10 @@ fn runtime_hook_wiring_path_requires_the_critical_path_projection() {
     assert_eq!(projected, expected);
 
     let (unprojected, _) = annotations("write-claude-hook", &[]);
-    assert!(matches!(
-        unprojected.as_slice(),
-        [EffectAnnotation {
-            path: Some(PathLabel::Resolved {
-                protection: None,
-                ..
-            }),
-            runtime_cli: None,
-        }]
-    ));
+    assert!(unprojected.iter().any(|annotation| matches!(
+        &annotation.path,
+        Some(PathLabel::Resolved { path: labelled, protection: None, .. }) if labelled.as_str() == path
+    )));
 }
 
 #[test]

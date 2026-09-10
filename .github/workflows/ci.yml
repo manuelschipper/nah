@@ -56,7 +56,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: manuelschipper/effectinterp
-          ref: c6a8d6122a6f0817b927068c0bc08e5434f59370
+          ref: 80ad17d8f48828565369c92a372b321c6124fc11
           ssh-key: ${{ secrets.EFFECTINTERP_DEPLOY_KEY }}
           fetch-depth: 0
           path: effectinterp-src

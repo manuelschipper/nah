@@ -13,6 +13,7 @@ pub mod action;
 pub mod action_v2;
 pub mod ctx;
 pub mod decision;
+pub mod effects;
 pub mod exec_v1;
 pub mod extension;
 pub mod labels;

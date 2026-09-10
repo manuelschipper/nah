@@ -24,7 +24,28 @@ const MAX_ENVIRONMENT_VALUE_BYTES: usize = 1024 * 1024;
 const ENVIRONMENT_LIMIT_REASON: &str = "environment preflight exceeds nah's analysis limits";
 const ENVIRONMENT_OSCILLATION_REASON: &str = "environment changed repeatedly during nah analysis";
 
+/// Analysis identity stays outside the predicate-visible graph.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceProvenance {
+    pub producer: String,
+    pub model: Option<String>,
+    pub limits: BTreeMap<String, u64>,
+    pub input_fingerprint: String,
+    pub observation_fingerprint: String,
+}
+
+fn evidence_fingerprint(value: &impl serde::Serialize) -> String {
+    use sha2::{Digest, Sha256};
+    format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(value).expect("analysis inputs serialize"))
+    )
+}
+
 pub struct DecisionResult {
+    evidence_provenance: Option<EvidenceProvenance>,
+    guard_evidence:
+        Option<Result<nah_proto::effects::GuardEvidence, nah_proto::effects::EvidenceError>>,
     core: DecisionCore,
     action_stream: ActionStream,
     #[cfg(feature = "effinterp")]
@@ -155,6 +176,16 @@ impl RecoveryAdvice {
 }
 
 impl DecisionResult {
+    pub fn evidence_provenance(&self) -> Option<&EvidenceProvenance> {
+        self.evidence_provenance.as_ref()
+    }
+    /// Neutral evidence from the same normal analysis; family migration is staged.
+    pub fn guard_evidence(
+        &self,
+    ) -> Option<Result<&nah_proto::effects::GuardEvidence, &nah_proto::effects::EvidenceError>>
+    {
+        self.guard_evidence.as_ref().map(Result::as_ref)
+    }
     pub fn core(&self) -> &DecisionCore {
         &self.core
     }
@@ -599,6 +630,14 @@ where
         inline_report = nah_inline::InlineReport::default();
         inline_failed = true;
     }
+    let evidence_provenance = Some(EvidenceProvenance {
+        producer: format!("normal/{}", env!("CARGO_PKG_VERSION")),
+        model: None,
+        limits: BTreeMap::new(),
+        input_fingerprint: evidence_fingerprint(&(input, code.map(CodeInput::canonical_input))),
+        observation_fingerprint: evidence_fingerprint(&observation),
+    });
+    let guard_evidence = Some(plan.guard_evidence(&observation));
     let (action_stream, language_safety_stream) =
         nah_actions::finalize_with_language_safety_stream(plan, observation.clone());
     #[cfg(feature = "effinterp")]
@@ -634,6 +673,8 @@ where
             mode,
         ) {
             Ok(core) => DecisionResult {
+                guard_evidence,
+                evidence_provenance,
                 core,
                 action_stream,
                 #[cfg(feature = "effinterp")]
@@ -688,6 +729,8 @@ where
         mode,
     ) {
         Ok(core) => DecisionResult {
+            guard_evidence,
+            evidence_provenance,
             core,
             action_stream,
             #[cfg(feature = "effinterp")]
@@ -1038,6 +1081,8 @@ fn delegated_with_refusals(warning: String, refusals: Vec<AnalysisRefusal>) -> D
     let core = DecisionCore::new(&stream, Verdict::Delegate, vec![])
         .expect("empty partial stream delegates");
     DecisionResult {
+        guard_evidence: None,
+        evidence_provenance: None,
         core,
         action_stream: stream,
         #[cfg(feature = "effinterp")]
@@ -1087,6 +1132,8 @@ fn failed_with_stream(
     let core = DecisionCore::new(&action_stream, Verdict::Delegate, vec![])
         .expect("a policy failure delegates without attributions");
     DecisionResult {
+        guard_evidence: None,
+        evidence_provenance: None,
         core,
         action_stream,
         #[cfg(feature = "effinterp")]
@@ -1163,7 +1210,7 @@ fn effinterp_gap(action_stream: &ActionStream, plan: &nah_effinterp::Plan) -> bo
             .coverage
             .0
             .values()
-            .any(|coverage| coverage != &CoverageLevel::Full)
+            .any(|coverage| coverage.level != CoverageLevel::Full || !coverage.gaps.is_empty())
 }
 
 #[cfg(all(test, unix))]
@@ -1172,3 +1219,57 @@ mod availability_tests;
 mod environment_tests;
 #[cfg(all(test, unix))]
 mod performance_tests;
+
+/// UNDOCUMENTED-EFFINTERP: non-enforcing qualification seam. It has no custom guard,
+/// record append, resolver, daemon, or operator-switch side effects.
+#[cfg(feature = "effinterp")]
+pub fn analyze_optional_with<F>(
+    input: nah_effinterp::SelectedInput<'_>,
+    ctx: &Ctx,
+    mut observe: F,
+) -> Result<OptionalEvidenceAnalysis, nah_effinterp::AdapterRefusal>
+where
+    F: FnMut(&ObservationRequest) -> Result<Observation, String>,
+{
+    let mut environment = BTreeMap::new();
+    for _ in 0..MAX_ENVIRONMENT_ROUNDS {
+        let plan = nah_effinterp::plan_evidence(input, ctx, environment)?;
+        let observation = observe(plan.request()).map_err(|_| nah_effinterp::AdapterRefusal {
+            kind: nah_effinterp::RefusalKind::InvalidObservation,
+            root_tool: input.input().tool().to_owned(),
+            code: "observation-failed",
+        })?;
+        environment = nah_effinterp::observed_environment(&plan, &observation)?;
+        if &environment == plan.environment() {
+            let (producer, model, limits) = plan.analysis_identity();
+            let provenance = EvidenceProvenance {
+                producer: producer.to_owned(),
+                model: Some(model.to_owned()),
+                limits: limits.clone(),
+                input_fingerprint: plan.input_fingerprint(),
+                observation_fingerprint: evidence_fingerprint(&observation),
+            };
+            return nah_effinterp::finalize_evidence(plan, &observation, ctx, &[]).map(
+                |evidence| OptionalEvidenceAnalysis {
+                    evidence,
+                    observation,
+                    provenance,
+                },
+            );
+        }
+    }
+    Err(nah_effinterp::AdapterRefusal {
+        kind: nah_effinterp::RefusalKind::EnvironmentDrift,
+        root_tool: input.input().tool().to_owned(),
+        code: "environment-rounds",
+    })
+}
+
+/// UNDOCUMENTED-EFFINTERP: qualification output, never a policy verdict.
+#[cfg(feature = "effinterp")]
+#[derive(Debug)]
+pub struct OptionalEvidenceAnalysis {
+    pub evidence: nah_proto::effects::GuardEvidence,
+    pub observation: Observation,
+    pub provenance: EvidenceProvenance,
+}

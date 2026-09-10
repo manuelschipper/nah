@@ -1055,7 +1055,7 @@ fn the_recorded_plan_keeps_no_argv_host_or_sensitive_path() {
         value["plan"]["subject"],
         serde_json::json!({"kind": "exec"})
     );
-    assert_eq!(value["plan"]["coverage"]["network"], "full");
+    assert_eq!(value["plan"]["coverage"]["network"]["level"], "full");
     assert_eq!(value["plan"]["effects"][1]["resource"]["path"], MASK);
     assert_eq!(
         value["plan"]["effects"][1]["annotation"]["path"]["path"],
@@ -1103,11 +1103,12 @@ fn the_recorded_plan_keeps_no_argv_host_or_sensitive_path() {
         for effect in &mut plan.effects {
             effect.realm = realm.clone();
         }
-        for node in &mut plan.causality.nodes {
+        for node in &mut plan.causality.graph.as_mut().unwrap().nodes {
             if node.execution.is_some() {
                 node.realm = realm.clone();
             }
         }
+        plan.stamp_effect_ids().unwrap();
         let annotations = vec![EffectAnnotation::default(); plan.effects.len()];
         let stream = EffinterpActionStream::new(plan, annotations).unwrap();
         let record = AuditRecordV1::redact_with_plan(
