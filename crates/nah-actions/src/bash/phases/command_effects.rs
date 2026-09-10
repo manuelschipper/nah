@@ -529,6 +529,12 @@ impl Lowerer {
             .then(|| lastpipe_update(&program, &local_arguments))
             .flatten();
         let stage_draft = StageDraft {
+            permission_grants: if matches!(&program, ProgramDraft::Static(program) if program == "chmod")
+            {
+                crate::bash_filesystem::chmod_permission_grants(&local_arguments)
+            } else {
+                None
+            },
             language_safety_only: false,
             invocation,
             invocation_cwd,

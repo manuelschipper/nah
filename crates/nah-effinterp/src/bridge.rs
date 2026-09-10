@@ -669,7 +669,16 @@ fn convert_evidence(
             Some(p::AttrValue::Bool(value)) => Known(*value),
             _ => Unknown,
         };
+        let control_tier = (effect.realm.is_host() && effect.operation.as_str() == "process.exec")
+            .then(|| crate::annotate::process_protection_tier(private, effect, ctx))
+            .flatten();
         let payload = match effect.operation.as_str() {
+            "process.exec" if control_tier.is_some() => FactPayload::ControlMutation {
+                target,
+                action: ControlAction::Other,
+                candidate_identity: Unknown,
+                tier: control_tier.map_or(Unknown, Known),
+            },
             "filesystem.read" | "filesystem.write" | "filesystem.create" | "filesystem.delete" => {
                 FactPayload::FilesystemAccess {
                     operation: match effect.operation.as_str() {

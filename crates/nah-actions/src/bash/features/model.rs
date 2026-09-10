@@ -83,6 +83,7 @@ pub(crate) struct ChildCwdDraft {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StageDraft {
+    pub(crate) permission_grants: Option<nah_proto::effects::PermissionGrants>,
     pub(crate) language_safety_only: bool,
     pub(crate) invocation: InvocationDraft,
     pub(crate) invocation_cwd: Option<String>,
@@ -140,6 +141,8 @@ pub(crate) enum ProgramDraft {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FilesystemDraft {
+    // Distinguishes command operands from same-stage shell redirects.
+    pub(crate) command_operand: bool,
     // Absent for an expanded shell pattern: there is no single path to observe.
     pub(crate) key: Option<String>,
     // Recursive patterns use a containing directory for their bounded scan

@@ -299,13 +299,20 @@ fn chmod_modes_distinguish_only_provable_permission_weakening() {
         "chmod a=rxs file",
     ] {
         let plan = bash_plan(source);
+        let evidence = plan
+            .guard_evidence(&observe(plan.observation_request(), "echo"))
+            .unwrap();
         let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(evidence.graph().facts.iter().any(|fact| matches!(&fact.payload,
+            nah_proto::effects::FactPayload::FilesystemAccess { permissions, .. }
+            if [permissions.world_write, permissions.setuid, permissions.setgid].contains(&nah_proto::effects::Knowledge::Known(true))
+        )), "{source}");
         assert!(
             stream.effects().iter().any(|effect| matches!(
                 effect.kind(),
                 EffectKind::Invocation {
                     invocation: InvocationEffect::Known { operation, .. }
-                } if operation.as_str() == "permission-weaken"
+                } if operation.as_str() == "permission-change"
             )),
             "{source}: {:?}",
             stream.effects()
@@ -339,7 +346,14 @@ fn chmod_modes_distinguish_only_provable_permission_weakening() {
         "chown user file",
     ] {
         let plan = bash_plan(source);
+        let evidence = plan
+            .guard_evidence(&observe(plan.observation_request(), "echo"))
+            .unwrap();
         let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
+        assert!(!evidence.graph().facts.iter().any(|fact| matches!(&fact.payload,
+            nah_proto::effects::FactPayload::FilesystemAccess { permissions, .. }
+            if [permissions.world_write, permissions.setuid, permissions.setgid].contains(&nah_proto::effects::Knowledge::Known(true))
+        )), "{source}");
         assert!(
             stream.effects().iter().any(|effect| matches!(
                 effect.kind(),
@@ -354,12 +368,25 @@ fn chmod_modes_distinguish_only_provable_permission_weakening() {
 
     let source = "find / -exec chmod 777 '{}' +";
     let plan = bash_plan(source);
+    let evidence = plan
+        .guard_evidence(&observe(plan.observation_request(), "echo"))
+        .unwrap();
+    assert!(
+        evidence
+            .graph()
+            .facts
+            .iter()
+            .any(|fact| matches!(&fact.payload,
+                nah_proto::effects::FactPayload::FilesystemAccess { permissions, .. }
+                if permissions.world_write == nah_proto::effects::Knowledge::Known(true)
+            ))
+    );
     let stream = finalize(plan.clone(), observe(plan.observation_request(), "echo"));
     assert!(stream.effects().iter().any(|effect| matches!(
         effect.kind(),
         EffectKind::Invocation {
             invocation: InvocationEffect::Known { operation, .. }
-        } if operation.as_str() == "permission-weaken"
+        } if operation.as_str() == "permission-change"
     )));
     assert!(stream.effects().iter().any(|effect| matches!(
         effect.kind(),

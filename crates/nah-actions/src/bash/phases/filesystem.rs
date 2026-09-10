@@ -75,6 +75,7 @@ pub(super) fn redirect_operations(
 
 pub(super) fn unresolved_read(requested: &str) -> FilesystemDraft {
     FilesystemDraft {
+        command_operand: false,
         key: None,
         descendant_key: None,
         requested: requested.to_owned(),
@@ -416,6 +417,7 @@ impl Lowerer {
         network_endpoints.extend(filesystem_endpoints);
         descriptor_flows.extend(filesystem_flows);
         self.stages.push(StageDraft {
+            permission_grants: None,
             language_safety_only: false,
             invocation: InvocationDraft::Known {
                 program: "bash".into(),
@@ -662,6 +664,7 @@ impl Lowerer {
             key
         });
         out.push(FilesystemDraft {
+            command_operand: false,
             key,
             descendant_key: None,
             requested: requested.into(),

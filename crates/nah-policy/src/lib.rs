@@ -90,11 +90,13 @@ pub const SHIPPED_GUARDS: &[&str] = &[
 /// only when a guard or self-protection positively identifies it.
 pub fn decide(
     action_stream: &ActionStream,
+    evidence: &nah_proto::effects::GuardEvidence,
     policy_ctx: &PolicyCtx,
     responses: &[ValidatedExtensionResponse],
 ) -> Result<DecisionCore, DecisionError> {
     decide_with_mode(
         action_stream,
+        evidence,
         policy_ctx,
         responses,
         EnforcementMode::Normal,
@@ -103,12 +105,14 @@ pub fn decide(
 
 pub fn decide_with_mode(
     action_stream: &ActionStream,
+    evidence: &nah_proto::effects::GuardEvidence,
     policy_ctx: &PolicyCtx,
     responses: &[ValidatedExtensionResponse],
     mode: EnforcementMode,
 ) -> Result<DecisionCore, DecisionError> {
     decide_with_mode_and_inline(
         action_stream,
+        evidence,
         &InlineReport::default(),
         policy_ctx,
         responses,
@@ -118,6 +122,7 @@ pub fn decide_with_mode(
 
 pub fn decide_with_mode_and_inline(
     action_stream: &ActionStream,
+    evidence: &nah_proto::effects::GuardEvidence,
     inline_report: &InlineReport,
     policy_ctx: &PolicyCtx,
     responses: &[ValidatedExtensionResponse],
@@ -125,6 +130,7 @@ pub fn decide_with_mode_and_inline(
 ) -> Result<DecisionCore, DecisionError> {
     decide_with_mode_and_inline_language_safety_stream(
         action_stream,
+        evidence,
         action_stream,
         inline_report,
         policy_ctx,
@@ -134,52 +140,40 @@ pub fn decide_with_mode_and_inline(
 }
 
 /// Reduces evidence from a public action stream and its language safety stream.
-/// Shipped guards and permanent protection inspect `language_safety_stream`;
+/// Filesystem and structural protection consume shared `evidence`. Remaining
+/// shipped families inspect `language_safety_stream` and the inline report;
 /// `DecisionCore` is bound to `action_stream`, which custom guards inspect.
-/// Callers must supply both projections of the same tool call and extension
+/// Callers must supply evidence and both projections of the same tool call, with extension
 /// responses validated against that public action stream.
 pub fn decide_with_mode_and_inline_language_safety_stream(
     action_stream: &ActionStream,
+    evidence: &nah_proto::effects::GuardEvidence,
     language_safety_stream: &ActionStream,
     inline_report: &InlineReport,
     policy_ctx: &PolicyCtx,
     responses: &[ValidatedExtensionResponse],
     mode: EnforcementMode,
 ) -> Result<DecisionCore, DecisionError> {
-    if structural::permanent_blocks(language_safety_stream) {
+    if structural::permanent_blocks(evidence) {
         return DecisionCore::structural_block(
             action_stream,
-            structural::terminal_reason(
-                language_safety_stream,
-                nah_proto::action::NahProtectionTier::Permanent,
-            )
-            .unwrap_or(structural::PERMANENT_REASON),
+            structural::terminal_reason(evidence, nah_proto::action::NahProtectionTier::Permanent)
+                .unwrap_or(structural::PERMANENT_REASON),
         );
     }
     if mode == EnforcementMode::AllPaused {
         return DecisionCore::new(action_stream, Verdict::Delegate, vec![]);
     }
-    if mode == EnforcementMode::Normal
-        && (structural::critical_blocks(language_safety_stream)
-            || inline_report.contains_conservative(nah_inline::FindingKind::NahTampering))
-    {
+    if mode == EnforcementMode::Normal && (structural::critical_blocks(evidence)) {
         return DecisionCore::structural_block(
             action_stream,
-            structural::terminal_reason(
-                language_safety_stream,
-                nah_proto::action::NahProtectionTier::Critical,
-            )
-            .unwrap_or(structural::CRITICAL_REASON),
+            structural::terminal_reason(evidence, nah_proto::action::NahProtectionTier::Critical)
+                .unwrap_or(structural::CRITICAL_REASON),
         );
     }
 
     let mut contributions = Vec::new();
-    let filesystem_block = filesystem_guards::add(
-        language_safety_stream,
-        inline_report,
-        policy_ctx,
-        &mut contributions,
-    )?;
+    let filesystem_block = filesystem_guards::add(evidence, policy_ctx, &mut contributions)?;
     let git_block = git_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let infrastructure_block =
         infrastructure_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;

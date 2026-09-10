@@ -1,12 +1,10 @@
 //! Evaluates catastrophic filesystem guards; it does not resolve paths or parse commands.
 
-use nah_inline::{FindingKind, InlineReport};
-use nah_proto::action::{
-    ActionStream, Effect, EffectKind, FilesystemEffect, FilesystemOperation, HostIntegrityClass,
-    InvocationEffect, PathScope, SemanticCode, pattern_bound,
-};
+use nah_proto::action::pattern_bound;
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
+use nah_proto::effects::*;
+use nah_proto::labels::{HostIntegrityClass, PathScope};
 
 const FS_SYSTEM_TREE: &str = "fs-system-tree";
 const FS_HOME: &str = "fs-home";
@@ -22,8 +20,7 @@ const FS_VOLUME_DESTROY: &str = "fs-volume-destroy";
 const FS_FORKBOMB: &str = "fs-forkbomb";
 
 pub(crate) fn add(
-    action_stream: &ActionStream,
-    inline_report: &InlineReport,
+    evidence: &GuardEvidence,
     policy_ctx: &PolicyCtx,
     contributions: &mut Vec<GuardContribution>,
 ) -> Result<bool, DecisionError> {
@@ -82,7 +79,7 @@ pub(crate) fn add(
             .enabled_shipped_guards()
             .iter()
             .any(|enabled| enabled == name)
-            || !(matches(name, action_stream) || inline_match(name, inline_report))
+            || !matches(name, evidence)
         {
             continue;
         }
@@ -93,157 +90,192 @@ pub(crate) fn add(
     Ok(blocked)
 }
 
-fn inline_match(name: &str, report: &InlineReport) -> bool {
-    let kind = match name {
-        FS_SYSTEM_TREE => FindingKind::RootDestruction,
-        FS_HOME => FindingKind::HomeDestruction,
-        _ => return false,
-    };
-    report.contains_exact(kind)
-}
-
-fn matches(name: &str, action_stream: &ActionStream) -> bool {
-    action_stream
-        .effects()
-        .iter()
-        .any(|effect| match (name, effect.kind()) {
-            (FS_SYSTEM_TREE, EffectKind::Filesystem { effect: filesystem }) => {
-                let target = filesystem.target.as_str();
-                root_relocation(action_stream, effect, filesystem)
-                    || (selects_root_or_system_tree(target)
-                        || filesystem.pattern && pattern_selects_system_tree(pattern_bound(target)))
-                        && destructive_tree_operation(
-                            action_stream,
-                            effect,
-                            filesystem.operation,
-                            filesystem.recursive,
-                        )
-            }
-            (FS_HOME, EffectKind::Filesystem { effect: filesystem }) => {
-                filesystem.selects_home
-                    && destructive_tree_operation(
-                        action_stream,
-                        effect,
-                        filesystem.operation,
-                        filesystem.recursive,
+fn matches(name: &str, evidence: &GuardEvidence) -> bool {
+    evidence.graph().facts.iter().any(|fact| {
+        if fact.realm != Realm::Host
+            || fact.certainty != Certainty::Exact
+            || fact.condition.is_some()
+        {
+            return false;
+        }
+        match &fact.payload {
+            FactPayload::FilesystemAccess {
+                operation,
+                target: source,
+                destination,
+                recursive,
+                permissions,
+                ..
+            } => evidence
+                .graph()
+                .resources
+                .iter()
+                .filter(|resource| resource.id == *source || Some(resource.id) == *destination)
+                .any(|resource| {
+                    filesystem_matches(
+                        name,
+                        resource,
+                        *operation,
+                        resource.id == *source,
+                        *recursive,
+                        permissions,
                     )
+                }),
+            FactPayload::TreeStateLoss { class, .. } => matches!(
+                (name, class),
+                (FS_SYSTEM_TREE, TreeClass::Root) | (FS_HOME, TreeClass::Home)
+            ),
+            FactPayload::ProcessGrowth {
+                background,
+                repetition,
+                launch_cycle,
+                wait,
+                dominator,
+                growth,
+                abstract_unbounded_spawn,
+            } => {
+                name == FS_FORKBOMB
+                    && (*abstract_unbounded_spawn == Knowledge::Known(true)
+                        || *background == Knowledge::Known(true)
+                            && (*repetition == Knowledge::Known(true)
+                                || *launch_cycle == Knowledge::Known(true))
+                            && *wait == Knowledge::Known(false)
+                            && *dominator == Knowledge::Known(true)
+                            && *growth == Bound::Unbounded)
             }
-            (FS_OUTSIDE_WORKSPACE_DELETE, EffectKind::Filesystem { effect: filesystem }) => {
-                filesystem.operation == FilesystemOperation::Delete
-                    && filesystem.recursive
-                    && matches!(
-                        &filesystem.scope,
-                        PathScope::Home | PathScope::System | PathScope::OutsideProject
-                    )
-                    && !is_reviewed_temporary_root(filesystem.target.as_str())
+            FactPayload::StorageChange {
+                target,
+                operation: StorageOperation::Destroy,
+                kind: StorageTarget::LiveVolume,
+                ..
+            } => {
+                name == FS_VOLUME_DESTROY
+                    && evidence.graph().resources.iter().any(|resource| {
+                        resource.id == *target && resource.identity.kind == ResourceKind::LiveVolume
+                    })
             }
-            (
-                FS_PERMISSION_WEAKEN,
-                EffectKind::Invocation {
-                    invocation: InvocationEffect::Known { operation, .. },
-                },
-            ) => operation == &SemanticCode::PERMISSION_WEAKEN,
-            (FS_PROJECT_ROOT, EffectKind::Filesystem { effect: filesystem }) => {
-                if let PathScope::Project { root } = &filesystem.scope {
-                    (filesystem.selects_root
-                        || filesystem.pattern
-                            && pattern_selects_project_root(
-                                filesystem.target.as_str(),
-                                root.as_str(),
-                            ))
-                        && destructive_tree_operation(
-                            action_stream,
-                            effect,
-                            filesystem.operation,
-                            filesystem.recursive,
-                        )
-                } else {
-                    false
-                }
-            }
-            (
-                FS_SYSTEM_TREE | FS_HOME,
-                EffectKind::FilesystemUnresolved {
-                    operation,
-                    recursive,
-                },
-            ) => destructive_tree_operation(action_stream, effect, *operation, *recursive),
-            (FS_RAW_DEVICE, EffectKind::Filesystem { effect }) => {
-                effect.operation == FilesystemOperation::Write
-                    && (is_raw_storage_or_sysrq(effect.target.as_str())
-                        || effect.pattern
-                            && pattern_selects_raw_storage(pattern_bound(effect.target.as_str())))
-            }
-            (
-                FS_SHELL_PROFILE | FS_STARTUP_PERSISTENCE | FS_AUTH_IDENTITY,
-                EffectKind::Filesystem { effect },
-            ) => {
-                matches!(
-                    effect.operation,
-                    FilesystemOperation::Write | FilesystemOperation::Delete
-                ) && matches!(
-                    (name, effect.host_integrity),
-                    (FS_SHELL_PROFILE, Some(HostIntegrityClass::ShellProfile))
-                        | (
-                            FS_STARTUP_PERSISTENCE,
-                            Some(HostIntegrityClass::StartupPersistence)
-                        )
-                        | (FS_AUTH_IDENTITY, Some(HostIntegrityClass::AuthIdentity))
-                )
-            }
-            (FS_VOLUME_DESTROY, EffectKind::SystemState { operation }) => {
-                operation == &SemanticCode::LOGICAL_STORAGE_DESTROY
-            }
-            (FS_FORKBOMB, EffectKind::SystemState { operation }) => {
-                operation == &SemanticCode::FORK_BOMB
-            }
-            (FS_STARTUP_MANAGEMENT, EffectKind::SystemState { operation }) => {
-                operation == &SemanticCode::STARTUP_MANAGEMENT
+            FactPayload::SystemChange {
+                operation: SystemOperation::StartupChange,
+                persistent,
+                active,
+                runtime_only,
+                help,
+                cancel,
+                ..
+            } => {
+                name == FS_STARTUP_MANAGEMENT
+                    && *persistent == Knowledge::Known(true)
+                    && *active == Knowledge::Known(true)
+                    && *runtime_only == Knowledge::Known(false)
+                    && *help == Knowledge::Known(false)
+                    && *cancel == Knowledge::Known(false)
             }
             _ => false,
-        })
+        }
+    })
 }
 
-fn root_relocation(
-    action_stream: &ActionStream,
-    effect: &Effect,
-    filesystem: &FilesystemEffect,
-) -> bool {
-    filesystem.operation == FilesystemOperation::Delete
-        && filesystem.target.as_str() == "/*"
-        && filesystem.pattern
-        && action_stream.effects().iter().any(|candidate| {
-            candidate.stage() == effect.stage()
-                && matches!(
-                    candidate.kind(),
-                    EffectKind::Invocation {
-                        invocation: InvocationEffect::Known {
-                            operation,
-                            ..
-                        }
-                    } if operation == &SemanticCode::MOVE
-                )
-        })
-}
-
-fn destructive_tree_operation(
-    action_stream: &ActionStream,
-    effect: &Effect,
+fn filesystem_matches(
+    name: &str,
+    resource: &EffectResource,
     operation: FilesystemOperation,
-    recursive: bool,
+    source: bool,
+    recursive: Knowledge<bool>,
+    permissions: &PermissionGrants,
 ) -> bool {
-    (operation == FilesystemOperation::Delete && recursive)
-        || (operation == FilesystemOperation::Write
-            && recursive
-            && action_stream.effects().iter().any(|candidate| {
-                candidate.stage() == effect.stage()
-                    && matches!(
-                        candidate.kind(),
-                        EffectKind::Invocation {
-                            invocation: InvocationEffect::Known { operation, .. }
-                        } if operation.is_permission_change()
-                    )
-            }))
+    let labels = resource.labels.as_ref();
+    let target = labels.and_then(|labels| {
+        let endpoint = if matches!(
+            operation,
+            FilesystemOperation::Delete | FilesystemOperation::Move
+        ) && labels.is_symlink == Knowledge::Known(true)
+        {
+            &labels.lexical
+        } else {
+            &labels.canonical
+        };
+        match endpoint {
+            Knowledge::Known(path) => Some(path.as_str()),
+            Knowledge::Unknown => match &labels.lexical {
+                Knowledge::Known(path) => Some(path.as_str()),
+                Knowledge::Unknown => None,
+            },
+        }
+    });
+    let pattern = matches!(resource.selection, Selection::Pattern { .. });
+    let recursive = recursive == Knowledge::Known(true);
+    let destructive = recursive
+        && matches!(
+            operation,
+            FilesystemOperation::Delete | FilesystemOperation::PermissionChange
+        );
+    let unresolved = matches!(resource.selection, Selection::Unknown) && target.is_none();
+    let mutation = matches!(
+        operation,
+        FilesystemOperation::Write
+            | FilesystemOperation::Create
+            | FilesystemOperation::Delete
+            | FilesystemOperation::Move
+            | FilesystemOperation::PermissionChange
+            | FilesystemOperation::MetadataMutation
+    );
+    match name {
+        FS_SYSTEM_TREE => {
+            let selects_system = target.is_some_and(|target| {
+                selects_root_or_system_tree(target)
+                    || pattern && pattern_selects_system_tree(pattern_bound(target))
+            });
+            destructive
+                && (unresolved || labels.is_some_and(|labels| labels.selects_root == Reach::Yes) || selects_system)
+                || operation == FilesystemOperation::Move && source && target == Some("/*") && pattern
+        }
+        FS_HOME => {
+            destructive && (unresolved || labels.is_some_and(|labels| labels.selects_home == Reach::Yes))
+        }
+        FS_PROJECT_ROOT => {
+            destructive && labels.is_some_and(|labels| {
+                labels.selects_project == Reach::Yes || match &labels.scope {
+                    Knowledge::Known(PathScope::Project { root }) => {
+                        pattern && target.is_some_and(|target| pattern_selects_project_root(target, root.as_str()))
+                    }
+                    _ => false,
+                }
+            })
+        }
+        FS_OUTSIDE_WORKSPACE_DELETE => {
+            operation == FilesystemOperation::Delete
+                && recursive
+                && labels.is_some_and(|labels| matches!(labels.scope,
+                    Knowledge::Known(PathScope::Home | PathScope::System | PathScope::OutsideProject)
+                ))
+                && target.is_some_and(|target| !is_reviewed_temporary_root(target))
+        }
+        FS_PERMISSION_WEAKEN => {
+            operation == FilesystemOperation::PermissionChange
+                && [permissions.world_write, permissions.setuid, permissions.setgid].contains(&Knowledge::Known(true))
+        }
+        FS_RAW_DEVICE => {
+            let writes_device = matches!(operation,
+                FilesystemOperation::Write | FilesystemOperation::Create
+                    | FilesystemOperation::PermissionChange | FilesystemOperation::MetadataMutation
+            ) || operation == FilesystemOperation::Move && !source;
+            writes_device && target.is_some_and(|target| {
+                is_raw_storage_or_sysrq(target)
+                    || pattern && pattern_selects_raw_storage(pattern_bound(target))
+            })
+        }
+        FS_SHELL_PROFILE | FS_STARTUP_PERSISTENCE | FS_AUTH_IDENTITY => {
+            mutation && labels.is_some_and(|labels| {
+                let class = match name {
+                    FS_SHELL_PROFILE => HostIntegrityClass::ShellProfile,
+                    FS_STARTUP_PERSISTENCE => HostIntegrityClass::StartupPersistence,
+                    _ => HostIntegrityClass::AuthIdentity,
+                };
+                matches!(&labels.host_integrity, Knowledge::Known(classes) if classes.contains(&class))
+            })
+        }
+        _ => false,
+    }
 }
 
 fn is_reviewed_temporary_root(target: &str) -> bool {

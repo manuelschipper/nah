@@ -14,17 +14,16 @@ use crate::{bash_tar, bash_transforms};
 /// its keychain subcommands lower to a read of this directory.
 const KEYCHAIN_DIRECTORY: &str = "~/Library/Keychains";
 
-/// Returns whether a static chmod mode provably grants world-write or
-/// setuid/setgid permission.
-pub(crate) fn chmod_weakens_permissions(arguments: &[Word]) -> bool {
+/// Interprets chmod grants without deciding which grants policy forbids.
+pub(crate) fn chmod_permission_grants(
+    arguments: &[Word],
+) -> Option<nah_proto::effects::PermissionGrants> {
     let mut mode = None;
     let mut after_options = false;
     for argument in arguments {
         let argument = static_word(argument.raw(), argument.substitutions().is_empty());
         let Some(argument) = argument.as_deref() else {
-            if mode.is_none() {
-                return false;
-            }
+            mode.as_ref()?;
             continue;
         };
         if !after_options && argument == "--" {
@@ -32,10 +31,10 @@ pub(crate) fn chmod_weakens_permissions(arguments: &[Word]) -> bool {
             continue;
         }
         if !after_options && (argument == "--reference" || argument.starts_with("--reference=")) {
-            return false;
+            return None;
         }
         if !after_options && matches!(argument, "--help" | "--version") {
-            return false;
+            return None;
         }
         if !after_options && argument.starts_with("--") {
             if !matches!(
@@ -50,7 +49,7 @@ pub(crate) fn chmod_weakens_permissions(arguments: &[Word]) -> bool {
                     | "--silent"
                     | "--verbose"
             ) {
-                return false;
+                return None;
             }
             continue;
         }
@@ -61,7 +60,7 @@ pub(crate) fn chmod_weakens_permissions(arguments: &[Word]) -> bool {
                         .chars()
                         .all(|flag| matches!(flag, 'c' | 'f' | 'h' | 'H' | 'L' | 'P' | 'R' | 'v'))
             }) {
-                return false;
+                return None;
             }
             continue;
         }
@@ -69,25 +68,26 @@ pub(crate) fn chmod_weakens_permissions(arguments: &[Word]) -> bool {
             mode = Some(argument.to_owned());
         }
     }
-    mode.is_some_and(|mode| chmod_mode_weakens_permissions(&mode))
+    mode.and_then(|mode| chmod_mode_permission_grants(&mode))
 }
 
-fn chmod_mode_weakens_permissions(mode: &str) -> bool {
+fn chmod_mode_permission_grants(mode: &str) -> Option<nah_proto::effects::PermissionGrants> {
     if (3..=5).contains(&mode.len()) && mode.bytes().all(|byte| matches!(byte, b'0'..=b'7')) {
         let normalized = mode.trim_start_matches('0');
         if normalized.len() > 4 {
-            return false;
+            return None;
         }
-        let other_write = matches!(mode.as_bytes().last(), Some(b'2' | b'3' | b'6' | b'7'));
-        let special = (normalized.len() == 4)
-            .then(|| normalized.as_bytes()[0])
-            .is_some_and(|digit| matches!(digit, b'2'..=b'7'));
-        return other_write || special;
+        let bits = u16::from_str_radix(mode, 8).ok()?;
+        return Some(nah_proto::effects::PermissionGrants {
+            world_write: nah_proto::effects::Knowledge::Known(bits & 0o002 != 0),
+            setuid: nah_proto::effects::Knowledge::Known(bits & 0o4000 != 0),
+            setgid: nah_proto::effects::Knowledge::Known(bits & 0o2000 != 0),
+        });
     }
-    symbolic_mode_weakens_permissions(mode).unwrap_or(false)
+    symbolic_mode_permission_grants(mode)
 }
 
-fn symbolic_mode_weakens_permissions(mode: &str) -> Option<bool> {
+fn symbolic_mode_permission_grants(mode: &str) -> Option<nah_proto::effects::PermissionGrants> {
     let mut other_write = None;
     let mut user_setid = None;
     let mut group_setid = None;
@@ -118,7 +118,19 @@ fn symbolic_mode_weakens_permissions(mode: &str) -> Option<bool> {
                 return None;
             }
             if who.contains(['o', 'a']) {
-                apply_symbolic_permission(&mut other_write, operation, permissions.contains('w'));
+                if matches!(permissions, "u" | "g" | "o") {
+                    match operation {
+                        b'+' if other_write == Some(true) => {}
+                        b'-' if other_write == Some(false) => {}
+                        _ => other_write = None,
+                    }
+                } else {
+                    apply_symbolic_permission(
+                        &mut other_write,
+                        operation,
+                        permissions.contains('w'),
+                    );
+                }
             }
             if who.contains(['u', 'a']) {
                 apply_symbolic_permission(&mut user_setid, operation, permissions.contains('s'));
@@ -129,11 +141,17 @@ fn symbolic_mode_weakens_permissions(mode: &str) -> Option<bool> {
             actions = remaining;
         }
     }
-    Some(
-        matches!(other_write, Some(true))
-            || matches!(user_setid, Some(true))
-            || matches!(group_setid, Some(true)),
-    )
+    let knowledge = |value: Option<bool>| {
+        value.map_or(
+            nah_proto::effects::Knowledge::Unknown,
+            nah_proto::effects::Knowledge::Known,
+        )
+    };
+    Some(nah_proto::effects::PermissionGrants {
+        world_write: knowledge(other_write),
+        setuid: knowledge(user_setid),
+        setgid: knowledge(group_setid),
+    })
 }
 
 fn apply_symbolic_permission(state: &mut Option<bool>, operation: u8, selected: bool) {

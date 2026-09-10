@@ -12,13 +12,23 @@ fn infrastructure_destroy_requires_its_enabled_guard() {
         operation: SemanticCode::INFRA_IAC_DESTROY,
     });
 
-    let enabled =
-        nah_policy::decide(&stream, &guard_policy("infra-iac-destroy", true), &[]).unwrap();
+    let enabled = nah_policy::decide(
+        &stream,
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+        &guard_policy("infra-iac-destroy", true),
+        &[],
+    )
+    .unwrap();
     assert_eq!(enabled.verdict(), Verdict::Block);
     assert_eq!(enabled.policy_attributions()[0].name(), "infra-iac-destroy");
 
-    let disabled =
-        nah_policy::decide(&stream, &guard_policy("infra-iac-destroy", false), &[]).unwrap();
+    let disabled = nah_policy::decide(
+        &stream,
+        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+        &guard_policy("infra-iac-destroy", false),
+        &[],
+    )
+    .unwrap();
     assert_eq!(disabled.verdict(), Verdict::Delegate);
 }
 
@@ -32,11 +42,23 @@ fn container_guards_require_their_matching_enabled_code() {
         ("infra-container-reset", SemanticCode::INFRA_CONTAINER_RESET),
     ] {
         let stream = guarded_stream(EffectKind::SystemState { operation });
-        let enabled = nah_policy::decide(&stream, &guard_policy(name, true), &[]).unwrap();
+        let enabled = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy(name, true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(enabled.verdict(), Verdict::Block, "{name}");
         assert_eq!(enabled.policy_attributions()[0].name(), name);
 
-        let disabled = nah_policy::decide(&stream, &guard_policy(name, false), &[]).unwrap();
+        let disabled = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy(name, false),
+            &[],
+        )
+        .unwrap();
         assert_eq!(disabled.verdict(), Verdict::Delegate, "{name}");
     }
 }
@@ -54,7 +76,13 @@ fn container_reset_and_volume_delete_guards_are_isolated() {
         ),
     ] {
         let stream = guarded_stream(EffectKind::SystemState { operation });
-        let decision = nah_policy::decide(&stream, &guard_policy(enabled, true), &[]).unwrap();
+        let decision = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy(enabled, true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(decision.verdict(), Verdict::Delegate, "{enabled}");
     }
 }
@@ -84,8 +112,13 @@ fn infrastructure_guard_matches_only_its_system_state_code() {
         } else {
             guarded_stream(effect)
         };
-        let decision =
-            nah_policy::decide(&stream, &guard_policy("infra-iac-destroy", true), &[]).unwrap();
+        let decision = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy("infra-iac-destroy", true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(decision.verdict(), Verdict::Delegate);
     }
 }
@@ -98,13 +131,23 @@ fn kubernetes_guard_matches_each_reviewed_scope_when_enabled() {
         SemanticCode::INFRA_K8S_BULK_RESOURCE_DELETE,
     ] {
         let stream = guarded_stream(EffectKind::SystemState { operation });
-        let enabled =
-            nah_policy::decide(&stream, &guard_policy("infra-k8s-delete", true), &[]).unwrap();
+        let enabled = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy("infra-k8s-delete", true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(enabled.verdict(), Verdict::Block);
         assert_eq!(enabled.policy_attributions()[0].name(), "infra-k8s-delete");
 
-        let disabled =
-            nah_policy::decide(&stream, &guard_policy("infra-k8s-delete", false), &[]).unwrap();
+        let disabled = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy("infra-k8s-delete", false),
+            &[],
+        )
+        .unwrap();
         assert_eq!(disabled.verdict(), Verdict::Delegate);
     }
 }
@@ -124,8 +167,13 @@ fn kubernetes_guard_requires_a_system_state_effect() {
             vec![],
         )
         .unwrap();
-        let decision =
-            nah_policy::decide(&stream, &guard_policy("infra-k8s-delete", true), &[]).unwrap();
+        let decision = nah_policy::decide(
+            &stream,
+            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+            &guard_policy("infra-k8s-delete", true),
+            &[],
+        )
+        .unwrap();
         assert_eq!(decision.verdict(), Verdict::Delegate);
     }
 }
