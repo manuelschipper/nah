@@ -486,7 +486,9 @@ impl Interpreter<'_, '_> {
             callable,
             tokens.iter(),
             Vec::new(),
-            None,
+            parameter_value(&arguments, &["computername"])
+                .filter(|target| target.exact)
+                .map(|target| target.value.clone()),
             arguments.complete && what_if.is_some(),
         );
     }

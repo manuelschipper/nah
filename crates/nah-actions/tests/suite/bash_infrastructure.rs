@@ -14,13 +14,14 @@ fn destroys_whole_stack(source: &str) -> bool {
 }
 
 fn has_system_state(source: &str, expected: &SemanticCode) -> bool {
-    stream(source).effects().iter().any(|effect| {
-        matches!(
-            effect.kind(),
-            EffectKind::SystemState { operation }
-                if operation == expected
-        )
-    })
+    let name = if expected == &SemanticCode::LOGICAL_STORAGE_DESTROY {
+        "fs-volume-destroy"
+    } else {
+        expected.as_str()
+    };
+    support::operation_guard_names(source, &[(name, true)])
+        .iter()
+        .any(|guard| guard == name)
 }
 
 fn resets_container_runtime(source: &str) -> bool {

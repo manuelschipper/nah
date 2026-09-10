@@ -34,6 +34,7 @@ pub(super) struct CommandResources {
     pub(super) descriptor_flows: Vec<DescriptorFlow>,
     pub(super) system_states: Vec<SemanticCode>,
     pub(super) git_operations: Vec<SemanticCode>,
+    pub(super) operation_evidence: Vec<crate::operation_evidence::OperationEvidence>,
     pub(super) git_facts: Vec<nah_proto::effects::FactPayload>,
 }
 
@@ -68,6 +69,7 @@ impl Lowerer {
         }
         let command_operand_start = filesystem_drafts.len();
         let mut system_states = Vec::new();
+        let mut operation_evidence = Vec::new();
         let mut root_move_destination_key = None;
         let mut git_command_guards = match program {
             ProgramDraft::Static(program) => git_command_operations(program, arguments),
@@ -323,34 +325,41 @@ impl Lowerer {
             }
         }
         if let ProgramDraft::Static(program) = program
-            && logical_storage_destroy(program, arguments)
+            && let Some(evidence) = logical_storage_destroy(program, arguments)
         {
             self.complete = false;
             system_states.push(SemanticCode::LOGICAL_STORAGE_DESTROY);
+            operation_evidence.push(evidence);
         }
         if let ProgramDraft::Static(program) = program
-            && let Some(operation) = startup_management_operation(program, arguments, self.platform)
+            && let Some((operation, evidence)) =
+                startup_management_operation(program, arguments, self.platform)
         {
+            operation_evidence.extend(evidence);
             system_states.push(operation);
         }
         if let Some(infrastructure) = infrastructure {
             self.complete &= infrastructure.complete;
+            operation_evidence.extend(infrastructure.evidence.iter().cloned());
             if let Some(operation) = &infrastructure.system_state {
                 system_states.push(operation.clone());
             }
         }
         if let Some(kubernetes) = kubernetes {
             self.complete &= kubernetes.complete;
+            operation_evidence.extend(kubernetes.evidence.iter().cloned());
             system_states.extend(kubernetes.system_states.iter().cloned());
         }
         if let Some(storage) = storage {
             self.complete &= storage.complete;
+            operation_evidence.extend(storage.evidence.iter().cloned());
             if let Some(operation) = &storage.system_state {
                 system_states.push(operation.clone());
             }
         }
         if let Some(registry) = registry {
             self.complete &= registry.complete;
+            operation_evidence.extend(registry.evidence.iter().cloned());
             if let Some(operation) = &registry.system_state {
                 system_states.push(operation.clone());
             }
@@ -467,6 +476,7 @@ impl Lowerer {
             system_states,
             git_operations,
             git_facts,
+            operation_evidence,
         }
     }
 }

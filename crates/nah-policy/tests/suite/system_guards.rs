@@ -1,6 +1,7 @@
 #![allow(clippy::disallowed_types)]
 
 use crate::support;
+use nah_proto::effects::*;
 
 use nah_proto::action::{ActionStream, Coverage, EffectKind, SemanticCode};
 use nah_proto::decision::Verdict;
@@ -12,23 +13,23 @@ fn sys_power_requires_its_enabled_guard() {
         EffectKind::known("shutdown", SemanticCode::HOST_POWER.as_str()).unwrap(),
     );
 
-    let enabled = nah_policy::decide(
-        &stream,
-        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
-        &guard_policy("sys-power", true),
-        &[],
-    )
-    .unwrap();
-    assert_eq!(enabled.verdict(), Verdict::Block);
-    assert_eq!(enabled.policy_attributions()[0].name(), "sys-power");
+    let evidence = support::operation_evidence(system(SystemOperation::Power));
 
-    let disabled = nah_policy::decide(
-        &stream,
-        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
-        &guard_policy("sys-power", false),
-        &[],
-    )
-    .unwrap();
+    let enabled =
+        nah_policy::decide(&stream, &evidence, &guard_policy("sys-power", true), &[]).unwrap();
+    assert_eq!(enabled.verdict(), Verdict::Block);
+    assert_eq!(
+        enabled
+            .policy_attributions()
+            .iter()
+            .map(|guard| guard.name())
+            .collect::<Vec<_>>(),
+        vec!["sys-power"]
+    );
+    support::assert_operation_uncertainty(&evidence, "sys-power");
+
+    let disabled =
+        nah_policy::decide(&stream, &evidence, &guard_policy("sys-power", false), &[]).unwrap();
     assert_eq!(disabled.verdict(), Verdict::Delegate);
 }
 
@@ -79,19 +80,29 @@ fn sys_service_stop_requires_its_enabled_guard() {
         operation: SemanticCode::SERVICE_STOP,
     });
 
+    let evidence = support::operation_evidence(system(SystemOperation::ServiceStop));
+
     let enabled = nah_policy::decide(
         &stream,
-        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+        &evidence,
         &guard_policy("sys-service-stop", true),
         &[],
     )
     .unwrap();
     assert_eq!(enabled.verdict(), Verdict::Block);
-    assert_eq!(enabled.policy_attributions()[0].name(), "sys-service-stop");
+    assert_eq!(
+        enabled
+            .policy_attributions()
+            .iter()
+            .map(|guard| guard.name())
+            .collect::<Vec<_>>(),
+        vec!["sys-service-stop"]
+    );
+    support::assert_operation_uncertainty(&evidence, "sys-service-stop");
 
     let disabled = nah_policy::decide(
         &stream,
-        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
+        &evidence,
         &guard_policy("sys-service-stop", false),
         &[],
     )
@@ -142,4 +153,17 @@ fn sys_service_stop_is_a_shipped_guard() {
 
 fn invocation_stream(effect: EffectKind) -> ActionStream {
     ActionStream::new(Coverage::Partial, vec![vec![effect]], vec![]).unwrap()
+}
+
+fn system(operation: SystemOperation) -> FactPayload {
+    FactPayload::SystemChange {
+        target: ResourceId(0),
+        operation,
+        selection: Selection::Unknown,
+        runtime_only: Knowledge::Unknown,
+        persistent: Knowledge::Unknown,
+        active: Knowledge::Known(true),
+        cancel: Knowledge::Known(false),
+        help: Knowledge::Known(false),
+    }
 }

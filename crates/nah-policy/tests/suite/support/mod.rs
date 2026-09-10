@@ -394,6 +394,8 @@ pub(crate) fn evidence(
                     selection: Selection::Unknown,
                     recursive: Unknown,
                     destination_deletion: Unknown,
+                    allow_remove_all: nah_proto::effects::Knowledge::Unknown,
+                    all_selection_requested: nah_proto::effects::Knowledge::Unknown,
                 }
             }
             EffectKind::SystemState { operation }
@@ -474,4 +476,102 @@ pub(crate) fn empty_evidence() -> nah_proto::effects::GuardEvidence {
         },
     )
     .unwrap()
+}
+
+pub(crate) fn operation_evidence(
+    payload: nah_proto::effects::FactPayload,
+) -> nah_proto::effects::GuardEvidence {
+    use nah_proto::effects::*;
+    let stream = guarded_stream(EffectKind::SystemState {
+        operation: nah_proto::action::SemanticCode::LOCAL_UTILITY,
+    });
+    let base = evidence(&stream, &nah_inline::InlineReport::default());
+    let mut graph = base.graph().clone();
+    let kind = match &payload {
+        FactPayload::ContainerChange {
+            operation: ContainerOperation::ResetRuntime,
+            ..
+        } => ResourceKind::ContainerRuntime,
+        FactPayload::ContainerChange { .. } => ResourceKind::ContainerVolume,
+        FactPayload::InfrastructureChange { .. } => ResourceKind::ManagedInfrastructure,
+        FactPayload::PackageChange { .. } => ResourceKind::Package,
+        FactPayload::SystemChange { .. } => ResourceKind::HostSystem,
+        FactPayload::StorageChange {
+            kind: StorageTarget::LiveVolume,
+            ..
+        } => ResourceKind::LiveVolume,
+        _ => ResourceKind::Other,
+    };
+    graph.resources.clear();
+    graph.facts.clear();
+    graph.resources.push(EffectResource {
+        id: ResourceId(0),
+        realm: Realm::Host,
+        identity: ResourceIdentity {
+            kind,
+            name: Knowledge::Unknown,
+            provider: Knowledge::Unknown,
+            details: Knowledge::Unknown,
+        },
+        selection: Selection::Unknown,
+        labels: None,
+    });
+    graph.facts.push(EffectFact {
+        id: FactId(0),
+        call: CallId(0),
+        realm: Realm::Host,
+        certainty: Certainty::Exact,
+        modality: Modality::May,
+        condition: None,
+        occurrences: None,
+        payload,
+    });
+    GuardEvidence::new(
+        graph,
+        PublicSelection {
+            calls: Default::default(),
+            facts: Default::default(),
+            resources: Default::default(),
+            occurrences: Default::default(),
+            relations: Default::default(),
+            complete: false,
+        },
+    )
+    .unwrap()
+}
+
+pub(crate) fn assert_operation_uncertainty(
+    evidence: &nah_proto::effects::GuardEvidence,
+    name: &str,
+) {
+    use nah_proto::effects::*;
+    let stream = ActionStream::new(Coverage::Partial, vec![], vec![]).unwrap();
+    for boundary in ["absent", "conditional", "conservative"] {
+        let mut graph = evidence.graph().clone();
+        match boundary {
+            "absent" => graph.facts.clear(),
+            "conditional" => {
+                graph.conditions.push(EffectCondition {
+                    id: ConditionId(0),
+                    complete: false,
+                    expression: ConditionExpr::Literal { atom: 0 },
+                    alternative_group: None,
+                });
+                graph.facts[0].condition = Some(ConditionUse {
+                    id: ConditionId(0),
+                    positive: true,
+                });
+            }
+            _ => graph.facts[0].certainty = Certainty::Conservative,
+        }
+        let evidence = GuardEvidence::new(graph, evidence.public_selection().clone()).unwrap();
+        let decision =
+            nah_policy::decide(&stream, &evidence, &guard_policy(name, true), &[]).unwrap();
+        assert_eq!(
+            decision.verdict(),
+            nah_proto::decision::Verdict::Delegate,
+            "{name}: {boundary}"
+        );
+        assert!(decision.policy_attributions().is_empty());
+    }
 }

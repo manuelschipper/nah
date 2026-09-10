@@ -151,7 +151,10 @@ fn matches(name: &str, evidence: &GuardEvidence) -> bool {
             } => {
                 name == FS_VOLUME_DESTROY
                     && evidence.graph().resources.iter().any(|resource| {
-                        resource.id == *target && resource.identity.kind == ResourceKind::LiveVolume
+                        resource.id == *target
+                            && resource.identity.kind == ResourceKind::LiveVolume
+                            && !matches!(&resource.identity.provider, Knowledge::Known(provider)
+                                if matches!(provider.as_str(), "aws" | "gcloud" | "az"))
                     })
             }
             FactPayload::SystemChange {

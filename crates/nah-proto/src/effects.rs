@@ -541,6 +541,8 @@ pub enum InfrastructureScope {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StorageOperation {
+    /// The target is the retained restore point, not a deleted snapshot.
+    Rollback,
     Delete,
     Destroy,
     Sync,
@@ -548,6 +550,8 @@ pub enum StorageOperation {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StorageTarget {
+    /// Established subvolume identity does not prove snapshot origin.
+    Subvolume,
     LiveVolume,
     Snapshot,
     Archive,
@@ -745,6 +749,10 @@ pub enum FactPayload {
         selection: Selection,
         recursive: Knowledge<bool>,
         destination_deletion: Knowledge<bool>,
+        /// Authorization to remove all is separate from the selected set.
+        allow_remove_all: Knowledge<bool>,
+        /// An all-selection request does not establish removed identities or cardinality.
+        all_selection_requested: Knowledge<bool>,
     },
     PackageChange {
         target: ResourceId,

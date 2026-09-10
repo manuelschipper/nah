@@ -184,7 +184,7 @@ impl Lowerer {
                     false,
                     qualified,
                 );
-                let host_power = crate::bash_host_power::operation(
+                let host_power_evidence = crate::bash_host_power::operation(
                     &program,
                     arguments,
                     assignments.iter().any(|(name, _)| name == "PATH"),
@@ -193,6 +193,11 @@ impl Lowerer {
                         .iter()
                         .any(|word| contains_unquoted_pattern(word.raw())),
                 );
+                let host_power = host_power_evidence
+                    .as_ref()
+                    .map(|_| SemanticCode::HOST_POWER);
+                let mut operation_evidence = Vec::new();
+                operation_evidence.extend(host_power_evidence);
                 let mut system_states = local
                     .as_ref()
                     .map_or_else(Vec::new, |model| model.system_states.clone());
@@ -209,7 +214,10 @@ impl Lowerer {
                         false,
                         qualified,
                     )
-                    .and_then(|model| model.system_state),
+                    .and_then(|model| {
+                        operation_evidence.extend(model.evidence);
+                        model.system_state
+                    }),
                 );
                 system_states.extend(
                     crate::bash_storage::classify(
@@ -219,7 +227,10 @@ impl Lowerer {
                         false,
                         qualified,
                     )
-                    .and_then(|model| model.system_state),
+                    .and_then(|model| {
+                        operation_evidence.extend(model.evidence);
+                        model.system_state
+                    }),
                 );
                 system_states.extend(
                     crate::bash_infrastructure::classify(
@@ -230,7 +241,10 @@ impl Lowerer {
                         false,
                         qualified,
                     )
-                    .and_then(|model| model.system_state),
+                    .and_then(|model| {
+                        operation_evidence.extend(model.evidence);
+                        model.system_state
+                    }),
                 );
                 if let Some(model) = crate::bash_kubernetes::classify(
                     &program,
@@ -239,16 +253,21 @@ impl Lowerer {
                     false,
                     qualified,
                 ) {
+                    operation_evidence.extend(model.evidence);
                     system_states.extend(model.system_states);
                 }
-                if crate::bash_logical_storage::logical_storage_destroy(&program, arguments) {
+                if let Some(evidence) =
+                    crate::bash_logical_storage::logical_storage_destroy(&program, arguments)
+                {
                     system_states.push(SemanticCode::LOGICAL_STORAGE_DESTROY);
+                    operation_evidence.push(evidence);
                 }
-                system_states.extend(crate::bash_startup_persistence::operation(
-                    &program,
-                    arguments,
-                    self.platform,
-                ));
+                let startup =
+                    crate::bash_startup_persistence::operation(&program, arguments, self.platform);
+                if let Some((operation, evidence)) = startup {
+                    operation_evidence.extend(evidence);
+                    system_states.push(operation);
+                }
                 let environment_disclosure = crate::bash_environment_disclosure::operation(
                     &program,
                     arguments,
@@ -380,6 +399,7 @@ impl Lowerer {
                     git_operations,
                     evidence_call: None,
                     git_facts,
+                    operation_evidence,
                     git_project_scoped: false,
                     network_outbound: execution
                         .as_ref()

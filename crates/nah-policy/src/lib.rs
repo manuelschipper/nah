@@ -140,7 +140,7 @@ pub fn decide_with_mode_and_inline(
 }
 
 /// Reduces evidence from a public action stream and its language safety stream.
-/// Git, filesystem and structural protection consume shared `evidence`. Remaining
+/// Migrated built-ins consume shared `evidence`. Remaining
 /// shipped families inspect `language_safety_stream` and the inline report;
 /// `DecisionCore` is bound to `action_stream`, which custom guards inspect.
 /// Callers must supply evidence and both projections of the same tool call, with extension
@@ -176,13 +176,11 @@ pub fn decide_with_mode_and_inline_language_safety_stream(
     let filesystem_block = filesystem_guards::add(evidence, policy_ctx, &mut contributions)?;
     let git_block = git_guards::add(evidence, policy_ctx, &mut contributions)?;
     let infrastructure_block =
-        infrastructure_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
-    let registry_block =
-        registry_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
+        infrastructure_guards::add(evidence, policy_ctx, &mut contributions)?;
+    let registry_block = registry_guards::add(evidence, policy_ctx, &mut contributions)?;
     let secret_block = secret_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
-    let storage_block =
-        storage_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
-    let system_block = system_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
+    let storage_block = storage_guards::add(evidence, policy_ctx, &mut contributions)?;
+    let system_block = system_guards::add(evidence, policy_ctx, &mut contributions)?;
     let execution_block = execution_guards::add(
         language_safety_stream,
         inline_report,
@@ -239,3 +237,15 @@ pub type StructuralPredicate = fn(
 
 /// Git predicates shared by normal enforcement and non-enforcing producer checks.
 pub const GIT_PREDICATE: FamilyPredicate = git_guards::add;
+
+/// Shared infrastructure predicates for normal enforcement and non-enforcing producer checks.
+pub const INFRASTRUCTURE_PREDICATE: FamilyPredicate = infrastructure_guards::add;
+
+/// Shared storage predicates for normal enforcement and non-enforcing producer checks.
+pub const STORAGE_PREDICATE: FamilyPredicate = storage_guards::add;
+
+/// Shared registry predicates for normal enforcement and non-enforcing producer checks.
+pub const REGISTRY_PREDICATE: FamilyPredicate = registry_guards::add;
+
+/// Shared system predicates for normal enforcement and non-enforcing producer checks.
+pub const SYSTEM_PREDICATE: FamilyPredicate = system_guards::add;

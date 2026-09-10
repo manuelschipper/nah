@@ -243,23 +243,6 @@ pub(crate) fn emit_stage(
                 },
             ),
             EffectKind::SystemState { operation }
-                if operation == &SemanticCode::LOGICAL_STORAGE_DESTROY =>
-            {
-                let target = resource(graph, ResourceKind::LiveVolume);
-                fact(
-                    graph,
-                    FactPayload::StorageChange {
-                        target,
-                        destination: None,
-                        operation: StorageOperation::Destroy,
-                        kind: StorageTarget::LiveVolume,
-                        selection: Selection::Unknown,
-                        recursive: Unknown,
-                        destination_deletion: Unknown,
-                    },
-                );
-            }
-            EffectKind::SystemState { operation }
                 if operation == &SemanticCode::STARTUP_MANAGEMENT =>
             {
                 let target = resource(graph, ResourceKind::HostSystem);

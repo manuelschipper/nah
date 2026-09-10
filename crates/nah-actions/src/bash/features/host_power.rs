@@ -1,7 +1,8 @@
 //! Classifies fully visible local host power commands.
 
+use crate::operation_evidence::{OperationEvidence, system_action};
 use nah_parse::Word;
-use nah_proto::action::SemanticCode;
+use nah_proto::effects::{Realm, SystemOperation};
 
 use crate::shell_word::{has_unmodeled_expansion, static_word};
 
@@ -11,7 +12,7 @@ pub(crate) fn operation(
     path_overridden: bool,
     qualified_program: bool,
     dynamic_words: bool,
-) -> Option<SemanticCode> {
+) -> Option<OperationEvidence> {
     if !matches!(
         program,
         "shutdown" | "reboot" | "halt" | "poweroff" | "init" | "telinit" | "systemctl"
@@ -31,7 +32,7 @@ pub(crate) fn operation(
         "systemctl" => systemctl_power_executes(&arguments),
         _ => false,
     };
-    executes.then_some(SemanticCode::HOST_POWER)
+    executes.then(|| system_action(SystemOperation::Power, Realm::Host).provider(program))
 }
 
 fn static_arguments(arguments: &[Word]) -> Option<Vec<String>> {

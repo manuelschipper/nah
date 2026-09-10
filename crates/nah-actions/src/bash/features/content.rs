@@ -721,6 +721,7 @@ mod tests {
             git_operations: Vec::new(),
             evidence_call: None,
             git_facts: Vec::new(),
+            operation_evidence: Vec::new(),
             git_project_scoped: false,
             network_outbound: false,
             network_endpoints: Vec::new(),

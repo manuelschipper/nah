@@ -46,6 +46,7 @@ mod filesystem_effects;
 mod git_evidence;
 mod language_effects;
 mod native;
+mod operation_evidence;
 mod paths;
 #[cfg(test)]
 mod plan_tests;

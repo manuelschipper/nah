@@ -27,7 +27,7 @@ mod tests {
     }
 
     #[test]
-    fn git_translation_keeps_available_facts_and_names_missing_evidence() {
+    fn family_translation_keeps_available_facts_and_names_missing_evidence() {
         use nah_proto::ctx::{AbsolutePath, Platform, SchemaVersion, TrustProjection};
         use nah_proto::observation::{
             ObservationFact, ObservationFailure, ProjectGuardDeclaration, ProjectGuardObservation,
@@ -43,6 +43,38 @@ mod tests {
         )
         .unwrap();
         for (source, gap) in [
+            ("podman system reset", Some("unmodeled-subcommand")),
+            ("docker volume prune --all", Some("unmodeled-subcommand")),
+            (
+                "terraform destroy",
+                Some("infrastructure-destruction-mode-unavailable"),
+            ),
+            (
+                "kubectl delete namespace prod",
+                Some("kubernetes-scope-and-selection-unavailable"),
+            ),
+            (
+                "npm unpublish package@1.0.0",
+                Some("package-active-mode-unavailable"),
+            ),
+            ("borg repo-delete --yes", Some("unmodeled-command")),
+            (
+                "shutdown -h now",
+                Some("system-action-controls-unavailable"),
+            ),
+            (
+                "systemctl stop nginx",
+                Some("system-action-controls-unavailable"),
+            ),
+            ("npm publish", Some("package-active-mode-unavailable")),
+            (
+                "zfs destroy tank/data@snap",
+                Some("storage-target-kind-and-mode-unavailable"),
+            ),
+            (
+                "rsync --delete source/ host:/destination/",
+                Some("storage-sync-destination-and-selection-unavailable"),
+            ),
             (
                 "git push --force-with-lease origin main",
                 Some("git-push-destination-and-lease-details-unavailable"),
@@ -178,6 +210,25 @@ mod tests {
             );
             if !causal_available {
                 assert!(evidence.graph().relations.is_empty());
+            }
+            if source == "shutdown -h now" || source == "systemctl stop nginx" {
+                assert!(evidence.graph().facts.iter().any(|fact| matches!(
+                    fact.payload,
+                    e::FactPayload::SystemChange {
+                        active: e::Knowledge::Unknown,
+                        help: e::Knowledge::Unknown,
+                        ..
+                    }
+                )));
+            }
+            if source == "npm publish" {
+                assert!(evidence.graph().facts.iter().any(|fact| matches!(
+                    fact.payload,
+                    e::FactPayload::PackageChange {
+                        active: e::Knowledge::Unknown,
+                        ..
+                    }
+                )));
             }
             if let Some(gap) = gap {
                 assert!(
@@ -861,7 +912,81 @@ fn convert_evidence(
         let control_tier = (effect.realm.is_host() && effect.operation.as_str() == "process.exec")
             .then(|| crate::annotate::process_protection_tier(private, effect, ctx))
             .flatten();
+        let system_change = matches!(
+            effect.operation.as_str(),
+            "system.power" | "system.service_stop"
+        );
+        let package_change = matches!(
+            effect.operation.as_str(),
+            "artifact.publish" | "artifact.delete"
+        ) && graph.resources.iter().any(|resource| {
+            resource.id == target && resource.identity.kind == ResourceKind::Package
+        });
+        if system_change || package_change {
+            add_gap(
+                &mut graph,
+                call,
+                Some(if system_change {
+                    Domain::System
+                } else {
+                    Domain::Package
+                }),
+                GapPhase::Translation,
+                if system_change {
+                    "system-action-controls-unavailable"
+                } else {
+                    "package-active-mode-unavailable"
+                },
+            );
+        }
         let payload = match effect.operation.as_str() {
+            "system.power" | "system.service_stop" => FactPayload::SystemChange {
+                target,
+                operation: if effect.operation.as_str() == "system.power" {
+                    SystemOperation::Power
+                } else {
+                    SystemOperation::ServiceStop
+                },
+                selection: graph
+                    .resources
+                    .iter()
+                    .find(|resource| resource.id == target)
+                    .expect("converted resource")
+                    .selection
+                    .clone(),
+                runtime_only: attr_bool("runtime_only"),
+                persistent: attr_bool("persistent"),
+                active: attr_bool("active"),
+                cancel: attr_bool("cancel"),
+                help: attr_bool("help"),
+            },
+            "artifact.publish" | "artifact.delete" if package_change => {
+                FactPayload::PackageChange {
+                    target,
+                    operation: if effect.operation.as_str() == "artifact.publish" {
+                        PackageOperation::Publish
+                    } else {
+                        PackageOperation::Remove
+                    },
+                    ecosystem: graph
+                        .resources
+                        .iter()
+                        .find(|resource| resource.id == target)
+                        .expect("converted resource")
+                        .identity
+                        .provider
+                        .clone(),
+                    versions: graph
+                        .resources
+                        .iter()
+                        .find(|resource| resource.id == target)
+                        .expect("converted resource")
+                        .selection
+                        .clone(),
+                    active: attr_bool("active"),
+                    dry_run: attr_bool("dry_run"),
+                }
+            }
             "process.exec" if control_tier.is_some() => FactPayload::ControlMutation {
                 target,
                 action: ControlAction::Other,
@@ -946,6 +1071,15 @@ fn convert_evidence(
                     Some(convert_domain(effect.operation.domain())),
                     GapPhase::Translation,
                     match effect.operation.as_str() {
+                        "system.storage_destroy" => "storage-target-kind-and-mode-unavailable",
+                        "network.upload"
+                            if effect.attributes.get("delete")
+                                == Some(&p::AttrValue::Bool(true)) =>
+                        {
+                            "storage-sync-destination-and-selection-unavailable"
+                        }
+                        "container.resource.delete" => "kubernetes-scope-and-selection-unavailable",
+                        "cloud.resource.delete" => "infrastructure-destruction-mode-unavailable",
                         "git.remote_sync" => "git-push-destination-and-lease-details-unavailable",
                         "git.worktree_discard" => "git-discard-mode-and-selection-unavailable",
                         "git.history_rewrite" => "git-history-active-mode-unavailable",

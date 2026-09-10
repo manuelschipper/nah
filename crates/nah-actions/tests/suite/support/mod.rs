@@ -433,3 +433,30 @@ pub(crate) fn git_guard_operations(
     operations.sort();
     operations
 }
+
+pub(crate) fn operation_guard_names(source: &str, settings: &[(&str, bool)]) -> Vec<String> {
+    let plan = bash_plan(source);
+    let observation = observe(plan.observation_request(), "echo");
+    let evidence = plan.guard_evidence(&observation).unwrap();
+    let ctx = Ctx::new(
+        Platform::Linux,
+        absolute_on(Platform::Linux, "/home/test"),
+        settings
+            .iter()
+            .map(|(name, enabled)| nah_proto::ctx::ShippedGuardState::new(*name, *enabled).unwrap())
+            .collect(),
+        vec![],
+        TrustProjection::new(vec![]).unwrap(),
+    )
+    .unwrap();
+    let policy = nah_proto::ctx::derive_policy_ctx(&ctx, &observation).unwrap();
+    let stream =
+        nah_proto::action::ActionStream::new(nah_proto::action::Coverage::Partial, vec![], vec![])
+            .unwrap();
+    nah_policy::decide(&stream, &evidence, policy.policy_ctx(), &[])
+        .unwrap()
+        .policy_attributions()
+        .iter()
+        .map(|guard| guard.name().to_owned())
+        .collect()
+}

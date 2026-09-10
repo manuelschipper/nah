@@ -18,16 +18,57 @@ pub(crate) fn operation(
     program: &str,
     arguments: &[Word],
     platform: Platform,
-) -> Option<SemanticCode> {
-    match (platform, program) {
-        (Platform::Linux, "systemctl") => systemctl_operation(arguments),
-        (Platform::Linux, "service") => service_stop_operation(arguments),
-        (Platform::Macos, "launchctl") => launchctl_operation(arguments),
+) -> Option<(
+    SemanticCode,
+    Vec<crate::operation_evidence::OperationEvidence>,
+)> {
+    let mut targets = Vec::new();
+    let mut realm = nah_proto::effects::Realm::Host;
+    let operation = match (platform, program) {
+        (Platform::Linux, "systemctl") => systemctl_operation(arguments, &mut targets, &mut realm),
+        (Platform::Linux, "service") => service_stop_operation(arguments, &mut targets),
+        (Platform::Macos, "launchctl") => launchctl_operation(arguments, &mut targets),
         (Platform::Linux | Platform::Macos, "crontab") => crontab_mutation(arguments)
             .is_some()
             .then_some(SemanticCode::STARTUP_MANAGEMENT),
         _ => None,
-    }
+    }?;
+    let evidence = if operation == SemanticCode::SERVICE_STOP {
+        let mut evidence = crate::operation_evidence::system_action(
+            nah_proto::effects::SystemOperation::ServiceStop,
+            realm,
+        )
+        .provider(program);
+        if targets.len() == 1 {
+            evidence.resource.identity.name =
+                nah_proto::effects::Knowledge::Known(targets[0].clone());
+        }
+        evidence.resource.selection = if targets.is_empty() {
+            nah_proto::effects::Selection::Unknown
+        } else {
+            nah_proto::effects::Selection::NamedSet {
+                identities: targets
+                    .iter()
+                    .map(|name| nah_proto::effects::ResourceIdentity {
+                        kind: nah_proto::effects::ResourceKind::Service,
+                        provider: nah_proto::effects::Knowledge::Known(program.into()),
+                        name: nah_proto::effects::Knowledge::Known(name.clone()),
+                        details: nah_proto::effects::Knowledge::Unknown,
+                    })
+                    .collect(),
+                bound: nah_proto::effects::Bound::Finite(targets.len() as u64),
+            }
+        };
+        if let nah_proto::effects::FactPayload::SystemChange { selection, .. } =
+            &mut evidence.payload
+        {
+            *selection = evidence.resource.selection.clone();
+        }
+        vec![evidence]
+    } else {
+        Vec::new()
+    };
+    Some((operation, evidence))
 }
 
 fn exact_arguments(arguments: &[Word]) -> Option<Vec<String>> {
@@ -43,7 +84,11 @@ fn exact_arguments(arguments: &[Word]) -> Option<Vec<String>> {
         .collect()
 }
 
-fn systemctl_operation(arguments: &[Word]) -> Option<SemanticCode> {
+fn systemctl_operation(
+    arguments: &[Word],
+    targets: &mut Vec<String>,
+    realm: &mut nah_proto::effects::Realm,
+) -> Option<SemanticCode> {
     let arguments = exact_arguments(arguments)?;
     let mut command = None;
     let mut operands = Vec::new();
@@ -159,14 +204,37 @@ fn systemctl_operation(arguments: &[Word]) -> Option<SemanticCode> {
             {
                 return None;
             }
+            *realm = if matches!(argument, "--host" | "-H") {
+                nah_proto::effects::Realm::Remote {
+                    identity: nah_proto::effects::Knowledge::Known(arguments[index].clone()),
+                }
+            } else {
+                nah_proto::effects::Realm::Container {
+                    identity: nah_proto::effects::Knowledge::Known(arguments[index].clone()),
+                }
+            };
             index += 1;
             continue;
         }
-        if ["--host=", "--machine=", "-H", "-M"].iter().any(|prefix| {
-            argument
-                .strip_prefix(prefix)
-                .is_some_and(|value| !value.is_empty())
-        }) {
+        if let Some((prefix, value)) =
+            ["--host=", "--machine=", "-H", "-M"]
+                .iter()
+                .find_map(|prefix| {
+                    argument
+                        .strip_prefix(prefix)
+                        .filter(|value| !value.is_empty())
+                        .map(|value| (*prefix, value))
+                })
+        {
+            *realm = if matches!(prefix, "--host=" | "-H") {
+                nah_proto::effects::Realm::Remote {
+                    identity: nah_proto::effects::Knowledge::Known(value.into()),
+                }
+            } else {
+                nah_proto::effects::Realm::Container {
+                    identity: nah_proto::effects::Knowledge::Known(value.into()),
+                }
+            };
             index += 1;
             continue;
         }
@@ -202,24 +270,32 @@ fn systemctl_operation(arguments: &[Word]) -> Option<SemanticCode> {
         }
         "set-default" => (operands.len() == 1).then_some(SemanticCode::STARTUP_MANAGEMENT),
         "edit" => (stdin && !operands.is_empty()).then_some(SemanticCode::STARTUP_MANAGEMENT),
-        "stop" | "kill" | "isolate" => (!operands.is_empty()).then_some(SemanticCode::SERVICE_STOP),
+        "isolate" => (!operands.is_empty()).then_some(SemanticCode::SERVICE_STOP),
+        "stop" | "kill" => {
+            targets.extend(operands.iter().map(|name| (*name).to_owned()));
+            (!operands.is_empty()).then_some(SemanticCode::SERVICE_STOP)
+        }
         _ => None,
     }
 }
 
-fn service_stop_operation(arguments: &[Word]) -> Option<SemanticCode> {
+fn service_stop_operation(arguments: &[Word], targets: &mut Vec<String>) -> Option<SemanticCode> {
     let arguments = exact_arguments(arguments)?;
     match arguments.as_slice() {
         [name, command] if !name.is_empty() && !name.starts_with('-') && command == "stop" => {
+            targets.push(name.clone());
             Some(SemanticCode::SERVICE_STOP)
         }
         _ => None,
     }
 }
 
-fn launchctl_operation(arguments: &[Word]) -> Option<SemanticCode> {
+fn launchctl_operation(arguments: &[Word], targets: &mut Vec<String>) -> Option<SemanticCode> {
     let arguments = exact_arguments(arguments)?;
     let (command, arguments) = arguments.split_first()?;
+    if matches!(command.as_str(), "stop" | "bootout") {
+        targets.extend_from_slice(arguments);
+    }
     match command.as_str() {
         "enable" | "disable" => matches!(arguments, [target] if service_target(target))
             .then_some(SemanticCode::STARTUP_MANAGEMENT),

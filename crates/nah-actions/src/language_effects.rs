@@ -184,6 +184,17 @@ impl LanguageEffectDraftTarget<'_> {
                 git_operations: Vec::new(),
                 evidence_call: None,
                 git_facts: Vec::new(),
+                operation_evidence: if call.kind() == LanguageCallKind::HostPower {
+                    vec![
+                        crate::operation_evidence::system_action(
+                            nah_proto::effects::SystemOperation::Power,
+                            nah_proto::effects::Realm::Unknown,
+                        )
+                        .name(call.endpoint()),
+                    ]
+                } else {
+                    Vec::new()
+                },
                 git_project_scoped: false,
                 network_outbound,
                 network_endpoints,
