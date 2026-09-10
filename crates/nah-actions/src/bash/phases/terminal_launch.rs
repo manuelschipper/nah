@@ -249,7 +249,7 @@ impl Lowerer {
                     arguments,
                     self.platform,
                 ));
-                let environment_disclosure = crate::bash_environment_disclosure::operation(
+                let environment_selection = crate::bash_environment_disclosure::disclosure(
                     &program,
                     arguments,
                     source_arguments,
@@ -257,6 +257,9 @@ impl Lowerer {
                     &[],
                     &[],
                 );
+                let environment_disclosure = environment_selection
+                    .as_ref()
+                    .and_then(crate::bash_environment_disclosure::operation);
                 let operation =
                     crate::bash_self_protection::operation_for_values(&program, &values)
                         .or(environment_disclosure)
@@ -366,6 +369,18 @@ impl Lowerer {
                 // remain in the isolated terminal analyzer even if an artifact matches.
                 self.prelowered_visible_stages.insert(stage);
                 self.stages.push(StageDraft {
+                    network_response: execution.as_ref().is_some_and(|model| {
+                        model.operation == Some("network-transfer")
+                            && (model.stdout_flows
+                                || model.filesystems.iter().any(|(_, operation, _)| {
+                                    *operation == nah_proto::action::FilesystemOperation::Write
+                                }))
+                    }),
+                    environment_disclosure: environment_selection,
+                    credential_access: secret_store.as_ref().and_then(|store| store.access),
+                    search_queries: local
+                        .as_ref()
+                        .map_or_else(Vec::new, |local| local.search_queries.clone()),
                     permission_grants: if program == "chmod" {
                         crate::bash_filesystem::chmod_permission_grants(arguments)
                     } else {
@@ -378,7 +393,6 @@ impl Lowerer {
                     filesystems,
                     root_move_destination_key: None,
                     git_operations,
-                    evidence_call: None,
                     git_facts,
                     git_project_scoped: false,
                     network_outbound: execution

@@ -170,6 +170,10 @@ impl LanguageEffectDraftTarget<'_> {
             execution_dominators.sort_unstable();
             execution_dominators.dedup();
             self.stages.push(StageDraft {
+                network_response: call.kind() == LanguageCallKind::NetworkTransfer,
+                environment_disclosure: None,
+                credential_access: None,
+                search_queries: Vec::new(),
                 permission_grants: None,
                 language_safety_only: call_ordinal >= public_calls,
                 invocation: InvocationDraft::Native {
@@ -182,7 +186,6 @@ impl LanguageEffectDraftTarget<'_> {
                 filesystems,
                 root_move_destination_key: None,
                 git_operations: Vec::new(),
-                evidence_call: None,
                 git_facts: Vec::new(),
                 git_project_scoped: false,
                 network_outbound,

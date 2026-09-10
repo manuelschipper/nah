@@ -210,7 +210,47 @@ pub(crate) fn evidence(
         gaps: vec![],
         causality: CausalAvailability::Unavailable,
     };
+    let mut stages = std::collections::BTreeMap::new();
     for effect in stream.effects() {
+        if stages.contains_key(effect.stage()) {
+            continue;
+        }
+        let input = OccurrenceId(graph.occurrences.len() as u32);
+        let output = OccurrenceId(input.0 + 1);
+        for (id, port) in [
+            (input, PortKind::SemanticInput),
+            (output, PortKind::SemanticOutput),
+        ] {
+            graph.occurrences.push(EffectOccurrence {
+                id,
+                call: CallId(0),
+                fact: None,
+                resource: None,
+                port,
+                condition: None,
+            });
+        }
+        stages.insert(effect.stage().clone(), (input, output));
+        graph.relations.push(EffectRelation {
+            from: input,
+            to: output,
+            kind: RelationKind::ValueDependence,
+            certainty: Certainty::Exact,
+            condition: None,
+        });
+    }
+    graph.causality = CausalAvailability::Available;
+    for edge in stream.flows() {
+        graph.relations.push(EffectRelation {
+            from: stages[edge.from_stage()].1,
+            to: stages[edge.to_stage()].0,
+            kind: RelationKind::ByteTransfer,
+            certainty: Certainty::Exact,
+            condition: None,
+        });
+    }
+    for effect in stream.effects() {
+        let (input, output) = stages[effect.stage()];
         let target = ResourceId(graph.resources.len() as u32);
         let mut resource = EffectResource {
             id: target,
@@ -230,6 +270,127 @@ pub(crate) fn evidence(
             setgid: Unknown,
         };
         let mut payload = match effect.kind() {
+            EffectKind::Invocation {
+                invocation: InvocationEffect::CodeExecution { source, code, .. },
+            } => FactPayload::ExecutionInput {
+                resource: None,
+                port: Some(input),
+                source: ExecutionSource::Unknown,
+                derivation: if source == &SemanticCode::ENCODED_COMMAND {
+                    ExecutionDerivation::Encoded
+                } else if source == &SemanticCode::DECODED_EXECUTION {
+                    ExecutionDerivation::Decoded
+                } else if source == &SemanticCode::SHELL_PATTERN {
+                    ExecutionDerivation::PatternSelected
+                } else if source == &SemanticCode::UNRESOLVED_COMMAND {
+                    ExecutionDerivation::UnresolvedCommand
+                } else if source == &SemanticCode::EVALUATED_SHELL {
+                    ExecutionDerivation::Evaluated
+                } else {
+                    ExecutionDerivation::Plain
+                },
+                visible_payload: if code.is_some() {
+                    VisiblePayload::Present
+                } else {
+                    VisiblePayload::Absent
+                },
+            },
+            EffectKind::Invocation {
+                invocation: InvocationEffect::Known { operation, .. },
+            } if operation == &SemanticCode::DECODE => FactPayload::Transform {
+                operation: TransformOperation::Decode,
+                input: Some(input),
+                output: Some(output),
+            },
+            EffectKind::Invocation {
+                invocation: InvocationEffect::Known { operation, .. },
+            } if operation == &SemanticCode::NETWORK_SHELL => FactPayload::ExecutionInput {
+                resource: None,
+                port: None,
+                source: ExecutionSource::NetworkAttachment,
+                derivation: ExecutionDerivation::Plain,
+                visible_payload: VisiblePayload::Absent,
+            },
+            EffectKind::Invocation {
+                invocation: InvocationEffect::Known { operation, .. },
+            } if operation == &SemanticCode::NETWORK_LISTENER => {
+                resource.identity.kind = ResourceKind::Endpoint;
+                FactPayload::NetworkAccess {
+                    operation: NetworkOperation::Listen,
+                    target,
+                    direction: Unknown,
+                    ports: vec![output],
+                    attached_execution: Unknown,
+                }
+            }
+            EffectKind::Network { direction, .. } => {
+                resource.identity.kind = ResourceKind::Endpoint;
+                let transfer = stream.effects().iter().any(|candidate| candidate.stage() == effect.stage() && matches!(candidate.kind(), EffectKind::Invocation { invocation: InvocationEffect::Known { operation, .. } } if operation == &SemanticCode::NETWORK_TRANSFER));
+                let direction = if transfer {
+                    TransferDirection::Bidirectional
+                } else if *direction == nah_proto::action::NetworkDirection::Inbound {
+                    TransferDirection::Inbound
+                } else {
+                    TransferDirection::Outbound
+                };
+                FactPayload::NetworkAccess {
+                    operation: NetworkOperation::Transfer,
+                    target,
+                    direction: Known(direction),
+                    ports: if direction != TransferDirection::Outbound {
+                        vec![input, output]
+                    } else {
+                        vec![input]
+                    },
+                    attached_execution: Unknown,
+                }
+            }
+            EffectKind::Invocation {
+                invocation: InvocationEffect::Known { operation, .. },
+            } if operation == &SemanticCode::ENVIRONMENT_DISCLOSURE
+                || operation == &SemanticCode::CREDENTIAL_DISCLOSURE =>
+            {
+                FactPayload::EnvironmentAccess {
+                    names: if operation == &SemanticCode::ENVIRONMENT_DISCLOSURE {
+                        EnvironmentSelection::Whole
+                    } else {
+                        EnvironmentSelection::Names(vec!["AWS_SECRET_ACCESS_KEY".into()])
+                    },
+                    operation: EnvironmentOperation::Read,
+                    purpose: AccessPurpose::Explicit,
+                    output: Some(output),
+                }
+            }
+            EffectKind::Invocation {
+                invocation: InvocationEffect::Known { operation, .. },
+            } if operation == &SemanticCode::SECRETS_STORE_READ => {
+                resource.identity.kind = ResourceKind::CredentialStore;
+                FactPayload::CredentialAccess {
+                    target,
+                    operation: CredentialOperation::ReadValue,
+                    deletion: DeletionMode::Unknown,
+                    workflow: CredentialWorkflow::Ordinary,
+                    purpose: AccessPurpose::Explicit,
+                }
+            }
+            EffectKind::SystemState { operation }
+                if operation == &SemanticCode::SECRETS_STORE_DELETE
+                    || operation == &SemanticCode::SECRETS_STORE_DESTROY =>
+            {
+                resource.identity.kind = ResourceKind::CredentialStore;
+                FactPayload::CredentialAccess {
+                    target,
+                    operation: CredentialOperation::Delete,
+                    deletion: if operation == &SemanticCode::SECRETS_STORE_DELETE {
+                        DeletionMode::Recoverable
+                    } else {
+                        DeletionMode::Permanent
+                    },
+                    workflow: CredentialWorkflow::Ordinary,
+                    purpose: AccessPurpose::Explicit,
+                }
+            }
+
             EffectKind::Filesystem { effect: fs } => {
                 resource.identity.kind = ResourceKind::HostPath;
                 resource.selection = if fs.pattern {
@@ -422,6 +583,46 @@ pub(crate) fn evidence(
             *destination = Some(id);
             graph.resources.push(EffectResource { id, realm: Realm::Host, identity: ResourceIdentity { kind: ResourceKind::HostPath, details: Unknown, provider: Unknown, name: Unknown }, selection: Selection::Unknown, labels: None });
         }
+        let source = matches!(
+            payload,
+            FactPayload::FilesystemAccess {
+                operation: FilesystemOperation::Read | FilesystemOperation::Move,
+                ..
+            } | FactPayload::CredentialAccess {
+                operation: CredentialOperation::ReadValue,
+                ..
+            }
+        );
+        if source {
+            let occurrence = OccurrenceId(graph.occurrences.len() as u32);
+            graph.occurrences.push(EffectOccurrence {
+                id: occurrence,
+                call: CallId(0),
+                fact: Some(FactId(graph.facts.len() as u32)),
+                resource: None,
+                port: PortKind::SemanticOutput,
+                condition: None,
+            });
+            graph.relations.push(EffectRelation {
+                from: occurrence,
+                to: output,
+                kind: RelationKind::ValueDependence,
+                certainty: Certainty::Exact,
+                condition: None,
+            });
+            if stream.effects().iter().any(|candidate| {
+                candidate.stage() == effect.stage()
+                    && matches!(candidate.kind(), EffectKind::Network { .. })
+            }) {
+                graph.relations.push(EffectRelation {
+                    from: occurrence,
+                    to: input,
+                    kind: RelationKind::ValueDependence,
+                    certainty: Certainty::Exact,
+                    condition: None,
+                });
+            }
+        }
         graph.facts.push(EffectFact {
             id: FactId(graph.facts.len() as u32),
             call: CallId(0),
@@ -432,6 +633,14 @@ pub(crate) fn evidence(
             occurrences: None,
             payload,
         });
+        if let Some(EffectFact { payload: FactPayload::FilesystemAccess { target, recursive, .. }, .. }) = graph.facts.last().cloned()
+            && stream.effects().iter().any(|candidate| candidate.stage() == effect.stage() && matches!(candidate.kind(), EffectKind::Invocation { invocation: InvocationEffect::Known { operation, .. } } if operation == &SemanticCode::CREDENTIAL_SEARCH)) {
+            let id = FactId(graph.facts.len() as u32);
+            graph.facts.push(EffectFact { id, call: CallId(0), realm: Realm::Host, certainty: Certainty::Exact, modality: Modality::May, condition: None, occurrences: None, payload: FactPayload::FilesystemSearch { target, recursive, selection: Selection::Unknown, query: Known("AKIA".into()), kind: SearchKind::Content, output: SearchOutput::Content } });
+            let occurrence = OccurrenceId(graph.occurrences.len() as u32);
+            graph.occurrences.push(EffectOccurrence { id: occurrence, call: CallId(0), fact: Some(id), resource: None, port: PortKind::SemanticOutput, condition: None });
+            graph.relations.push(EffectRelation { from: occurrence, to: output, kind: RelationKind::ValueDependence, certainty: Certainty::Exact, condition: None });
+        }
     }
     for finding in report.findings() {
         finding.emit_effect(&mut graph, CallId(0));

@@ -8,9 +8,9 @@ publish.workspace = true
 
 [dependencies]
 nah-proto = { path = "../nah-proto" }
-nah-inline = { path = "../nah-inline" }
 
 [dev-dependencies]
+nah-inline = { path = "../nah-inline" }
 criterion = "0.5"
 
 [[bench]]

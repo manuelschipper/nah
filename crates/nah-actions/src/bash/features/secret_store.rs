@@ -7,6 +7,10 @@ use crate::shell_word::static_word;
 
 pub(crate) struct Classification {
     pub(crate) complete: bool,
+    pub(crate) access: Option<(
+        nah_proto::effects::CredentialOperation,
+        nah_proto::effects::DeletionMode,
+    )>,
     pub(crate) known_invocation: Option<SemanticCode>,
     pub(crate) system_state: Option<SemanticCode>,
 }
@@ -15,6 +19,10 @@ impl Classification {
     const fn deletion() -> Self {
         Self {
             complete: true,
+            access: Some((
+                nah_proto::effects::CredentialOperation::Delete,
+                nah_proto::effects::DeletionMode::Recoverable,
+            )),
             known_invocation: None,
             system_state: Some(SemanticCode::SECRETS_STORE_DELETE),
         }
@@ -26,6 +34,10 @@ impl Classification {
         }
         Self {
             complete: true,
+            access: Some((
+                nah_proto::effects::CredentialOperation::Delete,
+                nah_proto::effects::DeletionMode::Permanent,
+            )),
             known_invocation: None,
             system_state: Some(SemanticCode::SECRETS_STORE_DESTROY),
         }
@@ -34,6 +46,10 @@ impl Classification {
     const fn read() -> Self {
         Self {
             complete: true,
+            access: Some((
+                nah_proto::effects::CredentialOperation::ReadValue,
+                nah_proto::effects::DeletionMode::Unknown,
+            )),
             known_invocation: Some(SemanticCode::SECRETS_STORE_READ),
             system_state: None,
         }
@@ -42,6 +58,7 @@ impl Classification {
     const fn control() -> Self {
         Self {
             complete: true,
+            access: None,
             known_invocation: None,
             system_state: None,
         }
@@ -50,6 +67,7 @@ impl Classification {
     const fn incomplete() -> Self {
         Self {
             complete: false,
+            access: None,
             known_invocation: None,
             system_state: None,
         }

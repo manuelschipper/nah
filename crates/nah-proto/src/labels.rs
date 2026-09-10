@@ -252,3 +252,46 @@ pub fn normalized_program(program: &str) -> String {
         .find_map(|suffix| lowercase.strip_suffix(suffix).map(str::to_owned))
         .unwrap_or(lowercase)
 }
+
+const CREDENTIAL_NAMES: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AZURE_CLIENT_SECRET",
+    "DATABASE_URL",
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GITLAB_TOKEN",
+    "NPM_TOKEN",
+    "OPENAI_API_KEY",
+    "PGPASSWORD",
+    "TWINE_PASSWORD",
+    "VAULT_TOKEN",
+];
+
+/// Nah's credential variable catalog; producers retain names without classifying sensitivity.
+pub fn is_credential_name(name: &str) -> bool {
+    CREDENTIAL_NAMES.contains(&name)
+}
+
+/// Recognizes credential indicators in a search query, including explicit case folding.
+pub fn is_credential_search(query: &str) -> bool {
+    const INDICATORS: &[&str] = &[
+        "AKIA",
+        "ASIA",
+        "ghp_",
+        "github_pat_",
+        "glpat-",
+        "xoxb-",
+        "xoxp-",
+    ];
+    if let Some(query) = query.strip_prefix("(?i)") {
+        INDICATORS.iter().any(|indicator| {
+            query
+                .to_ascii_lowercase()
+                .contains(&indicator.to_ascii_lowercase())
+        })
+    } else {
+        INDICATORS.iter().any(|indicator| query.contains(indicator))
+    }
+}

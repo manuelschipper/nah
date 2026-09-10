@@ -28,6 +28,10 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
             analysis_refused: false,
             child_cwds: Vec::new(),
             stages: vec![StageDraft {
+                network_response: false,
+                environment_disclosure: None,
+                credential_access: None,
+                search_queries: Vec::new(),
                 permission_grants: None,
                 language_safety_only: false,
                 invocation: InvocationDraft::Known {
@@ -62,7 +66,6 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
                     pattern: false,
                 }],
                 root_move_destination_key: None,
-                evidence_call: None,
                 git_facts: Vec::new(),
                 git_operations: vec![],
                 git_project_scoped: false,

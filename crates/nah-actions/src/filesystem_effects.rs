@@ -219,7 +219,7 @@ pub(crate) fn emit_stage(
                         } else {
                             unknown_grants.clone()
                         },
-                        purpose: AccessPurpose::Unknown,
+                        purpose: AccessPurpose::Explicit,
                     },
                 );
                 let emitted = graph.facts.last_mut().expect("inserted filesystem fact");

@@ -83,6 +83,13 @@ pub(crate) struct ChildCwdDraft {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StageDraft {
+    pub(crate) network_response: bool,
+    pub(crate) environment_disclosure: Option<nah_proto::effects::EnvironmentSelection>,
+    pub(crate) credential_access: Option<(
+        nah_proto::effects::CredentialOperation,
+        nah_proto::effects::DeletionMode,
+    )>,
+    pub(crate) search_queries: Vec<String>,
     pub(crate) permission_grants: Option<nah_proto::effects::PermissionGrants>,
     pub(crate) language_safety_only: bool,
     pub(crate) invocation: InvocationDraft,
@@ -91,7 +98,6 @@ pub(crate) struct StageDraft {
     pub(crate) filesystems: Vec<FilesystemDraft>,
     pub(crate) root_move_destination_key: Option<String>,
     pub(crate) git_operations: Vec<SemanticCode>,
-    pub(crate) evidence_call: Option<nah_proto::effects::CallId>,
     pub(crate) git_facts: Vec<nah_proto::effects::FactPayload>,
     pub(crate) git_project_scoped: bool,
     pub(crate) network_outbound: bool,
