@@ -5,7 +5,7 @@
     clippy::disallowed_types
 )]
 
-//! Pure decision reduction from ActionStream, PolicyCtx, and validated guard
+//! Pure decision reduction from shared evidence, ActionStream, PolicyCtx, and validated guard
 //! responses into DecisionCore. Shipped guards live here as plain
 //! Rust code; transport, validation, and orchestration do not.
 
@@ -120,7 +120,7 @@ pub fn decide_with_mode(
 }
 
 /// Reduces evidence from a public action stream and its language safety stream.
-/// Filesystem, structural, execution and secret protection consume shared `evidence`.
+/// Git, filesystem, structural, execution and secret protection consume shared `evidence`.
 /// Remaining shipped families inspect `language_safety_stream`;
 /// `DecisionCore` is bound to `action_stream`, which custom guards inspect.
 /// Callers must supply evidence and both projections of the same tool call, with extension
@@ -153,7 +153,7 @@ pub fn decide_with_mode_and_language_safety_stream(
 
     let mut contributions = Vec::new();
     let filesystem_block = filesystem_guards::add(evidence, policy_ctx, &mut contributions)?;
-    let git_block = git_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
+    let git_block = git_guards::add(evidence, policy_ctx, &mut contributions)?;
     let infrastructure_block =
         infrastructure_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
     let registry_block =
@@ -210,3 +210,6 @@ pub type StructuralPredicate = fn(
     &mut Vec<GuardContribution>,
     EnforcementMode,
 ) -> Result<bool, DecisionError>;
+
+/// Git predicates shared by normal enforcement and non-enforcing producer checks.
+pub const GIT_PREDICATE: FamilyPredicate = git_guards::add;

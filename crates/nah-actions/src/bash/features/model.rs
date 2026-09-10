@@ -98,6 +98,7 @@ pub(crate) struct StageDraft {
     pub(crate) filesystems: Vec<FilesystemDraft>,
     pub(crate) root_move_destination_key: Option<String>,
     pub(crate) git_operations: Vec<SemanticCode>,
+    pub(crate) git_facts: Vec<nah_proto::effects::FactPayload>,
     pub(crate) git_project_scoped: bool,
     pub(crate) network_outbound: bool,
     pub(crate) network_endpoints: Vec<(NetworkDirection, String)>,
@@ -161,7 +162,7 @@ pub(crate) struct FilesystemDraft {
     // A Git guard is emitted only if this exact projected mutation resolves
     // to the project root or a concrete named project path. Redirects and
     // other same-stage effects stay untagged.
-    pub(crate) git_guard: Option<SemanticCode>,
+    pub(crate) git_discard: Option<nah_proto::effects::FactPayload>,
     pub(crate) recursive: bool,
     pub(crate) symlink_traversal: SymlinkTraversal,
     pub(crate) network_bound: bool,

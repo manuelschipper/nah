@@ -787,6 +787,63 @@ fn normal_evidence_keeps_semantic_flows_without_changing_enforcement() {
     ) && r.certainty
         == nah_proto::effects::Certainty::Conservative));
     assert_eq!(result.core().verdict(), Verdict::Delegate);
+
+    // A filtered child must not shift the following Git facts onto a missing call.
+    let context = Ctx::new(
+        Platform::Linux,
+        absolute("/home/test"),
+        ["git-path-discard", "secrets-env"]
+            .into_iter()
+            .map(|name| nah_proto::ctx::ShippedGuardState::new(name, true).unwrap())
+            .collect(),
+        vec![],
+        TrustProjection::new(vec![]).unwrap(),
+    )
+    .unwrap();
+    let result = decide_with(
+        &input(
+            r#"node -e "require('child_process').spawnSync('rm',['-rf','/'],{cwd:'/inactive'})"; git show HEAD:src/lib.rs > src/lib.rs; printenv AWS_SECRET_ACCESS_KEY"#,
+        ),
+        &context,
+        |request| Ok(observed(request, |_| value(""))),
+    );
+    let evidence = result.guard_evidence().unwrap().unwrap();
+    assert!(
+        !evidence
+            .graph()
+            .calls
+            .iter()
+            .any(|call| { call.identity == nah_proto::effects::Knowledge::Known("rm".into()) })
+    );
+    let show = evidence
+        .graph()
+        .facts
+        .iter()
+        .find(|fact| {
+            matches!(
+                &fact.payload,
+                nah_proto::effects::FactPayload::Other { operation, .. } if operation == "git.show"
+            )
+        })
+        .unwrap();
+    assert_eq!(
+        evidence
+            .graph()
+            .calls
+            .iter()
+            .find(|call| call.id == show.call)
+            .unwrap()
+            .identity,
+        nah_proto::effects::Knowledge::Known("git".into())
+    );
+    assert_eq!(result.core().verdict(), Verdict::Block);
+    let names = result
+        .core()
+        .policy_attributions()
+        .iter()
+        .map(|guard| guard.name())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["git-path-discard", "secrets-env"]);
 }
 
 #[test]
@@ -823,6 +880,20 @@ fn normal_filesystem_evidence_retains_permissions_and_move_endpoints() {
         assert!(evidence.graph().facts.iter().any(|fact| matches!(fact.payload,
             FactPayload::FilesystemAccess { operation, .. } if operation == expected_operation
         )), "{command}");
+        assert_eq!(
+            evidence
+                .graph()
+                .facts
+                .iter()
+                .filter(|fact| matches!(fact.payload, FactPayload::FilesystemAccess { .. }))
+                .count(),
+            if expected_operation == FilesystemOperation::Move {
+                3
+            } else {
+                2
+            },
+            "one filesystem contribution per endpoint: {command}",
+        );
         let path_of = |id| {
             evidence
                 .graph()

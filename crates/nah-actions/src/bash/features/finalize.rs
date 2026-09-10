@@ -126,6 +126,8 @@ pub(crate) fn finalize(
             };
             let mut effects = vec![invocation];
             let mut operand_indices = Vec::new();
+            let mut git_managed_indices = Vec::new();
+            let mut lexical_paths = Vec::new();
             for filesystem in stage.filesystems {
                 let first_effect = effects.len();
                 'filesystem: {
@@ -364,25 +366,55 @@ pub(crate) fn finalize(
                             }
                         }
                     }
-                    if selects_root
-                        && let Some(operation) = filesystem.git_guard.as_ref()
-                        && !stage.git_operations.contains(operation)
-                    {
-                        stage.git_operations.push(operation.clone());
+                    if let EffectKind::Filesystem { effect } = &effect {
+                        lexical_paths.push((effect.target.clone(), path.resolved().clone()));
                     }
-                    if !selects_root
-                        && !filesystem.pattern
-                        && selects_project
-                        && filesystem.git_guard.as_ref() == Some(&SemanticCode::WORKTREE_DISCARD)
-                        && !stage.git_operations.contains(&SemanticCode::PATH_DISCARD)
-                    {
-                        stage.git_operations.push(SemanticCode::PATH_DISCARD);
+                    if let Some(mut discard) = filesystem.git_discard.clone() {
+                        use nah_proto::effects::{FactPayload, GitDiscardMode, Selection};
+                        if (selects_root || selects_project && !filesystem.pattern)
+                            && let FactPayload::GitDiscard {
+                                mode, selection, ..
+                            } = &mut discard
+                        {
+                            *selection = if selects_root {
+                                Selection::Whole
+                            } else {
+                                Selection::Exact
+                            };
+                            let operation = match (*mode, selects_root) {
+                                (GitDiscardMode::Clean, true) => Some(SemanticCode::CLEAN_FORCE),
+                                (GitDiscardMode::Clean, false) => None,
+                                (_, true) => Some(SemanticCode::WORKTREE_DISCARD),
+                                (_, false) => Some(SemanticCode::PATH_DISCARD),
+                            };
+                            if let Some(operation) = operation
+                                && !stage.git_operations.contains(&operation)
+                            {
+                                stage.git_operations.push(operation);
+                            }
+                            stage.git_facts.push(discard);
+                        }
                     }
                     effects.extend(effects_with_sensitivities(effect, &sensitivities));
+                }
+                if filesystem.git_discard.is_some() {
+                    git_managed_indices.extend(first_effect..effects.len());
                 }
                 if filesystem.command_operand {
                     operand_indices.extend(first_effect..effects.len());
                 }
+            }
+            if let Some(graph) = graph.as_deref_mut() {
+                // Execution emission creates this surviving stage's call after its facts.
+                crate::git_evidence::emit_git(
+                    graph,
+                    nah_proto::effects::CallId(graph.calls.len() as u32),
+                    stage.git_facts,
+                    stage
+                        .git_operations
+                        .iter()
+                        .any(|operation| operation.as_str() == "show"),
+                );
             }
             effects.extend(
                 stage
@@ -418,6 +450,12 @@ pub(crate) fn finalize(
                     stage.permission_grants.as_ref(),
                     &[],
                     &operand_indices,
+                    crate::filesystem_effects::FilesystemEvidenceContext {
+                        call: nah_proto::effects::CallId(graph.calls.len() as u32),
+                        lexical_paths: &lexical_paths,
+                        git_managed_indices: &git_managed_indices,
+                        platform,
+                    },
                 );
                 stage_ports.push(crate::execution_effects::emit_stage(
                     graph,

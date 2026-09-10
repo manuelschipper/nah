@@ -32,6 +32,9 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         ("echo corrupt > .git/objects/aa", "git-metadata"),
         ("cp replacement .git/refs/heads/main", "git-metadata"),
         ("touch .git/packed-refs", "git-metadata"),
+        ("chmod 600 .git/refs/heads/main", "git-metadata"),
+        ("mv .git/refs/heads/main saved-ref", "git-metadata"),
+        ("mv replacement .git/refs/heads/main", "git-metadata"),
         ("rm -rf backup.git/objects", "git-metadata"),
         ("echo corrupt > backup.git/refs/heads/main", "git-metadata"),
         ("git push --force", "git-force-push"),
@@ -445,6 +448,27 @@ fn destructive_git_guards_are_semantic_end_to_end() {
             "{command}: {:?}",
             result.core().policy_attributions()
         );
+    }
+
+    for (path, expected) in [(".git/packed-refs", true), ("src/generated.rs", false)] {
+        let result = decide_with(
+            &call(
+                "Write",
+                json!({"file_path": repo.join(path), "content": "replacement"}),
+                &repo,
+            ),
+            &context,
+            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        );
+        assert_eq!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .any(|guard| guard.name() == "git-metadata"),
+            expected
+        );
+        assert_eq!(result.core().verdict() == Verdict::Block, expected);
     }
 
     // Each push protection remains independent of the other guard settings.

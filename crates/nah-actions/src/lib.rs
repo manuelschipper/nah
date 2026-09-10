@@ -44,6 +44,7 @@ use bash::features::{
 mod codex_patch;
 mod execution_effects;
 mod filesystem_effects;
+mod git_evidence;
 mod language_effects;
 mod native;
 mod paths;
@@ -565,6 +566,19 @@ fn finalize_inner(
     };
 
     if !bash && let Some(graph) = graph {
+        let lexical_paths = observation
+            .facts()
+            .iter()
+            .filter_map(|fact| match fact.value() {
+                ObservationValue::Path {
+                    observed: Observed::Ok { value },
+                } => Some((
+                    value.realpath().unwrap_or_else(|| value.resolved()).clone(),
+                    value.resolved().clone(),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
         for stage in &stages {
             filesystem_effects::emit_stage(
                 graph,
@@ -572,6 +586,12 @@ fn finalize_inner(
                 None,
                 &patch_moves,
                 &(1..stage.len()).collect::<Vec<_>>(),
+                filesystem_effects::FilesystemEvidenceContext {
+                    call: nah_proto::effects::CallId(0),
+                    lexical_paths: &lexical_paths,
+                    git_managed_indices: &[],
+                    platform: plan.platform,
+                },
             );
         }
     }
@@ -855,7 +875,7 @@ fn partial() -> ActionStream {
 }
 
 /// Both transition representations are finalized from the same interpreted draft.
-/// Family migrations add facts to `AnalysisPlan::effect_graph_mut` at interpretation.
+/// Git facts are retained during interpretation and bound to paths at finalization.
 /// No facts are recovered from legacy policy decisions or semantic guard codes.
 pub fn finalize_with_guard_evidence(
     plan: AnalysisPlan,

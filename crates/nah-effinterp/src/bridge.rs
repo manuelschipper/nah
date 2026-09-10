@@ -25,6 +25,195 @@ mod tests {
         let plan = analyze_shell("echo hello", "/workspace").unwrap();
         assert!(matches!(plan.subject, Subject::Shell { .. }));
     }
+
+    #[test]
+    fn git_translation_keeps_available_facts_and_names_missing_evidence() {
+        use nah_proto::ctx::{AbsolutePath, Platform, SchemaVersion, TrustProjection};
+        use nah_proto::observation::{
+            ObservationFact, ObservationFailure, ProjectGuardDeclaration, ProjectGuardObservation,
+            Root, RootKind,
+        };
+        let path = |value: &str| AbsolutePath::new(Platform::Linux, value).unwrap();
+        let ctx = Ctx::new(
+            Platform::Linux,
+            path("/home/test"),
+            vec![],
+            vec![],
+            TrustProjection::new(vec![]).unwrap(),
+        )
+        .unwrap();
+        for (source, gap) in [
+            (
+                "git push --force-with-lease origin main",
+                Some("git-push-destination-and-lease-details-unavailable"),
+            ),
+            (
+                "git reset --hard",
+                Some("git-discard-mode-and-selection-unavailable"),
+            ),
+            (
+                "git stash clear",
+                Some("git-recovery-selection-unavailable"),
+            ),
+            (
+                "git filter-repo --force",
+                Some("git-history-active-mode-unavailable"),
+            ),
+            ("gh release delete v1 --yes", None),
+            (
+                "gh repo delete",
+                Some("network-delete-resource-kind-unavailable"),
+            ),
+            (
+                "gh repo delete owner/repository --yes",
+                Some("unrecognized-arguments"),
+            ),
+        ] {
+            let input = ToolCallInput::new(
+                SchemaVersion::V1,
+                "Bash",
+                serde_json::json!({"command": source}),
+                "/repo",
+                None,
+            )
+            .unwrap();
+            let initial =
+                plan_evidence(SelectedInput::Shell(&input), &ctx, BTreeMap::new()).unwrap();
+            let environment = initial
+                .request()
+                .queries()
+                .iter()
+                .filter_map(|query| match query {
+                    ObservationQuery::Env { name, .. } => Some((
+                        name.clone(),
+                        match name.as_str() {
+                            "HOME" => "/home/test",
+                            "XDG_CONFIG_HOME" => "/home/test/.config",
+                            "GH_CONFIG_DIR" => "/home/test/.config/gh",
+                            _ => "",
+                        }
+                        .to_owned(),
+                    )),
+                    _ => None,
+                })
+                .collect::<BTreeMap<_, _>>();
+            let plan =
+                plan_evidence(SelectedInput::Shell(&input), &ctx, environment.clone()).unwrap();
+            let facts = plan
+                .request()
+                .queries()
+                .iter()
+                .map(|query| {
+                    let value = match query {
+                        ObservationQuery::Cwd { requested, .. } => ObservationValue::Cwd {
+                            observed: Observed::Ok {
+                                value: requested.clone(),
+                            },
+                        },
+                        ObservationQuery::Roots { .. } => ObservationValue::Roots {
+                            observed: Observed::Ok {
+                                value: vec![Root::new(RootKind::Project, path("/repo"))],
+                            },
+                        },
+                        ObservationQuery::Env { name, .. } => ObservationValue::Env {
+                            observed: Observed::Ok {
+                                value: EnvObservation::Value {
+                                    text: environment[name].clone(),
+                                },
+                            },
+                        },
+                        ObservationQuery::Path { .. } => ObservationValue::Path {
+                            observed: Observed::Error {
+                                error: ObservationFailure::Unavailable,
+                            },
+                        },
+                        ObservationQuery::ProjectGuards { .. } => ObservationValue::ProjectGuards {
+                            observation: ProjectGuardObservation::new(
+                                Some(Root::new(RootKind::Project, path("/repo"))),
+                                ProjectGuardDeclaration::Absent,
+                            )
+                            .unwrap(),
+                        },
+                    };
+                    ObservationFact::new(query.clone(), value).unwrap()
+                })
+                .collect();
+            let observation =
+                Observation::new(SchemaVersion::V1, plan.request().request_id(), facts).unwrap();
+            if !environment.is_empty() {
+                let unset = Observation::new(
+                    SchemaVersion::V1,
+                    plan.request().request_id(),
+                    observation
+                        .facts()
+                        .iter()
+                        .map(|fact| {
+                            if matches!(fact.query(), ObservationQuery::Env { .. }) {
+                                ObservationFact::new(
+                                    fact.query().clone(),
+                                    ObservationValue::Env {
+                                        observed: Observed::Ok {
+                                            value: EnvObservation::Unset,
+                                        },
+                                    },
+                                )
+                                .unwrap()
+                            } else {
+                                fact.clone()
+                            }
+                        })
+                        .collect(),
+                )
+                .unwrap();
+                assert_eq!(
+                    observed_environment(&plan, &unset).unwrap_err().code,
+                    "observed-unset"
+                );
+            }
+            let causal_available = plan.plan.causality.graph.is_some();
+            let evidence = finalize_evidence(plan, &observation, &ctx, &[]).unwrap();
+            assert_eq!(
+                evidence.graph().causality == e::CausalAvailability::Available,
+                causal_available
+            );
+            if !causal_available {
+                assert!(evidence.graph().relations.is_empty());
+            }
+            if let Some(gap) = gap {
+                assert!(
+                    evidence
+                        .graph()
+                        .gaps
+                        .iter()
+                        .any(|actual| actual.code == gap),
+                    "{source}: {:?}",
+                    evidence.graph().gaps
+                );
+                assert!(!evidence.graph().facts.iter().any(|fact| matches!(
+                    fact.payload,
+                    e::FactPayload::GitPush { .. }
+                        | e::FactPayload::HostedDeletion {
+                            kind: e::HostedTarget::Repository,
+                            ..
+                        }
+                )));
+            } else {
+                let fact = evidence.graph().facts.iter().find(|fact| matches!(&fact.payload, e::FactPayload::HostedDeletion { kind: e::HostedTarget::Resource, provider: Known(provider), delete: Known(true), .. } if provider == "github")).expect("typed release deletion");
+                assert_eq!(fact.certainty, e::Certainty::Exact);
+                let e::FactPayload::HostedDeletion { target, .. } = fact.payload else {
+                    unreachable!()
+                };
+                let resource = evidence
+                    .graph()
+                    .resources
+                    .iter()
+                    .find(|resource| resource.id == target)
+                    .unwrap();
+                assert_eq!(resource.realm, fact.realm);
+                assert_eq!(resource.identity.kind, e::ResourceKind::HostedResource);
+            }
+        }
+    }
 }
 
 use effinterp_proto as p;
@@ -715,6 +904,26 @@ fn convert_evidence(
                     attached_execution: Unknown,
                 }
             }
+            "artifact.delete"
+                if graph.resources.iter().any(|resource| {
+                    resource.id == target && resource.identity.kind == ResourceKind::HostedResource
+                }) =>
+            {
+                FactPayload::HostedDeletion {
+                    target,
+                    kind: HostedTarget::Resource,
+                    provider: Known("github".into()),
+                    object_kind: Known("release".into()),
+                    selection: graph
+                        .resources
+                        .iter()
+                        .find(|resource| resource.id == target)
+                        .expect("converted resource")
+                        .selection
+                        .clone(),
+                    delete: Known(true),
+                }
+            }
             "environment.read" | "environment.write" => FactPayload::EnvironmentAccess {
                 names: match &effect.resource {
                     p::ResourceExpr::Concrete {
@@ -736,7 +945,17 @@ fn convert_evidence(
                     call,
                     Some(convert_domain(effect.operation.domain())),
                     GapPhase::Translation,
-                    "semantic-fields-unavailable",
+                    match effect.operation.as_str() {
+                        "git.remote_sync" => "git-push-destination-and-lease-details-unavailable",
+                        "git.worktree_discard" => "git-discard-mode-and-selection-unavailable",
+                        "git.history_rewrite" => "git-history-active-mode-unavailable",
+                        "git.recovery_destroy" => "git-recovery-selection-unavailable",
+                        "git.ref_update" => "git-ref-active-selection-unavailable",
+                        "network.upload" if matches!(effect.attributes.get("method"), Some(p::AttrValue::String(method)) if method == "DELETE") => {
+                            "network-delete-resource-kind-unavailable"
+                        }
+                        _ => "semantic-fields-unavailable",
+                    },
                 );
                 FactPayload::Other {
                     operation: effect.operation.as_str().into(),
@@ -1156,10 +1375,19 @@ fn add_resource(
                         .into(),
                     );
                     identity.name = text(name);
-                    identity.details = Known(D::Package {
-                        registry: text(endpoint),
-                        version: reference.value().map_or(Unknown, text),
-                    });
+                    identity.details =
+                        Known(if *ecosystem == p::ArtifactEcosystem::GithubRelease {
+                            D::Hosted {
+                                repository: text(name),
+                                object_kind: Known("release".into()),
+                                object: reference.value().map_or(Unknown, text),
+                            }
+                        } else {
+                            D::Package {
+                                registry: text(endpoint),
+                                version: reference.value().map_or(Unknown, text),
+                            }
+                        });
                     if matches!(reference.as_ref(), p::ArtifactReference::Whole {}) {
                         selection = S::Whole;
                     }

@@ -378,6 +378,7 @@ impl Lowerer {
             descriptor_flows,
             mut system_states,
             git_operations,
+            git_facts,
         } = self.lower_command_resources(
             &program,
             &local_arguments,
@@ -557,6 +558,7 @@ impl Lowerer {
             filesystems: filesystem_drafts,
             root_move_destination_key,
             git_operations,
+            git_facts,
             git_project_scoped: git.as_ref().is_some_and(|git| git.project_scoped),
             network_outbound: git.as_ref().is_some_and(|git| git.network_outbound)
                 || execution
