@@ -1,0 +1,9 @@
+name = "nahguard"
+compatibility_date = "2026-08-02"
+pages_build_output_dir = "./dist"
+
+[[d1_databases]]
+binding = "INSTALL_METRICS"
+database_name = "nahguard-install-metrics"
+database_id = "c7eb3763-cd30-44f4-97b1-ac1cb17ef715"
+migrations_dir = "migrations"

@@ -19,6 +19,10 @@ documentation, news, crawler files, install script, og card, and WASM engine.
   when it has been built.
 - `record-tui.py` — re-records the TUI demo into `nah-tui.cast` by
   driving `target/release/nah tui` through a PTY with a sandboxed HOME.
+- `functions/_middleware.js` — records successful installer fetches in D1
+  without changing the installer response.
+- `migrations/` — owns the installer metrics schema and preserved historical
+  snapshots.
 - `wasm/` — the "Try it yourself" engine: the real decision pipeline
   (`nah-parse` → `nah-actions` + `nah-inline` → `nah-policy` via `nah-cli`'s
   `decide_with`) compiled to wasm32-wasip1, deciding against a fixed
@@ -36,6 +40,27 @@ cp -r dist/. /home/dev/previews/nah-homepage/   # served on :8090
 
 `build.py` intentionally fails if `../target/release/nah` is missing. Set
 `NAH_DOCS_BIN` only when testing an explicit alternative compiled binary.
+
+## Installer metrics
+
+`wrangler.toml` binds the Pages Function to the `nahguard-install-metrics` D1
+database as `INSTALL_METRICS`. Apply `migrations/` to that database before
+deploying a schema change.
+
+`installer_fetches` stores only daily UTC totals split into `unix` and
+`windows`; no IP addresses, user agents, cookies, or other identifiers are
+stored. These totals are installer fetches, not unique people or confirmed
+installs, and may include repeat or automated requests. `metric_snapshots`
+preserves older Cloudflare and GitHub measurements with their original meaning
+and time window; those proxy metrics must not be added together.
+
+The durable fetch total is:
+
+```sql
+SELECT COALESCE(SUM(fetches), 0) AS installer_fetches FROM installer_fetches;
+```
+
+Run the Function tests with `npm test` from this directory.
 
 ## Rebuilding the wasm engine
 
