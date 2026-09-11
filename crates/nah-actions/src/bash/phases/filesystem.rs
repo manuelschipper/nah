@@ -417,6 +417,10 @@ impl Lowerer {
         network_endpoints.extend(filesystem_endpoints);
         descriptor_flows.extend(filesystem_flows);
         self.stages.push(StageDraft {
+            network_response: false,
+            environment_disclosure: None,
+            credential_access: None,
+            search_queries: Vec::new(),
             permission_grants: None,
             language_safety_only: false,
             invocation: InvocationDraft::Known {
@@ -430,7 +434,6 @@ impl Lowerer {
             filesystems,
             root_move_destination_key: None,
             git_operations: Vec::new(),
-            evidence_call: None,
             git_facts: Vec::new(),
             operation_evidence: Vec::new(),
             git_project_scoped: false,

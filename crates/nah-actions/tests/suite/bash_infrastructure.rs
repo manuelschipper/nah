@@ -588,6 +588,37 @@ fn exact_docker_ps_stop_all_flow_is_promoted() {
         "docker stop `docker ps -q`",
     ] {
         assert!(stops_all_containers(source), "{source}");
+        let plan = bash_plan(source);
+        let evidence = plan
+            .guard_evidence(&observe(plan.observation_request(), "echo"))
+            .unwrap();
+        let graph = evidence.graph();
+        let stop = graph
+            .facts
+            .iter()
+            .find(|fact| {
+                matches!(
+                    fact.payload,
+                    nah_proto::effects::FactPayload::ContainerChange {
+                        operation: nah_proto::effects::ContainerOperation::Stop,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let call = &graph.calls[stop.call.0 as usize];
+        assert_eq!(
+            call.identity,
+            nah_proto::effects::Knowledge::Known(source.split_whitespace().next().unwrap().into()),
+            "{source}"
+        );
+        assert!(graph.relations.iter().any(|relation| {
+            matches!(
+                relation.kind,
+                nah_proto::effects::RelationKind::ConservativeDataflow { .. }
+            ) && graph.occurrences[relation.to.0 as usize].call == stop.call
+                && graph.occurrences[relation.from.0 as usize].call != stop.call
+        }));
     }
 }
 

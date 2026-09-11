@@ -39,7 +39,7 @@ Dry runs, corpus cases, and the demo do not write records.
 | `nah-corpus` | Frozen fixtures, execution, and triage reconciliation |
 
 Internal dependencies are: inline → proto; actions → inline/parse/proto; policy
-→ inline/proto; observe/extensions → proto; CLI → all libraries; corpus →
+→ proto; observe/extensions → proto; CLI → all libraries; corpus →
 CLI/proto. Parse and proto have no internal dependencies.
 Ambient I/O stays out of `nah-proto`, `nah-parse`, `nah-inline`, `nah-actions`,
 and `nah-policy`. `tools/gates` is
@@ -76,7 +76,7 @@ owns semantics. Finalization consumes `nah-observe` facts; lowering does no I/O.
   `nah-inline/src/languages/` and the matching `engine/` module, then
   `nah-actions/src/language_effects.rs`. `nah-cli/src/code_input.rs` owns typed runtime
   intake. Other language modules provide narrower detection. Exact nested
-  commands return to actions; private findings reach policy.
+  commands return to actions; private findings become shared summaries.
 - Native tool shapes: the runtime adapter, `nah-actions/src/native.rs`, and
   `codex_patch.rs` for `apply_patch`.
 - A built-in guard: its semantic lowering in `nah-actions`, reducer in `nah-policy`,

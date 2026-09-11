@@ -247,3 +247,109 @@ fn secrets_store_read_requires_its_matching_enabled_code() {
         );
     }
 }
+
+#[test]
+fn shared_secret_access_keeps_purpose_and_recovery_modes_independent() {
+    use nah_proto::effects::*;
+    let stream = ActionStream::new(
+        Coverage::Full,
+        vec![vec![
+            EffectKind::known("vault", "secrets-store-read").unwrap(),
+        ]],
+        vec![],
+    )
+    .unwrap();
+    let evidence = crate::support::evidence(&stream, &nah_inline::InlineReport::default());
+    for (operation, deletion, workflow, purpose, expected) in [
+        (
+            CredentialOperation::ReadValue,
+            DeletionMode::Unknown,
+            CredentialWorkflow::Ordinary,
+            AccessPurpose::Explicit,
+            Some("secrets-store-read"),
+        ),
+        (
+            CredentialOperation::ReadValue,
+            DeletionMode::Unknown,
+            CredentialWorkflow::Run,
+            AccessPurpose::Explicit,
+            None,
+        ),
+        (
+            CredentialOperation::ReadValue,
+            DeletionMode::Unknown,
+            CredentialWorkflow::Inject,
+            AccessPurpose::Explicit,
+            None,
+        ),
+        (
+            CredentialOperation::ReadValue,
+            DeletionMode::Unknown,
+            CredentialWorkflow::Ordinary,
+            AccessPurpose::ImplicitAuthentication,
+            None,
+        ),
+        (
+            CredentialOperation::ReadMetadata,
+            DeletionMode::Unknown,
+            CredentialWorkflow::Ordinary,
+            AccessPurpose::Explicit,
+            None,
+        ),
+        (
+            CredentialOperation::Delete,
+            DeletionMode::Unknown,
+            CredentialWorkflow::Ordinary,
+            AccessPurpose::Explicit,
+            None,
+        ),
+        (
+            CredentialOperation::Delete,
+            DeletionMode::Recoverable,
+            CredentialWorkflow::Ordinary,
+            AccessPurpose::Explicit,
+            Some("secrets-store-delete"),
+        ),
+        (
+            CredentialOperation::Delete,
+            DeletionMode::Permanent,
+            CredentialWorkflow::Ordinary,
+            AccessPurpose::Explicit,
+            Some("secrets-store-destroy"),
+        ),
+    ] {
+        let mut graph = evidence.graph().clone();
+        let FactPayload::CredentialAccess { target, .. } = graph.facts[0].payload else {
+            panic!("credential fixture")
+        };
+        graph.facts[0].payload = FactPayload::CredentialAccess {
+            target,
+            operation,
+            deletion,
+            workflow,
+            purpose,
+        };
+        let supplied = GuardEvidence::new(graph, evidence.public_selection().clone()).unwrap();
+        for name in [
+            "secrets-store-read",
+            "secrets-store-delete",
+            "secrets-store-destroy",
+        ] {
+            let decision = nah_policy::decide(
+                &stream,
+                &supplied,
+                &crate::support::guard_policy(name, true),
+                &[],
+            )
+            .unwrap();
+            assert_eq!(
+                decision.verdict(),
+                if expected == Some(name) {
+                    Verdict::Block
+                } else {
+                    Verdict::Delegate
+                }
+            );
+        }
+    }
+}

@@ -786,7 +786,6 @@ dependencies = [
 name = "nah-policy"
 version = "1.5.0"
 dependencies = [
- "nah-inline",
  "nah-proto",
 ]
 

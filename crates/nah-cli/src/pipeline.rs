@@ -624,10 +624,8 @@ where
         .map(|name| format!("unknown project guard `{name}`"))
         .chain(effinterp_warning)
         .collect::<Vec<_>>();
-    let mut inline_report = plan.inline_report().clone();
     let mut inline_failed = plan.inline_failed();
     if simulate_inline_failure {
-        inline_report = nah_inline::InlineReport::default();
         inline_failed = true;
     }
     let evidence_provenance = Some(EvidenceProvenance {
@@ -638,8 +636,7 @@ where
         observation_fingerprint: evidence_fingerprint(&observation),
     });
     let guard_evidence = Some(plan.guard_evidence(&observation));
-    let (action_stream, language_safety_stream) =
-        nah_actions::finalize_with_language_safety_stream(plan, observation.clone());
+    let action_stream = nah_actions::finalize(plan, observation.clone());
     #[cfg(feature = "effinterp")]
     if let Some(shadow) = &mut effinterp_shadow {
         shadow.gap = effinterp_gap(&action_stream, &shadow.plan);
@@ -667,8 +664,6 @@ where
         return match decide_policy(
             &action_stream,
             guard_evidence.as_ref().expect("normal evidence result"),
-            &language_safety_stream,
-            &inline_report,
             derivation.policy_ctx(),
             &[],
             mode,
@@ -724,8 +719,6 @@ where
     match decide_policy(
         &action_stream,
         guard_evidence.as_ref().expect("normal evidence result"),
-        &language_safety_stream,
-        &inline_report,
         derivation.policy_ctx(),
         &responses,
         mode,
@@ -770,23 +763,13 @@ where
 fn decide_policy(
     action_stream: &ActionStream,
     evidence: &Result<nah_proto::effects::GuardEvidence, nah_proto::effects::EvidenceError>,
-    language_safety_stream: &ActionStream,
-    inline_report: &nah_inline::InlineReport,
     policy_ctx: &nah_proto::ctx::PolicyCtx,
     responses: &[ValidatedExtensionResponse],
     mode: nah_policy::EnforcementMode,
 ) -> Result<DecisionCore, ()> {
     let evidence = evidence.as_ref().map_err(|_| ())?;
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        nah_policy::decide_with_mode_and_inline_language_safety_stream(
-            action_stream,
-            evidence,
-            language_safety_stream,
-            inline_report,
-            policy_ctx,
-            responses,
-            mode,
-        )
+        nah_policy::decide_with_mode(action_stream, evidence, policy_ctx, responses, mode)
     }))
     .map_err(|_| ())?
     .map_err(|_| ())

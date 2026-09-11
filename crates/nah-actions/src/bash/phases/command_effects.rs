@@ -12,7 +12,7 @@ use super::command_preparation::PreparedCommand;
 use super::command_resources::CommandResources;
 use super::{AssignmentUpdate, Lowered, Lowerer};
 use crate::bash_descriptors::{DescriptorRedirectPlan, shell_attached_to_dev_socket};
-use crate::bash_environment_disclosure::operation as environment_disclosure_operation;
+use crate::bash_environment_disclosure::disclosure as environment_disclosure_selection;
 use crate::bash_flow::redirects_stdin;
 use crate::bash_git::git_command_operations;
 use crate::bash_invocation::invocation;
@@ -357,8 +357,8 @@ impl Lowerer {
         } else {
             None
         };
-        let environment_disclosure = if let ProgramDraft::Static(program) = &program {
-            environment_disclosure_operation(
+        let environment_selection = if let ProgramDraft::Static(program) = &program {
+            environment_disclosure_selection(
                 program,
                 &local_arguments,
                 arguments,
@@ -369,6 +369,9 @@ impl Lowerer {
         } else {
             None
         };
+        let environment_disclosure = environment_selection
+            .as_ref()
+            .and_then(crate::bash_environment_disclosure::operation);
         let network_shell_redirect = matches!(&program, ProgramDraft::Static(program)
             if shell_attached_to_dev_socket(program, &local_arguments, &network_endpoints));
         let CommandResources {
@@ -535,6 +538,18 @@ impl Lowerer {
             .then(|| lastpipe_update(&program, &local_arguments))
             .flatten();
         let stage_draft = StageDraft {
+            network_response: execution.as_ref().is_some_and(|model| {
+                model.operation == Some("network-transfer")
+                    && (model.stdout_flows
+                        || model.filesystems.iter().any(|(_, operation, _)| {
+                            *operation == nah_proto::action::FilesystemOperation::Write
+                        }))
+            }),
+            environment_disclosure: environment_selection,
+            credential_access: secret_store.as_ref().and_then(|store| store.access),
+            search_queries: local_utility
+                .as_ref()
+                .map_or_else(Vec::new, |local| local.search_queries.clone()),
             permission_grants: if matches!(&program, ProgramDraft::Static(program) if program == "chmod")
             {
                 crate::bash_filesystem::chmod_permission_grants(&local_arguments)
@@ -548,7 +563,6 @@ impl Lowerer {
             filesystems: filesystem_drafts,
             root_move_destination_key,
             git_operations,
-            evidence_call: None,
             git_facts,
             operation_evidence,
             git_project_scoped: git.as_ref().is_some_and(|git| git.project_scoped),
