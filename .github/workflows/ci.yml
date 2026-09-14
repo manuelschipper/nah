@@ -35,11 +35,11 @@ jobs:
           cargo test --manifest-path spikes/p2-tree-sitter/Cargo.toml --workspace --locked
       - name: Release KPIs and benches compile
         run: |
-          cargo test --release -p nah-cli --test latency captured_walking_skeleton_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-cli --test latency captured_bash_spine_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-cli --test latency captured_ambient_preflight_p99_is_below_one_millisecond --locked -- --ignored --nocapture --test-threads=1
-          cargo test --release -p nah-cli --test latency captured_inline_signature_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-policy --test reducer captured_policy_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_walking_skeleton_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_bash_spine_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_ambient_preflight_p99_is_below_one_millisecond --locked -- --ignored --nocapture --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_inline_signature_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-policy --test suite reducer::captured_policy_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
           cargo test --release -p nah-parse --test fork_bomb a_large_visible_function_graph_is_scanned_inside_its_documented_bound --locked -- --ignored --test-threads=1
           cargo test --release -p nah-parse a_long_pipeline_is_scanned_inside_its_documented_bound --locked -- --ignored --nocapture --test-threads=1
           cargo test --release -p nah-cli --lib pipeline::performance_tests::performance_kpis --locked -- --ignored --nocapture --test-threads=1
@@ -98,29 +98,41 @@ jobs:
       - name: Test native Windows CLI core
         run: cargo test -p nah-cli --lib --locked --no-fail-fast
       - name: Test native Windows runtime integrations
-        run: >
-          cargo test -p nah-cli --locked --no-fail-fast
-          --test audit
-          --test catalog
-          --test claude_adapter
-          --test claude_installation
-          --test cline_adapter
-          --test cline_installation
-          --test codex_installation
-          --test copilot_adapter
-          --test copilot_installation
-          --test cursor_installation
-          --test degraded_state
-          --test host_integrity
-          --test kiro_adapter
-          --test kiro_installation
-          --test live_state
-          --test nap
-          --test self_protection
-          --test trust
-          --test windows_extensions
-          --test windows_unresolved_filesystem
-          --test windows_unsupported_installation
+        shell: pwsh
+        run: |
+          $modules = @(
+            'audit'
+            'catalog'
+            'claude_adapter'
+            'claude_installation'
+            'cline_adapter'
+            'cline_installation'
+            'codex_installation'
+            'copilot_adapter'
+            'copilot_installation'
+            'cursor_installation'
+            'degraded_state'
+            'host_integrity'
+            'kiro_adapter'
+            'kiro_installation'
+            'live_state'
+            'nap'
+            'self_protection'
+            'trust'
+            'windows_extensions'
+            'windows_unresolved_filesystem'
+            'windows_unsupported_installation'
+          )
+          $failed = @()
+          foreach ($module in $modules) {
+            cargo test -p nah-cli --locked --no-fail-fast --test suite "${module}::"
+            if ($LASTEXITCODE -ne 0) {
+              $failed += $module
+            }
+          }
+          if ($failed.Count -gt 0) {
+            throw "Failed test modules: $($failed -join ', ')"
+          }
       - name: Build release artifact
         run: cargo build --release --locked -p nah-cli
       - name: Install Pester

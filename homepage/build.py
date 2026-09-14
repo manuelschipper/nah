@@ -194,6 +194,11 @@ open(f"{OUT_DIR}/_headers", "w").write(
     "/install\n  Content-Type: text/plain; charset=utf-8\n"
     "/install.ps1\n  Content-Type: text/plain; charset=utf-8\n"
 )
+open(f"{OUT_DIR}/_routes.json", "w").write(json.dumps({
+    "version": 1,
+    "include": ["/install", "/install.ps1"],
+    "exclude": [],
+}, indent=2) + "\n")
 
 # -- crawler files. A real 404.html also switches Pages out of SPA
 #    fallback, so unknown paths stop serving the homepage with a 200.
