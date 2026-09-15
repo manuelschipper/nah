@@ -904,6 +904,9 @@ pub(crate) fn selects(known: &str, path: &str, platform: Platform, pattern: bool
     if contains(known, path, platform) {
         return true;
     }
+    if !pattern {
+        return false;
+    }
     let normalize = |value: &str| {
         if platform == Platform::Windows {
             value.replace('\\', "/").to_ascii_lowercase()
@@ -915,10 +918,13 @@ pub(crate) fn selects(known: &str, path: &str, platform: Platform, pattern: bool
     let name = bound
         .rsplit_once('/')
         .map_or(bound.as_str(), |(_, name)| name);
-    pattern && !matches!(name, "" | ".") && normalize(known).starts_with(&bound)
+    !matches!(name, "" | ".") && normalize(known).starts_with(&bound)
 }
 
 fn matches_home_glob(path: &str, home: &str, suffix: &str, platform: Platform) -> bool {
+    if !path.contains('*') {
+        return false;
+    }
     let normalize = |value: &str| {
         let value = value.replace('\\', "/");
         if platform == Platform::Windows {

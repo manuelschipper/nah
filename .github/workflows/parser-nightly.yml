@@ -31,9 +31,9 @@ jobs:
         run: |
           command -v python3
           command -v node
-          selected="$(cargo test -p nah-inline --test runtime_oracle supported_subset_matches_cpython_and_node --locked -- --ignored --list)"
+          selected="$(cargo test -p nah-inline --test suite runtime_oracle::supported_subset_matches_cpython_and_node --locked -- --ignored --list)"
           case "$selected" in
-            *"supported_subset_matches_cpython_and_node: test"*) ;;
+            *"runtime_oracle::supported_subset_matches_cpython_and_node: test"*) ;;
             *) echo "language semantic oracle was not selected" >&2; exit 1 ;;
           esac
-          cargo test -p nah-inline --test runtime_oracle supported_subset_matches_cpython_and_node --locked -- --ignored
+          cargo test -p nah-inline --test suite runtime_oracle::supported_subset_matches_cpython_and_node --locked -- --ignored
