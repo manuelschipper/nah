@@ -1,26 +1,77 @@
 //! Classifies reviewed package-registry publication, removal, and ownership commands.
 
+use crate::operation_evidence::OperationEvidence;
 use nah_parse::Word;
 use nah_proto::action::SemanticCode;
+use nah_proto::effects::*;
 
 use crate::shell_word::static_word;
 
 pub(crate) struct Classification {
     pub(crate) complete: bool,
+    pub(crate) evidence: Vec<OperationEvidence>,
     pub(crate) system_state: Option<SemanticCode>,
 }
 
 impl Classification {
-    const fn operation(system_state: SemanticCode) -> Self {
+    fn operation(system_state: SemanticCode, operation: PackageOperation, ecosystem: &str) -> Self {
         Self {
             complete: true,
+            evidence: vec![
+                OperationEvidence::new(
+                    ResourceKind::Package,
+                    Realm::Remote {
+                        identity: Knowledge::Unknown,
+                    },
+                    FactPayload::PackageChange {
+                        target: ResourceId(0),
+                        operation,
+                        ecosystem: Knowledge::Known(
+                            match ecosystem {
+                                "npm" | "pnpm" | "yarn" | "bun" => "npm",
+                                "twine" | "python" | "uv" | "poetry" | "hatch" | "flit" => "pypi",
+                                "dotnet" | "nuget" => "nuget",
+                                other => other,
+                            }
+                            .into(),
+                        ),
+                        versions: Selection::Unknown,
+                        active: Knowledge::Known(true),
+                        dry_run: Knowledge::Known(false),
+                    },
+                )
+                .provider(ecosystem),
+            ],
             system_state: Some(system_state),
         }
+    }
+
+    fn package_identity(mut self, name: Option<&str>, version: Option<&str>) -> Self {
+        for evidence in &mut self.evidence {
+            evidence.resource.identity.name =
+                name.map_or(Knowledge::Unknown, |name| Knowledge::Known(name.into()));
+            evidence.resource.identity.details = Knowledge::Known(ResourceDetails::Package {
+                version: version.map_or(Knowledge::Unknown, |version| {
+                    Knowledge::Known(version.into())
+                }),
+                registry: Knowledge::Unknown,
+            });
+            if let FactPayload::PackageChange { versions, .. } = &mut evidence.payload
+                && version.is_some()
+            {
+                *versions = Selection::NamedSet {
+                    identities: vec![evidence.resource.identity.clone()],
+                    bound: Bound::Finite(1),
+                };
+            }
+        }
+        self
     }
 
     const fn control() -> Self {
         Self {
             complete: true,
+            evidence: Vec::new(),
             system_state: None,
         }
     }
@@ -28,6 +79,7 @@ impl Classification {
     const fn incomplete() -> Self {
         Self {
             complete: false,
+            evidence: Vec::new(),
             system_state: None,
         }
     }
@@ -352,19 +404,35 @@ fn npm(arguments: &[String]) -> Option<Classification> {
         return Some(Classification::control());
     }
     match parsed.positionals.as_slice() {
-        [command] | [command, _] if command == "unpublish" => {
-            Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
-        }
+        [command] | [command, _] if command == "unpublish" => Some(
+            Classification::operation(
+                SemanticCode::REGISTRY_UNPUBLISH,
+                PackageOperation::Remove,
+                "npm",
+            )
+            .package_identity(parsed.positionals.get(1).map(String::as_str), None),
+        ),
         [command, action, _] | [command, action, _, _]
             if matches!(command.as_str(), "author" | "owner")
                 && matches!(action.as_str(), "add" | "remove" | "rm") =>
         {
-            Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
+            Some(
+                Classification::operation(
+                    SemanticCode::REGISTRY_UNPUBLISH,
+                    PackageOperation::TransferOwnership,
+                    "npm",
+                )
+                .package_identity(parsed.positionals.get(3).map(String::as_str), None),
+            )
         }
         [command] | [command, _] if command == "publish" => Some(if parsed.boolean("--dry-run") {
             Classification::control()
         } else {
-            Classification::operation(SemanticCode::REGISTRY_PUBLISH)
+            Classification::operation(
+                SemanticCode::REGISTRY_PUBLISH,
+                PackageOperation::Publish,
+                "npm",
+            )
         }),
         [command, action, ..]
             if matches!(command.as_str(), "author" | "owner") && action == "ls" =>
@@ -436,7 +504,11 @@ fn pnpm(arguments: &[String]) -> Option<Classification> {
         [command] | [command, _] if command == "publish" => Some(if parsed.boolean("--dry-run") {
             Classification::control()
         } else {
-            Classification::operation(SemanticCode::REGISTRY_PUBLISH)
+            Classification::operation(
+                SemanticCode::REGISTRY_PUBLISH,
+                PackageOperation::Publish,
+                "pnpm",
+            )
         }),
         [command, ..] if command == "publish" => Some(Classification::incomplete()),
         _ => None,
@@ -481,12 +553,16 @@ fn yarn(arguments: &[String]) -> Option<Classification> {
         return Some(Classification::control());
     }
     match parsed.positionals.as_slice() {
-        [command] | [command, _] if command == "publish" => {
-            Some(Classification::operation(SemanticCode::REGISTRY_PUBLISH))
-        }
-        [npm, command] if npm == "npm" && command == "publish" => {
-            Some(Classification::operation(SemanticCode::REGISTRY_PUBLISH))
-        }
+        [command] | [command, _] if command == "publish" => Some(Classification::operation(
+            SemanticCode::REGISTRY_PUBLISH,
+            PackageOperation::Publish,
+            "yarn",
+        )),
+        [npm, command] if npm == "npm" && command == "publish" => Some(Classification::operation(
+            SemanticCode::REGISTRY_PUBLISH,
+            PackageOperation::Publish,
+            "yarn",
+        )),
         [command, ..] if command == "publish" || command == "npm" => {
             Some(Classification::incomplete())
         }
@@ -642,12 +718,20 @@ fn cargo(arguments: &[String]) -> Option<Classification> {
         [command] if command == "publish" => Some(if parsed.boolean("--dry-run") {
             Classification::control()
         } else {
-            Classification::operation(SemanticCode::REGISTRY_PUBLISH)
+            Classification::operation(
+                SemanticCode::REGISTRY_PUBLISH,
+                PackageOperation::Publish,
+                "cargo",
+            )
         }),
         [command] | [command, _]
             if command == "owner" && parsed.present(&["-a", "--add", "-r", "--remove"]) =>
         {
-            Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
+            Some(Classification::operation(
+                SemanticCode::REGISTRY_UNPUBLISH,
+                PackageOperation::TransferOwnership,
+                "cargo",
+            ))
         }
         [command, ..] if matches!(command.as_str(), "owner" | "publish") => {
             if command == "owner" && parsed.present(&["--list"]) {
@@ -721,17 +805,36 @@ fn gem(arguments: &[String]) -> Option<Classification> {
         return Some(Classification::control());
     }
     match parsed.positionals.as_slice() {
-        [command, _] if command == "yank" && parsed.present(&["-v", "--version"]) => {
-            Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
-        }
+        [command, _] if command == "yank" && parsed.present(&["-v", "--version"]) => Some(
+            Classification::operation(
+                SemanticCode::REGISTRY_UNPUBLISH,
+                PackageOperation::Yank,
+                "gem",
+            )
+            .package_identity(
+                parsed.positionals.get(1).map(String::as_str),
+                parsed
+                    .options
+                    .iter()
+                    .rev()
+                    .find(|(name, _)| matches!(name.as_str(), "--version" | "-v"))
+                    .and_then(|(_, value)| value.as_deref()),
+            ),
+        ),
         [command, _]
             if command == "owner" && parsed.present(&["-a", "--add", "-r", "--remove"]) =>
         {
-            Some(Classification::operation(SemanticCode::REGISTRY_UNPUBLISH))
+            Some(Classification::operation(
+                SemanticCode::REGISTRY_UNPUBLISH,
+                PackageOperation::TransferOwnership,
+                "gem",
+            ))
         }
-        [command, _] if command == "push" => {
-            Some(Classification::operation(SemanticCode::REGISTRY_PUBLISH))
-        }
+        [command, _] if command == "push" => Some(Classification::operation(
+            SemanticCode::REGISTRY_PUBLISH,
+            PackageOperation::Publish,
+            "gem",
+        )),
         [command, ..] if matches!(command.as_str(), "owner" | "push" | "yank") => {
             if command == "owner" && !parsed.present(&["-a", "--add", "-r", "--remove"]) {
                 Some(Classification::control())
@@ -787,7 +890,11 @@ fn twine(arguments: &[String]) -> Option<Classification> {
     }
     match parsed.positionals.as_slice() {
         [command, files @ ..] if command == "upload" && !files.is_empty() => {
-            Some(Classification::operation(SemanticCode::REGISTRY_PUBLISH))
+            Some(Classification::operation(
+                SemanticCode::REGISTRY_PUBLISH,
+                PackageOperation::Publish,
+                "twine",
+            ))
         }
         [command, ..] if command == "upload" => Some(Classification::incomplete()),
         _ => None,
@@ -924,7 +1031,11 @@ fn simple_publish(
     Some(if honors_dry_run && parsed.boolean("--dry-run") {
         Classification::control()
     } else {
-        Classification::operation(SemanticCode::REGISTRY_PUBLISH)
+        Classification::operation(
+            SemanticCode::REGISTRY_PUBLISH,
+            PackageOperation::Publish,
+            "simple_publish",
+        )
     })
 }
 
@@ -977,7 +1088,11 @@ fn dotnet(arguments: &[String]) -> Option<Classification> {
     }
     match parsed.positionals.as_slice() {
         [nuget, command, _] if nuget == "nuget" && command == "push" => {
-            Some(Classification::operation(SemanticCode::REGISTRY_PUBLISH))
+            Some(Classification::operation(
+                SemanticCode::REGISTRY_PUBLISH,
+                PackageOperation::Publish,
+                "dotnet",
+            ))
         }
         [nuget, command, ..] if nuget == "nuget" && command == "delete" => {
             Some(Classification::control())
@@ -1038,7 +1153,11 @@ fn nuget(arguments: &[String]) -> Option<Classification> {
     }
     match parsed.positionals.as_slice() {
         [command, _] | [command, _, _] if command.eq_ignore_ascii_case("push") => {
-            Some(Classification::operation(SemanticCode::REGISTRY_PUBLISH))
+            Some(Classification::operation(
+                SemanticCode::REGISTRY_PUBLISH,
+                PackageOperation::Publish,
+                "nuget",
+            ))
         }
         [command, ..] if command.eq_ignore_ascii_case("delete") => Some(Classification::control()),
         [command, ..] if command.eq_ignore_ascii_case("push") => Some(Classification::incomplete()),

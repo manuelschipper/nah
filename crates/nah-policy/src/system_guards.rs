@@ -1,11 +1,12 @@
 //! Evaluates local host-state guards from typed invocation effects.
 
-use nah_proto::action::{ActionStream, EffectKind, InvocationEffect, SemanticCode};
+use Knowledge::Known;
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{DecisionError, GuardAttribution, GuardContribution};
+use nah_proto::effects::*;
 
 pub(crate) fn add(
-    action_stream: &ActionStream,
+    evidence: &GuardEvidence,
     policy_ctx: &PolicyCtx,
     contributions: &mut Vec<GuardContribution>,
 ) -> Result<bool, DecisionError> {
@@ -13,25 +14,12 @@ pub(crate) fn add(
     for (name, matched, message) in [
         (
             "sys-power",
-            action_stream.effects().iter().any(|effect| {
-                matches!(
-                    effect.kind(),
-                    EffectKind::Invocation {
-                        invocation: InvocationEffect::Known { operation, .. }
-                    } if operation == &SemanticCode::HOST_POWER
-                )
-            }),
+            matches("sys-power", evidence),
             "sys-power blocked a host power action; keep the host running and ask the operator to perform any intentional power action",
         ),
         (
             "sys-service-stop",
-            action_stream.effects().iter().any(|effect| {
-                matches!(
-                    effect.kind(),
-                    EffectKind::SystemState { operation }
-                        if operation == &SemanticCode::SERVICE_STOP
-                )
-            }),
+            matches("sys-service-stop", evidence),
             "sys-service-stop blocked a reviewed service or stop-all container shutdown; keep the service or containers running and ask the operator to perform any intentional stop",
         ),
     ] {
@@ -48,4 +36,33 @@ pub(crate) fn add(
         added = true;
     }
     Ok(added)
+}
+
+fn matches(name: &str, evidence: &GuardEvidence) -> bool {
+    evidence.graph().facts.iter().any(|fact| {
+        if fact.certainty != Certainty::Exact || fact.condition.is_some() {
+            return false;
+        }
+        match &fact.payload {
+            FactPayload::SystemChange {
+                operation,
+                active: Known(true),
+                cancel: Known(false),
+                help: Known(false),
+                ..
+            } => matches!(
+                (name, operation),
+                ("sys-power", SystemOperation::Power)
+                    | ("sys-service-stop", SystemOperation::ServiceStop)
+            ),
+            FactPayload::ContainerChange {
+                operation: ContainerOperation::Stop,
+                all: Known(true),
+                active: Known(true),
+                dry_run: Known(false),
+                ..
+            } => name == "sys-service-stop",
+            _ => false,
+        }
+    })
 }

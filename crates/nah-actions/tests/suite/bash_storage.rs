@@ -10,9 +10,14 @@ fn stream(source: &str) -> ActionStream {
 }
 
 fn has_system_state(source: &str, operation: &SemanticCode) -> bool {
-    stream(source).effects().iter().any(|effect| {
-        matches!(effect.kind(), EffectKind::SystemState { operation: candidate } if candidate == operation)
-    })
+    let name = if operation == &SemanticCode::LOGICAL_STORAGE_DESTROY {
+        "fs-volume-destroy"
+    } else {
+        operation.as_str()
+    };
+    support::operation_guard_names(source, &[(name, true)])
+        .iter()
+        .any(|guard| guard == name)
 }
 
 #[test]
@@ -35,6 +40,38 @@ fn definite_logical_storage_destruction_emits_typed_evidence() {
             "{source}: {:?}",
             stream.effects()
         );
+        use nah_proto::effects::*;
+        let evidence = plan
+            .guard_evidence(&observe(plan.observation_request(), "echo"))
+            .unwrap();
+        let provider = source.split_whitespace().next().unwrap();
+        assert!(
+            evidence
+                .graph()
+                .resources
+                .iter()
+                .any(
+                    |resource| resource.identity.kind == ResourceKind::LiveVolume
+                        && resource.identity.provider == Knowledge::Known(provider.into())
+                )
+        );
+        for volume_enabled in [false, true] {
+            assert_eq!(
+                support::operation_guard_names(
+                    source,
+                    &[
+                        ("fs-volume-destroy", volume_enabled),
+                        ("storage-snapshot-delete", true)
+                    ]
+                ),
+                if volume_enabled {
+                    vec!["fs-volume-destroy"]
+                } else {
+                    vec![]
+                },
+                "{source}"
+            );
+        }
     }
 
     for source in [
@@ -131,6 +168,7 @@ fn whole_backup_repository_deletion_emits_storage_backup_destroy() {
         "borg --repo /srv/backups/repo repo-delete",
         "borg -r /srv/backups/repo repo-delete",
         "restic forget --unsafe-allow-remove-all --tag old",
+        "restic forget --unsafe-allow-remove-all abc123",
         "restic forget --unsafe-allow-remove-all=true --json --verbose --no-lock --tag old",
         "velero backup delete --all --confirm",
         "velero backup delete --all=true --confirm=true",
@@ -144,6 +182,33 @@ fn whole_backup_repository_deletion_emits_storage_backup_destroy() {
             "{source}: {:?}",
             stream(source).effects()
         );
+
+        if source == "restic forget --unsafe-allow-remove-all abc123" {
+            use nah_proto::effects::*;
+            let plan = bash_plan(source);
+            let evidence = plan
+                .guard_evidence(&observe(plan.observation_request(), "echo"))
+                .unwrap();
+            assert!(evidence.graph().facts.iter().any(|fact| matches!(
+                fact.payload,
+                FactPayload::StorageChange {
+                    kind: StorageTarget::Snapshot,
+                    selection: Selection::Exact,
+                    allow_remove_all: Knowledge::Known(true),
+                    ..
+                }
+            )));
+            assert_eq!(
+                support::operation_guard_names(
+                    source,
+                    &[
+                        ("storage-backup-destroy", true),
+                        ("storage-snapshot-delete", true)
+                    ]
+                ),
+                vec!["storage-backup-destroy"]
+            );
+        }
     }
 }
 
@@ -214,6 +279,43 @@ fn every_rsync_destination_delete_spelling_covers_local_and_remote_destinations(
                 "{source}: {:?}",
                 stream(&source).effects()
             );
+
+            use nah_proto::effects::*;
+            let plan = bash_plan(&source);
+            let evidence = plan
+                .guard_evidence(&observe(plan.observation_request(), "echo"))
+                .unwrap();
+            let fact = evidence
+                .graph()
+                .facts
+                .iter()
+                .find(|fact| matches!(fact.payload, FactPayload::StorageChange { .. }))
+                .unwrap();
+            let FactPayload::StorageChange {
+                target,
+                destination_deletion,
+                ..
+            } = fact.payload
+            else {
+                unreachable!()
+            };
+            assert_eq!(destination_deletion, Knowledge::Known(true));
+            let resource = evidence
+                .graph()
+                .resources
+                .iter()
+                .find(|resource| resource.id == target)
+                .unwrap();
+            if destination == "mirror/" {
+                assert_eq!(resource.realm, Realm::Host);
+                assert_eq!(resource.identity.kind, ResourceKind::HostPath);
+                assert!(
+                    matches!(&resource.identity.details, Knowledge::Known(ResourceDetails::Path { lexical: Knowledge::Known(path) }) if path.as_str().trim_end_matches('/') == "/repo/mirror")
+                );
+            } else {
+                assert!(matches!(resource.realm, Realm::Remote { .. }));
+                assert!(resource.labels.is_none());
+            }
         }
     }
 }
@@ -228,6 +330,7 @@ fn snapshot_and_retention_deletion_emits_snapshot_delete() {
         "zfs rollback -r tank/data@snap",
         "zfs rollback -R tank/data@snap",
         "btrfs subvolume delete /snapshots/one",
+        "btrfs subvolume delete /srv/data",
         "aws ec2 delete-snapshot --snapshot-id snap-1",
         "aws ec2 delete-volume --volume-id vol-1",
         "gcloud compute snapshots delete snap-1 --quiet",
@@ -255,6 +358,94 @@ fn snapshot_and_retention_deletion_emits_snapshot_delete() {
             "{source}: {:?}",
             stream(source).effects()
         );
+
+        use nah_proto::effects::*;
+        let plan = bash_plan(source);
+        let evidence = plan
+            .guard_evidence(&observe(plan.observation_request(), "echo"))
+            .unwrap();
+        let (expected_kind, expected_operation) = match source {
+            "btrfs subvolume delete /snapshots/one" | "btrfs subvolume delete /srv/data" => {
+                (Some(StorageTarget::Subvolume), StorageOperation::Delete)
+            }
+            "zfs rollback -r tank/data@snap" | "zfs rollback -R tank/data@snap" => {
+                (Some(StorageTarget::Snapshot), StorageOperation::Rollback)
+            }
+            "aws ec2 delete-volume --volume-id vol-1"
+            | "gcloud compute disks delete disk-1 --zone us-east1-b"
+            | "az disk delete --name disk-1 --resource-group prod --yes" => {
+                (Some(StorageTarget::LiveVolume), StorageOperation::Delete)
+            }
+            _ => (None, StorageOperation::Delete),
+        };
+        if let Some(expected_kind) = expected_kind {
+            let fact = evidence
+                .graph()
+                .facts
+                .iter()
+                .find(|fact| matches!(fact.payload, FactPayload::StorageChange { .. }))
+                .unwrap();
+            let FactPayload::StorageChange {
+                target,
+                kind,
+                operation,
+                ..
+            } = fact.payload
+            else {
+                unreachable!()
+            };
+            assert_eq!(kind, expected_kind, "{source}");
+            assert_eq!(operation, expected_operation, "{source}");
+            if operation == StorageOperation::Rollback {
+                assert!(
+                    evidence
+                        .graph()
+                        .resources
+                        .iter()
+                        .any(|resource| resource.id == target
+                            && resource.identity.name == Knowledge::Known("tank/data@snap".into()))
+                );
+                assert!(!evidence.graph().facts.iter().any(|fact| matches!(
+                    fact.payload,
+                    FactPayload::StorageChange {
+                        operation: StorageOperation::Delete,
+                        ..
+                    }
+                )));
+            }
+            if kind == StorageTarget::LiveVolume {
+                let provider = source.split_whitespace().next().unwrap();
+                assert!(
+                    evidence
+                        .graph()
+                        .resources
+                        .iter()
+                        .any(|resource| resource.id == target
+                            && resource.identity.kind == ResourceKind::LiveVolume
+                            && resource.identity.provider == Knowledge::Known(provider.into()))
+                );
+                for snapshot_enabled in [false, true] {
+                    for volume_enabled in [false, true] {
+                        let names = support::operation_guard_names(
+                            source,
+                            &[
+                                ("storage-snapshot-delete", snapshot_enabled),
+                                ("fs-volume-destroy", volume_enabled),
+                            ],
+                        );
+                        assert_eq!(
+                            names,
+                            if snapshot_enabled {
+                                vec!["storage-snapshot-delete"]
+                            } else {
+                                vec![]
+                            },
+                            "{source}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 

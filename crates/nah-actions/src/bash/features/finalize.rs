@@ -406,6 +406,19 @@ pub(crate) fn finalize(
             }
             if let Some(graph) = graph.as_deref_mut() {
                 // Execution emission creates this surviving stage's call after its facts.
+                for evidence in stage.operation_evidence {
+                    let operation_cwd = match &effects[0] {
+                        EffectKind::Invocation { invocation } => invocation.cwd(),
+                        _ => None,
+                    };
+                    evidence.emit(
+                        graph,
+                        nah_proto::effects::CallId(graph.calls.len() as u32),
+                        operation_cwd,
+                        home,
+                        platform,
+                    );
+                }
                 crate::git_evidence::emit_git(
                     graph,
                     nah_proto::effects::CallId(graph.calls.len() as u32),
@@ -521,6 +534,9 @@ fn promote_container_stop_all(stages: &mut [StageDraft], flows: &[(usize, usize)
             .contains(&SemanticCode::SERVICE_STOP)
         {
             stages[outer].system_states.push(SemanticCode::SERVICE_STOP);
+            stages[outer]
+                .operation_evidence
+                .push(crate::operation_evidence::container_stop_all());
         }
     }
 }

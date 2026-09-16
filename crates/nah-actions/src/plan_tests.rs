@@ -67,6 +67,7 @@ fn bash_analysis_plan_has_an_exact_typed_golden() {
                 }],
                 root_move_destination_key: None,
                 git_facts: Vec::new(),
+                operation_evidence: Vec::new(),
                 git_operations: vec![],
                 git_project_scoped: false,
                 network_outbound: false,

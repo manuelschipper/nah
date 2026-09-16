@@ -242,7 +242,7 @@ impl Lowerer {
             ),
             ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
         };
-        let host_power = match &program {
+        let host_power_evidence = match &program {
             ProgramDraft::Static(program) => crate::bash_host_power::operation(
                 program,
                 &local_arguments,
@@ -258,6 +258,9 @@ impl Lowerer {
             ),
             ProgramDraft::Env { .. } | ProgramDraft::Unresolved => None,
         };
+        let host_power = host_power_evidence
+            .as_ref()
+            .map(|_| SemanticCode::HOST_POWER);
         let host_power_command = host_power.is_some();
         if let Some(execution) = &classifications.execution {
             network_endpoints.extend(execution.network_endpoints.iter().cloned());
@@ -379,6 +382,7 @@ impl Lowerer {
             mut system_states,
             git_operations,
             git_facts,
+            mut operation_evidence,
         } = self.lower_command_resources(
             &program,
             &local_arguments,
@@ -397,6 +401,7 @@ impl Lowerer {
             network_endpoints,
             descriptor_flows,
         );
+        operation_evidence.extend(host_power_evidence);
         if let Some(secret_store) = &secret_store {
             self.complete &= secret_store.complete;
             if let Some(operation) = &secret_store.system_state {
@@ -559,6 +564,7 @@ impl Lowerer {
             root_move_destination_key,
             git_operations,
             git_facts,
+            operation_evidence,
             git_project_scoped: git.as_ref().is_some_and(|git| git.project_scoped),
             network_outbound: git.as_ref().is_some_and(|git| git.network_outbound)
                 || execution

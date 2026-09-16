@@ -4,7 +4,32 @@ use nah_parse::Word;
 
 use crate::shell_word::static_word;
 
-pub(crate) fn logical_storage_destroy(program: &str, arguments: &[Word]) -> bool {
+pub(crate) fn logical_storage_destroy(
+    program: &str,
+    arguments: &[Word],
+) -> Option<crate::operation_evidence::OperationEvidence> {
+    use nah_proto::effects::*;
+    destroys_storage(program, arguments).then(|| {
+        crate::operation_evidence::OperationEvidence::new(
+            ResourceKind::LiveVolume,
+            Realm::Host,
+            FactPayload::StorageChange {
+                target: ResourceId(0),
+                destination: None,
+                operation: StorageOperation::Destroy,
+                kind: StorageTarget::LiveVolume,
+                selection: Selection::Unknown,
+                recursive: Knowledge::Unknown,
+                destination_deletion: Knowledge::Known(false),
+                allow_remove_all: Knowledge::Known(false),
+                all_selection_requested: Knowledge::Known(false),
+            },
+        )
+        .provider(program)
+    })
+}
+
+fn destroys_storage(program: &str, arguments: &[Word]) -> bool {
     if program == "zfs" {
         return crate::bash_storage::zfs_live_dataset_destroy(arguments);
     }

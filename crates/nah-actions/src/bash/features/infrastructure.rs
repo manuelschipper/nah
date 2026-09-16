@@ -1,20 +1,44 @@
 //! Classifies fully visible infrastructure teardown and container cleanup commands.
 
+use crate::operation_evidence::OperationEvidence;
 use nah_parse::Word;
 use nah_proto::action::SemanticCode;
+use nah_proto::effects::*;
 
 use crate::bash_model::VariableValue;
 use crate::shell_word::static_word;
 
 pub(crate) struct Classification {
     pub(crate) complete: bool,
+    pub(crate) evidence: Vec<OperationEvidence>,
     pub(crate) system_state: Option<SemanticCode>,
 }
 
 impl Classification {
-    const fn complete(destroys_whole_stack: bool) -> Self {
+    fn complete(destroys_whole_stack: bool) -> Self {
         Self {
             complete: true,
+            evidence: if destroys_whole_stack {
+                vec![OperationEvidence::new(
+                    ResourceKind::ManagedInfrastructure,
+                    Realm::Remote {
+                        identity: Knowledge::Unknown,
+                    },
+                    FactPayload::InfrastructureChange {
+                        target: ResourceId(0),
+                        operation: InfrastructureOperation::Destroy,
+                        kind: InfrastructureKind::ManagedStack,
+                        scope: Knowledge::Unknown,
+                        selection: Selection::Whole,
+                        active: Knowledge::Known(true),
+                        preview: Knowledge::Known(false),
+                        help: Knowledge::Known(false),
+                        dry_run: Knowledge::Known(false),
+                    },
+                )]
+            } else {
+                Vec::new()
+            },
             system_state: if destroys_whole_stack {
                 Some(SemanticCode::INFRA_IAC_DESTROY)
             } else {
@@ -23,9 +47,10 @@ impl Classification {
         }
     }
 
-    const fn system_state(operation: SemanticCode) -> Self {
+    fn system_state(operation: SemanticCode, evidence: OperationEvidence) -> Self {
         Self {
             complete: true,
+            evidence: vec![evidence],
             system_state: Some(operation),
         }
     }
@@ -33,6 +58,7 @@ impl Classification {
     const fn incomplete() -> Self {
         Self {
             complete: false,
+            evidence: Vec::new(),
             system_state: None,
         }
     }
@@ -54,13 +80,17 @@ pub(crate) fn classify(
     {
         return Some(Classification::incomplete());
     }
-    match program {
+    let mut classification = match program {
         "docker" | "podman" => container(program, arguments),
         "docker-compose" | "podman-compose" => compose(arguments),
         "terraform" | "tofu" => terraform(program, arguments, assignments, environment),
         "pulumi" => pulumi(arguments),
         _ => None,
+    }?;
+    for evidence in &mut classification.evidence {
+        evidence.resource.identity.provider = Knowledge::Known(program.into());
     }
+    Some(classification)
 }
 
 #[derive(Clone, Copy)]
@@ -318,6 +348,7 @@ fn compose_volume_operation(
     let mut help = false;
     let mut version = false;
     let mut volumes = false;
+    let mut services = Vec::new();
     while let Some(argument) = arguments.get(index) {
         if options && argument == "--" {
             options = false;
@@ -325,6 +356,7 @@ fn compose_volume_operation(
             continue;
         }
         if !options {
+            services.push(argument.clone());
             index += 1;
             continue;
         }
@@ -394,12 +426,38 @@ fn compose_volume_operation(
         if argument.starts_with('-') {
             return Classification::incomplete();
         }
+        services.push(argument.clone());
         index += 1;
     }
     if help || version || dry_run {
         Classification::complete(false)
     } else if volumes {
-        Classification::system_state(SemanticCode::INFRA_CONTAINER_VOLUME_DELETE)
+        Classification::system_state(
+            SemanticCode::INFRA_CONTAINER_VOLUME_DELETE,
+            container_change(
+                ResourceKind::ContainerResource,
+                ContainerOperation::DeleteVolume,
+                if services.is_empty() {
+                    Selection::Unknown
+                } else {
+                    Selection::NamedSet {
+                        identities: services
+                            .iter()
+                            .map(|name| ResourceIdentity {
+                                kind: ResourceKind::ContainerResource,
+                                name: Knowledge::Known(name.clone()),
+                                provider: Knowledge::Unknown,
+                                details: Knowledge::Unknown,
+                            })
+                            .collect(),
+                        bound: Bound::Finite(services.len() as u64),
+                    }
+                },
+                false,
+                matches!(command, ComposeCommand::Down),
+                true,
+            ),
+        )
     } else {
         Classification::complete(false)
     }
@@ -697,7 +755,10 @@ fn podman_stop_all(arguments: &[String]) -> Classification {
     if help || selector || operand || !all {
         Classification::complete(false)
     } else {
-        Classification::system_state(SemanticCode::SERVICE_STOP)
+        Classification::system_state(
+            SemanticCode::SERVICE_STOP,
+            crate::operation_evidence::container_stop_all(),
+        )
     }
 }
 
@@ -789,15 +850,39 @@ fn container_operation(
         return Classification::complete(false);
     }
     match command {
-        ContainerCommand::Reset => {
-            Classification::system_state(SemanticCode::INFRA_CONTAINER_RESET)
-        }
-        ContainerCommand::VolumePrune if parsed.all => {
-            Classification::system_state(SemanticCode::INFRA_CONTAINER_VOLUME_DELETE)
-        }
-        ContainerCommand::SystemPrune if parsed.volumes => {
-            Classification::system_state(SemanticCode::INFRA_CONTAINER_VOLUME_DELETE)
-        }
+        ContainerCommand::Reset => Classification::system_state(
+            SemanticCode::INFRA_CONTAINER_RESET,
+            container_change(
+                ResourceKind::ContainerRuntime,
+                ContainerOperation::ResetRuntime,
+                Selection::Whole,
+                false,
+                false,
+                false,
+            ),
+        ),
+        ContainerCommand::VolumePrune if parsed.all => Classification::system_state(
+            SemanticCode::INFRA_CONTAINER_VOLUME_DELETE,
+            container_change(
+                ResourceKind::ContainerVolume,
+                ContainerOperation::DeleteVolume,
+                Selection::Unknown,
+                true,
+                true,
+                false,
+            ),
+        ),
+        ContainerCommand::SystemPrune if parsed.volumes => Classification::system_state(
+            SemanticCode::INFRA_CONTAINER_VOLUME_DELETE,
+            container_change(
+                ResourceKind::ContainerRuntime,
+                ContainerOperation::DeleteVolume,
+                Selection::Unknown,
+                true,
+                program == "podman",
+                false,
+            ),
+        ),
         ContainerCommand::SystemPrune | ContainerCommand::VolumePrune => {
             Classification::complete(false)
         }
@@ -1957,6 +2042,32 @@ fn terraform_cli_words(value: &str) -> Option<Vec<String>> {
         words.push(word);
     }
     Some(words)
+}
+
+fn container_change(
+    kind: ResourceKind,
+    operation: ContainerOperation,
+    selection: Selection,
+    broad_unused: bool,
+    named_volumes: bool,
+    attached: bool,
+) -> OperationEvidence {
+    OperationEvidence::new(
+        kind,
+        Realm::Unknown,
+        FactPayload::ContainerChange {
+            target: ResourceId(0),
+            operation,
+            selection,
+            broad_unused: Knowledge::Known(broad_unused),
+            anonymous_volumes: Knowledge::Known(operation == ContainerOperation::DeleteVolume),
+            named_volumes: Knowledge::Known(named_volumes),
+            attached_volume_removal: Knowledge::Known(attached),
+            all: Knowledge::Unknown,
+            active: Knowledge::Known(true),
+            dry_run: Knowledge::Known(false),
+        },
+    )
 }
 
 #[cfg(test)]

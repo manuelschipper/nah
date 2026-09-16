@@ -1,12 +1,15 @@
 //! Classifies static `kubectl delete` resource selections.
 
+use crate::operation_evidence::OperationEvidence;
 use nah_parse::Word;
 use nah_proto::action::SemanticCode;
+use nah_proto::effects::*;
 
 use crate::shell_word::static_word;
 
 pub(crate) struct Classification {
     pub(crate) complete: bool,
+    pub(crate) evidence: Vec<OperationEvidence>,
     pub(crate) system_states: Vec<SemanticCode>,
 }
 
@@ -14,6 +17,7 @@ impl Classification {
     fn complete(system_states: Vec<SemanticCode>) -> Self {
         Self {
             complete: true,
+            evidence: Vec::new(),
             system_states,
         }
     }
@@ -21,6 +25,7 @@ impl Classification {
     fn incomplete(system_states: Vec<SemanticCode>) -> Self {
         Self {
             complete: false,
+            evidence: Vec::new(),
             system_states,
         }
     }
@@ -107,6 +112,7 @@ struct DeleteOptions {
     all: bool,
     all_namespaces: bool,
     selector: bool,
+    selector_expressions: Vec<String>,
     external_selection: bool,
     recursive: bool,
     dry_run: DryRun,
@@ -146,8 +152,63 @@ fn classify_delete(arguments: &[String]) -> Classification {
         return Classification::incomplete(Vec::new());
     };
     let mut system_states = Vec::new();
+    let mut evidence = Vec::new();
     let mut complete = true;
-    for resource in selection.resources {
+    for (resource, names) in selection.resources {
+        if let Some(scope) = resource_scope(resource) {
+            evidence.push(
+                OperationEvidence::new(
+                    ResourceKind::ManagedInfrastructure,
+                    Realm::Remote {
+                        identity: Knowledge::Unknown,
+                    },
+                    FactPayload::InfrastructureChange {
+                        target: ResourceId(0),
+                        operation: InfrastructureOperation::Delete,
+                        kind: InfrastructureKind::KubernetesResource,
+                        scope: Knowledge::Known(match scope {
+                            ResourceScope::Namespace => InfrastructureScope::Namespace,
+                            ResourceScope::Cluster => InfrastructureScope::Cluster,
+                            ResourceScope::Namespaced => InfrastructureScope::NamespacedResource,
+                        }),
+                        selection: if parsed.selector {
+                            Selection::Pattern {
+                                pattern: parsed.selector_expressions.join(","),
+                                bound: Bound::Unknown,
+                            }
+                        } else if selection.bulk {
+                            Selection::Whole
+                        } else {
+                            Selection::NamedSet {
+                                identities: names
+                                    .iter()
+                                    .map(|name| ResourceIdentity {
+                                        kind: ResourceKind::ManagedInfrastructure,
+                                        provider: Knowledge::Known("kubernetes".into()),
+                                        name: Knowledge::Known((*name).into()),
+                                        details: Knowledge::Known(
+                                            ResourceDetails::Infrastructure {
+                                                namespace: Knowledge::Unknown,
+                                                cluster: Knowledge::Unknown,
+                                                address: Knowledge::Known(format!(
+                                                    "{resource}/{name}"
+                                                )),
+                                            },
+                                        ),
+                                    })
+                                    .collect(),
+                                bound: Bound::Finite(names.len() as u64),
+                            }
+                        },
+                        active: Knowledge::Known(true),
+                        preview: Knowledge::Known(false),
+                        help: Knowledge::Known(false),
+                        dry_run: Knowledge::Known(false),
+                    },
+                )
+                .provider("kubernetes"),
+            );
+        }
         match resource_scope(resource) {
             Some(ResourceScope::Namespace) => {
                 system_states.push(SemanticCode::INFRA_K8S_NAMESPACE_DELETE);
@@ -166,16 +227,17 @@ fn classify_delete(arguments: &[String]) -> Classification {
     system_states.dedup();
     if parsed.dry_run == DryRun::ClientOrServer {
         system_states.clear();
+        evidence.clear();
     }
-    if complete {
-        Classification::complete(system_states)
-    } else {
-        Classification::incomplete(system_states)
+    Classification {
+        complete,
+        system_states,
+        evidence,
     }
 }
 
 struct ResourceSelection<'a> {
-    resources: Vec<&'a str>,
+    resources: Vec<(&'a str, Vec<&'a str>)>,
     bulk: bool,
 }
 
@@ -200,7 +262,7 @@ fn resource_selection<'a>(
             if resource.is_empty() || name.is_empty() || parts.next().is_some() {
                 return None;
             }
-            resources.push(resource);
+            resources.push((resource, vec![name]));
         }
         return Some(ResourceSelection { resources, bulk });
     }
@@ -214,7 +276,13 @@ fn resource_selection<'a>(
     {
         return None;
     }
-    Some(ResourceSelection { resources, bulk })
+    Some(ResourceSelection {
+        resources: resources
+            .into_iter()
+            .map(|resource| (resource, operands[1..].to_vec()))
+            .collect(),
+        bulk,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -362,8 +430,17 @@ fn consume_option(
         }
         if let Some(consumed) = value_option(arguments, index, &["--field-selector", "--selector"])
         {
-            return Some(consumed.inspect(|_| {
+            return Some(consumed.inspect(|consumed| {
                 parsed.selector = true;
+                parsed.selector_expressions.push(if *consumed == 2 {
+                    arguments[index + 1].clone()
+                } else {
+                    argument
+                        .split_once('=')
+                        .expect("joined selector")
+                        .1
+                        .to_owned()
+                });
             }));
         }
         if let Some(consumed) =
@@ -476,7 +553,10 @@ fn short_options(
             }
             match option {
                 'f' | 'k' => parsed.external_selection = true,
-                'l' => parsed.selector = true,
+                'l' => {
+                    parsed.selector = true;
+                    parsed.selector_expressions.push(value.to_owned());
+                }
                 _ => {}
             }
             return Some(Ok(consumed));

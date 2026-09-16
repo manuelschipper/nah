@@ -1476,6 +1476,8 @@ fn shared_filesystem_facts_preserve_each_guard_and_evidence_boundary() {
                     selection: Selection::Unknown,
                     recursive: Unknown,
                     destination_deletion: Unknown,
+                    allow_remove_all: nah_proto::effects::Knowledge::Unknown,
+                    all_selection_requested: nah_proto::effects::Knowledge::Unknown,
                 }
             }
             _ => FactPayload::FilesystemAccess {

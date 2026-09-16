@@ -1,26 +1,104 @@
 //! Classifies reviewed remote-storage and backup deletion commands.
 
+use crate::operation_evidence::OperationEvidence;
 use nah_parse::Word;
 use nah_proto::action::SemanticCode;
+use nah_proto::effects::*;
 
 use crate::shell_word::static_word;
 
 pub(crate) struct Classification {
     pub(crate) complete: bool,
+    pub(crate) evidence: Vec<OperationEvidence>,
     pub(crate) system_state: Option<SemanticCode>,
 }
 
 impl Classification {
-    const fn operation(system_state: SemanticCode) -> Self {
+    fn operation(
+        system_state: SemanticCode,
+        kind: StorageTarget,
+        operation: StorageOperation,
+        targets: &[String],
+        recursive: bool,
+    ) -> Self {
+        let resource_kind = match kind {
+            StorageTarget::LiveVolume => ResourceKind::LiveVolume,
+            StorageTarget::Snapshot => ResourceKind::Snapshot,
+            StorageTarget::Archive => ResourceKind::Archive,
+            StorageTarget::BackupRepository => ResourceKind::BackupRepository,
+            StorageTarget::Subvolume | StorageTarget::ObjectTree => ResourceKind::Other,
+        };
+        let selection = if kind == StorageTarget::ObjectTree
+            && (recursive || operation == StorageOperation::Sync)
+        {
+            Selection::Subtree {
+                root: Knowledge::Unknown,
+            }
+        } else {
+            match targets {
+                [] => Selection::Unknown,
+                [_] => Selection::Exact,
+                _ => Selection::NamedSet {
+                    identities: targets
+                        .iter()
+                        .map(|name| ResourceIdentity {
+                            kind: resource_kind,
+                            name: Knowledge::Known(name.clone()),
+                            provider: Knowledge::Unknown,
+                            details: Knowledge::Unknown,
+                        })
+                        .collect(),
+                    bound: Bound::Finite(targets.len() as u64),
+                },
+            }
+        };
+        let evidence = OperationEvidence::new(
+            resource_kind,
+            Realm::Unknown,
+            FactPayload::StorageChange {
+                target: ResourceId(0),
+                destination: None,
+                operation,
+                kind,
+                selection: selection.clone(),
+                recursive: Knowledge::Known(recursive),
+                destination_deletion: Knowledge::Known(operation == StorageOperation::Sync),
+                allow_remove_all: Knowledge::Known(false),
+                all_selection_requested: Knowledge::Known(false),
+            },
+        )
+        .name(
+            targets
+                .first()
+                .filter(|_| targets.len() == 1)
+                .map(String::as_str),
+        );
         Self {
             complete: true,
             system_state: Some(system_state),
+            evidence: vec![evidence],
         }
+    }
+
+    fn modes(mut self, allow_remove_all: bool, all_selection_requested: bool) -> Self {
+        for evidence in &mut self.evidence {
+            if let FactPayload::StorageChange {
+                allow_remove_all: allow,
+                all_selection_requested: all,
+                ..
+            } = &mut evidence.payload
+            {
+                *allow = Knowledge::Known(allow_remove_all);
+                *all = Knowledge::Known(all_selection_requested);
+            }
+        }
+        self
     }
 
     const fn control() -> Self {
         Self {
             complete: true,
+            evidence: Vec::new(),
             system_state: None,
         }
     }
@@ -28,6 +106,7 @@ impl Classification {
     const fn incomplete() -> Self {
         Self {
             complete: false,
+            evidence: Vec::new(),
             system_state: None,
         }
     }
@@ -47,10 +126,11 @@ pub(crate) fn classify(
     {
         return Some(Classification::incomplete());
     }
+    let words = arguments;
     let Some(arguments) = static_arguments(arguments) else {
         return Some(Classification::incomplete());
     };
-    Some(match program {
+    let mut classification = match program {
         "aws" => aws(&arguments),
         "gcloud" => gcloud(&arguments),
         "gsutil" => gsutil(&arguments),
@@ -65,7 +145,56 @@ pub(crate) fn classify(
         "duplicity" => duplicity(&arguments),
         "velero" => velero(&arguments),
         _ => unreachable!("storage programs are matched above"),
-    })
+    };
+    for evidence in &mut classification.evidence {
+        evidence.resource.identity.provider = Knowledge::Known(program.into());
+        if let Knowledge::Known(name) = &evidence.resource.identity.name {
+            evidence.expand_tilde = words
+                .iter()
+                .zip(&arguments)
+                .any(|(word, value)| value == name && word.raw().starts_with('~'));
+        }
+        let expands_pattern = |name: &str| {
+            words.iter().zip(&arguments).any(|(word, value)| {
+                value == name && crate::shell_word::contains_unquoted_pattern(word.raw())
+            })
+        };
+        if matches!(&evidence.resource.identity.name, Knowledge::Known(name) if expands_pattern(name))
+        {
+            evidence.resource.identity.name = Knowledge::Unknown;
+        }
+        if let FactPayload::StorageChange { selection, .. } = &mut evidence.payload
+            && matches!(selection, Selection::NamedSet { identities, .. } if identities.iter().any(|identity|
+                matches!(&identity.name, Knowledge::Known(name) if expands_pattern(name))))
+        {
+            *selection = Selection::Unknown;
+        }
+        if program == "zfs"
+            && let Knowledge::Known(name) = &evidence.resource.identity.name
+            && name.contains(['%', ','])
+        {
+            if let FactPayload::StorageChange { selection, .. } = &mut evidence.payload {
+                *selection = Selection::Pattern {
+                    pattern: name.clone(),
+                    bound: Bound::Unknown,
+                };
+            }
+            evidence.resource.identity.name = Knowledge::Unknown;
+        }
+        let remote = matches!(program, "aws" | "gcloud" | "gsutil" | "az" | "velero")
+            || matches!(program, "rsync" | "rclone" | "azcopy")
+                && matches!(&evidence.resource.identity.name, Knowledge::Known(name) if name.contains(':'));
+        evidence.resource.realm = if remote {
+            Realm::Remote {
+                identity: Knowledge::Unknown,
+            }
+        } else if matches!(program, "zfs" | "btrfs" | "rsync" | "rclone" | "azcopy") {
+            Realm::Host
+        } else {
+            Realm::Unknown
+        };
+    }
+    Some(classification)
 }
 
 fn storage_program(program: &str) -> bool {
@@ -143,7 +272,13 @@ fn aws(arguments: &[String]) -> Classification {
             if service == "s3" && command == "rb" && target.starts_with("s3://") =>
         {
             if parsed.flag("--force") {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Delete,
+                    std::slice::from_ref(target),
+                    true,
+                )
             } else {
                 Classification::control()
             }
@@ -154,7 +289,13 @@ fn aws(arguments: &[String]) -> Classification {
             if parsed.safe_selection() {
                 Classification::control()
             } else if parsed.flag("--recursive") {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Delete,
+                    std::slice::from_ref(target),
+                    true,
+                )
             } else {
                 Classification::control()
             }
@@ -163,7 +304,13 @@ fn aws(arguments: &[String]) -> Classification {
             if parsed.safe_selection() {
                 Classification::control()
             } else if parsed.flag("--delete") {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Sync,
+                    &positions[3..],
+                    false,
+                )
             } else {
                 Classification::control()
             }
@@ -176,7 +323,13 @@ fn aws(arguments: &[String]) -> Classification {
             if parsed.flag("--dry-run") {
                 Classification::control()
             } else {
-                Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                    StorageTarget::Snapshot,
+                    StorageOperation::Delete,
+                    &[parsed.value("--snapshot-id").unwrap().into()],
+                    false,
+                )
             }
         }
         [service, command]
@@ -187,7 +340,13 @@ fn aws(arguments: &[String]) -> Classification {
             if parsed.flag("--dry-run") {
                 Classification::control()
             } else {
-                Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                    StorageTarget::LiveVolume,
+                    StorageOperation::Delete,
+                    &[parsed.value("--volume-id").unwrap().into()],
+                    false,
+                )
             }
         }
         [service, command, ..]
@@ -253,7 +412,13 @@ fn gcloud(arguments: &[String]) -> Classification {
             if parsed.safe_selection() {
                 Classification::control()
             } else if parsed.any_flag(&["--recursive", "-r", "-R"]) {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Delete,
+                    std::slice::from_ref(target),
+                    true,
+                )
             } else {
                 Classification::control()
             }
@@ -262,7 +427,13 @@ fn gcloud(arguments: &[String]) -> Classification {
             if parsed.safe_selection() {
                 Classification::control()
             } else if parsed.flag("--delete-unmatched-destination-objects") {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Sync,
+                    &positions[3..],
+                    false,
+                )
             } else {
                 Classification::control()
             }
@@ -281,7 +452,17 @@ fn gcloud(arguments: &[String]) -> Classification {
             if parsed.flag("--dry-run") || parsed.has_value(&["--filter"]) {
                 Classification::control()
             } else {
-                Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                    if resource == "disks" {
+                        StorageTarget::LiveVolume
+                    } else {
+                        StorageTarget::Snapshot
+                    },
+                    StorageOperation::Delete,
+                    names,
+                    false,
+                )
             }
         }
         [storage, command, ..]
@@ -314,7 +495,13 @@ fn gsutil(arguments: &[String]) -> Classification {
             if parsed.any_flag(&["-n"]) || parsed.value("-x").is_some() {
                 Classification::control()
             } else if parsed.any_flag(&["-r", "-R"]) {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Delete,
+                    std::slice::from_ref(target),
+                    true,
+                )
             } else {
                 Classification::control()
             }
@@ -323,7 +510,13 @@ fn gsutil(arguments: &[String]) -> Classification {
             if parsed.any_flag(&["-n"]) || parsed.value("-x").is_some() {
                 Classification::control()
             } else if parsed.flag("-d") {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Sync,
+                    &positions[2..],
+                    false,
+                )
             } else {
                 Classification::control()
             }
@@ -368,7 +561,18 @@ fn az(arguments: &[String]) -> Classification {
                 && delete == "delete"
                 && parsed.has_value(&["--name", "--container-name", "-n"]) =>
         {
-            Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+            Classification::operation(
+                SemanticCode::STORAGE_RECURSIVE_DELETE,
+                StorageTarget::ObjectTree,
+                StorageOperation::Delete,
+                &[parsed
+                    .value("--name")
+                    .or_else(|| parsed.value("--container-name"))
+                    .or_else(|| parsed.value("-n"))
+                    .unwrap()
+                    .into()],
+                true,
+            )
         }
         [storage, account, delete]
             if storage == "storage"
@@ -376,7 +580,17 @@ fn az(arguments: &[String]) -> Classification {
                 && delete == "delete"
                 && parsed.has_value(&["--name", "-n"]) =>
         {
-            Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+            Classification::operation(
+                SemanticCode::STORAGE_RECURSIVE_DELETE,
+                StorageTarget::ObjectTree,
+                StorageOperation::Delete,
+                &[parsed
+                    .value("--name")
+                    .or_else(|| parsed.value("-n"))
+                    .unwrap()
+                    .into()],
+                true,
+            )
         }
         [storage, blob, delete]
             if storage == "storage"
@@ -387,7 +601,17 @@ fn az(arguments: &[String]) -> Classification {
             if parsed.value("--pattern").is_some() {
                 Classification::control()
             } else {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Delete,
+                    &[parsed
+                        .value("--source")
+                        .or_else(|| parsed.value("--container-name"))
+                        .unwrap()
+                        .into()],
+                    true,
+                )
             }
         }
         [resource, delete]
@@ -395,7 +619,21 @@ fn az(arguments: &[String]) -> Classification {
                 && delete == "delete"
                 && parsed.has_value(&["--name", "-n"]) =>
         {
-            Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+            Classification::operation(
+                SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                if resource == "disk" {
+                    StorageTarget::LiveVolume
+                } else {
+                    StorageTarget::Snapshot
+                },
+                StorageOperation::Delete,
+                &[parsed
+                    .value("--name")
+                    .or_else(|| parsed.value("-n"))
+                    .unwrap()
+                    .into()],
+                false,
+            )
         }
         [storage, resource, delete, ..]
             if storage == "storage"
@@ -462,7 +700,13 @@ fn azcopy(arguments: &[String]) -> Classification {
             if parsed.flag("--dry-run") || narrowed {
                 Classification::control()
             } else if parsed.value("--delete-destination") == Some("true") {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Sync,
+                    &parsed.positionals()[2..],
+                    false,
+                )
             } else {
                 Classification::control()
             }
@@ -471,7 +715,13 @@ fn azcopy(arguments: &[String]) -> Classification {
             if parsed.flag("--dry-run") || narrowed {
                 Classification::control()
             } else if parsed.value("--recursive") == Some("true") {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Delete,
+                    &parsed.positionals()[1..],
+                    true,
+                )
             } else {
                 Classification::control()
             }
@@ -553,14 +803,26 @@ fn rclone(arguments: &[String]) -> Classification {
             if safe {
                 Classification::control()
             } else {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Delete,
+                    &parsed.positionals()[1..],
+                    true,
+                )
             }
         }
         [command, _, _] if command == "sync" => {
             if safe {
                 Classification::control()
             } else {
-                Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_RECURSIVE_DELETE,
+                    StorageTarget::ObjectTree,
+                    StorageOperation::Sync,
+                    &parsed.positionals()[2..],
+                    false,
+                )
             }
         }
         [command, ..]
@@ -655,7 +917,13 @@ fn rsync(arguments: &[String]) -> Classification {
         "--delete-during",
         "--delete-excluded",
     ]) {
-        Classification::operation(SemanticCode::STORAGE_RECURSIVE_DELETE)
+        Classification::operation(
+            SemanticCode::STORAGE_RECURSIVE_DELETE,
+            StorageTarget::ObjectTree,
+            StorageOperation::Sync,
+            &parsed.positionals()[parsed.positionals().len() - 1..],
+            false,
+        )
     } else {
         Classification::control()
     }
@@ -671,12 +939,24 @@ fn zfs(arguments: &[String]) -> Classification {
     }
     match parsed.positionals() {
         [command, target] if command == "destroy" && target.contains('@') && !parsed.flag("-n") => {
-            Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+            Classification::operation(
+                SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                StorageTarget::Snapshot,
+                StorageOperation::Delete,
+                std::slice::from_ref(target),
+                false,
+            )
         }
         [command, target]
             if command == "rollback" && target.contains('@') && parsed.any_flag(&["-r", "-R"]) =>
         {
-            Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+            Classification::operation(
+                SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                StorageTarget::Snapshot,
+                StorageOperation::Rollback,
+                std::slice::from_ref(target),
+                true,
+            )
         }
         [command, ..]
             if matches!(
@@ -719,7 +999,13 @@ fn btrfs(arguments: &[String]) -> Classification {
         [group, command, targets @ ..]
             if group == "subvolume" && command == "delete" && !targets.is_empty() =>
         {
-            Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+            Classification::operation(
+                SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                StorageTarget::Subvolume,
+                StorageOperation::Delete,
+                targets,
+                false,
+            )
         }
         [group, command, ..]
             if (group == "subvolume" && command == "snapshot") || group == "send" =>
@@ -784,9 +1070,23 @@ fn restic(arguments: &[String]) -> Classification {
             if parsed.flag("--dry-run") {
                 Classification::control()
             } else if parsed.flag("--unsafe-allow-remove-all") {
-                Classification::operation(SemanticCode::STORAGE_BACKUP_DESTROY)
+                Classification::operation(
+                    SemanticCode::STORAGE_BACKUP_DESTROY,
+                    StorageTarget::Snapshot,
+                    StorageOperation::Delete,
+                    snapshots,
+                    false,
+                )
+                .modes(parsed.flag("--unsafe-allow-remove-all"), false)
             } else if !snapshots.is_empty() || parsed.has_prefix_value("--keep-") {
-                Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                    StorageTarget::Snapshot,
+                    StorageOperation::Delete,
+                    snapshots,
+                    false,
+                )
+                .modes(parsed.flag("--unsafe-allow-remove-all"), false)
             } else {
                 Classification::incomplete()
             }
@@ -845,7 +1145,18 @@ fn borg(arguments: &[String]) -> Classification {
     match parsed.positionals() {
         [command, operands @ ..] if command == "repo-delete" => {
             if operands.is_empty() {
-                Classification::operation(SemanticCode::STORAGE_BACKUP_DESTROY)
+                Classification::operation(
+                    SemanticCode::STORAGE_BACKUP_DESTROY,
+                    StorageTarget::BackupRepository,
+                    StorageOperation::Delete,
+                    &parsed
+                        .value("--repo")
+                        .or_else(|| parsed.value("-r"))
+                        .map(str::to_owned)
+                        .into_iter()
+                        .collect::<Vec<_>>(),
+                    false,
+                )
             } else {
                 Classification::incomplete()
             }
@@ -858,9 +1169,21 @@ fn borg(arguments: &[String]) -> Classification {
                 || parsed.has_value(&["--repo", "-r"])
                     && matches!(operands, [archive] if !archive.is_empty())
             {
-                Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                    StorageTarget::Archive,
+                    StorageOperation::Delete,
+                    operands,
+                    false,
+                )
             } else if matches!(operands, [repository] if !repository.is_empty()) {
-                Classification::operation(SemanticCode::STORAGE_BACKUP_DESTROY)
+                Classification::operation(
+                    SemanticCode::STORAGE_BACKUP_DESTROY,
+                    StorageTarget::BackupRepository,
+                    StorageOperation::Delete,
+                    operands,
+                    false,
+                )
             } else {
                 Classification::incomplete()
             }
@@ -869,7 +1192,13 @@ fn borg(arguments: &[String]) -> Classification {
             if parsed.any_flag(&["--dry-run", "--list", "-n", "-l"]) {
                 Classification::control()
             } else {
-                Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                    StorageTarget::Archive,
+                    StorageOperation::Delete,
+                    &[],
+                    false,
+                )
             }
         }
         [command, ..] if matches!(command.as_str(), "compact" | "create") => {
@@ -910,7 +1239,13 @@ fn duplicity(arguments: &[String]) -> Classification {
             if parsed.flag("--dry-run") || !parsed.flag("--force") {
                 Classification::control()
             } else {
-                Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                    StorageTarget::Archive,
+                    StorageOperation::Delete,
+                    &[],
+                    false,
+                )
             }
         }
         [command, ..]
@@ -949,9 +1284,23 @@ fn velero(arguments: &[String]) -> Classification {
     match parsed.positionals() {
         [backup, delete, names @ ..] if backup == "backup" && delete == "delete" => {
             if parsed.flag("--all") {
-                Classification::operation(SemanticCode::STORAGE_BACKUP_DESTROY)
+                Classification::operation(
+                    SemanticCode::STORAGE_BACKUP_DESTROY,
+                    StorageTarget::Archive,
+                    StorageOperation::Delete,
+                    names,
+                    false,
+                )
+                .modes(false, parsed.flag("--all"))
             } else if !names.is_empty() || parsed.value("--selector").is_some() {
-                Classification::operation(SemanticCode::STORAGE_SNAPSHOT_DELETE)
+                Classification::operation(
+                    SemanticCode::STORAGE_SNAPSHOT_DELETE,
+                    StorageTarget::Archive,
+                    StorageOperation::Delete,
+                    names,
+                    false,
+                )
+                .modes(false, parsed.flag("--all"))
             } else {
                 Classification::incomplete()
             }

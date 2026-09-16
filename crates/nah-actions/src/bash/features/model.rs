@@ -98,6 +98,7 @@ pub(crate) struct StageDraft {
     pub(crate) filesystems: Vec<FilesystemDraft>,
     pub(crate) root_move_destination_key: Option<String>,
     pub(crate) git_operations: Vec<SemanticCode>,
+    pub(crate) operation_evidence: Vec<crate::operation_evidence::OperationEvidence>,
     pub(crate) git_facts: Vec<nah_proto::effects::FactPayload>,
     pub(crate) git_project_scoped: bool,
     pub(crate) network_outbound: bool,

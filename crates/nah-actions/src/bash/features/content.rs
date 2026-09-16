@@ -724,6 +724,7 @@ mod tests {
             root_move_destination_key: None,
             git_operations: Vec::new(),
             git_facts: Vec::new(),
+            operation_evidence: Vec::new(),
             git_project_scoped: false,
             network_outbound: false,
             network_endpoints: Vec::new(),
