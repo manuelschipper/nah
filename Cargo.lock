@@ -578,7 +578,7 @@ checksum = "fd8e701084c37e7ef62d3f9e453b618130cbc0ef3573847785952a3ac3f746bf"
 [[package]]
 name = "effinterp-conformance"
 version = "0.1.0"
-source = "git+https://github.com/manuelschipper/effectinterp.git?rev=80ad17d8f48828565369c92a372b321c6124fc11#80ad17d8f48828565369c92a372b321c6124fc11"
+source = "git+https://github.com/manuelschipper/effectinterp.git?rev=41f707b9b127e2d974368f99e4c17891b06d8920#41f707b9b127e2d974368f99e4c17891b06d8920"
 dependencies = [
  "effinterp-proto",
  "serde_json",
@@ -587,7 +587,7 @@ dependencies = [
 [[package]]
 name = "effinterp-daemon"
 version = "0.1.0"
-source = "git+https://github.com/manuelschipper/effectinterp.git?rev=80ad17d8f48828565369c92a372b321c6124fc11#80ad17d8f48828565369c92a372b321c6124fc11"
+source = "git+https://github.com/manuelschipper/effectinterp.git?rev=41f707b9b127e2d974368f99e4c17891b06d8920#41f707b9b127e2d974368f99e4c17891b06d8920"
 dependencies = [
  "blake3",
  "effinterp-conformance",
@@ -600,7 +600,7 @@ dependencies = [
 [[package]]
 name = "effinterp-engine"
 version = "0.1.0"
-source = "git+https://github.com/manuelschipper/effectinterp.git?rev=80ad17d8f48828565369c92a372b321c6124fc11#80ad17d8f48828565369c92a372b321c6124fc11"
+source = "git+https://github.com/manuelschipper/effectinterp.git?rev=41f707b9b127e2d974368f99e4c17891b06d8920#41f707b9b127e2d974368f99e4c17891b06d8920"
 dependencies = [
  "blake3",
  "effinterp-proto",
@@ -628,7 +628,7 @@ dependencies = [
 [[package]]
 name = "effinterp-proto"
 version = "0.1.0"
-source = "git+https://github.com/manuelschipper/effectinterp.git?rev=80ad17d8f48828565369c92a372b321c6124fc11#80ad17d8f48828565369c92a372b321c6124fc11"
+source = "git+https://github.com/manuelschipper/effectinterp.git?rev=41f707b9b127e2d974368f99e4c17891b06d8920#41f707b9b127e2d974368f99e4c17891b06d8920"
 dependencies = [
  "blake3",
  "serde",
@@ -640,11 +640,12 @@ dependencies = [
 [[package]]
 name = "effinterp-repo"
 version = "0.1.0"
-source = "git+https://github.com/manuelschipper/effectinterp.git?rev=80ad17d8f48828565369c92a372b321c6124fc11#80ad17d8f48828565369c92a372b321c6124fc11"
+source = "git+https://github.com/manuelschipper/effectinterp.git?rev=41f707b9b127e2d974368f99e4c17891b06d8920#41f707b9b127e2d974368f99e4c17891b06d8920"
 dependencies = [
  "blake3",
  "effinterp-engine",
  "effinterp-proto",
+ "libc",
  "serde",
  "serde_json",
 ]
@@ -1433,6 +1434,7 @@ dependencies = [
  "effinterp-repo",
  "libc",
  "nah-extensions",
+ "nah-observe",
  "nah-proto",
  "serde",
  "serde_json",

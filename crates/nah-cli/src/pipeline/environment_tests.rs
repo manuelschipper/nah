@@ -28,6 +28,13 @@ fn context() -> Ctx {
     .unwrap()
 }
 
+/// One budget per analysis, generous enough that these deterministic cases never
+/// race it; deadline behavior has its own coverage.
+#[cfg(feature = "effinterp")]
+fn budget() -> nah_effinterp::EvidenceBudget {
+    nah_effinterp::EvidenceBudget::after(std::time::Duration::from_secs(30))
+}
+
 fn input(command: &str) -> ToolCallInput {
     ToolCallInput::new(
         SchemaVersion::V1,
@@ -618,15 +625,20 @@ fn optional_evidence_binds_values_and_refuses_unset_without_substitution() {
         evidence,
         observation,
         ..
-    } = super::analyze_optional_with(SelectedInput::Shell(&input), &context(), |request| {
-        rounds += 1;
-        assert!(
-            environment_names(request)
-                .iter()
-                .all(|name| *name == "SELECTED_FILE")
-        );
-        Ok(observed(request, |_| value("/repo/file")))
-    })
+    } = super::analyze_optional_with(
+        SelectedInput::Shell(&input),
+        &context(),
+        &budget(),
+        |request| {
+            rounds += 1;
+            assert!(
+                environment_names(request)
+                    .iter()
+                    .all(|name| *name == "SELECTED_FILE")
+            );
+            Ok(observed(request, |_| value("/repo/file")))
+        },
+    )
     .unwrap();
     assert!(rounds >= 2);
     assert_eq!(
@@ -647,22 +659,32 @@ fn optional_evidence_binds_values_and_refuses_unset_without_substitution() {
             .iter()
             .any(|fact| matches!(fact.query(), ObservationQuery::Env { .. }))
     );
-    let refusal =
-        super::analyze_optional_with(SelectedInput::Shell(&input), &context(), |request| {
+    let refusal = super::analyze_optional_with(
+        SelectedInput::Shell(&input),
+        &context(),
+        &budget(),
+        |request| {
             Ok(observed(request, |_| Observed::Ok {
                 value: EnvObservation::Unset,
             }))
-        })
-        .unwrap_err();
+        },
+    )
+    .unwrap_err();
     assert_eq!(refusal.kind, RefusalKind::UnsupportedContext);
     assert_eq!(refusal.root_tool, "Bash");
-    let mut plan =
-        nah_effinterp::plan_evidence(SelectedInput::Shell(&input), &context(), Default::default())
-            .unwrap();
+    let mut plan = nah_effinterp::plan_evidence(
+        SelectedInput::Shell(&input),
+        &context(),
+        Default::default(),
+        &budget(),
+    )
+    .unwrap();
     let empty = observed(plan.request(), |_| value(""));
     let values = nah_effinterp::observed_environment(&plan, &empty).unwrap();
     assert_eq!(values.get("SELECTED_FILE"), Some(&String::new()));
-    plan = nah_effinterp::plan_evidence(SelectedInput::Shell(&input), &context(), values).unwrap();
+    plan =
+        nah_effinterp::plan_evidence(SelectedInput::Shell(&input), &context(), values, &budget())
+            .unwrap();
     let drift = observed(plan.request(), |_| value("/other"));
     assert_eq!(
         nah_effinterp::finalize_evidence(plan, &drift, &context(), &[])
@@ -686,13 +708,17 @@ fn optional_direct_inputs_preserve_literals_and_typed_refusals() {
         ),
     ] {
         let input = ToolCallInput::new(SchemaVersion::V1, tool, fields, "/repo", None).unwrap();
-        let super::OptionalEvidenceAnalysis { evidence, .. } =
-            super::analyze_optional_with(SelectedInput::Native(&input), &context(), |request| {
+        let super::OptionalEvidenceAnalysis { evidence, .. } = super::analyze_optional_with(
+            SelectedInput::Native(&input),
+            &context(),
+            &budget(),
+            |request| {
                 Ok(observed(request, |_| {
                     panic!("native literal cannot request environment")
                 }))
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
         assert!(
             evidence
                 .graph()
@@ -731,6 +757,7 @@ fn optional_direct_inputs_preserve_literals_and_typed_refusals() {
                 language,
             },
             &context(),
+            &budget(),
             |request| Ok(observed(request, |_| value(""))),
         )
         .unwrap();
@@ -753,6 +780,7 @@ fn optional_direct_inputs_preserve_literals_and_typed_refusals() {
                 language,
             },
             &context(),
+            &budget(),
             |_| panic!("refuse before observation"),
         );
         assert_eq!(result.unwrap_err().kind, RefusalKind::UnsupportedInput);
@@ -765,11 +793,13 @@ fn optional_direct_inputs_preserve_literals_and_typed_refusals() {
         ("process", json!({"action":"poll"})),
     ] {
         let input = ToolCallInput::new(SchemaVersion::V1, tool, fields, "/repo", None).unwrap();
-        let refusal =
-            super::analyze_optional_with(SelectedInput::Native(&input), &context(), |_| {
-                panic!("refuse before observation")
-            })
-            .unwrap_err();
+        let refusal = super::analyze_optional_with(
+            SelectedInput::Native(&input),
+            &context(),
+            &budget(),
+            |_| panic!("refuse before observation"),
+        )
+        .unwrap_err();
         assert_eq!(refusal.kind, RefusalKind::UnsupportedInput);
         assert_eq!(refusal.root_tool, tool);
     }
@@ -982,6 +1012,7 @@ fn optional_filesystem_baseline_reports_missing_models_without_a_private_verdict
         super::analyze_optional_with(
             SelectedInput::Shell(&input(command)),
             &context(),
+            &budget(),
             |request| Ok(observed(request, |_| value(""))),
         )
         .unwrap()
@@ -1105,6 +1136,7 @@ fn optional_execution_and_secret_baseline_retains_facts_and_names_missing_semant
         let result = super::analyze_optional_with(
             SelectedInput::Shell(&input(command)),
             &context(),
+            &budget(),
             |request| Ok(observed(request, |_| value(""))),
         )
         .unwrap();
@@ -1131,19 +1163,26 @@ fn optional_execution_and_secret_baseline_retains_facts_and_names_missing_semant
                 })
             }));
         } else if command.starts_with("printenv ") {
-            // This pin models the launch but has no printenv disclosure summary.
             assert!(
-                !graph
-                    .facts
-                    .iter()
-                    .any(|fact| matches!(fact.payload, FactPayload::EnvironmentAccess { .. }))
+                graph.facts.iter().any(|fact| matches!(
+                    &fact.payload,
+                    FactPayload::EnvironmentAccess {
+                        names: nah_proto::effects::EnvironmentSelection::Names(names),
+                        operation: nah_proto::effects::EnvironmentOperation::Read,
+                        ..
+                    } if names == &["AWS_SECRET_ACCESS_KEY"]
+                )),
+                "{command}: {:?}",
+                graph.facts
             );
             assert!(graph.facts.iter().any(|fact| matches!(&fact.payload, FactPayload::Other { operation, .. } if operation == "process.exec")));
         } else if command == "env" {
-            assert!(!graph.facts.iter().any(|fact| matches!(
+            // Whole-environment disclosure stays unclaimed; the read is conservative.
+            assert!(graph.facts.iter().any(|fact| matches!(
                 fact.payload,
                 FactPayload::EnvironmentAccess {
-                    names: nah_proto::effects::EnvironmentSelection::Whole,
+                    names: nah_proto::effects::EnvironmentSelection::Unknown,
+                    operation: nah_proto::effects::EnvironmentOperation::Read,
                     ..
                 }
             )));

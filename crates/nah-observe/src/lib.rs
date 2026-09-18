@@ -14,8 +14,14 @@ mod io_paths;
 mod path_facts;
 mod project_guards;
 mod roots;
+mod source_files;
 
 pub use io_paths::normalize_windows_observed_path;
+pub use source_files::{
+    ObservedSourceFile, SourceFileUnavailable, native_extension_candidates_absent,
+    observe_source_file,
+};
+
 use io_paths::{has_reparse_ancestor, observed_path};
 use nah_proto::ctx::{AbsolutePath, SchemaVersion};
 use nah_proto::observation::{

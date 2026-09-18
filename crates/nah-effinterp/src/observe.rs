@@ -8,7 +8,7 @@ use nah_proto::ctx::SchemaVersion;
 use nah_proto::observation::{ObservationQuery, ObservationRequest, SymlinkTraversal};
 use nah_proto::tool::CallSite;
 
-const CWD_KEY: &str = "effinterp-cwd";
+pub(crate) const CWD_KEY: &str = "effinterp-cwd";
 const ROOTS_KEY: &str = "effinterp-roots";
 const GUARDS_KEY: &str = "effinterp-project-guards";
 

@@ -1207,6 +1207,8 @@ mod availability_tests;
 mod environment_tests;
 #[cfg(all(test, unix))]
 mod performance_tests;
+#[cfg(all(test, unix, feature = "effinterp"))]
+mod source_evidence_tests;
 
 /// UNDOCUMENTED-EFFINTERP: non-enforcing qualification seam. It has no custom guard,
 /// record append, resolver, daemon, or operator-switch side effects.
@@ -1214,6 +1216,7 @@ mod performance_tests;
 pub fn analyze_optional_with<F>(
     input: nah_effinterp::SelectedInput<'_>,
     ctx: &Ctx,
+    budget: &nah_effinterp::EvidenceBudget,
     mut observe: F,
 ) -> Result<OptionalEvidenceAnalysis, nah_effinterp::AdapterRefusal>
 where
@@ -1221,7 +1224,7 @@ where
 {
     let mut environment = BTreeMap::new();
     for _ in 0..MAX_ENVIRONMENT_ROUNDS {
-        let plan = nah_effinterp::plan_evidence(input, ctx, environment)?;
+        let plan = nah_effinterp::plan_evidence(input, ctx, environment, budget)?;
         let observation = observe(plan.request()).map_err(|_| nah_effinterp::AdapterRefusal {
             kind: nah_effinterp::RefusalKind::InvalidObservation,
             root_tool: input.input().tool().to_owned(),
@@ -1237,11 +1240,13 @@ where
                 input_fingerprint: plan.input_fingerprint(),
                 observation_fingerprint: evidence_fingerprint(&observation),
             };
+            let source_observations = plan.source_observations().to_vec();
             return nah_effinterp::finalize_evidence(plan, &observation, ctx, &[]).map(
                 |evidence| OptionalEvidenceAnalysis {
                     evidence,
                     observation,
                     provenance,
+                    source_observations,
                 },
             );
         }
@@ -1260,4 +1265,7 @@ pub struct OptionalEvidenceAnalysis {
     pub evidence: nah_proto::effects::GuardEvidence,
     pub observation: Observation,
     pub provenance: EvidenceProvenance,
+    /// Every script and import the engine demanded, with the identity of exactly
+    /// the bytes it was given. Raw source is never retained here.
+    pub source_observations: Vec<nah_effinterp::SourceObservation>,
 }
