@@ -24,10 +24,10 @@ engine = [
 ]
 
 [dependencies]
-effinterp-daemon = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "80ad17d8f48828565369c92a372b321c6124fc11", optional = true }
-effinterp-engine = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "80ad17d8f48828565369c92a372b321c6124fc11", optional = true }
-effinterp-proto = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "80ad17d8f48828565369c92a372b321c6124fc11", optional = true }
-effinterp-repo = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "80ad17d8f48828565369c92a372b321c6124fc11", optional = true }
+effinterp-daemon = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "41f707b9b127e2d974368f99e4c17891b06d8920", optional = true }
+effinterp-engine = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "41f707b9b127e2d974368f99e4c17891b06d8920", optional = true }
+effinterp-proto = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "41f707b9b127e2d974368f99e4c17891b06d8920", optional = true }
+effinterp-repo = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "41f707b9b127e2d974368f99e4c17891b06d8920", optional = true }
 nah-extensions = { path = "../nah-extensions", optional = true }
 nah-proto = { path = "../nah-proto", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }

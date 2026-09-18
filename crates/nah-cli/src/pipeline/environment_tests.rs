@@ -1131,19 +1131,26 @@ fn optional_execution_and_secret_baseline_retains_facts_and_names_missing_semant
                 })
             }));
         } else if command.starts_with("printenv ") {
-            // This pin models the launch but has no printenv disclosure summary.
             assert!(
-                !graph
-                    .facts
-                    .iter()
-                    .any(|fact| matches!(fact.payload, FactPayload::EnvironmentAccess { .. }))
+                graph.facts.iter().any(|fact| matches!(
+                    &fact.payload,
+                    FactPayload::EnvironmentAccess {
+                        names: nah_proto::effects::EnvironmentSelection::Names(names),
+                        operation: nah_proto::effects::EnvironmentOperation::Read,
+                        ..
+                    } if names == &["AWS_SECRET_ACCESS_KEY"]
+                )),
+                "{command}: {:?}",
+                graph.facts
             );
             assert!(graph.facts.iter().any(|fact| matches!(&fact.payload, FactPayload::Other { operation, .. } if operation == "process.exec")));
         } else if command == "env" {
-            assert!(!graph.facts.iter().any(|fact| matches!(
+            // Whole-environment disclosure stays unclaimed; the read is conservative.
+            assert!(graph.facts.iter().any(|fact| matches!(
                 fact.payload,
                 FactPayload::EnvironmentAccess {
-                    names: nah_proto::effects::EnvironmentSelection::Whole,
+                    names: nah_proto::effects::EnvironmentSelection::Unknown,
+                    operation: nah_proto::effects::EnvironmentOperation::Read,
                     ..
                 }
             )));
