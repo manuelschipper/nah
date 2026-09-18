@@ -1,6 +1,6 @@
 // UNDOCUMENTED-EFFINTERP: in-process adapter to the pinned private engine.
 
-use effinterp_engine::Engine;
+use effinterp_engine::{Engine, InvocationDeadline};
 use effinterp_proto::{Plan, Subject};
 
 /// Analyze a shell command with effectinterp's built-in catalog.
@@ -42,6 +42,7 @@ mod tests {
             TrustProjection::new(vec![]).unwrap(),
         )
         .unwrap();
+        let budget = EvidenceBudget::after(std::time::Duration::from_secs(30));
         for (source, gap) in [
             ("podman system reset", Some("unmodeled-subcommand")),
             ("docker volume prune --all", Some("unmodeled-subcommand")),
@@ -110,7 +111,8 @@ mod tests {
             )
             .unwrap();
             let initial =
-                plan_evidence(SelectedInput::Shell(&input), &ctx, BTreeMap::new()).unwrap();
+                plan_evidence(SelectedInput::Shell(&input), &ctx, BTreeMap::new(), &budget)
+                    .unwrap();
             let environment = initial
                 .request()
                 .queries()
@@ -129,8 +131,13 @@ mod tests {
                     _ => None,
                 })
                 .collect::<BTreeMap<_, _>>();
-            let plan =
-                plan_evidence(SelectedInput::Shell(&input), &ctx, environment.clone()).unwrap();
+            let plan = plan_evidence(
+                SelectedInput::Shell(&input),
+                &ctx,
+                environment.clone(),
+                &budget,
+            )
+            .unwrap();
             let facts = plan
                 .request()
                 .queries()
@@ -277,6 +284,8 @@ use nah_proto::observation::{
 use nah_proto::tool::ToolCallInput;
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::source_observation::{HostSourceObservations, SourceObservation};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SourceLanguage {
     Python,
@@ -327,15 +336,43 @@ pub struct AdapterRefusal {
     pub code: &'static str,
 }
 
+/// One caller-supplied budget for a whole optional-evidence analysis. Environment
+/// binding, source observations, engine work, and any reanalysis draw from the same
+/// deadline; nothing resets it per import or per round. Expiry yields the engine's
+/// validated partial evidence and is never a policy verdict.
+pub struct EvidenceBudget {
+    deadline: InvocationDeadline,
+}
+impl EvidenceBudget {
+    pub fn after(duration: std::time::Duration) -> Self {
+        Self {
+            deadline: InvocationDeadline::after(duration),
+        }
+    }
+
+    /// Stop scheduling work, for example once a host observation exhausts its budget.
+    pub fn expire(&self) {
+        self.deadline.expire();
+    }
+}
+
 /// Private Plan ownership stays at the adapter boundary. A plan is not guard evidence.
 pub struct EvidencePlan {
     plan: Plan,
     root: ToolCallInput,
     request: ObservationRequest,
+    source_observations: Vec<SourceObservation>,
 }
 impl EvidencePlan {
+    /// Identifies the analyzed input together with the source bytes it selected, so
+    /// an edited script or helper never reuses an earlier analysis.
     pub fn input_fingerprint(&self) -> String {
-        p::canonical_hash(&(&self.root, &self.plan.subject))
+        p::canonical_hash(&(&self.root, &self.plan.subject, &self.source_observations))
+    }
+
+    /// Every source the engine demanded, with the identity of exactly the bytes served.
+    pub fn source_observations(&self) -> &[SourceObservation] {
+        &self.source_observations
     }
     pub fn analysis_identity(&self) -> (&str, &str, &BTreeMap<String, u64>) {
         (
@@ -360,12 +397,14 @@ fn refusal(input: &ToolCallInput, kind: RefusalKind, code: &'static str) -> Adap
     }
 }
 
-/// Analyze direct validated input with graph detail and no installed resolver.
-/// Environment values must originate in the request/observation handshake.
+/// Analyze direct validated input with graph detail, serving the scripts and imports
+/// the engine demands from the host under `budget`. Environment values must originate
+/// in the request/observation handshake, and no repository resolver is installed.
 pub fn plan_evidence(
     input: SelectedInput<'_>,
     ctx: &Ctx,
     environment: BTreeMap<String, String>,
+    budget: &EvidenceBudget,
 ) -> Result<EvidencePlan, AdapterRefusal> {
     let root = input.input();
     let fail = |code| refusal(root, RefusalKind::InvalidInput, code);
@@ -434,13 +473,21 @@ pub fn plan_evidence(
         ));
     }
     p::validate_subject(&subject).map_err(|_| fail("subject"))?;
-    let plan = Engine::new()
-        .with_causality_detail(true)
-        .analyze(&subject)
+    let engine = Engine::new().with_causality_detail(true);
+    let sources = HostSourceObservations::new(
+        site.requested_cwd().clone(),
+        engine.limits().max_source_bytes,
+        budget.deadline.clone(),
+    );
+    let plan = engine
+        .analyze_with_deadline(&subject, &budget.deadline, Some(&sources))
         .map_err(|_| refusal(root, RefusalKind::AnalysisFailed, "analysis-failed"))?;
     p::validate(&plan).map_err(|_| refusal(root, RefusalKind::InvalidGraph, "private-plan"))?;
+    let source_observations = sources.into_observations();
     let base = crate::request(&plan, &site);
     let mut queries = base.queries().to_vec();
+    let source_queries = source_path_queries(&queries, &source_observations);
+    queries.extend(source_queries);
     let mut names = BTreeSet::new();
     // Visit only modeled resource fields, never caller-owned native JSON objects.
     for effect in &plan.effects {
@@ -519,7 +566,38 @@ pub fn plan_evidence(
         plan,
         root: root.clone(),
         request,
+        source_observations,
     })
+}
+
+/// Bind every observed source identity into the same observation the evidence uses.
+/// Paths a filesystem effect already names are not requested twice.
+fn source_path_queries(
+    queries: &[ObservationQuery],
+    source_observations: &[SourceObservation],
+) -> Vec<ObservationQuery> {
+    let requested = queries
+        .iter()
+        .filter_map(|query| match query {
+            ObservationQuery::Path { requested, .. } => Some(requested.as_str()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    source_observations
+        .iter()
+        .filter_map(SourceObservation::observed_path)
+        .filter(|path| !requested.contains(path))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .enumerate()
+        .map(|(index, path)| ObservationQuery::Path {
+            key: format!("effinterp-source-{index:04}"),
+            requested: path.to_owned(),
+            cwd_key: crate::observe::CWD_KEY.into(),
+            inspect_descendants: false,
+            symlink_traversal: nah_proto::observation::SymlinkTraversal::None,
+        })
+        .collect()
 }
 
 fn subject_context(subject: &Subject) -> &p::HostContext {

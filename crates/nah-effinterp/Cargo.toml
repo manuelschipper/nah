@@ -16,6 +16,7 @@ engine = [
     "dep:effinterp-repo",
     "dep:libc",
     "dep:nah-extensions",
+    "dep:nah-observe",
     "dep:nah-proto",
     "dep:serde",
     "dep:serde_json",
@@ -29,6 +30,7 @@ effinterp-engine = { git = "https://github.com/manuelschipper/effectinterp.git",
 effinterp-proto = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "41f707b9b127e2d974368f99e4c17891b06d8920", optional = true }
 effinterp-repo = { git = "https://github.com/manuelschipper/effectinterp.git", rev = "41f707b9b127e2d974368f99e4c17891b06d8920", optional = true }
 nah-extensions = { path = "../nah-extensions", optional = true }
+nah-observe = { path = "../nah-observe", optional = true }
 nah-proto = { path = "../nah-proto", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }

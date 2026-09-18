@@ -1434,6 +1434,7 @@ dependencies = [
  "effinterp-repo",
  "libc",
  "nah-extensions",
+ "nah-observe",
  "nah-proto",
  "serde",
  "serde_json",

@@ -19,6 +19,13 @@ pub mod labels;
 #[cfg(feature = "effinterp")]
 mod observe;
 mod render;
+// UNDOCUMENTED-EFFINTERP: demanded source bytes for the private engine. It serves the
+// files the engine asks for and nothing else. The engine's resolver contract is
+// Send + Sync and calls back re-entrantly during one analysis, so this module owns
+// shared state; the filesystem effects themselves stay in nah-observe.
+#[cfg(feature = "engine")]
+#[allow(clippy::disallowed_types)]
+mod source_observation;
 
 // UNDOCUMENTED-EFFINTERP: no planner API exists in feature-off builds.
 #[cfg(feature = "effinterp")]
@@ -30,12 +37,13 @@ pub use {
 #[cfg(feature = "engine")]
 pub use {
     bridge::{
-        AdapterRefusal, EvidencePlan, RefusalKind, SelectedInput, SourceLanguage, analyze_shell,
-        finalize_evidence, observed_environment, plan_evidence,
+        AdapterRefusal, EvidenceBudget, EvidencePlan, RefusalKind, SelectedInput, SourceLanguage,
+        analyze_shell, finalize_evidence, observed_environment, plan_evidence,
     },
     daemon::{
         DaemonRunOptions, PublishedSnapshotVerification, build_daemon_snapshot, daemon_status,
         run_daemon, stop_daemon, verify_published_snapshot,
     },
     render::render,
+    source_observation::SourceObservation,
 };

@@ -13,6 +13,11 @@
   contain no engine implementation. The `effinterp` job in
   `.github/workflows/ci.yml` owns checkout and source replacement for private
   feature checks. Keep these features out of public product documentation.
+- Source bytes for the private engine are served by
+  `crates/nah-effinterp/src/source_observation.rs`, which owns admission and the
+  observation manifest; the filesystem reads themselves belong to
+  `crates/nah-observe/src/source_files.rs`. Keep filesystem effects out of
+  `crates/nah-effinterp/` apart from its daemon.
 - Effinterp annotations are produced in `crates/nah-effinterp/src/annotate.rs`;
   `crates/nah-proto/src/action_v2.rs` owns their types and
   `crates/nah-proto/src/stream.rs` owns stream validation. Follow
