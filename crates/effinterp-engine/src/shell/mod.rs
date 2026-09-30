@@ -1362,9 +1362,9 @@ pub(crate) fn analyze_shell(
     // Git Bash, the POSIX shell of a Windows host, sets and exports HOME when
     // it starts without one: HOMEDRIVE followed by HOMEPATH when both are set,
     // otherwise USERPROFILE (msys2-runtime's `fetch_home_env`). A source not
-    // yet observed is read, so the host answers it. Until then, and when the
-    // source is unset or its value unknown, HOME keeps its observed absence,
-    // so a target spelled from it is judged as it was before.
+    // yet observed is read, so the host answers it; until then, and when the
+    // source is unset, HOME keeps its observed absence. A set source whose
+    // value is unknown sets HOME to an unknown value.
     if unset.contains("HOME")
         && builder.is_host_realm()
         && nest
@@ -1401,15 +1401,11 @@ pub(crate) fn analyze_shell(
                 provenance: absence.into_iter().collect(),
             });
         }
-        let value = (unobserved.is_empty() && !sources.iter().any(|name| absent(name)))
-            .then(|| {
-                sources
-                    .iter()
-                    .map(|name| vars.get(*name).and_then(|entry| entry.value.clone()))
-                    .collect::<Option<String>>()
-            })
-            .flatten();
-        if let Some(value) = value {
+        if unobserved.is_empty() && !sources.iter().any(|name| absent(name)) {
+            let value = sources
+                .iter()
+                .map(|name| vars.get(*name).and_then(|entry| entry.value.clone()))
+                .collect::<Option<String>>();
             let antecedents = sources
                 .iter()
                 .filter_map(|name| vars.get(*name).and_then(|entry| entry.node))
@@ -1423,14 +1419,25 @@ pub(crate) fn analyze_shell(
             unset.remove("HOME");
             unexported.remove("HOME");
             exported.insert("HOME".to_string());
-            let may = BTreeSet::from([value.clone()]);
+            let producers = sources
+                .iter()
+                .filter_map(|name| vars.get(*name))
+                .flat_map(|entry| entry.producers.iter().cloned())
+                .collect();
+            let may = value.iter().cloned().collect();
             vars.insert(
                 "HOME".to_string(),
                 VarEntry {
                     nameref: false,
                     branches: Vec::new(),
-                    saturation_key: variable_saturation_key(Some(&value), &may, None, false, false),
-                    value: Some(value),
+                    saturation_key: variable_saturation_key(
+                        value.as_deref(),
+                        &may,
+                        None,
+                        false,
+                        false,
+                    ),
+                    value,
                     may,
                     unresolved_default_override: false,
                     word: None,
@@ -1438,7 +1445,7 @@ pub(crate) fn analyze_shell(
                     span: Span { start: 0, end: 0 },
                     node: Some(node),
                     antecedents: Vec::new(),
-                    producers: Vec::new(),
+                    producers,
                     script_set: false,
                     script_may_set: false,
                     captured_name_hidden: false,
