@@ -10,21 +10,21 @@
     },
     "adversarial": {
       "verdicts": {
-        "sound": 302,
+        "sound": 303,
         "boundary_only": 23,
         "silent_miss": 0,
         "wrong_resource": 0,
         "crash": 0,
-        "deadline": 1
+        "deadline": 0
       },
       "by_category": {
         "bounds": {
-          "sound": 17,
+          "sound": 18,
           "boundary_only": 0,
           "silent_miss": 0,
           "wrong_resource": 0,
           "crash": 0,
-          "deadline": 1
+          "deadline": 0
         },
         "controlflow": {
           "sound": 22,
@@ -103,24 +103,22 @@
         "silent_miss": [],
         "wrong_resource": [],
         "crash": [],
-        "deadline": [
-          "adversarial-309"
-        ]
+        "deadline": []
       },
       "silent_drops": {
-        "rows_tested": 325,
+        "rows_tested": 326,
         "mutants": 71,
         "drops": []
       }
     },
     "parity": {
-      "nah_commit": "a3d5bd3a90cc2bd23c559eb3b1dfd42ba6523d17",
-      "corpus_digest": "782906778e610c3d18635faafcf87d3f87215946dd694c00ccbdc1c1a1366df1",
+      "nah_commit": "2bf69e074cf0f767e9b4bc76a44e2f22d2ebe0df",
+      "corpus_digest": "4cc6e1e73f73305737a7248c23f3fb9c306718a36e11fe85940674f0f4e06001",
       "classes": {
         "effect_match": 5041,
         "missing_effect": 11,
         "missing_flow": 5,
-        "covered": 1402,
+        "covered": 1403,
         "explained_partial": 1719
       },
       "per_file": {
@@ -201,7 +199,7 @@
           "effect_match": 734,
           "missing_effect": 3,
           "missing_flow": 5,
-          "covered": 176,
+          "covered": 177,
           "explained_partial": 192
         },
         "self-protection.jsonl": {
@@ -11224,10 +11222,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.7814,
-        "p99_ms": 130.8216,
-        "max_ms": 10000.0,
-        "max_rss_kb": 339280
+        "p50_ms": 0.784,
+        "p99_ms": 129.6206,
+        "max_ms": 9655.5993,
+        "max_rss_kb": 350304
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11251,13 +11249,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20260930T011123Z-correctness-73914",
-      "measured_at": "2026-09-30T01:11:23Z",
-      "source_fingerprint": "blake3:3e5f6a9de1079a10cad4018196e33bd4d761d8e90cd5de3278ba03905ed89a21",
-      "binary_hash": "blake3:fb23ac9e072054ec0a6256a55781d177bacce8b037488fa57e20562d3e3a97b4",
+      "run_id": "20260930T043552Z-correctness-15835",
+      "measured_at": "2026-09-30T04:35:52Z",
+      "source_fingerprint": "blake3:46a09d9cc64e42545d483411caeff2b99ee0b90477c1900f4f9cc9e592b31b97",
+      "binary_hash": "blake3:a83d6c32d03dc45a95746ac0991b8863befafa64df04759c945e2a49530bc675",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:12a09941cc275c4215be788bd616d60aca9eb1f81ea107b90af4c12e6aaaa30c",
-      "git_head": "a3d5bd3a90cc2bd23c559eb3b1dfd42ba6523d17",
+      "git_head": "2bf69e074cf0f767e9b4bc76a44e2f22d2ebe0df",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

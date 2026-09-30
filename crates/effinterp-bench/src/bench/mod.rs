@@ -27,7 +27,10 @@ use score::{AdversarialScore, HostStats, Scoreboard, SourceScore};
 use tiers::{Bucket, bucket_plan};
 
 /// Wall-clock budget per subject; a slower analysis is a `deadline` failure.
-pub const DEADLINE: Duration = Duration::from_secs(10);
+/// It detects hangs only. The committed scoreboard must reproduce on any CI
+/// machine, and the heaviest adversarial bounds rows take about 10 s in a debug
+/// build on an M-series Mac (2026-09-30) and several times that on a CI runner.
+pub const DEADLINE: Duration = Duration::from_secs(120);
 /// Spawned threads default to a 2 MiB stack, while production analyzes on
 /// the process's main thread, which gets 8 MiB. Workers match production so
 /// a deeply nested row does not overflow here yet pass in production.
