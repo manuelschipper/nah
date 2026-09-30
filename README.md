@@ -93,6 +93,8 @@ exact scope and three tested examples, plus current custom guard status.
 
 ## How it compares against similar tools
 
+nah is the most complete coding agent guard, and stacks well with Auto modes 
+
 | | nah | dcg | cc-safety-net |
 | --- | :---: | :---: | :---: |
 | Stops destructive Git: hard resets, force pushes, git clean | ✓ | ✓ | ✓ |
@@ -111,12 +113,9 @@ exact scope and three tested examples, plus current custom guard status.
 
 ### Already using auto mode?
 
-Claude Code's auto mode and Codex's auto-review use LLM classifiers. They're great at flagging unsafe commands, but far from perfect: Anthropic's [own evaluation](https://www.anthropic.com/engineering/claude-code-auto-mode) found its classifier misses 17% of real overeager actions. nah adds structural protection underneath them, and it plays well with them: its hook runs before the classifier. Whatever nah doesn't catch goes on to auto mode or your permission layer, just as it did before.
+Claude Code's auto mode and Codex's auto-review use LLM classifiers. They're great and flexible at flagging unsafe commands, but far from perfect: Anthropic's [own evaluation](https://www.anthropic.com/engineering/claude-code-auto-mode) found its classifier misses 17% of real overeager actions. nah adds structural protection underneath them, and it plays well with them: its hook runs before the classifier. Whatever nah doesn't catch goes on to auto mode or your permission layer, just as it did before.
 
 ## Deterministic programs, not LLM judges.
-
-nah is just one static Rust binary. There is no AI in the loop, so a verdict lands in milliseconds and does
-not change between runs.
 
 nah parses tool calls into typed effects: programs that run, files read or
 written, data moving off the machine, environment access, and process behavior.
