@@ -14,7 +14,7 @@ use nah_proto::effects::EffectFact;
 use nah_proto::observation::{
     DescendantObservation, EnvObservation, Observation, ObservationFact, ObservationQuery,
     ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
-    ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind,
+    ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind, UserHomeObservation,
 };
 use nah_proto::tool::ToolCallInput;
 
@@ -117,6 +117,20 @@ fn observe(request: &ObservationRequest) -> Result<Observation, String> {
                     },
                 },
             },
+            // The synthetic account database knows `you` and `root`.
+            ObservationQuery::UserHome { name, .. } => ObservationValue::UserHome {
+                observed: Observed::Ok {
+                    value: match name.as_str() {
+                        "you" => UserHomeObservation::Home {
+                            path: absolute(HOME)?,
+                        },
+                        "root" => UserHomeObservation::Home {
+                            path: absolute("/root")?,
+                        },
+                        _ => UserHomeObservation::NoSuchUser,
+                    },
+                },
+            },
             ObservationQuery::Path {
                 requested,
                 inspect_descendants,
@@ -206,15 +220,14 @@ mod tests {
     }
 
     #[test]
-    fn targeted_and_ambiguous_git_demo_commands_delegate() {
-        for command in [
-            "git clean -f -- src/lib.rs",
-            "git restore src/lib.rs",
-            "git restore :/",
-        ] {
+    fn targeted_git_demo_commands_delegate_and_root_wide_restore_blocks() {
+        for command in ["git clean -f -- src/lib.rs", "git restore src/lib.rs"] {
             let value = decision(command);
             assert_eq!(value["verdict"], "delegate", "{command}: {value}");
         }
+        // `:/` names the repository root, so the restore discards the whole tree.
+        let root = decision("git restore :/");
+        assert_eq!(root["verdict"], "block", "{root}");
     }
 
     #[test]
