@@ -166,3 +166,6 @@
 {"v":1,"id":"windows.git-hard-reset.hard","command":"git reset --hard","ctx_fixture":"default-windows-v1","observation_fixture":"git-windows-v1","expected":{"verdict":"block","guard":"git-hard-reset"}}
 {"v":1,"id":"windows.fs-home.rm-tilde","command":"rm -rf ~","ctx_fixture":"default-windows-v1","observation_fixture":"project-windows-v1","expected":{"verdict":"block","guard":"fs-home","coverage":"full"}}
 {"v":1,"id":"windows.fs-home.rm-home-variable","command":"rm -rf \"$HOME\"","ctx_fixture":"default-windows-v1","observation_fixture":"project-windows-v1","expected":{"verdict":"block","guard":"fs-home","coverage":"full"}}
+{"v":1,"id":"windows.native.glob-project","tool":"Glob","input":{"pattern":"lib.rs","path":"src"},"ctx_fixture":"default-windows-v1","observation_fixture":"git-windows-v1","expected":{"verdict":"delegate","coverage":"full"}}
+{"v":1,"id":"windows.native.glob-cwd","tool":"Glob","input":{"pattern":"src/*.rs"},"ctx_fixture":"default-windows-v1","observation_fixture":"git-windows-v1","expected":{"verdict":"delegate","coverage":"full"}}
+{"v":1,"id":"windows.shell.glob-cwd","command":"rm -f src/*.rs","ctx_fixture":"default-windows-v1","observation_fixture":"git-windows-v1","expected":{"verdict":"delegate","coverage":"full"}}

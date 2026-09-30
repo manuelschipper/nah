@@ -2104,6 +2104,16 @@
           "resolved": "C:\\workspace\\project\\.git"
         },
         {
+          "descendants": [
+            "C:\\workspace\\project\\src\\lib.rs"
+          ],
+          "exists": true,
+          "kind": "directory",
+          "realpath": "C:\\workspace\\project\\src",
+          "requested": "C:/workspace/project/src",
+          "resolved": "C:\\workspace\\project\\src"
+        },
+        {
           "exists": true,
           "kind": "file",
           "realpath": "C:\\workspace\\project\\src\\lib.rs",

@@ -183,7 +183,7 @@ pub(crate) fn resolve_literal_tool_pattern(
 ) -> ToolPath {
     let base = root
         .map(|root| resolve_literal_tool_path(root, cwd, context).resource)
-        .or_else(|| cwd.map(|cwd| resolve_fs_path(cwd, None)))
+        .or_else(|| cwd.map(|cwd| resolve_fs_path(cwd, Some(cwd))))
         .unwrap_or_else(|| ResourceExpr::Parameter {
             name: "cwd".to_string(),
         });
@@ -200,7 +200,7 @@ pub(crate) fn resolve_literal_tool_pattern(
     let resource = match base {
         ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },
-        } if path.starts_with('/') => ResourceExpr::Pattern {
+        } if is_absolute(&path) => ResourceExpr::Pattern {
             pattern: effinterp_proto::ResourcePattern::FsPath {
                 glob: format!(
                     "{}/{literal}",
@@ -374,7 +374,7 @@ pub(crate) fn filesystem_glob(pattern: &str, cwd: Option<ResourceExpr>) -> Resou
     match cwd {
         Some(ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },
-        }) if path.starts_with('/') => ResourceExpr::Pattern {
+        }) if is_absolute(&path) => ResourceExpr::Pattern {
             pattern: effinterp_proto::ResourcePattern::FsPath {
                 glob: format!(
                     "{}/{pattern}",
