@@ -6,7 +6,9 @@ use nah_cli::decide_with;
 use nah_proto::action::Coverage;
 use nah_proto::decision::Verdict;
 use serde_json::json;
-use support::{call, ctx, observe_with_home, repo};
+#[cfg(unix)]
+use support::observe_with_home;
+use support::{call, ctx, repo};
 
 #[test]
 fn fork_bomb_guard_blocks_structural_evidence_end_to_end() {

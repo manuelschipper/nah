@@ -271,6 +271,7 @@ pub fn observe_with_path(path: &str, request: &ObservationRequest) -> Result<Obs
 /// Answers the engine's HOME lookup with the context home: production builds
 /// the context from the HOME the engine observes, while this process keeps the
 /// developer's HOME and each test owns a temporary home.
+#[cfg(unix)]
 pub fn observe_with_home(home: &Path, request: &ObservationRequest) -> Result<Observation, String> {
     let observation = fulfill_observation(request)?;
     let facts = observation

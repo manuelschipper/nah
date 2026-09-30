@@ -6,7 +6,10 @@ use std::path::Path;
 
 use nah_cli::decide_with;
 use nah_proto::ctx::{Ctx, ShippedGuardState, TrustProjection};
-use nah_proto::decision::{DecisionCore, DecisionOutput, Verdict};
+#[cfg(unix)]
+use nah_proto::decision::DecisionOutput;
+use nah_proto::decision::{DecisionCore, Verdict};
+#[cfg(unix)]
 use nah_proto::effects::FactPayload;
 use serde_json::json;
 #[cfg(unix)]
