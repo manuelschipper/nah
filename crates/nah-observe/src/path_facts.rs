@@ -58,7 +58,7 @@ pub fn observe_path(cwd: &AbsolutePath, requested: &str) -> Observed<PathObserva
                         false
                     };
                     if multiply_linked {
-                        (None, target_kind)
+                        (running_executable(&target_metadata), target_kind)
                     } else {
                         match absolute_from_path(&path) {
                             Ok(path) => (Some(path), target_kind),
@@ -184,6 +184,25 @@ pub(crate) fn has_multiple_links(
     _metadata: &fs::Metadata,
 ) -> Result<bool, ObservationFailure> {
     Err(ObservationFailure::Unavailable)
+}
+
+/// A file with several names has no single path identity, except the running
+/// nah binary: whichever name reaches it, it is the executable nah runs from,
+/// so that canonical path identifies it. Cargo's `target/debug/nah` is such a
+/// hard link on Linux.
+#[cfg(unix)]
+fn running_executable(metadata: &fs::Metadata) -> Option<AbsolutePath> {
+    use std::os::unix::fs::MetadataExt;
+    let executable = fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+    let running = fs::metadata(&executable).ok()?;
+    (running.dev() == metadata.dev() && running.ino() == metadata.ino())
+        .then(|| absolute_from_path(&executable).ok())
+        .flatten()
+}
+
+#[cfg(not(unix))]
+fn running_executable(_metadata: &fs::Metadata) -> Option<AbsolutePath> {
+    None
 }
 
 fn missing_realpath(path: &Path) -> Result<AbsolutePath, ObservationFailure> {
