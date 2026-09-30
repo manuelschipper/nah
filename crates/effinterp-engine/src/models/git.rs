@@ -542,6 +542,7 @@ fn repository_aliases(
         };
         candidates.push((SourceNamespace::Host, format!("{path}/config")));
     } else {
+        let platform = crate::paths::path_platform(Some(cwd));
         let mut directory = cwd.as_str();
         // Every ancestor costs resolver work under the shared analysis budget.
         loop {
@@ -549,13 +550,22 @@ fn repository_aliases(
             candidates.push((SourceNamespace::Host, format!("{prefix}/.git")));
             candidates.push((SourceNamespace::Host, format!("{prefix}/.git/HEAD")));
             candidates.push((SourceNamespace::Host, format!("{prefix}/.git/config")));
-            if candidates.len() >= 96 || directory == "/" {
+            if candidates.len() >= 96 {
                 break;
             }
-            directory = directory
-                .rsplit_once('/')
-                .map(|(parent, _)| if parent.is_empty() { "/" } else { parent })
-                .unwrap();
+            // The walk ends at the root: `/`, or a drive root such as `C:/`.
+            let Some((parent, _)) = prefix.rsplit_once('/') else {
+                break;
+            };
+            let parent = if parent.is_empty() || parent.ends_with(':') {
+                &directory[..=parent.len()]
+            } else {
+                parent
+            };
+            if !effinterp_proto::is_absolute_path(parent, platform) {
+                break;
+            }
+            directory = parent;
         }
     }
     let (mut path, mut bytes) =
