@@ -2082,6 +2082,42 @@
         }
       ]
     },
+    "git-windows-v1": {
+      "platform": "windows",
+      "cwd": "C:\\workspace\\project",
+      "env": {
+        "USERPROFILE": "C:\\Users\\test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "C:\\workspace\\project",
+          "requested": "C:/workspace/project",
+          "resolved": "C:\\workspace\\project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "C:\\workspace\\project\\.git",
+          "requested": "C:/workspace/project/.git",
+          "resolved": "C:\\workspace\\project\\.git"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "C:\\workspace\\project\\src\\lib.rs",
+          "requested": "C:/workspace/project/src/lib.rs",
+          "resolved": "C:\\workspace\\project\\src\\lib.rs"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "C:\\workspace\\project"
+        }
+      ]
+    },
     "git-subdir-linux-v1": {
       "platform": "linux",
       "cwd": "/workspace/project/src",

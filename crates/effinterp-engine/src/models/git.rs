@@ -524,7 +524,7 @@ fn repository_aliases(
     else {
         return Err("repository config location is unknown");
     };
-    if !cwd.starts_with('/') {
+    if !crate::paths::is_absolute(cwd) {
         return Err("repository config location is unknown");
     }
     let explicit_dir = globals
@@ -1594,7 +1594,10 @@ fn worktree_base(globals: &Globals, ctx: &InvocationCtx) -> ResourceExpr {
 /// Only an absolute cwd (an explicit `cd /path`) is real.
 fn invocation_directory(ctx: &InvocationCtx) -> ResourceExpr {
     match ctx.cwd {
-        Some(cwd) if cwd.starts_with('/') => resolve_fs_word(&Word::literal(cwd), None),
+        // The cwd itself names the platform its spelling is resolved on.
+        Some(cwd) if crate::paths::is_absolute(cwd) => {
+            resolve_fs_word(&Word::literal(cwd), Some(cwd))
+        }
         Some(_) => ResourceExpr::Parameter {
             name: "cwd".to_string(),
         },
@@ -6010,7 +6013,7 @@ fn git_request_path(s: &SubCtx<'_>, path: &Word) -> Option<String> {
         return match worktree_resource(&s.repo)? {
             ResourceExpr::Concrete {
                 identity: ResourceIdentity::FsPath { path },
-            } if path.starts_with('/') => Some(path.clone()),
+            } if crate::paths::is_absolute(path) => Some(path.clone()),
             _ => None,
         };
     }
@@ -6020,7 +6023,7 @@ fn git_request_path(s: &SubCtx<'_>, path: &Word) -> Option<String> {
     match resolve_fs_word(path, s.cwd.as_deref()) {
         ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },
-        } if path.starts_with('/') => Some(path),
+        } if crate::paths::is_absolute(&path) => Some(path),
         _ => None,
     }
 }

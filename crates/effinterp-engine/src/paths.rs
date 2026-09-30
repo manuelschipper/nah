@@ -40,6 +40,12 @@ pub(crate) fn path_platform(base: Option<&str>) -> PathPlatform {
     }
 }
 
+/// Whether a resolved path is anchored on the platform its own spelling names:
+/// `/…` on POSIX, or a drive root such as `C:/…` on Windows.
+pub(crate) fn is_absolute(path: &str) -> bool {
+    effinterp_proto::is_absolute_path(path, path_platform(Some(path)))
+}
+
 pub(crate) fn normalize_cwd(path: &str) -> String {
     effinterp_proto::normalize_path(path, path_platform(Some(path)))
 }

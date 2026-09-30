@@ -173,7 +173,12 @@ pub(super) fn observed_git_root(
         });
     let spells_invocation_cwd = effect.attributes.get("root_uses_invocation_cwd")
         == Some(&p::AttrValue::Bool(true))
-        && worktree == invocation_cwd;
+        // The engine spells a Windows cwd with `/`, the host with `\`.
+        && nah_proto::labels::lexical_path::same_path(
+            worktree,
+            invocation_cwd,
+            view.authority().platform(),
+        );
     // A start directory spelled another way, such as through a symlink, is
     // still the invocation's own directory when its observed real path is
     // the observed working directory.

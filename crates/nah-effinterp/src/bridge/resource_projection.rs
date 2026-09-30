@@ -935,6 +935,14 @@ pub(super) fn add_structural_path_resource(
     authority: &crate::plan_view::AuthorityContext,
 ) -> e::ResourceId {
     use e::*;
+    // The engine spells a Windows selection with `/`; the observed roots its
+    // labels are compared with use the host's `\`.
+    let path = if authority.platform() == nah_proto::ctx::Platform::Windows {
+        nah_proto::ctx::AbsolutePath::new(authority.platform(), path.as_str().replace('/', "\\"))
+            .expect("respelled absolute path")
+    } else {
+        path
+    };
     let label_operation = if operation == FilesystemOperation::Delete {
         nah_proto::action::FilesystemOperation::Delete
     } else {
