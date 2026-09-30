@@ -585,6 +585,9 @@ fn environment_round_bound_stops_unique_drift() {
     assert_eq!(result.refusals()[0].code(), "environment-rounds");
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn optional_evidence_binds_values_unsets_and_rejects_drift() {
     use nah_effinterp::{RefusalKind, SelectedInput};
@@ -805,6 +808,9 @@ fn evidence_keeps_semantic_flows_without_changing_enforcement() {
     assert_eq!(result.core().verdict(), Verdict::Delegate);
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn git_facts_stay_on_their_call_beside_a_filtered_child() {
     // A filtered child must not shift the following Git facts onto a missing call.
@@ -860,6 +866,9 @@ fn git_facts_stay_on_their_call_beside_a_filtered_child() {
     assert_eq!(names, ["git-path-discard", "secrets-env"]);
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn filesystem_evidence_retains_permission_grants_and_move_endpoints() {
     use nah_proto::effects::{FactPayload, FilesystemOperation, Knowledge};
@@ -1149,6 +1158,9 @@ fn optional_filesystem_baseline_reports_missing_models_without_a_private_verdict
     }
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn optional_execution_and_secret_baseline_retains_facts_and_names_missing_semantics() {
     use nah_effinterp::SelectedInput;
