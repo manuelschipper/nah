@@ -318,6 +318,14 @@ Accepted limitations with no corpus row that asserts a desired block.
   smaller tree blocks via `secrets-exfil`. No corpus row exists because the
   observation fixtures cannot express a listing that large;
   `pipeline::performance_tests::performance_kpis` pins the behaviour.
+- A drive-absolute Git `include.path` on Windows — the include expansion in
+  `crates/effinterp-engine/src/models/git.rs` treats only a `/`-rooted value
+  as absolute, so `path = C:/workspace/project/extra.gitconfig` is joined onto
+  the including file's directory and looked up as
+  `<base>/C:/workspace/project/extra.gitconfig`. The included file is never
+  read, so an alias it defines, including one that runs a destructive shell
+  command, is not seen. This predates the effinterp fold and is recorded
+  rather than fixed with the Windows coverage restoration.
 - A custom guard that matches a shell builtin — the engine models `echo`,
   `printf` and the other builtins inside the shell, so they never appear as
   public calls, and an `exec/v2` guard with `match = ["echo"]` is never
