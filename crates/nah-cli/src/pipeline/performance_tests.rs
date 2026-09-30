@@ -8,7 +8,7 @@ use nah_extensions::{
 };
 use nah_proto::ctx::{AbsolutePath, Ctx, SchemaVersion, ShippedGuardState, TrustProjection};
 use nah_proto::decision::Verdict;
-use nah_proto::observation::ObservationQuery;
+use nah_proto::observation::{Observation, ObservationQuery, ObservationRequest};
 use nah_proto::tool::ToolCallInput;
 use serde_json::json;
 
@@ -70,7 +70,7 @@ fn performance_kpis() {
     )
     .unwrap();
 
-    let mut captured = None;
+    let mut captured = Vec::new();
     let initial = decide_with_extensions(
         &input,
         &ctx,
@@ -78,21 +78,20 @@ fn performance_kpis() {
             let observation =
                 nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
                     .map_err(|error| error.to_string())?;
-            captured = Some(observation.clone());
+            captured.push(observation.clone());
             Ok(observation)
         },
         |_, _| ConsultedExtensions::default(),
     );
     assert_eq!(initial.core().verdict(), Verdict::Delegate);
-    let observation = captured.unwrap();
+    // The pipeline depends on no environment variable, so the engine's first
+    // plan is final and one evidence observation answers it.
+    assert_eq!(captured.len(), 1);
 
     let core = measure(CORE_SAMPLES, || {
-        let result = decide_with_extensions(
-            &input,
-            &ctx,
-            |_| Ok(observation.clone()),
-            |_, _| ConsultedExtensions::default(),
-        );
+        let result = decide_with_extensions(&input, &ctx, replayed(&captured), |_, _| {
+            ConsultedExtensions::default()
+        });
         assert_eq!(result.core().verdict(), Verdict::Delegate);
     });
     assert!(
@@ -105,11 +104,8 @@ fn performance_kpis() {
     let cache_context = super::memo_context(provenance, provenance.input_fingerprint.clone());
     let cold = measure_indexed(COLD_SAMPLES, |index| {
         let cache = MemoCache::new(temp.path().join(format!("cold-cache-{index}")));
-        let result = decide_with_extensions(
-            &input,
-            &ctx,
-            |_| Ok(observation.clone()),
-            |observed, evidence| {
+        let result =
+            decide_with_extensions(&input, &ctx, replayed(&captured), |observed, evidence| {
                 consulted_extensions(consult_extensions(
                     &catalog,
                     &ctx,
@@ -118,35 +114,26 @@ fn performance_kpis() {
                     &cache,
                     &cache_context,
                 ))
-            },
-        );
+            });
         assert_eq!(result.core().verdict(), Verdict::Block);
         assert_eq!(result.consultations().len(), 1);
     });
 
     let memo_cache = MemoCache::new(temp.path().join("memo-cache"));
-    let prime = decide_with_extensions(
-        &input,
-        &ctx,
-        |_| Ok(observation.clone()),
-        |observed, evidence| {
-            consulted_extensions(consult_extensions(
-                &catalog,
-                &ctx,
-                observed,
-                evidence,
-                &memo_cache,
-                &cache_context,
-            ))
-        },
-    );
+    let prime = decide_with_extensions(&input, &ctx, replayed(&captured), |observed, evidence| {
+        consulted_extensions(consult_extensions(
+            &catalog,
+            &ctx,
+            observed,
+            evidence,
+            &memo_cache,
+            &cache_context,
+        ))
+    });
     assert_eq!(prime.core().verdict(), Verdict::Block);
     let memoized = measure(MEMOIZED_SAMPLES, || {
-        let result = decide_with_extensions(
-            &input,
-            &ctx,
-            |_| Ok(observation.clone()),
-            |observed, evidence| {
+        let result =
+            decide_with_extensions(&input, &ctx, replayed(&captured), |observed, evidence| {
                 consulted_extensions(consult_extensions(
                     &catalog,
                     &ctx,
@@ -155,8 +142,7 @@ fn performance_kpis() {
                     &memo_cache,
                     &cache_context,
                 ))
-            },
-        );
+            });
         assert_eq!(result.core().verdict(), Verdict::Block);
         assert_eq!(result.consultations().len(), 1);
     });
@@ -301,6 +287,20 @@ fn measure_indexed(samples: usize, mut run: impl FnMut(usize)) -> Percentiles {
         samples,
         p50: durations[(samples * 50) / 100],
         p99: durations[(samples * 99) / 100],
+    }
+}
+
+/// Answers the engine's observation rounds from `captured`, in the order the
+/// capturing decision requested them.
+fn replayed(
+    captured: &[Observation],
+) -> impl FnMut(&ObservationRequest) -> Result<Observation, String> + '_ {
+    let mut observations = captured.iter();
+    move |_| {
+        observations
+            .next()
+            .cloned()
+            .ok_or_else(|| "unexpected observation round".to_owned())
     }
 }
 
