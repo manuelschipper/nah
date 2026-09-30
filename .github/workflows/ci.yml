@@ -32,8 +32,12 @@ jobs:
       - name: Test (includes engine suites, purity, dependency-direction, and corpus gates)
         run: |
           cargo test --workspace --locked
+      # The versions session-datasets.py pins in its inline script metadata.
       - name: Bench tools
-        run: python3 -m unittest discover -s bench/tools -p 'test_*.py'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/bench-tools"
+          "$RUNNER_TEMP/bench-tools/bin/pip" install -q huggingface-hub==0.34.3 pyarrow==20.0.0
+          "$RUNNER_TEMP/bench-tools/bin/python" -m unittest discover -s bench/tools -p 'test_*.py'
       - name: Archive build
         run: python3 tools/gates/verify_archive_build.py
       - name: Correctness parity
