@@ -36,7 +36,7 @@ DARK_SOFT = (0xAD, 0xA3, 0x94)
 DESCRIPTION = (
     "nah is a guard that sits in your coding agent's hook path and reads "
     "tool calls before they run. It blocks the calls it can prove are "
-    "disasters — deterministically, in microseconds, with no LLM — and "
+    "disasters — deterministically, in milliseconds, with no LLM — and "
     "leaves everything else to your normal approval flow. One Rust binary. "
     "When a guard you need is missing, your agent can write it."
 )
@@ -139,7 +139,7 @@ draw = ImageDraw.Draw(og)
 mono = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 34)
 mono_sm = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 24)
 tag = "expensive mistakes stop here"
-facts = "microsecond verdicts · no LLM · one Rust binary"
+facts = "millisecond verdicts · no LLM · one Rust binary"
 tw = draw.textlength(tag, font=mono)
 draw.text(((1200 - tw) / 2, 108 + wh + 66), tag, font=mono, fill=DARK_INK)
 fw = draw.textlength(facts, font=mono_sm)
@@ -523,6 +523,9 @@ PAGES.append(render_doc(
 for marker, value in [
     ("{{GUARD_COUNT}}", guard_count),
     ("{{DEFAULT_ON_COUNT}}", default_on_count),
+    # The hero names four runtimes on wide screens and two on narrow ones.
+    ("{{MORE_RUNTIMES_LONG}}", len(RUNTIME_LABELS) - 4),
+    ("{{MORE_RUNTIMES_SHORT}}", len(RUNTIME_LABELS) - 2),
 ]:
     if doc.count(marker) != 1:
         raise RuntimeError(f"expected one homepage marker {marker}")

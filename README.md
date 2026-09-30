@@ -116,7 +116,7 @@ exact scope and three tested examples, plus current custom guard status.
 
 ## Deterministic programs, not LLM judges.
 
-nah is just one static Rust binary. There is no AI in the loop, so a verdict lands in microseconds and does
+nah is just one static Rust binary. There is no AI in the loop, so a verdict lands in milliseconds and does
 not change between runs.
 
 nah parses tool calls into typed effects: programs that run, files read or

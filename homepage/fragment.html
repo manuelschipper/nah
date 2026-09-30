@@ -726,7 +726,7 @@ footer .fine a{ text-decoration-color:var(--rule); }
         </div>
       </div>
       <p class="hero-runtimes">
-        claude code · codex · <span class="rt-long">pi · opencode · </span><a href="#runtimes"><span class="rt-long">+ 10 more</span><span class="rt-short">+ 12 more</span></a>
+        claude code · codex · <span class="rt-long">pi · opencode · </span><a href="#runtimes"><span class="rt-long">+ {{MORE_RUNTIMES_LONG}} more</span><span class="rt-short">+ {{MORE_RUNTIMES_SHORT}} more</span></a>
       </p>
     </div>
   </main>
@@ -789,14 +789,14 @@ footer .fine a{ text-decoration-color:var(--rule); }
         <div class="prose">
           <p>
             Each guard runs as deterministic code, so a verdict lands in
-            microseconds and doesn't drift between runs.
+            milliseconds and doesn't drift between runs.
           </p>
         </div>
         <ul class="frags">
           <li><b>no LLM anywhere</b> — one static Rust binary. no tokens,
               no daemon, no account.</li>
           <li><b>on the record</b> — every decision is stored and
-              replayable. structure only, never your command text.</li>
+              auditable. structure only, never your command text.</li>
           <li><b>open source</b> — the whole policy is MIT-licensed code,
               and the exact rule that decided your call is in the repo
               to inspect.</li>
@@ -869,7 +869,7 @@ footer .fine a{ text-decoration-color:var(--rule); }
         <div class="out" id="out" aria-live="polite"></div>
         <div class="tries" id="tries">try:</div>
       </div>
-      <p class="proof" id="try-proof">microsecond verdicts · 0 tokens, ever · one Rust binary</p>
+      <p class="proof" id="try-proof">millisecond verdicts · 0 tokens, ever · one Rust binary</p>
     </section>
 
     <section id="threat">
@@ -884,7 +884,7 @@ footer .fine a{ text-decoration-color:var(--rule); }
         <div class="gflow">
         <div class="gcard is-nah">
           <span class="gstamp" role="img" aria-label="nah"><span class="art art-word stamp-word"></span></span>
-          <span>blocks known disasters in microseconds</span>
+          <span>blocks known disasters in milliseconds</span>
         </div>
         <span class="garr" aria-hidden="true">&#8594;</span>
         <div class="gcard">
