@@ -24458,7 +24458,7 @@
         {
           "op": "git.push_request",
           "resource": {
-            "eq": "git:worktree=\"<cwd>\";git_dir=null;pathspec=null"
+            "eq": "git:worktree=\"fs:C:/workspace/outside\";git_dir=null;pathspec=null"
           },
           "attributes": {
             "lease_requested": false,
@@ -70661,13 +70661,13 @@
         {
           "op": "git.worktree_discard",
           "resource": {
-            "eq": "git:worktree=\"<cwd>\";git_dir=null;pathspec=null"
+            "eq": "git:worktree=\"fs:C:/workspace/outside\";git_dir=null;pathspec=null"
           }
         },
         {
           "op": "git.reset_request",
           "resource": {
-            "eq": "git:worktree=\"<cwd>\";git_dir=null;pathspec=null"
+            "eq": "git:worktree=\"fs:C:/workspace/outside\";git_dir=null;pathspec=null"
           },
           "attributes": {
             "reset_mode": "hard",
@@ -71003,13 +71003,13 @@
         {
           "op": "git.recovery_destroy",
           "resource": {
-            "eq": "git:worktree=\"<cwd>\";git_dir=null;pathspec=null"
+            "eq": "git:worktree=\"fs:C:/workspace/outside\";git_dir=null;pathspec=null"
           }
         },
         {
           "op": "git.recovery_destroy_request",
           "resource": {
-            "eq": "git:worktree=\"<cwd>\";git_dir=null;pathspec=null"
+            "eq": "git:worktree=\"fs:C:/workspace/outside\";git_dir=null;pathspec=null"
           },
           "attributes": {
             "scope": "whole",
@@ -81035,13 +81035,13 @@
         {
           "op": "git.worktree_discard",
           "resource": {
-            "eq": "git:worktree=\"<cwd>\";git_dir=null;pathspec=null"
+            "eq": "git:worktree=\"fs:C:/workspace/outside\";git_dir=null;pathspec=null"
           }
         },
         {
           "op": "git.reset_request",
           "resource": {
-            "eq": "git:worktree=\"<cwd>\";git_dir=null;pathspec=null"
+            "eq": "git:worktree=\"fs:C:/workspace/outside\";git_dir=null;pathspec=null"
           },
           "attributes": {
             "reset_mode": "hard",
