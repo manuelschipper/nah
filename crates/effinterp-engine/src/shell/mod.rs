@@ -1359,31 +1359,36 @@ pub(crate) fn analyze_shell(
             },
         );
     }
-    // Git Bash, the POSIX shell of a Windows host, sets and exports HOME
-    // from USERPROFILE when it starts without one. A USERPROFILE not yet
-    // observed is read, so the host answers it.
+    // Git Bash, the POSIX shell of a Windows host, sets and exports HOME when
+    // it starts without one: HOMEDRIVE followed by HOMEPATH when both are set,
+    // otherwise USERPROFILE (msys2-runtime's `fetch_home_env`). A source not
+    // yet observed is read, so the host answers it. Until then, and when the
+    // source is unset or its value unknown, HOME is unknown rather than empty.
     if unset.contains("HOME")
         && builder.is_host_realm()
         && nest
             .context
             .is_some_and(|context| context.os_dialect == effinterp_proto::OsDialect::Windows)
     {
-        if let Some(profile) = vars
-            .get("USERPROFILE")
-            .filter(|_| !unset.contains("USERPROFILE"))
-            .cloned()
-        {
-            unset.remove("HOME");
-            unexported.remove("HOME");
-            exported.insert("HOME".to_string());
-            vars.insert("HOME".to_string(), profile);
-        } else if !unset.contains("USERPROFILE") {
+        let absent = |name: &str| unset.contains(name);
+        let sources: &[&str] = if absent("HOMEDRIVE") || absent("HOMEPATH") {
+            &["USERPROFILE"]
+        } else {
+            &["HOMEDRIVE", "HOMEPATH"]
+        };
+        let unobserved = sources
+            .iter()
+            .filter(|name| !absent(name) && !vars.contains_key(**name))
+            .collect::<Vec<_>>();
+        // HOME's observed absence is why the host is asked.
+        let absence = vars.get("HOME").and_then(|entry| entry.node);
+        for name in &unobserved {
             builder.effect(Effect {
                 id: Default::default(),
                 operation: Operation::new("environment.read"),
                 resource: ResourceExpr::Concrete {
                     identity: ResourceIdentity::EnvironmentVariable {
-                        name: "USERPROFILE".into(),
+                        name: (**name).into(),
                     },
                 },
                 attributes: Default::default(),
@@ -1392,14 +1397,52 @@ pub(crate) fn analyze_shell(
                 realm: effinterp_proto::ExecutionRealm::Host,
                 condition: None,
                 execution: ExecutionNodeRef(0),
-                // HOME's observed absence is why the host is asked.
-                provenance: vars
-                    .get("HOME")
-                    .and_then(|entry| entry.node)
-                    .into_iter()
-                    .collect(),
+                provenance: absence.into_iter().collect(),
             });
         }
+        let value = (unobserved.is_empty() && !sources.iter().any(|name| absent(name)))
+            .then(|| {
+                sources
+                    .iter()
+                    .map(|name| vars.get(*name).and_then(|entry| entry.value.clone()))
+                    .collect::<Option<String>>()
+            })
+            .flatten();
+        let antecedents = sources
+            .iter()
+            .filter_map(|name| vars.get(*name).and_then(|entry| entry.node))
+            .collect::<Vec<_>>();
+        let node = builder.node(
+            ProvenanceKind::HostContext {
+                name: "HOME".into(),
+            },
+            &antecedents,
+        );
+        unset.remove("HOME");
+        unexported.remove("HOME");
+        exported.insert("HOME".to_string());
+        let may = value.iter().cloned().collect();
+        vars.insert(
+            "HOME".to_string(),
+            VarEntry {
+                nameref: false,
+                branches: Vec::new(),
+                saturation_key: variable_saturation_key(value.as_deref(), &may, None, false, false),
+                value,
+                may,
+                unresolved_default_override: false,
+                word: None,
+                word_condition: None,
+                span: Span { start: 0, end: 0 },
+                node: Some(node),
+                antecedents: Vec::new(),
+                producers: Vec::new(),
+                script_set: false,
+                script_may_set: false,
+                captured_name_hidden: false,
+                transparent_writes: Vec::new(),
+            },
+        );
     }
     // Shell launches supply `$0`, `$1`, ... with their argument provenance.
     let mut arguments = nest.shell_arguments.borrow_mut().take().map(|arguments| {
