@@ -346,6 +346,14 @@ expectations until adopted. Lower-level parser/effect tests may still characteri
 current implementation behavior; these corpus rows own the desired end-to-end
 verdicts for the reviewed commands.
 
+`windows.fs-system-tree.git-bash-home-default-flag-delegates` and
+`windows.fs-system-tree.git-bash-home-default-command-delegates` expect
+delegate where the release base blocked. Git Bash sets a missing HOME from
+HOMEDRIVE and HOMEPATH or USERPROFILE, so with a known home
+`rm ${HOME:--rf} C:/Windows` runs a non-recursive `rm` and
+`${HOME:-rm} -rf C:/Windows` runs the home directory as a command; the base
+analysed HOME as unset on Windows and read the defaults instead.
+
 Exclude known failures from policy-agreement samples, while retaining the
 original raw experiment records and reporting the excluded IDs and counts.
 Exclusions discovered after a run must be labeled post hoc.
