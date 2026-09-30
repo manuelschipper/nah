@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## nah 1.6.0 — Sep 29, 2026
 
 - **Guard naps** — `nah nap <guard>...` pauses only the named guards for 10 minutes while self-protection and every other guard stay active, and `nah nap all` replaces `nah nap --all`. Every nap now confirms with `nap`, and starting a nap replaces the active one. `all` is reserved and can no longer be a custom guard name.
 
