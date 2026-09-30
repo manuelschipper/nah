@@ -164,3 +164,5 @@
 {"v":1,"id":"windows.git-clean-force.short-root","command":"git clean -f","ctx_fixture":"default-windows-v1","observation_fixture":"git-windows-v1","expected":{"verdict":"block","guard":"git-clean-force"}}
 {"v":1,"id":"windows.git-worktree-discard.restore-root","command":"git restore .","ctx_fixture":"default-windows-v1","observation_fixture":"git-windows-v1","expected":{"verdict":"block","guard":"git-worktree-discard"}}
 {"v":1,"id":"windows.git-hard-reset.hard","command":"git reset --hard","ctx_fixture":"default-windows-v1","observation_fixture":"git-windows-v1","expected":{"verdict":"block","guard":"git-hard-reset"}}
+{"v":1,"id":"windows.fs-home.rm-tilde","command":"rm -rf ~","ctx_fixture":"default-windows-v1","observation_fixture":"project-windows-v1","expected":{"verdict":"block","guard":"fs-home","coverage":"full"}}
+{"v":1,"id":"windows.fs-home.rm-home-variable","command":"rm -rf \"$HOME\"","ctx_fixture":"default-windows-v1","observation_fixture":"project-windows-v1","expected":{"verdict":"block","guard":"fs-home","coverage":"full"}}

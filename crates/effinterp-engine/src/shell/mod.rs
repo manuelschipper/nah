@@ -1216,7 +1216,7 @@ pub(crate) fn analyze_shell(
     let mut exported_function_nodes = BTreeMap::new();
     let mut exported = BTreeSet::new();
     let nocaseglob = inherited_nocaseglob(builder);
-    let unexported = nest.current_environment_unsets();
+    let mut unexported = nest.current_environment_unsets();
     let concealed = nest.current_environment_concealed();
     let unexported_nodes = unexported
         .iter()
@@ -1358,6 +1358,48 @@ pub(crate) fn analyze_shell(
                 transparent_writes: Vec::new(),
             },
         );
+    }
+    // Git Bash, the POSIX shell of a Windows host, sets and exports HOME
+    // from USERPROFILE when it starts without one. A USERPROFILE not yet
+    // observed is read, so the host answers it.
+    if unset.contains("HOME")
+        && builder.is_host_realm()
+        && nest
+            .context
+            .is_some_and(|context| context.os_dialect == effinterp_proto::OsDialect::Windows)
+    {
+        if let Some(profile) = vars
+            .get("USERPROFILE")
+            .filter(|_| !unset.contains("USERPROFILE"))
+            .cloned()
+        {
+            unset.remove("HOME");
+            unexported.remove("HOME");
+            exported.insert("HOME".to_string());
+            vars.insert("HOME".to_string(), profile);
+        } else if !unset.contains("USERPROFILE") {
+            builder.effect(Effect {
+                id: Default::default(),
+                operation: Operation::new("environment.read"),
+                resource: ResourceExpr::Concrete {
+                    identity: ResourceIdentity::EnvironmentVariable {
+                        name: "USERPROFILE".into(),
+                    },
+                },
+                attributes: Default::default(),
+                modality: Modality::May,
+                request_assurance: effinterp_proto::RequestAssurance::Conservative,
+                realm: effinterp_proto::ExecutionRealm::Host,
+                condition: None,
+                execution: ExecutionNodeRef(0),
+                // HOME's observed absence is why the host is asked.
+                provenance: vars
+                    .get("HOME")
+                    .and_then(|entry| entry.node)
+                    .into_iter()
+                    .collect(),
+            });
+        }
     }
     // Shell launches supply `$0`, `$1`, ... with their argument provenance.
     let mut arguments = nest.shell_arguments.borrow_mut().take().map(|arguments| {
