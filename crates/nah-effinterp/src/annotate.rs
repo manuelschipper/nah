@@ -700,6 +700,17 @@ fn executed_identity<'a>(
     path: &str,
 ) -> Option<&'a str> {
     let platform = view.authority().platform();
+    // On a Windows host a POSIX-rooted path such as `/usr/bin/nah` names
+    // whatever the shell running it maps it to (Git Bash's mount table, WSL,
+    // a terminal session elsewhere), not the entry at the root of the cwd's
+    // drive that Nah's observation of that spelling describes. A `//` path
+    // is UNC.
+    if platform == nah_proto::ctx::Platform::Windows
+        && path.starts_with('/')
+        && !path.starts_with("//")
+    {
+        return None;
+    }
     let changed = view
         .plan()
         .effects

@@ -18,18 +18,6 @@ pub fn request(plan: &Plan, call_site: &CallSite) -> ObservationRequest {
     // Each path's answer: whether it lists descendants, and whether that
     // listing follows the links below the path.
     let mut paths = BTreeMap::<String, (bool, bool)>::new();
-    // A Windows call (its cwd is drive-anchored) would resolve a POSIX-rooted
-    // path such as `/usr/bin/nah` against its own drive root. A terminal
-    // session it delivers a command to supplies its own filesystem namespace
-    // (WSL, Git Bash's mount table, another machine), so this host cannot say
-    // which file that spelling names there.
-    let windows = !call_site.requested_cwd().as_str().starts_with('/');
-    let observable = |effect: &effinterp_proto::Effect, path: &str| {
-        !windows
-            || !path.starts_with('/')
-            || nah_proto::ctx::AbsolutePath::new(nah_proto::ctx::Platform::Windows, path).is_ok()
-            || !in_terminal_session(plan, effect.execution)
-    };
     for effect in &plan.effects {
         if !effect.realm.is_host() || effect.operation.domain() != "filesystem" {
             continue;
@@ -43,7 +31,7 @@ pub fn request(plan: &Plan, call_site: &CallSite) -> ObservationRequest {
             let path = path.as_ref();
             // Numeric descriptor names refer to this process's transient table,
             // not host paths whose initial state can be observed safely.
-            if process_descriptor_path(path) || !observable(effect, path) {
+            if process_descriptor_path(path) {
                 continue;
             }
             let recursive = effect.attributes.get("recursive") == Some(&AttrValue::Bool(true))
@@ -87,10 +75,9 @@ pub fn request(plan: &Plan, call_site: &CallSite) -> ObservationRequest {
     let mut search_path = false;
     for effect in &plan.effects {
         match nah_control_executable(plan, effect) {
-            Some(Some(path)) if observable(effect, path) => {
+            Some(Some(path)) => {
                 paths.entry(path.to_owned()).or_default();
             }
-            Some(Some(_)) => {}
             Some(None) => search_path = true,
             None => {}
         }
@@ -161,30 +148,6 @@ fn nah_control_executable<'a>(
             .all(|argument| matches!(argument, ResourceExpr::Literal { .. }))
         && crate::annotate::nah_control(plan, effect, argv).is_some())
     .then_some(path.as_deref())
-}
-
-/// Whether an execution runs in, or was launched from, a terminal session a
-/// command was delivered to. The engine names that session's working
-/// directory `terminal_cwd`.
-fn in_terminal_session(plan: &Plan, execution: effinterp_proto::ExecutionNodeRef) -> bool {
-    let graph = &plan.execution_graph;
-    let mut current = Some(execution);
-    for _ in 0..graph.nodes.len() {
-        let Some(node) = current else {
-            return false;
-        };
-        if graph.nodes.get(node.0 as usize).is_some_and(|node| {
-            matches!(&node.cwd, Some(ResourceExpr::Parameter { name }) if name == "terminal_cwd")
-        }) {
-            return true;
-        }
-        current = graph
-            .edges
-            .iter()
-            .find(|edge| edge.to == node && !edge.cycle)
-            .map(|edge| edge.from);
-    }
-    false
 }
 
 fn process_descriptor_path(path: &str) -> bool {

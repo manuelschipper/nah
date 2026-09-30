@@ -51,17 +51,9 @@ impl ObservationResolver for HostPathObservations {
         }
         // A drive path names nothing on a host without drives, whose cwd is
         // rooted at `/`; resolving it against the cwd would observe a
-        // different entry. A POSIX-rooted path on a Windows host names
-        // whatever the shell running it maps it to (Git Bash's mount table,
-        // WSL, a terminal session elsewhere), not the root of the cwd's drive
-        // that resolving it here would observe.
+        // different entry.
         let (ObservationQuery::Path { path } | ObservationQuery::Listing { path, .. }) = query;
-        let posix_host = self.cwd.as_str().starts_with('/');
-        if !path.starts_with('/') && posix_host
-            || !posix_host
-                && path.starts_with('/')
-                && AbsolutePath::new(nah_proto::ctx::Platform::Windows, path.as_str()).is_err()
-        {
+        if !path.starts_with('/') && self.cwd.as_str().starts_with('/') {
             return refused(ObservationRefusal::Unsupported);
         }
         if budget.expired || self.deadline.expired() {
@@ -404,5 +396,30 @@ mod tests {
                 limit: "invocation_deadline".into()
             })
         );
+    }
+
+    /// A Windows host answers a root-relative path on its cwd's drive and a
+    /// `//server/share` path as UNC, so it admits both; the expired budget
+    /// stops each before any host I/O.
+    #[test]
+    fn a_windows_host_admits_root_relative_and_unc_paths() {
+        let cwd = AbsolutePath::new(Platform::Windows, r"C:\repo").unwrap();
+        let resolver =
+            HostPathObservations::new(cwd, InvocationDeadline::after(Duration::from_secs(30)), 64);
+        for path in ["/Users/test/.nah/nap.json", "//server/share/.ssh/id_rsa"] {
+            assert_eq!(
+                resolver.observe(
+                    &ObservationQuery::Path { path: path.into() },
+                    ObservationBudget {
+                        expired: true,
+                        ..budget()
+                    },
+                ),
+                ObservationOutcome::Refused(ObservationRefusal::Limit {
+                    limit: "invocation_deadline".into()
+                }),
+                "{path}"
+            );
+        }
     }
 }
