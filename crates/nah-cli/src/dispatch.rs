@@ -39,7 +39,6 @@ use crate::pipeline::{
 use crate::prime_agent_adapter;
 use crate::records;
 use crate::runtime::{FailurePolicy, Runtime};
-use crate::xi_adapter;
 
 /// Testable stdin/stdout seam for the thin binary.
 fn run_with<R: Read, W: Write, E: Write>(
@@ -330,7 +329,6 @@ fn run_runtime_hook<R: Read, W: Write, E: Write>(
         Runtime::OpenCode => opencode_adapter::run(stdin, stdout, stderr, failure_policy),
         Runtime::Pi => pi_adapter::run(stdin, stdout, stderr, failure_policy),
         Runtime::PrimeAgent => prime_agent_adapter::run(stdin, stdout, stderr, failure_policy),
-        Runtime::Xi => xi_adapter::run(stdin, stdout, stderr, failure_policy),
     }
 }
 

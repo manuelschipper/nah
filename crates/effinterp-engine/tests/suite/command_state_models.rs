@@ -168,12 +168,6 @@ fn nah_mutations_follow_source_operations_and_supplied_home() {
             true,
             ".nah/prime-agent-hook.lock",
         ),
-        (
-            "xi",
-            vec![".xi/hooks/before-bash"],
-            true,
-            ".nah/xi-hook.lock",
-        ),
     ] {
         for action in ["install", "uninstall"] {
             let plan = analyze(&["nah", "hook", agent, action], Some("/srv/person"));

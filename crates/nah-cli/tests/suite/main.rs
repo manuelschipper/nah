@@ -59,4 +59,3 @@ mod tui;
 mod windows_extensions;
 mod windows_unresolved_filesystem;
 mod windows_unsupported_installation;
-mod xi_installation;

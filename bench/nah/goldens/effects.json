@@ -47707,20 +47707,20 @@
       ]
     },
     {
-      "id": "self-protection.critical.python-c-import-subprocess-subprocess-run-nah-hook-xi-uninstall",
+      "id": "self-protection.critical.python-c-import-subprocess-subprocess-run-nah-hook-pi-uninstall",
       "guard": null,
       "derivation": "Uninstalling nah's hook removes the runtime extension and takes nah's install lock.",
       "require": [
         {
           "op": "filesystem.write",
           "resource": {
-            "eq": "/home/test/.nah/xi-hook.lock"
+            "eq": "/home/test/.nah/pi-hook.lock"
           }
         },
         {
           "op": "filesystem.delete",
           "resource": {
-            "eq": "/home/test/.xi/hooks/before-bash"
+            "eq": "/home/test/.pi/agent/extensions/nah/index.js"
           }
         }
       ]
@@ -55070,13 +55070,13 @@
         {
           "op": "filesystem.write",
           "resource": {
-            "eq": "/home/test/.nah/xi-hook.lock"
+            "eq": "/home/test/.nah/pi-hook.lock"
           }
         },
         {
           "op": "filesystem.delete",
           "resource": {
-            "eq": "/home/test/.xi/hooks/before-bash"
+            "eq": "/home/test/.pi/agent/extensions/nah/index.js"
           }
         }
       ]

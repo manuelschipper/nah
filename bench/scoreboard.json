@@ -112,8 +112,8 @@
       }
     },
     "parity": {
-      "nah_commit": "2bf69e074cf0f767e9b4bc76a44e2f22d2ebe0df",
-      "corpus_digest": "4cc6e1e73f73305737a7248c23f3fb9c306718a36e11fe85940674f0f4e06001",
+      "nah_commit": "f14baefdbecd23fb0b4aaf1009f791c9114ecb37",
+      "corpus_digest": "cf489368370bb759e51995d8377320aa5a189995df485aeca0542d7e34b72a1f",
       "classes": {
         "effect_match": 5041,
         "missing_effect": 11,
@@ -521,9 +521,9 @@
         "observe:/home/test/.openclaw/extensions/nah/openclaw.plugin.json": 2,
         "observe:/home/test/.openclaw/extensions/nah/package.json": 2,
         "observe:/home/test/.openclaw/openclaw.json": 9,
+        "observe:/home/test/.pi/agent/extensions/nah/index.js": 2,
         "observe:/home/test/.prime/agent/extensions/nah.js": 1,
         "observe:/home/test/.ssh/id_rsa": 1,
-        "observe:/home/test/.xi/hooks/before-bash": 2,
         "observe:/inactive": 1,
         "observe:/proc/self/fd/3": 1,
         "observe:/srv": 1,
@@ -11222,10 +11222,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.784,
-        "p99_ms": 129.6206,
-        "max_ms": 9655.5993,
-        "max_rss_kb": 350304
+        "p50_ms": 0.7965,
+        "p99_ms": 130.7062,
+        "max_ms": 9758.4368,
+        "max_rss_kb": 370752
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11249,13 +11249,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20260930T043552Z-correctness-15835",
-      "measured_at": "2026-09-30T04:35:52Z",
-      "source_fingerprint": "blake3:46a09d9cc64e42545d483411caeff2b99ee0b90477c1900f4f9cc9e592b31b97",
-      "binary_hash": "blake3:a83d6c32d03dc45a95746ac0991b8863befafa64df04759c945e2a49530bc675",
+      "run_id": "20260930T143959Z-correctness-308",
+      "measured_at": "2026-09-30T14:39:59Z",
+      "source_fingerprint": "blake3:0adfaadebecf1da14039f613946097bb586904cad0689a17f5608e217edffab8",
+      "binary_hash": "blake3:40c8503b7e267d99b76c3d43521d1feb0fd3e07ba13c1aaf7f6ee00a729b9f73",
       "engine_version": "0.1.0",
-      "model_set": "builtin:blake3:12a09941cc275c4215be788bd616d60aca9eb1f81ea107b90af4c12e6aaaa30c",
-      "git_head": "2bf69e074cf0f767e9b4bc76a44e2f22d2ebe0df",
+      "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
+      "git_head": "f14baefdbecd23fb0b4aaf1009f791c9114ecb37",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

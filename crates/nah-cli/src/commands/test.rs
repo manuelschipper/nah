@@ -239,9 +239,6 @@ fn runtime_tool_call(
         }
         Runtime::Pi => pi_adapter::normalize_call(tool, arguments, cwd).map(without_code),
         Runtime::PrimeAgent => prime_agent_adapter::normalize_call(tool, arguments, cwd),
-        Runtime::Xi => {
-            Err("its hook receives only shell commands; pass the command instead".into())
-        }
     }
 }
 
