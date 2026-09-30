@@ -51,9 +51,17 @@ impl ObservationResolver for HostPathObservations {
         }
         // A drive path names nothing on a host without drives, whose cwd is
         // rooted at `/`; resolving it against the cwd would observe a
-        // different entry.
+        // different entry. A POSIX-rooted path on a Windows host names
+        // whatever the shell running it maps it to (Git Bash's mount table,
+        // WSL, a terminal session elsewhere), not the root of the cwd's drive
+        // that resolving it here would observe.
         let (ObservationQuery::Path { path } | ObservationQuery::Listing { path, .. }) = query;
-        if !path.starts_with('/') && self.cwd.as_str().starts_with('/') {
+        let posix_host = self.cwd.as_str().starts_with('/');
+        if !path.starts_with('/') && posix_host
+            || !posix_host
+                && path.starts_with('/')
+                && AbsolutePath::new(nah_proto::ctx::Platform::Windows, path.as_str()).is_err()
+        {
             return refused(ObservationRefusal::Unsupported);
         }
         if budget.expired || self.deadline.expired() {

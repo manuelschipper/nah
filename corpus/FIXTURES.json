@@ -3995,6 +3995,19 @@
           "realpath": "C:\\Users\\test\\.aws\\credentials",
           "requested": "C:/Users/test/.aws/credentials",
           "resolved": "C:\\Users\\test\\.aws\\credentials"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/usr/bin/nah",
+          "resolved": "C:\\usr\\bin\\nah"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "C:\\",
+          "requested": "/",
+          "resolved": "C:\\"
         }
       ],
       "roots": [

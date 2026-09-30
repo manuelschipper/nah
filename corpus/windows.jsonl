@@ -169,3 +169,6 @@
 {"v":1,"id":"windows.native.glob-project","tool":"Glob","input":{"pattern":"lib.rs","path":"src"},"ctx_fixture":"default-windows-v1","observation_fixture":"git-windows-v1","expected":{"verdict":"delegate","coverage":"full"}}
 {"v":1,"id":"windows.native.glob-cwd","tool":"Glob","input":{"pattern":"src/*.rs"},"ctx_fixture":"default-windows-v1","observation_fixture":"git-windows-v1","expected":{"verdict":"delegate","coverage":"full"}}
 {"v":1,"id":"windows.shell.glob-cwd","command":"rm -f src/*.rs","ctx_fixture":"default-windows-v1","observation_fixture":"git-windows-v1","expected":{"verdict":"delegate","coverage":"full"}}
+{"v":1,"id":"windows.nah-self-protection.terminal-posix-path-nap","command":"herdr pane run example-pane '/usr/bin/nah nap'","ctx_fixture":"default-windows-v1","observation_fixture":"project-windows-v1","expected":{"verdict":"block"}}
+{"v":1,"id":"windows.terminal.posix-root-unestablished-delegates","command":"tmux new-session -ds probe 'rm -rf /'","ctx_fixture":"default-windows-v1","observation_fixture":"project-windows-v1","expected":{"verdict":"delegate"}}
+{"v":1,"id":"windows.fs-system-tree.host-shell-posix-root","command":"rm -rf /","ctx_fixture":"default-windows-v1","observation_fixture":"project-windows-v1","expected":{"verdict":"block","guard":"fs-system-tree"}}
