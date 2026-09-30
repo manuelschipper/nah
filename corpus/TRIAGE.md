@@ -216,6 +216,17 @@ because the owner accepted the conservative rule over a narrower model.
   time, so these reads stay content reads under `secrets-env`. `wc -c` (length
   only) and `file` (a type label) answer no chosen question and delegate.
 
+- `windows.fs-system-tree.terminal-posix-root`,
+  `windows.fs-system-tree.terminal-root-entries` and
+  `windows.git-force-push.terminal-posix-git` — a command delivered to a tmux
+  or herdr terminal on a Windows host may run in a shell with its own
+  namespace (WSL, Git Bash's mount table, another machine), where `/`, `/*`
+  and `/usr/bin/git` need not name the host's drive root or a Git binary.
+  Nah reads them on the host: it observes `/` as the cwd drive's root and
+  trusts `/usr/bin/git` by name, so these block as they do on Unix. The
+  receiver's namespace is not visible, and delegating would drop blocks the
+  host evidence supports; the Windows arm of the terminal nap suite expects
+  the same for its other root and credential rows.
 - `self-protection.critical.cp-no-clobber-existing-builtins` and
   `self-protection.critical.mv-no-clobber-existing-builtins` — `cp -n` and
   `mv -n` leave an existing destination alone, but whether it exists is
