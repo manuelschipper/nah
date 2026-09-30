@@ -94,11 +94,6 @@ fn performance_kpis() {
         });
         assert_eq!(result.core().verdict(), Verdict::Delegate);
     });
-    assert!(
-        core.p99 <= Duration::from_millis(1),
-        "captured core p99 {:?} exceeds 1 ms",
-        core.p99
-    );
 
     let provenance = initial.evidence_provenance().unwrap();
     let cache_context = super::memo_context(provenance, provenance.input_fingerprint.clone());
@@ -252,6 +247,11 @@ fn performance_kpis() {
             "recursive_scan_capped_us": duration_us(capped_scan_time),
             "local_archive_us": duration_us(local_scan_time),
         })
+    );
+    assert!(
+        core.p99 <= Duration::from_millis(1),
+        "captured core p99 {:?} exceeds 1 ms",
+        core.p99
     );
 }
 
