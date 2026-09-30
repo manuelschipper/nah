@@ -673,10 +673,6 @@ struct ShellEnv {
     /// Names unset in this shell. Unlike unexported names, these cannot
     /// provide the current shell's tilde expansion.
     unset: BTreeSet<String>,
-    /// Unset names the shell may nonetheless have set to a value the analysis
-    /// cannot recover: they expand as unset, but whether they are set is
-    /// unknown.
-    may_be_set: BTreeSet<String>,
     /// The shell operation that removed each name from the process environment.
     unexported_nodes: BTreeMap<String, ProvenanceRef>,
     /// Arguments of the function call being walked ($1...), or of a
@@ -1230,7 +1226,6 @@ pub(crate) fn analyze_shell(
         })
         .collect();
     let mut unset = unexported.clone();
-    let mut may_be_set = BTreeSet::new();
     unset.remove("PWD");
     if builder.is_host_realm()
         && let Some(context) = nest.context
@@ -1367,10 +1362,9 @@ pub(crate) fn analyze_shell(
     // Git Bash, the POSIX shell of a Windows host, sets and exports HOME when
     // it starts without one: HOMEDRIVE followed by HOMEPATH when both are set,
     // otherwise USERPROFILE (msys2-runtime's `fetch_home_env`). A source not
-    // yet observed is read, so the host answers it; until then, and when the
-    // source is unset, HOME keeps its observed absence. A set source whose
-    // value is unknown leaves HOME expanding as unset, as it did before this
-    // rule, but no longer certainly unset, so `${HOME:+rm}` may run `rm`.
+    // yet observed is read, so the host answers it. Until then, and when the
+    // source is unset or its value unknown, HOME keeps its observed absence,
+    // so a target spelled from it is judged as it was before.
     if unset.contains("HOME")
         && builder.is_host_realm()
         && nest
@@ -1407,61 +1401,50 @@ pub(crate) fn analyze_shell(
                 provenance: absence.into_iter().collect(),
             });
         }
-        let value =
-            (unobserved.is_empty() && !sources.iter().any(|name| absent(name))).then(|| {
+        let value = (unobserved.is_empty() && !sources.iter().any(|name| absent(name)))
+            .then(|| {
                 sources
                     .iter()
                     .map(|name| vars.get(*name).and_then(|entry| entry.value.clone()))
                     .collect::<Option<String>>()
-            });
-        match value {
-            Some(Some(value)) => {
-                let antecedents = sources
-                    .iter()
-                    .filter_map(|name| vars.get(*name).and_then(|entry| entry.node))
-                    .collect::<Vec<_>>();
-                let node = builder.node(
-                    ProvenanceKind::HostContext {
-                        name: "HOME".into(),
-                    },
-                    &antecedents,
-                );
-                unset.remove("HOME");
-                unexported.remove("HOME");
-                exported.insert("HOME".to_string());
-                let may = BTreeSet::from([value.clone()]);
-                vars.insert(
-                    "HOME".to_string(),
-                    VarEntry {
-                        nameref: false,
-                        branches: Vec::new(),
-                        saturation_key: variable_saturation_key(
-                            Some(&value),
-                            &may,
-                            None,
-                            false,
-                            false,
-                        ),
-                        value: Some(value),
-                        may,
-                        unresolved_default_override: false,
-                        word: None,
-                        word_condition: None,
-                        span: Span { start: 0, end: 0 },
-                        node: Some(node),
-                        antecedents: Vec::new(),
-                        producers: Vec::new(),
-                        script_set: false,
-                        script_may_set: false,
-                        captured_name_hidden: false,
-                        transparent_writes: Vec::new(),
-                    },
-                );
-            }
-            Some(None) => {
-                may_be_set.insert("HOME".to_string());
-            }
-            None => {}
+            })
+            .flatten();
+        if let Some(value) = value {
+            let antecedents = sources
+                .iter()
+                .filter_map(|name| vars.get(*name).and_then(|entry| entry.node))
+                .collect::<Vec<_>>();
+            let node = builder.node(
+                ProvenanceKind::HostContext {
+                    name: "HOME".into(),
+                },
+                &antecedents,
+            );
+            unset.remove("HOME");
+            unexported.remove("HOME");
+            exported.insert("HOME".to_string());
+            let may = BTreeSet::from([value.clone()]);
+            vars.insert(
+                "HOME".to_string(),
+                VarEntry {
+                    nameref: false,
+                    branches: Vec::new(),
+                    saturation_key: variable_saturation_key(Some(&value), &may, None, false, false),
+                    value: Some(value),
+                    may,
+                    unresolved_default_override: false,
+                    word: None,
+                    word_condition: None,
+                    span: Span { start: 0, end: 0 },
+                    node: Some(node),
+                    antecedents: Vec::new(),
+                    producers: Vec::new(),
+                    script_set: false,
+                    script_may_set: false,
+                    captured_name_hidden: false,
+                    transparent_writes: Vec::new(),
+                },
+            );
         }
     }
     // Shell launches supply `$0`, `$1`, ... with their argument provenance.
@@ -1526,7 +1509,6 @@ pub(crate) fn analyze_shell(
         nocaseglob,
         lastpipe: false,
         unset,
-        may_be_set,
         unexported_nodes,
         positional,
         positional_set_changed: Some(false),
@@ -3595,7 +3577,6 @@ impl Shell<'_> {
             nocaseglob: env.nocaseglob,
             lastpipe: env.lastpipe,
             unset: env.unset.clone(),
-            may_be_set: env.may_be_set.clone(),
             unexported_nodes: env.unexported_nodes.clone(),
             positional,
             positional_set_changed: Some(false),
