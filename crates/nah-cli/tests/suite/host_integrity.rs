@@ -3,7 +3,6 @@
 use crate::support;
 
 use nah_cli::decide_with;
-#[cfg(unix)]
 use nah_proto::decision::Verdict;
 use serde_json::json;
 use support::{bash_path, call, ctx, factory_ctx, repo};
