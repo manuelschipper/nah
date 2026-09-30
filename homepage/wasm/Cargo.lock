@@ -455,39 +455,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd8e701084c37e7ef62d3f9e453b618130cbc0ef3573847785952a3ac3f746bf"
 
 [[package]]
-name = "effinterp-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "effinterp-engine",
- "effinterp-proto",
- "effinterp-repo",
- "libc",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "effinterp-conformance"
-version = "0.1.0"
-dependencies = [
- "effinterp-proto",
- "serde_json",
-]
-
-[[package]]
-name = "effinterp-daemon"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "effinterp-conformance",
- "effinterp-proto",
- "effinterp-repo",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "effinterp-engine"
 version = "0.1.0"
 dependencies = [
@@ -496,6 +463,7 @@ dependencies = [
  "effinterp-proto",
  "gosyn",
  "hcl-rs",
+ "icu_normalizer",
  "idna",
  "im",
  "lib-ruby-parser",
@@ -542,21 +510,8 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "serde",
- "serde_ignored",
  "serde_json",
  "serde_path_to_error",
-]
-
-[[package]]
-name = "effinterp-repo"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "effinterp-engine",
- "effinterp-proto",
- "libc",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1244,7 +1199,6 @@ name = "nah-cli"
 version = "1.5.0"
 dependencies = [
  "clap",
- "effinterp-cli",
  "getrandom 0.4.3",
  "hmac",
  "nah-effinterp",
@@ -1267,21 +1221,15 @@ name = "nah-effinterp"
 version = "1.5.0"
 dependencies = [
  "blake3",
- "effinterp-daemon",
  "effinterp-engine",
  "effinterp-matcher",
  "effinterp-proto",
- "effinterp-repo",
  "effinterp-trace",
- "libc",
- "nah-extensions",
  "nah-observe",
- "nah-policy",
  "nah-proto",
  "serde",
  "serde_json",
  "sha2",
- "tempfile",
 ]
 
 [[package]]
@@ -1311,6 +1259,7 @@ dependencies = [
 name = "nah-observe"
 version = "1.5.0"
 dependencies = [
+ "libc",
  "nah-proto",
  "toml",
  "wait-timeout",
@@ -2137,16 +2086,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
-]
-
-[[package]]
-name = "serde_ignored"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "115dffd5f3853e06e746965a20dcbae6ee747ae30b543d91b0e089668bb07798"
-dependencies = [
- "serde",
- "serde_core",
 ]
 
 [[package]]

@@ -28,11 +28,7 @@ const SECRETS: &[&str] = &[
     "api-key",
     "apikey",
 ];
-const OWNER_PATHS: &[&str] = &[
-    "/home/dev",
-    "schipper",
-    "badlogic",
-];
+const OWNER_PATHS: &[&str] = &["/home/dev", "schipper", "badlogic"];
 
 #[test]
 fn corpus_matches_manifest_and_leaks_nothing() {
