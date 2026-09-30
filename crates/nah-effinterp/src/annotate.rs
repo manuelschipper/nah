@@ -290,6 +290,34 @@ pub(crate) fn annotate_path_relation(
     )
 }
 
+/// The host-integrity class a concrete path effect reaches by its spelling
+/// alone. It stands in when the host could not observe the path (an unreadable
+/// parent such as `/etc/sudoers.d`): the spelling still names a protected
+/// surface, so the class holds even without the followed identity. `None`
+/// establishes nothing; it is not evidence that no class applies.
+pub(crate) fn lexical_host_integrity(
+    effect: &Effect,
+    home: &AbsolutePath,
+    platform: Platform,
+) -> Option<nah_proto::labels::HostIntegrityClass> {
+    let ResourceExpr::Concrete {
+        identity: ResourceIdentity::FsPath { path },
+    } = &effect.resource
+    else {
+        return None;
+    };
+    let target = AbsolutePath::new(platform, path.as_str()).ok()?;
+    host_integrity_class(
+        filesystem_operation(effect),
+        path,
+        &target,
+        home,
+        platform,
+        false,
+        effect.attributes.get("recursive") == Some(&AttrValue::Bool(true)),
+    )
+}
+
 /// The entries a pattern with a `**` component, or any pattern a deletion
 /// that does not recurse takes, reaches from a complete listing of the files
 /// below its bound, observed as `target`. `None` for any other pattern, or

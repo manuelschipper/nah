@@ -209,6 +209,15 @@ pub(super) fn label_effect_target_path(
             reach: vec![],
         });
         labels.reach = selection_reach(view, effect);
+        if labels.host_integrity == Unknown
+            && let Some(class) = crate::annotate::lexical_host_integrity(
+                effect,
+                view.authority().home(),
+                view.authority().platform(),
+            )
+        {
+            labels.host_integrity = Known(vec![class]);
+        }
         let exact_or_bounded_path = match &effect.resource {
             p::ResourceExpr::Concrete {
                 identity: p::ResourceIdentity::FsPath { path },
