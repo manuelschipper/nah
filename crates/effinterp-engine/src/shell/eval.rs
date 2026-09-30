@@ -9849,7 +9849,7 @@ assurance: effinterp_proto::CausalAssurance::Exact,
             };
         }
         if env.unset.contains(name) {
-            return Some(false);
+            return (!env.may_be_set.contains(name)).then_some(false);
         }
         if let Some(entry) = env.vars.get(name)
             && entry.script_set
