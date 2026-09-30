@@ -1,0 +1,235 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:cf8a8eb57214fa44de4b9523d6e9a115c0065109ab2e3d7dd6a857ebd0ca7375",
+  "provenance": {
+    "author": "llm_drafted",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/developer_commands_sources.json#p18b/devtools/gofmt@v2",
+        "digest": "blake3:1e67f4063405c6fa5b9f31c33aba5b36cc7d075892ad0b1f7195f46269b1670a"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "gofmt",
+        "requirement": "reviewed-exact-surface@2026-09-16"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/gofmt@v2",
+        "path": "../../tests/fixtures/model_tranche/gofmt.json",
+        "digest": "blake3:12bcba8c72886c61e3813b3fc4fe305e211f7d4d6ccf89905ff1ba0e1fa0cb5a"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "gofmt-list-never-writes",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "gofmt",
+            "-l",
+            "src"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "gofmt-near-name",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "gofmt-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write",
+          "network.listen"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/gofmt@v2-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/gofmt@v2",
+      "commands": [
+        "gofmt"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-w"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-l"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-e"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-r"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [
+              "-w"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "stdin",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    }
+  ]
+}

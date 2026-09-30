@@ -1,0 +1,46 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "mixed-operands",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/work/x"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "fs_path",
+          "path": "/work/x"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    },
+    "scope": {
+      "realm": null,
+      "set": {
+        "kind": "fs_subtree",
+        "root": "/"
+      }
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": []
+    }
+  }
+}

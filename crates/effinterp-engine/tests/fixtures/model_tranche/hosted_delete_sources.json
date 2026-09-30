@@ -1,0 +1,19 @@
+{
+  "reviewed": "2026-09-19",
+  "github_cli": "0cf1092493af067646fc5f3db9421c6a6ec9c938",
+  "gitlab_cli": "5e811abcc71af2ab423477e4f58c903a7b2317bd",
+  "go_gh": "v2.16.1",
+  "pflag": "v1.0.10",
+  "sources": [
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/repo/delete/delete.go",
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/repo/delete/http.go",
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/secret/delete/delete.go",
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/cache/delete/delete.go",
+    "https://github.com/cli/go-gh/blob/v2.16.1/pkg/repository/repository.go",
+    "https://github.com/spf13/pflag/blob/v1.0.10/flag.go",
+    "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/api/http.go",
+    "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/project/delete/delete.go",
+    "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/ssh-key/delete/delete.go"
+  ],
+  "surface": "Validated literal DELETE routes, explicit repository selectors, direct secret/cache/SSH key requests, and ordered Boolean controls. Prompt-driven current repository deletion and glab unconfirmed deletion stay May; unresolved configuration never becomes a concrete host or repository. Request shape, execution assurance, and modality remain independent."
+}

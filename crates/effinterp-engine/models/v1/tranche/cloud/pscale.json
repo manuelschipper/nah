@@ -1,0 +1,533 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:32fe28b7b9d35ff369e7bf85f8f1cf6f7c9c97a8dac59f2ab6ac08e392160103",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/cloud/pscale@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "pscale",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/cloud/pscale@v1",
+        "path": "../../tests/fixtures/model_tranche/pscale.json",
+        "digest": "blake3:c03e0c975339916053c310de1d03c56c6d7a3e7a3642937aeff636d2dde93b14"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "pscale-db-rm-app---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pscale",
+            "db",
+            "rm",
+            "app",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "pscale-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pscale-not-the-command",
+            "database",
+            "delete",
+            "app"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      },
+      {
+        "name": "pscale-password-delete-app-main-pw-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pscale",
+            "password",
+            "delete",
+            "app",
+            "main",
+            "pw"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/cloud/pscale@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "cloud.resource.delete"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/cloud/pscale@v1",
+      "commands": [
+        "pscale"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--skill"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--org"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--api-token"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--api-url"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--config"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--format",
+            "-f"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--service-token"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--service-token-id"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--service-token-name"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--debug"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--no-color"
+          ],
+          "takes_value": false,
+          "boolean": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "subcommands": [
+            {
+              "names": [
+                "delete",
+                "rm"
+              ],
+              "index": 0,
+              "flags": [
+                {
+                  "names": [
+                    "--force"
+                  ],
+                  "takes_value": false,
+                  "boolean": true
+                }
+              ],
+              "positionals": [
+                {
+                  "name": "database",
+                  "index": 0,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
+                }
+              ],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "positional",
+                    "name": "database"
+                  },
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "--skill",
+                      "--version",
+                      "-h"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "cloud.resource.delete",
+                      "resource": {
+                        "kind": "cloud",
+                        "scope": {
+                          "kind": "unsupported",
+                          "identity": {
+                            "partition": {
+                              "state": "unknown"
+                            },
+                            "account": {
+                              "state": "unknown"
+                            },
+                            "project": {
+                              "state": "unknown"
+                            },
+                            "subscription": {
+                              "state": "unknown"
+                            },
+                            "region": {
+                              "state": "unknown"
+                            },
+                            "zone": {
+                              "state": "unknown"
+                            },
+                            "storage_account": {
+                              "state": "unknown"
+                            },
+                            "resource_group": {
+                              "state": "unknown"
+                            },
+                            "cluster": {
+                              "state": "unknown"
+                            },
+                            "namespace": {
+                              "state": "unknown"
+                            }
+                          },
+                          "access": []
+                        },
+                        "provider": {
+                          "kind": "literal",
+                          "value": "planetscale"
+                        },
+                        "service": {
+                          "kind": "literal",
+                          "value": "database"
+                        },
+                        "resource_kind": {
+                          "kind": "literal",
+                          "value": "database"
+                        },
+                        "id": {
+                          "kind": "current"
+                        }
+                      },
+                      "attributes": {},
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "cloud",
+                  "process"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            }
+          ],
+          "names": [
+            "database",
+            "db"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "subcommands": [
+            {
+              "names": [
+                "delete",
+                "rm"
+              ],
+              "index": 0,
+              "flags": [
+                {
+                  "names": [
+                    "--delete-descendants"
+                  ],
+                  "takes_value": false,
+                  "boolean": true
+                }
+              ],
+              "positionals": [
+                {
+                  "name": "database",
+                  "index": 0,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
+                },
+                {
+                  "name": "branch",
+                  "index": 1,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
+                }
+              ],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "positional",
+                    "name": "branch"
+                  },
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "--skill",
+                      "--version",
+                      "-h"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "cloud.resource.delete",
+                      "resource": {
+                        "kind": "cloud",
+                        "scope": {
+                          "kind": "unsupported",
+                          "identity": {
+                            "partition": {
+                              "state": "unknown"
+                            },
+                            "account": {
+                              "state": "unknown"
+                            },
+                            "project": {
+                              "state": "unknown"
+                            },
+                            "subscription": {
+                              "state": "unknown"
+                            },
+                            "region": {
+                              "state": "unknown"
+                            },
+                            "zone": {
+                              "state": "unknown"
+                            },
+                            "storage_account": {
+                              "state": "unknown"
+                            },
+                            "resource_group": {
+                              "state": "unknown"
+                            },
+                            "cluster": {
+                              "state": "unknown"
+                            },
+                            "namespace": {
+                              "state": "unknown"
+                            }
+                          },
+                          "access": []
+                        },
+                        "provider": {
+                          "kind": "literal",
+                          "value": "planetscale"
+                        },
+                        "service": {
+                          "kind": "literal",
+                          "value": "database"
+                        },
+                        "resource_kind": {
+                          "kind": "literal",
+                          "value": "branch"
+                        },
+                        "id": {
+                          "kind": "join",
+                          "parts": [
+                            {
+                              "kind": "positional",
+                              "name": "database"
+                            },
+                            {
+                              "kind": "positional",
+                              "name": "branch"
+                            }
+                          ],
+                          "separator": "/"
+                        }
+                      },
+                      "attributes": {},
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "cloud",
+                  "process"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            }
+          ],
+          "names": [
+            "branch"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

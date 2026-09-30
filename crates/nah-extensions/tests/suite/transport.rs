@@ -11,7 +11,7 @@ use nah_proto::extension::{ConsultationOutcome, TransportRejectionCode};
 use support::{Fixture, absolute, consultation_outcomes, finish, write_manifest};
 
 #[test]
-fn shell_python_and_compiled_extensions_answer_exec_v1() {
+fn shell_python_and_compiled_extensions_answer_exec_v2() {
     let shell = Fixture::shell(
         "shell",
         r#"read request
@@ -119,15 +119,19 @@ fn process_precedence_is_stable() {
 
 #[test]
 fn completed_extension_cannot_leave_a_pipe_holding_descendant() {
+    // A response means the guard itself exited within `EXEC_TIMEOUT`; the
+    // remaining slack covers spawning it and draining its pipes. A descendant
+    // left holding stdout would stall the read far past that.
+    const SLACK: Duration = Duration::from_secs(5);
     let fixture = Fixture::shell(
         "descendant",
-        "(sleep 5) &\nprintf '%s\\n' '{\"block\":true,\"reason\":\"answered\"}'",
+        "(sleep 15) &\nprintf '%s\\n' '{\"block\":true,\"reason\":\"answered\"}'",
     );
     let started = Instant::now();
     let outcomes = consultation_outcomes(fixture.consult());
     assert_eq!(outcomes.len(), 1);
     assert!(matches!(outcomes[0], ConsultationOutcome::Response { .. }));
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < nah_extensions::EXEC_TIMEOUT + SLACK);
 }
 
 #[test]
@@ -233,4 +237,17 @@ fn bounded_stderr_is_sanitized_and_returned_as_a_diagnostic() {
     );
     assert_eq!(output.diagnostics.len(), 1);
     assert_eq!(output.diagnostics[0].stderr(), "planted red");
+
+    // Far more stderr than the 8 KiB capture cap, the 64 KiB stdout cap and a
+    // pipe buffer: the process still finishes, and only the first 8 KiB is kept.
+    let fixture = Fixture::shell(
+        "stderr-flood",
+        "yes 0123456789 | head -c 200000 >&2\nexit 9",
+    );
+    let output = fixture.consult();
+
+    assert_eq!(output.consultations[0].outcome, ConsultationOutcome::Crash);
+    assert_eq!(output.diagnostics.len(), 1);
+    let expected: String = "0123456789\n".repeat(745).chars().take(8 * 1024).collect();
+    assert_eq!(output.diagnostics[0].stderr(), expected);
 }

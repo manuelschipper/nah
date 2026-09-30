@@ -16,12 +16,31 @@ use std::process::Command;
 /// Crates whose code must be pure: no I/O, env, clocks, processes, unsafe, or
 /// ambient global state. Enforced in layers: compiler-resolved Clippy
 /// restrictions, this lexical guardrail, and dependency allowlists.
-pub const PURE_CRATES: &[&str] = &[
-    "nah-proto",
-    "nah-parse",
-    "nah-inline",
-    "nah-actions",
-    "nah-policy",
+pub const PURE_CRATES: &[&str] = &["nah-proto", "nah-policy"];
+
+/// Engine crates without I/O: the plan protocol, its graph walker, and the
+/// matcher that evaluates guard queries over it. They are held to the same
+/// purity rules, so pure Nah crates may link them directly; engine analysis
+/// stays behind nah-effinterp.
+pub const PURE_ENGINE_CRATES: &[&str] =
+    &["effinterp-proto", "effinterp-trace", "effinterp-matcher"];
+
+/// Every crate held to the purity rules.
+pub fn pure_crates() -> impl Iterator<Item = &'static str> {
+    PURE_CRATES.iter().chain(PURE_ENGINE_CRATES).copied()
+}
+
+pub fn is_pure(krate: &str) -> bool {
+    pure_crates().any(|pure| pure == krate)
+}
+
+/// `std::net` value types a pure crate may name: parsing an address performs
+/// no network I/O. They are removed from a line before it is scanned, so any
+/// other `std::net` path on that line is still rejected.
+pub const PURE_STD_NET_TYPES: &[&str] = &[
+    "std::net::IpAddr",
+    "std::net::Ipv4Addr",
+    "std::net::Ipv6Addr",
 ];
 
 /// Tokens that must never appear in a pure crate's `src/`. Coarse on
@@ -55,50 +74,83 @@ pub const FORBIDDEN_IN_PURE: &[&str] = &[
 /// the coverage test leans on that.
 pub fn allowed_nah_deps(krate: &str) -> &'static [&'static str] {
     match krate {
-        "nah-proto" => &[],
-        "nah-parse" => &["nah-proto"],
-        "nah-inline" => &["nah-proto"],
-        "nah-actions" => &["nah-proto", "nah-parse", "nah-inline"],
+        // The engine's consumer-neutral plan graph is the one engine contract
+        // the protocol crate embeds.
+        "nah-proto" => &["effinterp-proto"],
         "nah-observe" => &["nah-proto"],
-        "nah-policy" => &["nah-proto", "nah-inline"],
+        // Guards are matcher queries over the engine's plan types.
+        "nah-policy" => &["nah-proto", "effinterp-matcher", "effinterp-proto"],
         "nah-extensions" => &["nah-proto"],
-        // The daemon reads the trusted roots `nah trust` persists.
-        "nah-effinterp" => &["nah-proto", "nah-extensions", "nah-observe"],
+        // The bridge is the only Nah crate that drives the engine. It supplies
+        // the labels the matcher reads, and never depends on policy: the CLI
+        // composes shipped guard evaluation with it.
+        "nah-effinterp" => &[
+            "nah-proto",
+            "nah-observe",
+            "effinterp-engine",
+            "effinterp-matcher",
+            "effinterp-proto",
+            "effinterp-trace",
+        ],
         // The CLI owns application orchestration. It may compose every
         // runtime layer, but never test tooling or the corpus harness.
         "nah-cli" => &[
             "nah-proto",
-            "nah-parse",
-            "nah-inline",
-            "nah-actions",
             "nah-observe",
             "nah-policy",
             "nah-extensions",
             "nah-effinterp",
         ],
-        // The corpus harness drives the same application seam from frozen
-        // fixtures. It must not assemble a second decision pipeline.
-        "nah-corpus" => &["nah-proto", "nah-cli"],
+        // The corpus harness drives the application seam from frozen
+        // fixtures.
+        "nah-corpus" => &["nah-proto", "nah-cli", "nah-policy", "nah-corpus-schema"],
+        // The corpus row schema depends on no Nah or engine crate, so the
+        // engine bench can decode the corpus the harness qualifies against.
+        "nah-corpus-schema" => &[],
+        // Engine crates layer upward from the protocol: schema, engine, then
+        // repository analysis.
+        "effinterp-proto" => &[],
+        "effinterp-model-schema" => &["effinterp-proto"],
+        "effinterp-engine" => &["effinterp-proto", "effinterp-model-schema"],
+        "effinterp-repo" => &["effinterp-proto", "effinterp-engine"],
+        "effinterp-conformance" => &["effinterp-proto"],
+        // The pure guard-query evaluator walks plans with the trace crate.
+        "effinterp-trace" => &["effinterp-proto"],
+        "effinterp-matcher" => &["effinterp-proto", "effinterp-trace"],
+        // Engine development tools: none is a dependency of the shipped binary.
+        "effinterp-testkit" => &["effinterp-proto", "effinterp-engine"],
+        // Model and bench assertions are evaluated by the shared matcher.
+        "effinterp-model-factory" => &[
+            "effinterp-proto",
+            "effinterp-engine",
+            "effinterp-matcher",
+            "effinterp-model-schema",
+        ],
+        "effinterp-bench" => &[
+            "effinterp-proto",
+            "effinterp-engine",
+            "effinterp-repo",
+            "effinterp-trace",
+            "effinterp-testkit",
+            "effinterp-matcher",
+            "nah-corpus-schema",
+        ],
         other => panic!("unknown crate {other}: add it to allowed_nah_deps"),
     }
 }
 
-/// External (non-nah) crates a pure crate may depend on. This grows one
+/// External (non-workspace) crates a pure crate may depend on. This grows one
 /// reviewed dependency at a time. None means the crate is not pure and is
 /// unrestricted by this particular check.
 pub fn allowed_external_deps(krate: &str) -> Option<&'static [&'static str]> {
     match krate {
-        "nah-proto" => Some(&["effinterp-proto", "serde", "serde_json"]),
-        "nah-parse" => Some(&["tree-sitter", "tree-sitter-bash"]),
-        "nah-inline" => Some(&[
-            "serde_json",
-            "tree-sitter",
-            "tree-sitter-javascript",
-            "tree-sitter-python",
-            "tree-sitter-typescript",
-        ]),
-        "nah-actions" => Some(&["idna"]),
-        krate if PURE_CRATES.contains(&krate) => Some(&[]),
+        // sha2 only fingerprints observation facts in memory.
+        "nah-proto" => Some(&["serde", "serde_json", "sha2"]),
+        // blake3 digests canonical plan bytes in memory; serde_path_to_error
+        // locates decode failures.
+        "effinterp-proto" => Some(&["serde", "serde_json", "blake3", "serde_path_to_error"]),
+        "effinterp-matcher" => Some(&["serde", "serde_json"]),
+        krate if is_pure(krate) => Some(&[]),
         _ => None,
     }
 }
@@ -202,6 +254,47 @@ pub fn workspace_packages() -> Vec<PackageDeps> {
         .collect()
 }
 
+/// Workspace test binaries: the source root of every integration test target
+/// Cargo links for a workspace member, relative to the workspace root. Cargo
+/// links one binary per `tests/*.rs` file or declared `[[test]]`, and every
+/// worktree's `target/` carries a copy of each.
+pub fn workspace_test_binaries() -> Vec<PathBuf> {
+    let root = workspace_root();
+    let out = Command::new("cargo")
+        .args(["metadata", "--locked", "--no-deps", "--format-version", "1"])
+        .current_dir(&root)
+        .output()
+        .expect("run cargo metadata");
+    assert!(
+        out.status.success(),
+        "cargo metadata failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let meta: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("parse cargo metadata");
+    let mut binaries = meta["packages"]
+        .as_array()
+        .expect("packages array")
+        .iter()
+        .flat_map(|pkg| pkg["targets"].as_array().expect("targets"))
+        .filter(|target| {
+            target["kind"]
+                .as_array()
+                .expect("target kinds")
+                .iter()
+                .any(|kind| kind.as_str() == Some("test"))
+        })
+        .map(|target| {
+            Path::new(target["src_path"].as_str().expect("target src_path"))
+                .strip_prefix(&root)
+                .expect("workspace test target lies inside the workspace")
+                .to_path_buf()
+        })
+        .collect::<Vec<_>>();
+    binaries.sort();
+    binaries
+}
+
 /// Workspace path dependencies via `cargo metadata`.
 pub fn workspace_path_dependencies() -> Vec<PathDependency> {
     let out = Command::new("cargo")
@@ -289,11 +382,13 @@ pub fn dependency_direction_violations(
     violations
 }
 
-/// External effectinterp crates may link only at the designated boundary.
+/// Engine crates link into Nah only at designated boundaries: the bridge and
+/// pure Nah crates' use of the pure engine crates. Engine analysis is reached only through nah-effinterp. Edges
+/// between engine crates are their own layering, checked by the allowlist.
 pub fn effinterp_linkage_violations(packages: &[PackageDeps]) -> Vec<String> {
     let mut violations = Vec::new();
     for pkg in packages {
-        if matches!(pkg.name.as_str(), "nah-effinterp" | "nah-cli") {
+        if pkg.name.starts_with("effinterp-") || pkg.name == "nah-effinterp" {
             continue;
         }
         for (kind, deps) in [
@@ -302,10 +397,11 @@ pub fn effinterp_linkage_violations(packages: &[PackageDeps]) -> Vec<String> {
         ] {
             for dep in deps.iter().filter(|dep| {
                 dep.starts_with("effinterp-")
-                    && !(pkg.name == "nah-proto" && dep.as_str() == "effinterp-proto")
+                    && !(PURE_CRATES.contains(&pkg.name.as_str())
+                        && PURE_ENGINE_CRATES.contains(&dep.as_str()))
             }) {
                 violations.push(format!(
-                    "{} has forbidden {kind} {dep}; link effectinterp through nah-effinterp",
+                    "{} has forbidden {kind} {dep}; link the engine through nah-effinterp",
                     pkg.name
                 ));
             }
@@ -336,60 +432,88 @@ pub fn path_dependency_violations(dependencies: &[PathDependency], root: &Path) 
         .collect()
 }
 
-/// The private source replacement must stay pinned to both dependency declarations.
-pub fn effinterp_revision_violations(manifest: &str, config: &str) -> Vec<String> {
-    let config_rev = section_revision(config, "source.effinterp");
+/// The engine packages that must resolve from this workspace and nowhere else.
+pub const ENGINE_PACKAGES: &[&str] = &[
+    "effinterp-proto",
+    "effinterp-model-schema",
+    "effinterp-engine",
+    "effinterp-repo",
+    "effinterp-conformance",
+    "effinterp-bench",
+    "effinterp-model-factory",
+    "effinterp-trace",
+    "effinterp-testkit",
+    "effinterp-matcher",
+];
+
+/// One package of the fully resolved dependency graph.
+#[derive(Debug)]
+pub struct ResolvedPackage {
+    pub name: String,
+    /// Cargo's source id; `None` is a workspace path package.
+    pub source: Option<String>,
+    pub manifest_path: PathBuf,
+}
+
+/// Every package Cargo resolves for the workspace, dependencies included.
+pub fn resolved_packages() -> Vec<ResolvedPackage> {
+    let out = Command::new("cargo")
+        .args(["metadata", "--locked", "--format-version", "1"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("run cargo metadata");
+    assert!(
+        out.status.success(),
+        "cargo metadata failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let meta: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("parse cargo metadata");
+    meta["packages"]
+        .as_array()
+        .expect("packages array")
+        .iter()
+        .map(|pkg| ResolvedPackage {
+            name: pkg["name"].as_str().expect("package name").to_owned(),
+            source: pkg["source"].as_str().map(str::to_owned),
+            manifest_path: PathBuf::from(pkg["manifest_path"].as_str().expect("manifest_path")),
+        })
+        .collect()
+}
+
+/// Each engine package resolves exactly once, from a manifest inside this
+/// workspace. A registry or Git copy, a duplicate instance, or a manifest
+/// outside the tree would let a second engine reach a decision.
+pub fn engine_source_violations(packages: &[ResolvedPackage], root: &Path) -> Vec<String> {
+    let root = root.canonicalize().expect("canonical workspace root");
     let mut violations = Vec::new();
-    for dependency in [
-        "effinterp-daemon",
-        "effinterp-engine",
-        "effinterp-proto",
-        "effinterp-repo",
-    ] {
-        let dependency_rev = manifest.lines().find_map(|line| {
-            let line = line.trim();
-            line.starts_with(dependency)
-                .then(|| quoted_assignment(line, "rev"))
-                .flatten()
-        });
-        match (dependency_rev, config_rev) {
-            (Some(dependency_rev), Some(config_rev)) if dependency_rev == config_rev => {}
-            (Some(dependency_rev), Some(config_rev)) => violations.push(format!(
-                "{dependency} rev {dependency_rev} differs from source.effinterp rev {config_rev}"
-            )),
-            (None, _) => violations.push(format!("{dependency} has no pinned rev")),
-            (_, None) => violations.push("source.effinterp has no pinned rev".to_owned()),
+    for name in ENGINE_PACKAGES {
+        let found: Vec<_> = packages.iter().filter(|pkg| pkg.name == *name).collect();
+        match found.as_slice() {
+            [] => violations.push(format!("{name} is missing from the resolved graph")),
+            [package] => {
+                if let Some(source) = &package.source {
+                    violations.push(format!("{name} resolves from {source}, not the workspace"));
+                } else if !package
+                    .manifest_path
+                    .canonicalize()
+                    .is_ok_and(|manifest| manifest.starts_with(&root))
+                {
+                    violations.push(format!(
+                        "{name} manifest {} is outside the workspace",
+                        package.manifest_path.display()
+                    ));
+                }
+            }
+            many => violations.push(format!("{name} resolves {} times", many.len())),
         }
     }
     violations
 }
 
-fn section_revision<'a>(text: &'a str, section: &str) -> Option<&'a str> {
-    let header = format!("[{section}]");
-    let mut in_section = false;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            in_section = line == header;
-        } else if in_section && line.starts_with("rev") {
-            return quoted_assignment(line, "rev");
-        }
-    }
-    None
-}
-
-fn quoted_assignment<'a>(line: &'a str, key: &str) -> Option<&'a str> {
-    let (_, value) = line.split_once(key)?;
-    let value = value
-        .trim_start()
-        .strip_prefix('=')?
-        .trim_start()
-        .strip_prefix('"')?;
-    value.split_once('"').map(|(value, _)| value)
-}
-
 /// Dependency purity violations. Pure crates may use only explicitly
 /// allowlisted normal dependencies and may never use a build script/dependency.
+/// A workspace dependency must itself be pure, so purity holds transitively.
 pub fn pure_dependency_violations(packages: &[PackageDeps]) -> Vec<String> {
     let mut violations = Vec::new();
     for pkg in packages {
@@ -398,8 +522,8 @@ pub fn pure_dependency_violations(packages: &[PackageDeps]) -> Vec<String> {
         };
         let allowed_nah = allowed_nah_deps(&pkg.name);
         for dep in &pkg.normal_deps {
-            let allowed = if dep.starts_with("nah-") {
-                allowed_nah.contains(&dep.as_str())
+            let allowed = if dep.starts_with("nah-") || dep.starts_with("effinterp-") {
+                allowed_nah.contains(&dep.as_str()) && is_pure(dep)
             } else {
                 external.contains(&dep.as_str())
             };
@@ -473,6 +597,9 @@ pub fn impure_source_violations(krate: &str, file: &Path, text: &str) -> Vec<Str
         let Some(code) = scannable(line) else {
             continue;
         };
+        let code = PURE_STD_NET_TYPES
+            .iter()
+            .fold(code.to_owned(), |code, path| code.replace(path, ""));
         for token in FORBIDDEN_IN_PURE {
             if code.contains(token) {
                 violations.push(format!(
@@ -486,19 +613,20 @@ pub fn impure_source_violations(krate: &str, file: &Path, text: &str) -> Vec<Str
     violations
 }
 
-/// Shared predicates must not depend on producers; direct analysis must not gain
-/// ambient resolution or command execution while the optional seam is qualified.
-pub fn evidence_boundary_violations(shared: &str, adapter: &str) -> Vec<String> {
+/// The evidence graph (`nah_proto::effects`) must not depend on producers; the
+/// bridge must not gain ambient resolution or command execution.
+pub fn evidence_boundary_violations(evidence_graph: &str, bridge: &str) -> Vec<String> {
     let mut violations = Vec::new();
+    // effinterp_proto is the plan contract nah-proto embeds, not a producer.
     for token in [
-        "effinterp_",
-        "nah_actions",
-        "nah_inline",
+        "effinterp_engine",
+        "effinterp_repo",
+        "effinterp_matcher",
         "serde_json::Value",
     ] {
-        if shared.contains(token) {
+        if evidence_graph.contains(token) {
             violations.push(format!(
-                "shared effects contain producer or untyped payload token {token}"
+                "evidence graph contains producer or untyped payload token {token}"
             ));
         }
     }
@@ -508,13 +636,10 @@ pub fn evidence_boundary_violations(shared: &str, adapter: &str) -> Vec<String> 
         "std::process",
         "std::fs",
         "std::env",
-        "run_daemon",
         "consult_extensions",
     ] {
-        if adapter.contains(token) {
-            violations.push(format!(
-                "evidence adapter contains side-effect token {token}"
-            ));
+        if bridge.contains(token) {
+            violations.push(format!("bridge contains side-effect token {token}"));
         }
     }
     violations
@@ -566,23 +691,32 @@ mod tests {
     #[test]
     fn seeded_impure_source_is_rejected_by_live_validator() {
         let violations = impure_source_violations(
-            "nah-parse",
+            "nah-proto",
             Path::new("seeded.rs"),
             "pub fn seeded() { let _ = std::fs::read(\"secret\"); }",
         );
         assert_eq!(violations.len(), 1);
         assert!(violations[0].contains("forbidden token `std::fs`"));
+
+        // Engine protocol code may parse addresses but never open a socket.
+        let violations = impure_source_violations(
+            "effinterp-proto",
+            Path::new("seeded.rs"),
+            "let ok = a.parse::<std::net::Ipv6Addr>().is_ok(); std::net::TcpStream::connect(a);",
+        );
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].contains("forbidden token `std::net`"));
     }
 
     #[test]
     fn metadata_sees_real_package_names() {
         // The dep gate must see through `package = "..."` renames and
         // `[dependencies.x]` table forms; cargo metadata reports real names,
-        // proven here against the live workspace parser dependencies.
+        // proven here against the live protocol crate's dependencies.
         let pkgs = workspace_packages();
-        let parse = pkgs.iter().find(|p| p.name == "nah-parse").unwrap();
-        for dependency in ["tree-sitter", "tree-sitter-bash"] {
-            assert!(parse.normal_deps.contains(&dependency.to_owned()));
+        let proto = pkgs.iter().find(|p| p.name == "nah-proto").unwrap();
+        for dependency in ["effinterp-proto", "sha2"] {
+            assert!(proto.normal_deps.contains(&dependency.to_owned()));
         }
     }
 }

@@ -1,4 +1,5 @@
 Built-in:
+- [ ] db-destroy
 - [x] exec-decoded
 - [x] exec-network-shell
 - [x] exec-obfuscated

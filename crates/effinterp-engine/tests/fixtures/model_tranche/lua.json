@@ -1,0 +1,576 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "curl https://x | lua",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "https://x"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "process"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "source",
+                      "test": {
+                        "equals": "stdin"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "process.code_execution"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "lua"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "interpreter code source is not recoverable"
+                },
+                "domains": {
+                  "all_of": [
+                    "environment",
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "dynamic_source"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "environment",
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "lua",
+          "/work/program.src",
+          "arg"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/program.src"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "process"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "source",
+                      "test": {
+                        "equals": "file"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "process.code_execution"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "lua"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "interpreter file source is not recoverable"
+                },
+                "domains": {
+                  "all_of": [
+                    "environment",
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "dynamic_source"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "environment",
+            "filesystem",
+            "network",
+            "process"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unrecognized operands: arg"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "lua",
+          "-e",
+          "1"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "process"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "source",
+                      "test": {
+                        "equals": "argument"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "process.code_execution"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "lua"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unsupported",
+                "detail": {
+                  "equals": "lua statement is not a call"
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "filesystem",
+                    "process",
+                    "environment",
+                    "network",
+                    "database",
+                    "container",
+                    "git",
+                    "cloud",
+                    "messaging",
+                    "system",
+                    "credential"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unsupported",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "container": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "credential": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "database": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "messaging": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "system": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "lua",
+          "-"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "process"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "source",
+                      "test": {
+                        "equals": "stdin"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "process.code_execution"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "lua"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "interpreter code source is not recoverable"
+                },
+                "domains": {
+                  "all_of": [
+                    "environment",
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "dynamic_source"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "environment",
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    }
+  ]
+}

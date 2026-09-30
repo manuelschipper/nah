@@ -1,15 +1,16 @@
-#![allow(dead_code, clippy::disallowed_methods, clippy::disallowed_types)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use nah_extensions::{
     ActivationDatabase, MemoCache, activation_database_path, consult_extensions, discover_bundles,
     load_active_extensions, memo_cache_path, record_activation,
 };
-use nah_proto::action::{ActionStream, Coverage, EffectKind};
+use nah_proto::action::Coverage;
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::extension::ConsultationOutcome;
 use nah_proto::observation::{
@@ -23,7 +24,7 @@ pub(crate) struct Fixture {
     pub(crate) catalog: nah_extensions::ActiveExtensionCatalog,
     pub(crate) ctx: Ctx,
     pub(crate) observation: Observation,
-    pub(crate) action_stream: ActionStream,
+    pub(crate) evidence: nah_proto::effects::GuardEvidence,
     pub(crate) cache: MemoCache,
     pub(crate) run: PathBuf,
 }
@@ -64,10 +65,9 @@ impl Fixture {
             &self.catalog,
             &self.ctx,
             &self.observation,
-            &self.action_stream,
-            #[cfg(feature = "effinterp")]
-            None,
+            &self.evidence,
             &self.cache,
+            &crate::support::memo_context(),
         )
     }
 }
@@ -78,7 +78,24 @@ pub(crate) fn finish(
     run: PathBuf,
     program: &str,
 ) -> Fixture {
+    warm_up(&run);
     finish_for_platform(temp, home, run, program, Platform::Linux)
+}
+
+/// Runs a freshly written guard executable once and discards the result.
+/// macOS XProtect gates the first exec of a newly written file at about
+/// 100 ms, serialized across processes, so parallel tests would otherwise
+/// spend the consultation's `EXEC_TIMEOUT` queued behind it. The throwaway
+/// working directory keeps a fixture's cwd-relative side effects (counters,
+/// marker files) out of the guard directory the test inspects.
+pub(crate) fn warm_up(run: &Path) {
+    let cwd = tempfile::tempdir().unwrap();
+    let _ = Command::new(run)
+        .current_dir(cwd.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 }
 
 #[cfg(windows)]
@@ -117,12 +134,7 @@ fn finish_for_platform(
     let catalog = load_active_extensions(&home, platform, &trust, &activations, &[]).unwrap();
     let ctx = Ctx::new(platform, home.clone(), vec![], catalog.activations(), trust).unwrap();
     let observation = observation(&home);
-    let action_stream = ActionStream::new(
-        Coverage::Full,
-        vec![vec![EffectKind::known(program, "read-only").unwrap()]],
-        vec![],
-    )
-    .unwrap();
+    let evidence = call_evidence(&[(&[program], None)]);
     let cache = MemoCache::new(memo_cache_path(&home, platform));
     Fixture {
         _temp: temp,
@@ -130,7 +142,7 @@ fn finish_for_platform(
         catalog,
         ctx,
         observation,
-        action_stream,
+        evidence,
         cache,
         run,
     }
@@ -140,7 +152,7 @@ pub(crate) fn write_manifest(directory: &Path, name: &str, program: &str) {
     fs::write(
         directory.join("policy.toml"),
         format!(
-            "name = \"{name}\"\nmatch = [\"{program}\"]\nprotocol = \"exec/v1\"\nprovenance = \"user\"\n"
+            "name = \"{name}\"\nmatch = [\"{program}\"]\nprotocol = \"exec/v2\"\nprovenance = \"user\"\n"
         ),
     )
     .unwrap();
@@ -222,4 +234,52 @@ pub(crate) fn consultation_outcomes(
         .into_iter()
         .map(|consultation| consultation.outcome)
         .collect()
+}
+
+/// Fully covered evidence of one visible call per argv, with its visible
+/// working directory when known, shaped as the bridge states a shell invocation.
+pub(crate) fn call_evidence(
+    calls: &[(&[&str], Option<AbsolutePath>)],
+) -> nah_proto::effects::GuardEvidence {
+    use Knowledge::{Known, Unknown};
+    use nah_proto::effects::*;
+    let calls = calls
+        .iter()
+        .enumerate()
+        .map(|(i, (argv, cwd))| EffectCall {
+            arguments: Known(argv.iter().map(|word| (*word).to_owned()).collect()),
+            id: CallId(i as u32),
+            parent: None,
+            kind: InvocationKind::Argv,
+            identity: Known(argv[0].into()),
+            input: None,
+            cwd: cwd.clone().map_or(Unknown, Known),
+            payload_group: Known(PayloadGroupId(0)),
+            visibility_ordinal: Known(i as u32),
+            coverage: Coverage::Full,
+        })
+        .collect();
+    let graph = EffectGraph {
+        calls,
+        resources: vec![],
+        facts: vec![],
+        occurrences: vec![],
+        relations: vec![],
+        conditions: vec![],
+        coverage: vec![],
+        gaps: vec![],
+        causality: CausalAvailability::Unavailable,
+    };
+    let public = PublicSelection::visible(&graph);
+    GuardEvidence::new(graph, public).unwrap()
+}
+
+pub(crate) fn memo_context() -> nah_extensions::MemoContext {
+    nah_extensions::MemoContext::new(
+        "test/producer",
+        None,
+        std::collections::BTreeMap::new(),
+        "test/input",
+        "test/source",
+    )
 }

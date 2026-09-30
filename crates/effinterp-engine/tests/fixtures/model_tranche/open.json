@@ -1,0 +1,305 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "open",
+          "report.pdf"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/report.pdf"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "open",
+          "https://example.org/path"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "https://example.org/path"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "open",
+          "-a",
+          "Safari",
+          "https://example.org"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "https://example.org"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "open",
+          "mailto:a@b.c"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unsupported URL scheme or dynamic path/URL operand"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unsupported URL scheme or dynamic path/URL operand"
+                },
+                "domains": {
+                  "all_of": [
+                    "network"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "open",
+          "file:///etc/passwd"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unsupported URL scheme or dynamic path/URL operand"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unsupported URL scheme or dynamic path/URL operand"
+                },
+                "domains": {
+                  "all_of": [
+                    "network"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    }
+  ]
+}

@@ -221,6 +221,19 @@ fn a_malformed_bundle_does_not_disarm_a_healthy_sibling() {
     // paths before matching them
     let root = support::test_temp_path(temp.path());
     assert!(nah(&root, &["guard", "new", "tool"], None).status.success());
+    // exec/v2 publishes call identities, not argv, so the guard blocks on the
+    // program it matched rather than the template's argv example.
+    std::fs::write(
+        root.join(".nah/guards/tool/run"),
+        "#!/bin/sh\nprintf '%s\\n' '{\"block\":true,\"reason\":\"blocked tool\"}'\n",
+    )
+    .unwrap();
+    // macOS XProtect gates the first exec of a newly written file at about
+    // 100 ms, serialized across processes; run the guard once so that cost
+    // does not land inside the consultation's EXEC_TIMEOUT.
+    let _ = Command::new(root.join(".nah/guards/tool/run"))
+        .stdin(Stdio::null())
+        .output();
     assert!(
         nah(&root, &["guard", "enable", "tool"], None)
             .status

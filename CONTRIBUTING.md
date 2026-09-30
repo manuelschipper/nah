@@ -32,7 +32,8 @@ cargo test --workspace --locked
 ```
 
 Use `nah test "..."` when you want to dry-run the decision pipeline on a
-command without executing it.
+command without executing it; `--tool` and `--source` dry-run an agent tool
+call or code the same way.
 
 Follow the corpus [depth budget](corpus/README.md#depth-budget) when adding corpus
 rows or lowering branches.
@@ -49,7 +50,6 @@ rows or lowering branches.
 
 - Start from [`docs/architecture.md`](docs/architecture.md); every area has an
   owning module.
-- Preserve the dependency direction: ambient I/O stays out of `nah-proto`,
-  `nah-parse`, `nah-inline`, `nah-actions`, and `nah-policy`, and the decision
-  pipeline is assembled only in `nah-cli`.
+- Preserve the dependency direction: ambient I/O stays out of `nah-proto` and
+  `nah-policy`, and the decision pipeline is assembled only in `nah-cli`.
 - Prefer existing effect and guard patterns over new abstractions.

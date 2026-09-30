@@ -1,0 +1,1 @@
+runTest(){ bash "$1"; }

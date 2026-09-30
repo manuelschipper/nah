@@ -1,0 +1,24 @@
+# Source-authored expectations for yt-dlp/yt-dlp at 94eba4c156af080e87caf10cf8ffbea03bd17407.
+# The package entrypoint calls `yt_dlp.main`; `YoutubeDL.urlopen` sends requests,
+# thumbnail handling writes downloads, and external downloaders invoke child
+# processes. These facts were read from source, not EI output.
+
+version = 2
+
+[should_find]
+op=filesystem.write
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]
+# The package entrypoint reaches filesystem handling, but its request director,
+# downloader output, and external downloader dispatch remain behind unresolved
+# import/call boundaries on this exact source tree.
+op=network. origin=yt_dlp/YoutubeDL.py realm=host modality=may
+op=filesystem.write origin=yt_dlp/__init__.py realm=host modality=may
+op=filesystem.write origin=yt_dlp/YoutubeDL.py realm=host modality=may
+op=process.exec origin=yt_dlp/downloader/external.py realm=host modality=may

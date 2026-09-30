@@ -1,0 +1,77 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:154446393b7480e257b21568b48217b228acbfa0e25dee072d986227d4f82b6c",
+  "provenance": {
+    "author": "migrated_handwritten",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_apis/api_sources.json#p18b/stdlib/go-filesystem-read@v1",
+        "digest": "blake3:ea9a604762d9c87fc292873a2ce422d61591ad892984437fe80b65412f7f7f8c"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "go-standard-library",
+        "requirement": "frontend-surface@c1897ac4"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/stdlib/go-filesystem-read@v1",
+        "path": "../../tests/fixtures/model_apis/go.json",
+        "digest": "blake3:698618a2210bdf408e71ee8fd9e400a80792064f540a7a9f73921f34793ba4b1"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "go-near-symbol-does-not-activate",
+        "subject": {
+          "kind": "source",
+          "language": "go",
+          "source": "package main; var ReadFileish = \"/tmp/f\""
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/stdlib/go-filesystem-read@v1-change-operation",
+        "mutation": "change_first_operation"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "library_api",
+      "id": "p18b/stdlib/go-filesystem-read@v1",
+      "lang": "go",
+      "symbols": [
+        {
+          "target": {
+            "kind": "function",
+            "name": "os.ReadFile"
+          },
+          "operation": "filesystem.read"
+        }
+      ]
+    }
+  ]
+}

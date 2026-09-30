@@ -1,0 +1,734 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:de47c3b0e29d94db7706926ebd014064dfb2e33dc835c5522a6d60cfed56979c",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/database/symfony-console@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "symfony/console",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/database/symfony-console@v1",
+        "path": "../../tests/fixtures/model_tranche/symfony_console.json",
+        "digest": "blake3:d23589cab2aee5e2923de807470cc4abac06716bc99b1a2e9ddaefef6151a1e7"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "console-database-create-abbreviation-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "console",
+            "d:d:c",
+            "--force"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "console-database-drop-abbreviation-without-force-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "console",
+            "d:d:d"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "console-database-drop-help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "console",
+            "doctrine:database:drop",
+            "--force",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "console-database-drop-without-force-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "console",
+            "doctrine:database:drop"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "console-fixtures-abbreviation-append-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "console",
+            "d:f:l",
+            "--append"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "console-fixtures-append-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "console",
+            "doctrine:fixtures:load",
+            "--append"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "console-fixtures-dry-run-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "console",
+            "doctrine:fixtures:load",
+            "--dry-run"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "console-migrations-migrate-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "console",
+            "doctrine:migrations:migrate"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "console-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "console-not-the-command",
+            "doctrine:database:drop",
+            "--force"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      },
+      {
+        "name": "console-schema-drop-dump-sql-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "console",
+            "doctrine:schema:drop",
+            "--force",
+            "--dump-sql"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "console-schema-drop-without-force-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "console",
+            "doctrine:schema:drop"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/database/symfony-console@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "database.schema_drop",
+      "database.truncate",
+      "database.write"
+    ],
+    "expected_boundaries": [
+      "environment_configuration"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "command_segment_abbreviation": true,
+      "id": "p18b/database/symfony-console@v1",
+      "commands": [
+        "console"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version",
+            "-V"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--quiet",
+            "-q"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--silent"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ansi"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-ansi"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-interaction",
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--env",
+            "-e"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--no-debug"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--profile"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "database",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "doctrine:database:drop"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--connection",
+                "-c"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--if-exists"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--force",
+                "-f"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--force",
+                  "-f"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "-V"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "the kernel configuration and the environment select the connection; bundles, fixtures and purgers are project code; without --force the command only prints what it would drop"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "doctrine:schema:drop"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--em"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--dump-sql"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--force",
+                "-f"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--full-database"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--force",
+                  "-f"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "-V",
+                  "--dump-sql"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database_objects"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "the kernel configuration and the environment select the connection; bundles, fixtures and purgers are project code; without --force the command only prints what it would drop, and --dump-sql prints the SQL instead"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "doctrine:fixtures:load"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--append"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--dry-run"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--group"
+              ],
+              "takes_value": true,
+              "repeatable": true
+            },
+            {
+              "names": [
+                "--em"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--purger"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--purge-exclusions"
+              ],
+              "takes_value": true,
+              "repeatable": true
+            },
+            {
+              "names": [
+                "--purge-with-truncate"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--purge-with-truncate"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "-V",
+                  "--append",
+                  "--dry-run"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.truncate",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "-V",
+                  "--append",
+                  "--dry-run",
+                  "--purge-with-truncate"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "action": {
+                      "kind": "constant_string",
+                      "value": "delete"
+                    },
+                    "filtered": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "the kernel configuration and the environment select the connection; bundles, fixtures and purgers are project code; without --append the purger empties every table the entity manager maps"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

@@ -8,8 +8,10 @@ use nah_proto::ctx::AbsolutePath;
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_paths::reject_hook_path_symlink;
 use super::runtime::reject_unsupported_windows_runtime;
 use super::{RuntimeHookStatus, RuntimeMutation};
+use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 const MARKER: &str = "// Managed by nah.";
 
@@ -119,11 +121,12 @@ fn uninstall_plugin(home: &AbsolutePath) -> Result<PathBuf, String> {
         Ok(bytes) if owned(&bytes) => {
             std::fs::remove_file(&paths.plugin).map_err(|_| "amp-plugin-remove-failed")?;
             if let Some(parent) = paths.plugin.parent() {
-                sync_parent(parent)?;
+                sync_parent_directory(parent).map_err(|_| "amp-plugin-sync-failed".to_owned())?;
                 match std::fs::remove_dir(parent) {
                     Ok(()) => {
                         if let Some(config) = parent.parent() {
-                            sync_parent(config)?;
+                            sync_parent_directory(config)
+                                .map_err(|_| "amp-plugin-sync-failed".to_owned())?;
                         }
                     }
                     Err(error)
@@ -168,7 +171,7 @@ fn lock(paths: &AmpHookPaths) -> Result<File, String> {
         .parent()
         .ok_or_else(|| "invalid-amp-hook-lock-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "amp-hook-lock-failed")?;
-    reject_symlink(&paths.lock, "amp-hook-lock-failed")?;
+    reject_hook_path_symlink(&paths.lock, "amp-hook-lock-failed")?;
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
@@ -179,35 +182,27 @@ fn lock(paths: &AmpHookPaths) -> Result<File, String> {
     let file = options
         .open(&paths.lock)
         .map_err(|_| "amp-hook-lock-failed")?;
-    protect_private(&file, "amp-hook-permissions-failed")?;
+    restrict_file_to_owner(&file).map_err(|_| "amp-hook-permissions-failed".to_owned())?;
     file.lock().map_err(|_| "amp-hook-lock-failed")?;
     Ok(file)
 }
 
 fn reject_symlinks(paths: &AmpHookPaths) -> Result<(), String> {
     for directory in &paths.checked_directories {
-        reject_symlink(directory, "amp-plugin-symlink-unsupported")?;
+        reject_hook_path_symlink(directory, "amp-plugin-symlink-unsupported")?;
     }
-    reject_symlink(&paths.plugin, "amp-plugin-symlink-unsupported")
-}
-
-fn reject_symlink(path: &Path, error: &str) -> Result<(), String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(error.into()),
-        Ok(_) => Ok(()),
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(error.into()),
-    }
+    reject_hook_path_symlink(&paths.plugin, "amp-plugin-symlink-unsupported")
 }
 
 fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    reject_symlink(path, "amp-plugin-symlink-unsupported")?;
+    reject_hook_path_symlink(path, "amp-plugin-symlink-unsupported")?;
     let parent = path
         .parent()
         .ok_or_else(|| "invalid-amp-plugin-path".to_owned())?;
     let mut temporary =
         tempfile::NamedTempFile::new_in(parent).map_err(|_| "amp-plugin-write-failed")?;
-    protect_private(temporary.as_file(), "amp-plugin-permissions-failed")?;
+    restrict_file_to_owner(temporary.as_file())
+        .map_err(|_| "amp-plugin-permissions-failed".to_owned())?;
     temporary
         .write_all(bytes)
         .map_err(|_| "amp-plugin-write-failed")?;
@@ -218,7 +213,7 @@ fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
     temporary
         .persist(path)
         .map_err(|_| "amp-plugin-write-failed")?;
-    sync_parent(parent)
+    sync_parent_directory(parent).map_err(|_| "amp-plugin-sync-failed".to_owned())
 }
 
 fn plugin(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
@@ -351,28 +346,4 @@ export default function nahAmpPlugin(amp: PluginAPI) {{
 fn owned(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bytes);
     text.starts_with(MARKER) && text.contains(r#"["hook", "amp", "run""#)
-}
-
-#[cfg(unix)]
-fn protect_private(file: &File, error: &str) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| error.into())
-}
-
-#[cfg(not(unix))]
-fn protect_private(_file: &File, _error: &str) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), String> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| "amp-plugin-sync-failed".into())
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), String> {
-    Ok(())
 }

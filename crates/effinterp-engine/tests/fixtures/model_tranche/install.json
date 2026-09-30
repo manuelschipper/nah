@@ -1,0 +1,1543 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "755",
+          "/work/tool",
+          "/usr/local/bin/tool"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/tool"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/usr/local/bin/tool"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      },
+      "forbidden_effects": [
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "filesystem"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "filesystem.metadata"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        }
+      ]
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "--compare"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unrecognized flags: --compare"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-d",
+          "/usr/local/bin"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.create"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/usr/local/bin"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-t",
+          "/usr/local/bin",
+          "a",
+          "b"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/a"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/usr/local/bin/a"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/b"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/usr/local/bin/b"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "/work/a",
+          "/work/b",
+          "/usr/local/bin"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/a"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/b"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/usr/local/bin/a"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/usr/local/bin/b"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "4755",
+          "/work/tool",
+          "/usr/local/bin/tool"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "chmod"
+                      }
+                    },
+                    {
+                      "name": "setuid",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.metadata"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/usr/local/bin/tool"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-d",
+          "-m",
+          "0777",
+          "/srv/share"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "chmod"
+                      }
+                    },
+                    {
+                      "name": "world_write",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.metadata"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/srv/share"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "u+s",
+          "-t",
+          "/usr/local/bin",
+          "a"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "chmod"
+                      }
+                    },
+                    {
+                      "name": "setuid",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.metadata"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/usr/local/bin/a"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "domains": {
+                  "all_of": [
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "filesystem"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "--mode=g+s",
+          "a",
+          "b",
+          "/usr/local/bin"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "chmod"
+                      }
+                    },
+                    {
+                      "name": "setgid",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.metadata"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/usr/local/bin/a"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "chmod"
+                      }
+                    },
+                    {
+                      "name": "setgid",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.metadata"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/usr/local/bin/b"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "domains": {
+                  "all_of": [
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "filesystem"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "0755",
+          "-m",
+          "4755",
+          "a",
+          "b"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "chmod"
+                      }
+                    },
+                    {
+                      "name": "setuid",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.metadata"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/b"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "--mode=4755",
+          "-m",
+          "0755",
+          "a",
+          "b"
+        ],
+        "cwd": "/work"
+      },
+      "forbidden_effects": [
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "filesystem"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "filesystem.metadata"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "777",
+          "-T",
+          "a",
+          "b"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "chmod"
+                      }
+                    },
+                    {
+                      "name": "world_write",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.metadata"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/b"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "777",
+          "--no-target-directory",
+          "a",
+          "b",
+          "c"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "777",
+          "-T",
+          "-t",
+          "/srv",
+          "a"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "mutually_exclusive_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "+w",
+          "a",
+          "b"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "domains": {
+                  "all_of": [
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "filesystem"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "a+w",
+          "a",
+          "b"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "chmod"
+                      }
+                    },
+                    {
+                      "name": "world_write",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.metadata"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/b"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "+w",
+          "-m",
+          "0755",
+          "a",
+          "b"
+        ],
+        "cwd": "/work"
+      },
+      "forbidden_effects": [
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "filesystem"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "filesystem.metadata"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "777",
+          "-T",
+          "-d",
+          "a",
+          "b"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "chmod"
+                      }
+                    },
+                    {
+                      "name": "world_write",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.metadata"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/a"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "chmod"
+                      }
+                    },
+                    {
+                      "name": "world_write",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.metadata"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/b"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "777",
+          "--no-target-directory",
+          "-d",
+          "a",
+          "b",
+          "c"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "777",
+          "-T",
+          "-d",
+          "-t",
+          "/srv",
+          "a"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "mutually_exclusive_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "install",
+          "-m",
+          "777",
+          "-d",
+          "-t",
+          "/srv",
+          "a",
+          "b"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "mutually_exclusive_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -67,6 +67,6 @@ Users are responsible for keeping the hook loaded and testing it after runtime
 upgrades; verify the latest official upstream documentation, including Kiro's
 current
 [CLI 3 overview](https://kiro.dev/docs/cli/v3/),
-[CLI 3 hook reference](https://kiro.dev/docs/cli/v3/hooks/),
-[hook payload reference](https://kiro.dev/docs/cli/hooks/), and
+[CLI 3 hooks migration](https://kiro.dev/docs/cli/v3/hooks-migration/),
+[hook actions and payloads](https://kiro.dev/docs/hooks/actions/), and
 [CLI changelog](https://kiro.dev/changelog/cli/) before relying on nah.

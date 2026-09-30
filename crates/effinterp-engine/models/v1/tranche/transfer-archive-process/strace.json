@@ -1,0 +1,175 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:1cfac0f8e1316f08825f6261cb28905986c31b5478c3afee26eb47a71f4ffa0c",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/strace@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "strace",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/strace@v1",
+        "path": "../../tests/fixtures/model_tranche/strace.json",
+        "digest": "blake3:b56078d5fb25008f5c0bee17400a62a42784e9b85d31e7c4d69b2df422cef295"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "strace-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "strace-not-the-command",
+            "-o",
+            "/work/trace.log",
+            "rm",
+            "/tmp/x"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.delete",
+          "filesystem.write"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/transfer-archive-process/strace@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.delete",
+      "filesystem.write"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/strace@v1",
+      "commands": [
+        "strace"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-o"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-q"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "command",
+          "index": 0,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-o"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "disclosure": {
+                  "kind": "constant_string",
+                  "value": "contents"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [],
+          "argv_tail": "command"
+        }
+      ],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

@@ -1,0 +1,339 @@
+{
+  "expected": {
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 32768,
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_go_nodes": 20000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
+        "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
+        "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
+        "max_source_bytes": 4194304,
+        "max_value_cardinality": 64,
+        "max_value_depth": 24
+      },
+      "model_set": "builtin:blake3:412be1ea11cd035818957cfd02473da220c52267e7d6cd33761a51369229c197"
+    },
+    "causality": {
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:0fb25933dd77a1610aaf70764858838dd406fde39f782881b9cd4c41c51dfd04",
+            "modality": "may",
+            "order": 0,
+            "provenance": [
+              0
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:d7cf959944d1b9e4ce7a0608f9329be4dad48cd0850a6ed8ae48b271262e9f52"
+          }
+        ],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:0fb25933dd77a1610aaf70764858838dd406fde39f782881b9cd4c41c51dfd04",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "attributes": {
+              "hunks": 1,
+              "in_place": true
+            },
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:d7cf959944d1b9e4ce7a0608f9329be4dad48cd0850a6ed8ae48b271262e9f52",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "order": 1,
+            "provenance": [
+              0
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "digest": "blake3:45b68abf29857e36",
+                "family": "fs_path"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "filesystem": {
+        "level": "full"
+      }
+    },
+    "effects": [
+      {
+        "attributes": {
+          "hunks": 1,
+          "in_place": true
+        },
+        "execution": 0,
+        "id": "effect:blake3:92b2b3eb5ec5ae5b8d47d7ad04016894db235062a830857512b155e670dc97ab",
+        "modality": "may",
+        "operation": "filesystem.write",
+        "provenance": [
+          0
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "digest": "blake3:45b68abf29857e36",
+            "family": "fs_path"
+          }
+        }
+      }
+    ],
+    "execution_graph": {
+      "entry": 0,
+      "nodes": [
+        {
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "digest": "blake3:51adc52efe5df1b6",
+              "family": "fs_path"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "digest": "blake3:0624e91341fb7fac2108ef498a84a018678a7125ec23ae562d123f96d41880ea",
+            "kind": "tool_call",
+            "tool": "file.patch"
+          }
+        }
+      ]
+    },
+    "provenance": [
+      {
+        "kind": "tool_argument",
+        "name": "text"
+      }
+    ],
+    "schema": "effinterp/plan-redacted/v1",
+    "subject": {
+      "digest": "blake3:0624e91341fb7fac2108ef498a84a018678a7125ec23ae562d123f96d41880ea",
+      "kind": "tool_call",
+      "tool": "file.patch"
+    }
+  },
+  "plan": {
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 32768,
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_go_nodes": 20000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
+        "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
+        "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
+        "max_source_bytes": 4194304,
+        "max_value_cardinality": 64,
+        "max_value_depth": 24
+      },
+      "model_set": "builtin:blake3:412be1ea11cd035818957cfd02473da220c52267e7d6cd33761a51369229c197"
+    },
+    "causality": {
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:0fb25933dd77a1610aaf70764858838dd406fde39f782881b9cd4c41c51dfd04",
+            "modality": "may",
+            "order": 0,
+            "provenance": [
+              0
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:d7cf959944d1b9e4ce7a0608f9329be4dad48cd0850a6ed8ae48b271262e9f52"
+          }
+        ],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:0fb25933dd77a1610aaf70764858838dd406fde39f782881b9cd4c41c51dfd04",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "attributes": {
+              "hunks": 1,
+              "in_place": true
+            },
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:d7cf959944d1b9e4ce7a0608f9329be4dad48cd0850a6ed8ae48b271262e9f52",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "order": 1,
+            "provenance": [
+              0
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/workspace/project/private.txt"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "filesystem": {
+        "level": "full"
+      }
+    },
+    "effects": [
+      {
+        "attributes": {
+          "hunks": 1,
+          "in_place": true
+        },
+        "execution": 0,
+        "id": "effect:blake3:92b2b3eb5ec5ae5b8d47d7ad04016894db235062a830857512b155e670dc97ab",
+        "modality": "may",
+        "operation": "filesystem.write",
+        "provenance": [
+          0
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/workspace/project/private.txt"
+          }
+        }
+      }
+    ],
+    "execution_graph": {
+      "entry": 0,
+      "nodes": [
+        {
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/workspace/project"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "args": {
+              "format": "unified",
+              "text": "--- a/private.txt\n+++ b/private.txt\n@@ -1 +1 @@\n-OLD_SECRET\n+NEW_SECRET\n"
+            },
+            "cwd": "/workspace/project",
+            "kind": "tool_call",
+            "tool": "file.patch"
+          }
+        }
+      ]
+    },
+    "provenance": [
+      {
+        "kind": "tool_argument",
+        "name": "text"
+      }
+    ],
+    "schema": "effinterp/plan/v1",
+    "subject": {
+      "args": {
+        "format": "unified",
+        "text": "--- a/private.txt\n+++ b/private.txt\n@@ -1 +1 @@\n-OLD_SECRET\n+NEW_SECRET\n"
+      },
+      "cwd": "/workspace/project",
+      "kind": "tool_call",
+      "tool": "file.patch"
+    }
+  },
+  "schema": "effinterp/redacted-case/v1"
+}

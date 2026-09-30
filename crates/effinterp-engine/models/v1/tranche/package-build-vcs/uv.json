@@ -1,0 +1,2014 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:bf59f61d632fa0560b5f3763fdff140a8e6b996b8657d646855a3859873d2a24",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/package-build-vcs/uv@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "uv",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/package-build-vcs/uv@v1",
+        "path": "../../tests/fixtures/model_tranche/uv.json",
+        "digest": "blake3:6eada42a31cfc1c2ae0038b6375df30bd8066737ef7be5631a08dc957ca94b71"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "uv-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "uv-not-the-command",
+            "pip",
+            "install",
+            "requests"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write",
+          "network.download"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/package-build-vcs/uv@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.write",
+      "network.download"
+    ],
+    "expected_boundaries": [
+      "package_scripts",
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/package-build-vcs/uv@v1",
+      "commands": [
+        "uv"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--extra"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--python"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--repository"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--all-extras"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--locked"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--frozen"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ci"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--check"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--all-groups"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-install-project"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-cache-dir"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-deps"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "install"
+          ],
+          "index": 1,
+          "flags": [
+            {
+              "names": [
+                "-e"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--editable"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-r"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--requirements"
+              ],
+              "takes_value": true
+            }
+          ],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "pip",
+                "tool"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "package",
+              "index": 1,
+              "variadic": true,
+              "required": true,
+              "unless_value_flags": [
+                "-e",
+                "--editable",
+                "-r",
+                "--requirements"
+              ]
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "package"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "literal",
+                        "value": "python-environment"
+                      }
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "-e",
+                  "--editable",
+                  "-r",
+                  "--requirements"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "literal",
+                        "value": "python-environment"
+                      }
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_requirement_paths",
+                "flags": [
+                  "-e",
+                  "--editable"
+                ],
+                "strip_extras": true
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_requirement_paths",
+                "flags": [
+                  "-r",
+                  "--requirements"
+                ],
+                "strip_extras": false
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": false
+          }
+        },
+        {
+          "names": [
+            "run"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--with"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-w"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--script"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-s"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "command",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "literal",
+                        "value": "python-environment"
+                      }
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "http://"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "literal",
+                      "value": "python3"
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "file"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "https://"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "literal",
+                      "value": "python3"
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "file"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "http://"
+                    },
+                    "allow_missing": true,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "https://"
+                    },
+                    "allow_missing": true,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "argv": [
+                {
+                  "kind": "literal",
+                  "value": "python3"
+                }
+              ],
+              "argv_tail": "command",
+              "include_suffixes": [
+                ".py"
+              ]
+            },
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "http://"
+                    },
+                    "allow_missing": true,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "https://"
+                    },
+                    "allow_missing": true,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "-"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "argv": [],
+              "argv_tail": "command",
+              "exclude_suffixes": [
+                ".py"
+              ]
+            },
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "-"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "argv": [
+                {
+                  "kind": "literal",
+                  "value": "python3"
+                }
+              ],
+              "argv_tail": "command"
+            }
+          ],
+          "bindings": [
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "http://"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "from": {
+                "kind": "effect",
+                "operation": "network.download",
+                "selection": "last"
+              },
+              "to": {
+                "kind": "effect",
+                "operation": "process.code_execution",
+                "selection": "all"
+              }
+            },
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "https://"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "from": {
+                "kind": "effect",
+                "operation": "network.download",
+                "selection": "last"
+              },
+              "to": {
+                "kind": "effect",
+                "operation": "process.code_execution",
+                "selection": "all"
+              }
+            }
+          ],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "run"
+          ],
+          "index": 1,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "tool"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "command",
+              "index": 1,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "literal",
+                        "value": "python-environment"
+                      }
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "argv": [
+                {
+                  "kind": "literal",
+                  "value": "python3"
+                }
+              ],
+              "argv_tail": "command",
+              "include_suffixes": [
+                ".py"
+              ]
+            },
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "argv": [],
+              "argv_tail": "command",
+              "exclude_suffixes": [
+                ".py"
+              ]
+            }
+          ],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "sync"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": "pyproject.toml"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": "uv.lock"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--check"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": ".venv"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "lock"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": "pyproject.toml"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": "uv.lock"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--check"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": "uv.lock"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "venv"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "directory",
+              "index": 0,
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "directory"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": ".venv"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "build"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": "pyproject.toml"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--check"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": "dist"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "install"
+          ],
+          "index": 1,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "python"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "version",
+              "index": 1,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "find"
+          ],
+          "index": 1,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "python"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "version",
+              "index": 1,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "list"
+          ],
+          "index": 1,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "python"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "version",
+              "index": 1,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "prune"
+          ],
+          "index": 1,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "cache"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "packages",
+              "index": 1,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "clean"
+          ],
+          "index": 1,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "cache"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "packages",
+              "index": 1,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/package-build-vcs/uvx@v1",
+      "commands": [
+        "uvx"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--from"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "application",
+          "index": 0,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "application"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "network.download",
+              "resource": {
+                "kind": "unresolved",
+                "family": "network"
+              },
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "literal",
+                    "value": "python-environment"
+                  }
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [
+            {
+              "kind": "literal",
+              "value": "python3"
+            }
+          ],
+          "argv_tail": "application",
+          "include_suffixes": [
+            ".py"
+          ]
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [],
+          "argv_tail": "application",
+          "exclude_suffixes": [
+            ".py"
+          ]
+        }
+      ],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "package_scripts",
+          "class": "unmodeled",
+          "scope": "environment",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

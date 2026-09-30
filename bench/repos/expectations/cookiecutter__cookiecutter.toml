@@ -1,0 +1,55 @@
+# Ground-truth expectations for cookiecutter/cookiecutter (holdout-dev corpus).
+# Pinned SHA: c88fbe921c97c58b65f1883ba90a0ab53cc91b34.
+# Real entry: cookiecutter/cli.py (click `main`, [project.scripts] cookiecutter =
+#   "cookiecutter.__main__:main") and cookiecutter/__main__.py.
+# Derived from:
+#   cookiecutter/config.py (get_user_config reads os.environ['COOKIECUTTER_CONFIG'],
+#     config.py:127; get_config opens the YAML config file, config.py:68),
+#   cookiecutter/vcs.py (clone: subprocess.check_output([repo_type, 'clone', ...]) and
+#     [repo_type, 'checkout', ...], vcs.py:107/117 — repo_type is 'git' or 'hg'),
+#   cookiecutter/zipfile.py (unzip: requests.get(zip_uri), zipfile.py:54, then
+#     open(zip_path, 'wb') to save the download, zipfile.py:55),
+#   cookiecutter/generate.py (generate_context opens the cookiecutter.json context
+#     file, generate.py:143; generate_file reads templates, generate.py:249, and
+#     writes rendered output open(outfile, 'w'), generate.py:256; failure cleanup
+#     shutil.rmtree/rmtree, generate.py:416/430/453),
+#   cookiecutter/hooks.py (run_script: subprocess.Popen(script_command), hooks.py:95).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. Generating a project from a template (read template, write
+# output tree) is the product's core behavior; clone/download and hooks are the
+# standard template-acquisition paths, all reachable from cli.main ->
+# main.cookiecutter -> determine_repo_dir/generate_files. The click decorator
+# dispatch between cli.py and main.py is the one indirection on the path.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+op=filesystem.write
+op=process.exec
+op=network.
+
+# Fact-level assertions tied to the files that perform the effect.
+[facts]
+op=environment.read res=COOKIECUTTER_CONFIG origin=cookiecutter/config.py realm=host
+op=filesystem.read origin=cookiecutter/config.py realm=host
+op=network. origin=cookiecutter/zipfile.py realm=host modality=may
+op=filesystem.write origin=cookiecutter/zipfile.py realm=host
+op=process.exec origin=cookiecutter/vcs.py realm=host modality=may
+op=filesystem.read origin=cookiecutter/generate.py realm=host
+op=filesystem.write origin=cookiecutter/generate.py realm=host
+op=filesystem.delete origin=cookiecutter/generate.py realm=host
+op=process.exec origin=cookiecutter/hooks.py realm=host
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]

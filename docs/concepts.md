@@ -5,39 +5,18 @@
 nah lowers calls into typed invocation, filesystem, Git, network, and
 system-state effects. Observation resolves cwd, roots, paths, and environment.
 
-`full` coverage preserves every guard-relevant visible input, without claiming
-to understand opaque programs. Unresolved arguments, code, or fields are `partial`.
+Coverage reports only what the analyzer established. `full` means every
+reported domain was fully modeled with no boundary left open. Unmodeled
+programs, unresolved arguments, code, or fields, and environment-run code such
+as Git hooks or package scripts make it `partial`.
 
 Bash pipelines, control flow, subshells, and redirects become stages and
 data-flow edges. Unresolved shell state makes coverage partial.
 
-Visible source stays a `code-execution` effect. Python and JavaScript/TypeScript
-use owned HIRs and bounded interpreters without execution. PowerShell and cmd
-use static tokenizers; IPython handles magics. TypeScript/TSX ignore
-reviewed type-only syntax, following JavaScript semantics without type-checking
-or the TypeScript compiler. Other languages use narrow detectors.
-
-Profiles own only proven Node, Deno, Bun, OpenClaw QuickJS, or Prime current-cell
-APIs. Rebinding or visible mutation removes ownership; hidden state is unknown.
-Generic JavaScript owns none.
-
-Exact child argv/cwd are nested; missing or non-directory cwd prevents the child.
-Unawaited JavaScript applies state only through its first `await`.
-`Deno.Command` reads options and cwd when consumed.
-
-Only proven Bash lowers fully. `sh` is a portable subset;
-dialect-sensitive state and redirects stay partial. `powershell`, `pwsh`, and
-`cmd` share reviewed typed effects. Other syntax, custom shells, Bun's `$`,
-and `bun exec` stay partial; sinks vanish only after a proven throw.
-
-Per source, the public ActionStream (custom guards, dry-run JSON, records) admits
-64 modeled language calls; overflow makes coverage partial. Built-ins retain a
-separate 256-call, 4,096-flow projection to block later danger.
-Fail-closed records these bounds as `language-call-limit` or
-`language-safety-limit` analysis refusals.
-Command-like arguments to unknown programs trigger analysis refusal; reviewed
-subcommand programs are exempt if their first argument is a static verb that
-cannot run a command (no leading options).
+The engine analyzes visible shell, PowerShell, cmd, and language source without
+running it. Exact child commands in source become nested calls. Unmodeled
+dialects or language APIs and engine limits leave coverage partial rather than
+inventing effects.
 
 ## Verdicts and failures
 
@@ -76,8 +55,8 @@ activation out of band. nah blocks understood intercepted attempts to cross
 that boundary or disable active wiring.
 
 `nah nap` starts a 10-minute, user-global maintenance window: plain nap pauses
-self-protection; `--all` pauses every non-permanent layer. Nap-state protection
-remains. See `nah docs configuration` and `nah docs security`.
+self-protection; `nah nap all` pauses every non-permanent layer; `nah nap
+<guard>...` pauses only the named guards. Nap-state protection remains. See `nah docs configuration` and `nah docs security`.
 
 ## Audit records
 

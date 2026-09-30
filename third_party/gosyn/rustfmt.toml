@@ -1,0 +1,5 @@
+# https://github.com/rust-lang/rustfmt/blob/master/Configurations.md
+
+match_arm_leading_pipes = "Preserve"
+struct_lit_single_line = true
+struct_lit_width = 32

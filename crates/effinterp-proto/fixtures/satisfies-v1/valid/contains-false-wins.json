@@ -1,0 +1,43 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "contains-false-wins",
+  "request": {
+    "mode": "contains",
+    "scope": {
+      "realm": null,
+      "set": {
+        "kind": "fs_subtree",
+        "root": "/work"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "union",
+        "alternatives": [
+          {
+            "expr": "unresolved",
+            "family": "filesystem"
+          },
+          {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/outside"
+            }
+          }
+        ]
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "not_satisfied"
+  }
+}

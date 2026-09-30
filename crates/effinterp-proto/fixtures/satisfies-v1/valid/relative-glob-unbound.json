@@ -1,0 +1,42 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "relative-glob-unbound",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/work/a.rs"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "fs_path",
+          "glob": "*.rs"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "indeterminate",
+    "reason": {
+      "kind": "unbound",
+      "names": [
+        "cwd"
+      ]
+    }
+  }
+}

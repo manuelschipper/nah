@@ -1,0 +1,157 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:0903749769ef5931c11ad20b8d9425fb38ab371b73c0cecc6b832bc7a44a0623",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/database/influx@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "influx",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/database/influx@v1",
+        "path": "../../tests/fixtures/model_tranche/influx.json",
+        "digest": "blake3:addefe9ef683d22a40dc7178c1695725658966e5428f7e4c304a0156a4726b02"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "influx-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "influx-not-the-command",
+            "query",
+            "from(bucket:sample)"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.read"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/database/influx@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "database.read"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/database/influx@v1",
+      "commands": [
+        "influx"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "database",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "query"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "query",
+              "index": 0,
+              "variadic": true,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "query"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.read",
+                  "resource": {
+                    "kind": "database_schema",
+                    "database": {
+                      "kind": "literal",
+                      "value": "influx"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": false
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

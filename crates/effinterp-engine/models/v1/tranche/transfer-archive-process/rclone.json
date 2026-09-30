@@ -1,0 +1,195 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:5f7468dff113936168c5feccb47fc86f8524fa3f68dbdad092de55cc5297e5e3",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/rclone@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "rclone",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/rclone@v1",
+        "path": "../../tests/fixtures/model_tranche/rclone.json",
+        "digest": "blake3:477a8aab948fcae97f05e9af2ecb5b8a4c82e4d22d978e14f9f4ede27cf1325c"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "rclone-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rclone-not-the-command",
+            "copyurl",
+            "https://example.com/a",
+            "/work/a"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write",
+          "network.download"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/transfer-archive-process/rclone@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.write",
+      "network.download"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/rclone@v1",
+      "commands": [
+        "rclone"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "copyurl"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "url",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "destination",
+              "index": 1,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "url"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "destination"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

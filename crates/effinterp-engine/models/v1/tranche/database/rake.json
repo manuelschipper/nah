@@ -1,0 +1,543 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:ecd758e8c1a2f4be7d4336ee54b2a5bc2534cb975cf1a14a5c6d32d05c34a0ca",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/database/rake@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "rake",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/database/rake@v1",
+        "path": "../../tests/fixtures/model_tranche/rake.json",
+        "digest": "blake3:49a24640f53572ccfc5772eb9f8042964e4521a26be0c22437201dbca974b154"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "rake--T-db:drop-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rake",
+            "-T",
+            "db:drop"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "rake--e-puts_1-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rake",
+            "-e",
+            "puts 1"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "rake--n-db:drop-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rake",
+            "-n",
+            "db:drop"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "rake-db:migrate-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rake",
+            "db:migrate"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "rake-db:version-LABEL=db:drop-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rake",
+            "db:version",
+            "LABEL=db:drop"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "rake-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rake-not-the-command",
+            "db:drop"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/database/rake@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "database.schema_drop"
+    ],
+    "expected_boundaries": [
+      "environment_configuration"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/database/rake@v1",
+      "commands": [
+        "rake"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-H",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version",
+            "-V"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--tasks",
+            "-T"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--describe",
+            "-D"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--where",
+            "-W"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--prereqs",
+            "-P"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--dry-run",
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--trace",
+            "-t"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--rakefile",
+            "-f"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--quiet",
+            "-q"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--silent",
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "tasks",
+          "index": 0,
+          "variadic": true,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "tasks"
+          },
+          "when": {
+            "arguments_literal": true,
+            "flag_present": [],
+            "flag_absent": [
+              "--describe",
+              "--dry-run",
+              "--help",
+              "--prereqs",
+              "--tasks",
+              "--version",
+              "--where",
+              "-D",
+              "-H",
+              "-P",
+              "-T",
+              "-V",
+              "-W",
+              "-h",
+              "-n"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "include_literals": [
+            "db:drop",
+            "db:reset",
+            "db:migrate:reset",
+            "db:purge",
+            "db:test:purge",
+            "db:test:load_schema",
+            "db:test:prepare"
+          ],
+          "include_prefixes": [
+            "db:drop:",
+            "db:reset:",
+            "db:migrate:reset:",
+            "db:purge:",
+            "db:test:purge:",
+            "db:test:load_schema:",
+            "db:test:prepare:"
+          ],
+          "emit": [
+            {
+              "operation": "database.schema_drop",
+              "resource": {
+                "kind": "unresolved",
+                "family": "db"
+              },
+              "attributes": {
+                "object_kind": {
+                  "kind": "constant_string",
+                  "value": "database"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "tasks"
+          },
+          "when": {
+            "arguments_literal": true,
+            "flag_present": [],
+            "flag_absent": [
+              "--describe",
+              "--dry-run",
+              "--help",
+              "--prereqs",
+              "--tasks",
+              "--version",
+              "--where",
+              "-D",
+              "-H",
+              "-P",
+              "-T",
+              "-V",
+              "-W",
+              "-h",
+              "-n"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "include_literals": [
+            "db:schema:load",
+            "db:setup"
+          ],
+          "include_prefixes": [
+            "db:schema:load:",
+            "db:setup:"
+          ],
+          "emit": [
+            {
+              "operation": "database.schema_drop",
+              "resource": {
+                "kind": "unresolved",
+                "family": "db"
+              },
+              "attributes": {
+                "object_kind": {
+                  "kind": "constant_string",
+                  "value": "database_objects"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "tasks"
+          },
+          "when": {
+            "arguments_literal": true,
+            "flag_present": [],
+            "flag_absent": [
+              "--describe",
+              "--dry-run",
+              "--help",
+              "--prereqs",
+              "--tasks",
+              "--version",
+              "--where",
+              "-D",
+              "-H",
+              "-P",
+              "-T",
+              "-V",
+              "-W",
+              "-h",
+              "-n"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "include_literals": [
+            "db:truncate_all",
+            "db:seed:replant"
+          ],
+          "include_prefixes": [
+            "db:truncate_all:"
+          ],
+          "emit": [
+            {
+              "operation": "database.truncate",
+              "resource": {
+                "kind": "unresolved",
+                "family": "db"
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "tasks"
+          },
+          "when": {
+            "arguments_literal": true,
+            "flag_present": [],
+            "flag_absent": [
+              "--describe",
+              "--dry-run",
+              "--help",
+              "--prereqs",
+              "--tasks",
+              "--version",
+              "--where",
+              "-D",
+              "-H",
+              "-P",
+              "-T",
+              "-V",
+              "-W",
+              "-h",
+              "-n"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "include_literals": [
+            "db:fixtures:load"
+          ],
+          "emit": [
+            {
+              "operation": "database.write",
+              "resource": {
+                "kind": "unresolved",
+                "family": "db"
+              },
+              "attributes": {
+                "action": {
+                  "kind": "constant_string",
+                  "value": "delete"
+                },
+                "filtered": {
+                  "kind": "constant_bool",
+                  "value": false
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "environment_configuration",
+          "class": "unmodeled",
+          "domains": [
+            "database",
+            "process"
+          ],
+          "detail": "the task runs inside the application: the Rakefile, config/database.yml and any custom tasks are project code, and they select the target database"
+        },
+        {
+          "when": {
+            "arguments_literal": false,
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "unmodeled_dynamic",
+          "class": "unresolved",
+          "domains": [
+            "database",
+            "process"
+          ],
+          "detail": "a task name is not a literal"
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "database",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

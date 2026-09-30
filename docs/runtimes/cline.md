@@ -23,8 +23,13 @@ nah hook cline uninstall
 
 ## What nah installs
 
-nah writes `PreToolUse` to the IDE's `Documents/Cline/Hooks/` directory and the
-CLI's `~/.cline/hooks/` directory. Cline accepts one script per event in each
+nah writes `PreToolUse` to the IDE's `Documents/Cline/Hooks/` directory. The
+CLI runs hooks from both `~/Documents/Cline/Hooks/` and `~/.cline/hooks/`, so
+that one script covers the CLI whenever the IDE's Documents directory is
+`~/Documents`, as it always is on macOS. When Linux or Windows relocates
+Documents, nah also writes `~/.cline/hooks/`. A redundant copy there would make
+the CLI run nah twice per call, so reinstalling removes nah's unedited copy,
+keeping its failure policy. Cline accepts one script per event in each
 directory, so installation refuses to replace an existing unowned script.
 
 The adapter covers legacy Cline shell, read, write, replace, search, and list
@@ -34,14 +39,20 @@ multi-query searches, and `editor` insert operations remain opaque because one
 nah call cannot represent them. Blocks return `cancel: true` with branded
 feedback; delegated calls return `cancel: false`, preserving Cline permissions.
 
-On Windows, nah installs `PreToolUse.ps1` in both native hook directories and
+In CLI 3.0.65 a nah block ends the whole agent turn, not only the blocked call:
+`--json` output ends with `run_aborted`, `reason: external_abort` ("aborted by
+another client"), and the process still exits 0. Neither the exit status nor
+the final text says that nah blocked; confirm the decision with `nah log`, then
+`nah why <decision-id>`.
+
+On Windows, nah installs `PreToolUse.ps1` in those hook directories and
 supports status, reinstall, uninstall, and typed filesystem tools. Cline's
 `execute_command` and `run_commands` use the user's selected terminal profile;
 without a dialect in the payload, nah keeps those commands partial and
 delegates without shell effects.
 
 IDE events use `hookName: PreToolUse` and may name the tool with
-`preToolUse.tool`; CLI 3.0.48 uses `hookName: tool_call` and
+`preToolUse.tool`; CLI 3.0.65 uses `hookName: tool_call` and
 `preToolUse.toolName`. Both supply arguments in `preToolUse.parameters`.
 Stale or conflicting wiring requires reinstall. Unknown tools stay opaque and
 delegate. By default, malformed known shapes and evaluation failures return
@@ -60,7 +71,7 @@ delegate. By default, malformed known shapes and evaluation failures return
   `reinstall required`.
 - The IDE runs global and workspace hooks concurrently. If a sibling errors or
   times out, the IDE currently fails open for that call and may discard nah's
-  cancellation. CLI 3.0.48 instead runs blocking hooks sequentially and keeps a
+  cancellation. CLI 3.0.65 instead runs blocking hooks in order and keeps a
   valid cancellation when another hook fails.
 - CLI also discovers workspace `.clinerules/hooks` and `.cline/hooks`. Project
   and SDK plugin hooks remain user-owned and are not installed or protected.

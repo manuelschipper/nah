@@ -1,0 +1,258 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:2eeecb275213db963dddf999e1baa339a87224d567f629c76c5044152526cd76",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/gem_owner_sources.json",
+        "digest": "blake3:45eb228b65b4de7e72e119e08b3aed522d0513e3f3423aa22555c73fa32850bd"
+      },
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/package-build-vcs/gem@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "gem",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/package-build-vcs/gem@v1",
+        "path": "../../tests/fixtures/model_tranche/gem.json",
+        "digest": "blake3:28208d83678b7494dce6e81492e3e773a89afe8948bfeae8cc52dca9d311a7a2"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "gem-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "gem-not-the-command",
+            "install",
+            "rails"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write",
+          "network.download"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/package-build-vcs/gem@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "artifact.owner_change",
+      "filesystem.write",
+      "network.download"
+    ],
+    "expected_boundaries": [
+      "package_scripts",
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/package-build-vcs/gem@v1",
+      "commands": [
+        "gem"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "install"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--no-document"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "package",
+              "index": 0,
+              "variadic": true,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "package"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "literal",
+                        "value": "gem-home"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": false
+          }
+        },
+        {
+          "names": [
+            "owner"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_subcommand",
+              "class": "unmodeled",
+              "domains": [
+                "artifact",
+                "network"
+              ],
+              "detail": "gem owner: registry ownership operations are unmodeled"
+            }
+          ],
+          "unsupported": {
+            "reason": "unmodeled_subcommand",
+            "class": "unmodeled",
+            "domains": [
+              "artifact",
+              "network"
+            ],
+            "unknown_flags": true,
+            "extra_operands": false
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

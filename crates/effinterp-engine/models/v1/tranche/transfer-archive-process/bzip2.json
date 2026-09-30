@@ -1,0 +1,925 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:bb465742ce7e7047363507d5b361f4750970fdb96501bf9fcbc350947567edb5",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/bzip2@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "bzip2",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/bzip2@v1",
+        "path": "../../tests/fixtures/model_tranche/bzip2.json",
+        "digest": "blake3:c1465d24b31d66981117cc73f3d742688ffe23d18aa56be9c8803a207d2f08e7"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "bzip2-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "bzip2-not-the-command",
+            "/work/input.bin"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/transfer-archive-process/bzip2@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.delete",
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": [
+      "model_coverage",
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/bzip2@v1",
+      "commands": [
+        "bzip2"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--keep",
+            "-k"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--stdout",
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--decompress",
+            "-d"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "input",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "exclude_suffixes": [
+            ".bz2",
+            ".bz",
+            ".tbz2",
+            ".tbz"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "join",
+                  "parts": [
+                    {
+                      "kind": "current"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": ".bz2"
+                    }
+                  ],
+                  "separator": ""
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "-k",
+              "--keep",
+              "--decompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "exclude_suffixes": [
+            ".bz2",
+            ".bz",
+            ".tbz2",
+            ".tbz"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "BZIP2",
+                  "BZIP"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "exclude_suffixes": [
+            ".bz2",
+            ".bz",
+            ".tbz2",
+            ".tbz"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "join",
+                  "parts": [
+                    {
+                      "kind": "current"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": ".bz2"
+                    }
+                  ],
+                  "separator": ""
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "-k",
+              "--keep",
+              "--decompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "BZIP2",
+                  "BZIP"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "exclude_suffixes": [
+            ".bz2",
+            ".bz",
+            ".tbz2",
+            ".tbz"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "BZIP2",
+                  "BZIP"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [
+              "--decompress",
+              "-d"
+            ],
+            "flag_absent": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [
+              "--decompress",
+              "-d"
+            ],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "-k",
+              "--keep"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [
+              "--decompress",
+              "-d"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "process.stream_transform",
+              "resource": {
+                "kind": "process",
+                "executable": {
+                  "kind": "argument",
+                  "index": 0
+                },
+                "argv": []
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "transform": {
+                  "kind": "constant_string",
+                  "value": "decode"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "effect",
+            "operation": "filesystem.write",
+            "selection": "all"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "positional_may_be_stdio": [
+              "input"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "BZIP2",
+                  "BZIP"
+                ],
+                "matches": true
+              }
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "effect",
+            "operation": "filesystem.write",
+            "selection": "all"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "BZIP2",
+                  "BZIP"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "positional_may_be_stdio": [
+              "input"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "BZIP2",
+                  "BZIP"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "effect",
+            "operation": "process.stream_transform",
+            "selection": "all"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "process.stream_transform",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "positional_may_be_stdio": [
+              "input"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "effect",
+            "operation": "process.stream_transform",
+            "selection": "all"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "positional_may_be_stdio": [
+              "input"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "process.stream_transform",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "transfers": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.read"
+          },
+          "destination": {
+            "operation": "filesystem.write"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "BZIP2",
+                  "BZIP"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.read"
+          },
+          "destination": {
+            "operation": "filesystem.write"
+          }
+        }
+      ],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "BZIP2",
+                  "BZIP"
+                ],
+                "matches": false
+              }
+            ],
+            "reads_stdin": false
+          },
+          "reason": "model_coverage",
+          "class": "unresolved",
+          "domains": [
+            "filesystem",
+            "process"
+          ],
+          "detail": "bzip2 environment options may change processing or output paths"
+        },
+        {
+          "when": {
+            "flag_present": [
+              "--decompress",
+              "-d"
+            ],
+            "flag_absent": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "reason": "model_coverage",
+          "class": "unresolved",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "bzip2 -d derives the decompressed file name from the input suffix, which is not modeled"
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

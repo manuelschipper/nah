@@ -82,10 +82,8 @@ fn custom_ipython_override_stays_opaque_and_partial() {
     );
     let record = audit_records(&home).pop().unwrap();
     assert_eq!(record["core"]["coverage"], "partial");
-    assert_eq!(
-        record["effects"],
-        json!([{"id":"e0","description":"invoke prime-agent-opaque opaque"}])
-    );
+    assert_eq!(record["core"]["policy_attributions"], json!([]));
+    assert_eq!(record["effects"], json!([]));
 }
 
 #[test]
@@ -128,11 +126,8 @@ fn unadmitted_tools_cannot_impersonate_native_schemas() {
         );
         let record = audit_records(&home).pop().unwrap();
         assert_eq!(record["core"]["coverage"], "partial", "{tool}");
-        assert_eq!(
-            record["effects"],
-            json!([{"id":"e0","description":"invoke prime-agent-opaque opaque"}]),
-            "{tool}"
-        );
+        assert_eq!(record["core"]["policy_attributions"], json!([]), "{tool}");
+        assert_eq!(record["effects"], json!([]), "{tool}");
     }
 }
 
@@ -166,14 +161,12 @@ fn builtin_ipython_uses_current_cell_import_ownership() {
     let record = audit_records(&home).pop().unwrap();
     assert_eq!(record["runtime"], "prime-agent");
     assert_eq!(record["command"], "ipython [redacted]");
-    assert_eq!(record["core"]["coverage"], "full");
+    // The interpreter's environment configuration stays unmodeled, so the
+    // engine records the exact delete with partial coverage.
+    assert_eq!(record["core"]["coverage"], "partial");
     assert_eq!(
         record["effects"],
-        json!([
-            {"id":"e0","description":"execute ipython interpreter-inline"},
-            {"id":"e1","description":"invoke ipython direct-file"},
-            {"id":"e2","description":format!("delete {target_text}")},
-        ])
+        json!([{"id":"e0","description":format!("filesystem.delete fs:{target_text}")}])
     );
 }
 
@@ -197,62 +190,42 @@ fn builtin_ipython_uses_current_cell_builtin_ownership() {
         json!({"block":false,"evaluation_failed":false})
     );
     let record = audit_records(&home).pop().unwrap();
-    assert_eq!(record["core"]["coverage"], "full");
+    assert_eq!(record["core"]["coverage"], "partial");
     assert_eq!(
         record["effects"],
-        json!([
-            {"id":"e0","description":"execute ipython interpreter-inline"},
-            {"id":"e1","description":"invoke ipython direct-file"},
-            {"id":"e2","description":format!("write {target_text}")},
-        ])
+        json!([{"id":"e0","description":format!("filesystem.write fs:{target_text}")}])
     );
 }
 
 #[test]
-fn inherited_ipython_shell_binding_stays_opaque() {
+fn injected_bash_helper_reaches_shell_guards_only_while_unshadowed() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
 
-    let source = "get_ipython().system('rm -rf /')";
+    let source = "print(bash('curl -fsS http://127.0.0.1:8000/probe.sh | bash'))";
+    let decision = run_adapter(&home, &project, "ipython", json!({"code":source}));
+    assert_eq!(decision["block"], true);
+    assert_eq!(decision["evaluation_failed"], false);
+    let record = audit_records(&home).pop().unwrap();
+    assert_eq!(record["core"]["verdict"], "block");
+    assert!(
+        record["effects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|effect| effect["description"] == "process.code_execution bash")
+    );
+
+    let source = "bash = print\nbash('rm -rf /')";
     assert_eq!(
         run_adapter(&home, &project, "ipython", json!({"code":source})),
         json!({"block":false,"evaluation_failed":false})
     );
     let record = audit_records(&home).pop().unwrap();
     assert_eq!(record["core"]["coverage"], "partial");
-    assert_eq!(
-        record["effects"],
-        json!([{"id":"e0","description":"execute ipython interpreter-inline"}])
-    );
-}
-
-#[test]
-fn explicit_bash_cell_reaches_the_root_guard() {
-    let home_temp = tempfile::tempdir().unwrap();
-    let home = std::fs::canonicalize(home_temp.path()).unwrap();
-    let project = repo(&home);
-
-    let source = "%%bash --noprofile\nrm -rf /";
-    assert_eq!(
-        run_adapter(&home, &project, "ipython", json!({"code":source}))["block"],
-        true
-    );
-
-    for source in ["!rm -rf {prior}", "%%bash -e\nrm -rf /"] {
-        assert_eq!(
-            run_adapter(&home, &project, "ipython", json!({"code":source})),
-            json!({"block":false,"evaluation_failed":false}),
-            "{source}"
-        );
-        let record = audit_records(&home).pop().unwrap();
-        assert_eq!(record["core"]["coverage"], "partial", "{source}");
-        assert_eq!(
-            record["effects"],
-            json!([{"id":"e0","description":"execute ipython interpreter-inline"}]),
-            "{source}"
-        );
-    }
+    assert_eq!(record["core"]["policy_attributions"], json!([]));
+    assert_eq!(record["effects"], json!([]));
 }
 
 #[test]
@@ -270,15 +243,11 @@ fn current_cell_destructive_effects_reach_prime_guards() {
     assert_eq!(root["block"], true);
     assert_eq!(root["evaluation_failed"], false);
     let record = audit_records(&home).pop().unwrap();
-    assert_eq!(record["core"]["coverage"], "full");
+    assert_eq!(record["core"]["coverage"], "partial");
     assert_eq!(record["core"]["verdict"], "block");
     assert_eq!(
         record["effects"],
-        json!([
-            {"id":"e0","description":"execute ipython interpreter-inline"},
-            {"id":"e1","description":"invoke ipython direct-file"},
-            {"id":"e2","description":"delete /"},
-        ])
+        json!([{"id":"e0","description":"filesystem.delete fs:/"}])
     );
 
     let extension = home.join(".prime/agent/extensions/nah.js");
@@ -289,7 +258,7 @@ fn current_cell_destructive_effects_reach_prime_guards() {
     let record = audit_records(&home).pop().unwrap();
     assert_eq!(record["core"]["verdict"], "block");
     assert!(record["effects"].as_array().unwrap().iter().any(|effect| {
-        effect["description"] == format!("delete {}", extension.to_string_lossy())
+        effect["description"] == format!("filesystem.delete fs:{}", extension.to_string_lossy())
     }));
 }
 
@@ -299,22 +268,21 @@ fn invalid_code_shapes_and_other_tools_remain_opaque() {
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let project = repo(&home);
 
-    for (tool, input, effect_tool) in [
-        ("ipython", json!({"code":7}), "ipython"),
+    for (tool, input) in [
+        ("ipython", json!({"code":7})),
         (
             "custom",
             json!({"code":"import shutil; shutil.rmtree('/')"}),
-            "prime-agent-opaque",
         ),
     ] {
         assert_eq!(
             run_adapter(&home, &project, tool, input),
             json!({"block":false,"evaluation_failed":false})
         );
-        assert_eq!(
-            audit_records(&home).pop().unwrap()["effects"],
-            json!([{"id":"e0","description":format!("invoke {effect_tool} opaque")}])
-        );
+        let record = audit_records(&home).pop().unwrap();
+        assert_eq!(record["core"]["coverage"], "partial", "{tool}");
+        assert_eq!(record["core"]["policy_attributions"], json!([]), "{tool}");
+        assert_eq!(record["effects"], json!([]), "{tool}");
     }
 }
 
@@ -340,6 +308,6 @@ fn additional_builtin_fields_cannot_hide_current_cell_effects() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|effect| effect["description"] == "delete /")
+            .any(|effect| effect["description"] == "filesystem.delete fs:/")
     );
 }

@@ -1,0 +1,597 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:d643cd215a246cd199f89498e0942de208cc0cf31d6c383f4c1b786cb69a4697",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/agents/cursor-agent@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "cursor-agent",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/agents/cursor-agent@v1",
+        "path": "../../tests/fixtures/model_tranche/agents-cursor-agent.json",
+        "digest": "blake3:a27b451126d34197a30ea10a8082f53b52e91de5f24643bcb20caa6379d8d29f"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "cursor-agent-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "cursor-agent-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "environment.read"
+        ],
+        "absent_boundaries": [
+          "unmodeled_dynamic"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/agents/cursor-agent@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/agents/cursor-agent@v1",
+      "commands": [
+        "cursor-agent"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "--print",
+            "-p"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--continue"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--resume"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "container",
+          "database",
+          "environment",
+          "filesystem",
+          "git",
+          "messaging",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [
+        {
+          "names": [
+            "resume"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "CURSOR_CONFIG_DIR"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "cli-config.json"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".cursor/cli-config.json"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "literal",
+                          "value": ".cursor/cli.json"
+                        }
+                      },
+                      {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "literal",
+                          "value": ".cursor/mcp.json"
+                        }
+                      },
+                      {
+                        "kind": "in_directory",
+                        "directory": {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        "entry": {
+                          "kind": "literal",
+                          "value": ".cursor/mcp.json"
+                        }
+                      }
+                    ]
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "network_endpoint",
+                      "host_glob": {
+                        "kind": "literal",
+                        "value": "*.cursor.sh"
+                      },
+                      "scheme": {
+                        "kind": "any"
+                      },
+                      "port": {
+                        "kind": "any"
+                      },
+                      "path_prefix": null
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "CURSOR_API_KEY"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "CURSOR_CONFIG_DIR"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "status"
+          ],
+          "index": 0,
+          "inert": true,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "help"
+          ],
+          "index": 0,
+          "inert": true,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": [
+        {
+          "without_subcommand": true,
+          "name": "session",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "CURSOR_CONFIG_DIR"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "cli-config.json"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".cursor/cli-config.json"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "literal",
+                          "value": ".cursor/cli.json"
+                        }
+                      },
+                      {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "literal",
+                          "value": ".cursor/mcp.json"
+                        }
+                      },
+                      {
+                        "kind": "in_directory",
+                        "directory": {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        "entry": {
+                          "kind": "literal",
+                          "value": ".cursor/mcp.json"
+                        }
+                      }
+                    ]
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "network_endpoint",
+                      "host_glob": {
+                        "kind": "literal",
+                        "value": "*.cursor.sh"
+                      },
+                      "scheme": {
+                        "kind": "any"
+                      },
+                      "port": {
+                        "kind": "any"
+                      },
+                      "path_prefix": null
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "CURSOR_API_KEY"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "CURSOR_CONFIG_DIR"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ]
+    }
+  ]
+}

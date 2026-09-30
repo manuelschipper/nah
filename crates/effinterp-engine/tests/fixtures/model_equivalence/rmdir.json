@@ -1,0 +1,224 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rmdir",
+          "empty"
+        ],
+        "cwd": "/w"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "directory",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/w/empty"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rmdir",
+          "-p",
+          "/a/b"
+        ]
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "directory",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "parents",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/a/b"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "rmdir \"$DIR\"",
+        "cwd": "/w"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "directory",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "$DIR"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rmdir",
+          "--unknown",
+          "empty"
+        ],
+        "cwd": "/w"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "unrecognized flags: --unknown"
+                },
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    }
+  ]
+}

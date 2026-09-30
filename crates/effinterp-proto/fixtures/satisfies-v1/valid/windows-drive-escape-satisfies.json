@@ -1,0 +1,43 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "windows-drive-escape-satisfies",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "C:/work/a"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "fs_path",
+          "glob": "\\C:/work/*"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "windows",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

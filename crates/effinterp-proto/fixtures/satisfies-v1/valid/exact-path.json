@@ -1,0 +1,39 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "exact-path",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/work/x"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "fs_path",
+          "path": "/work/x"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": []
+    }
+  }
+}

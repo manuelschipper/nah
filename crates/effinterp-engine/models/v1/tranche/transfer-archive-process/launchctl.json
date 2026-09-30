@@ -1,0 +1,910 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:db2366df202fc05cb901346a48805cee6acd78de1b7a7cc99b2796171c8963ae",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/launchctl@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "target",
+        "os": "macos",
+        "arch": null
+      }
+    ],
+    "versions": [
+      {
+        "target": "launchctl",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/launchctl@v1",
+        "path": "../../tests/fixtures/model_tranche/launchctl.json",
+        "digest": "blake3:22f34f7adc718450b0f8d9c2186bc4d5b5db4289367a5ac7f784be1beafc8e3b"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "launchctl-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "launchctl-not-the-command",
+            "load",
+            "/Library/LaunchDaemons/x.plist"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "system.service_enable"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/transfer-archive-process/launchctl@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "system.service_enable"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/launchctl@v1",
+      "commands": [
+        "launchctl"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "load"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-w"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-F"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "plist",
+              "index": 0,
+              "variadic": true,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plist"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "system.service_enable",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "svc"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "unload"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-w"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-F"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "plist",
+              "index": 0,
+              "variadic": true,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plist"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "system.service_disable",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "svc"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "bootstrap"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-w"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-F"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "domain",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "plist",
+              "index": 1,
+              "variadic": true,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plist"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "system.service_enable",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "svc"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "bootout"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-w"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-F"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "domain",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "plist",
+              "index": 1,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plist"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "domain"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "system.service_stop",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "service_unit",
+                      "manager": {
+                        "kind": "exact",
+                        "value": "launchd"
+                      },
+                      "name_glob": {
+                        "kind": "current"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "cancel": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "persistent": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "runtime_only": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "system.service_disable",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "service_unit",
+                      "manager": {
+                        "kind": "exact",
+                        "value": "launchd"
+                      },
+                      "name_glob": {
+                        "kind": "current"
+                      }
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "start"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "service",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "service"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "system.service_start",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "svc"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "stop"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "service",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "service"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "system.service_stop",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "service_unit",
+                      "manager": {
+                        "kind": "exact",
+                        "value": "launchd"
+                      },
+                      "name_glob": {
+                        "kind": "current"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "cancel": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "persistent": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "runtime_only": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "enable"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "service",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "service"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "system.service_enable",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "service_unit",
+                      "manager": {
+                        "kind": "exact",
+                        "value": "launchd"
+                      },
+                      "name_glob": {
+                        "kind": "current"
+                      }
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "disable"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "service",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "service"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "system.service_disable",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "service_unit",
+                      "manager": {
+                        "kind": "exact",
+                        "value": "launchd"
+                      },
+                      "name_glob": {
+                        "kind": "current"
+                      }
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "kickstart"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-k"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-p"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "service",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "service"
+              },
+              "when": {
+                "flag_present": [
+                  "-k"
+                ],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "system.service_stop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "svc"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "service"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "system.service_start",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "svc"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "list",
+            "print"
+          ],
+          "index": 0,
+          "inert": true,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "service",
+              "index": 0,
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

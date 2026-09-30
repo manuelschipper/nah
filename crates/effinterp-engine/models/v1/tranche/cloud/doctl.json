@@ -1,0 +1,657 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:9e9a3fce65be45c869935b099528c92e326bc45d0f298443690aff958e9d1054",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/cloud/doctl@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      },
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/cloud/doctl@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "doctl",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/cloud/doctl@v1",
+        "path": "../../tests/fixtures/model_tranche/doctl.json",
+        "digest": "blake3:0986f5690b004eeefddc01e037ed61a0fe8f15721f36209996b45dbe5c246d91"
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/cloud/doctl@v1-doctl_databases",
+        "path": "../../tests/fixtures/model_tranche/doctl_databases.json",
+        "digest": "blake3:061bf40a99b8ef118d224467e9a0efe231fdcf89e302116893dfbdb961949ddd"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "doctl-compute-droplet-delete-42---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "doctl",
+            "compute",
+            "droplet",
+            "delete",
+            "42",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "doctl-databases-delete-c1---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "doctl",
+            "databases",
+            "delete",
+            "c1",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "doctl-databases-list-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "doctl",
+            "databases",
+            "list"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "doctl-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "doctl-not-the-command",
+            "compute",
+            "droplet",
+            "delete",
+            "42"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/cloud/doctl@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "cloud.resource.delete"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/cloud/doctl@v1",
+      "commands": [
+        "doctl"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--access-token",
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--api-url",
+            "-u"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--config",
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--context"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--output",
+            "-o"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--interactive"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--trace"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--force",
+            "-f"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--wait"
+          ],
+          "takes_value": false,
+          "boolean": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "delete"
+          ],
+          "index": 2,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "compute"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "kind",
+              "index": 1,
+              "allowed_literals": [
+                "droplet"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "resource",
+              "index": 2,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "resource"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "cloud",
+                    "scope": {
+                      "kind": "unsupported",
+                      "identity": {
+                        "partition": {
+                          "state": "unknown"
+                        },
+                        "account": {
+                          "state": "unknown"
+                        },
+                        "project": {
+                          "state": "unknown"
+                        },
+                        "subscription": {
+                          "state": "unknown"
+                        },
+                        "region": {
+                          "state": "unknown"
+                        },
+                        "zone": {
+                          "state": "unknown"
+                        },
+                        "storage_account": {
+                          "state": "unknown"
+                        },
+                        "resource_group": {
+                          "state": "unknown"
+                        },
+                        "cluster": {
+                          "state": "unknown"
+                        },
+                        "namespace": {
+                          "state": "unknown"
+                        }
+                      },
+                      "access": []
+                    },
+                    "provider": {
+                      "kind": "literal",
+                      "value": "digitalocean"
+                    },
+                    "service": {
+                      "kind": "literal",
+                      "value": "compute"
+                    },
+                    "resource_kind": {
+                      "kind": "literal",
+                      "value": "droplet"
+                    },
+                    "id": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "delete",
+            "rm"
+          ],
+          "index": 1,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "databases",
+                "database",
+                "db",
+                "dbs",
+                "d"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "cluster",
+              "index": 1,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "cluster"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "cloud",
+                    "scope": {
+                      "kind": "unsupported",
+                      "identity": {
+                        "partition": {
+                          "state": "unknown"
+                        },
+                        "account": {
+                          "state": "unknown"
+                        },
+                        "project": {
+                          "state": "unknown"
+                        },
+                        "subscription": {
+                          "state": "unknown"
+                        },
+                        "region": {
+                          "state": "unknown"
+                        },
+                        "zone": {
+                          "state": "unknown"
+                        },
+                        "storage_account": {
+                          "state": "unknown"
+                        },
+                        "resource_group": {
+                          "state": "unknown"
+                        },
+                        "cluster": {
+                          "state": "unknown"
+                        },
+                        "namespace": {
+                          "state": "unknown"
+                        }
+                      },
+                      "access": []
+                    },
+                    "provider": {
+                      "kind": "literal",
+                      "value": "digitalocean"
+                    },
+                    "service": {
+                      "kind": "literal",
+                      "value": "databases"
+                    },
+                    "resource_kind": {
+                      "kind": "literal",
+                      "value": "cluster"
+                    },
+                    "id": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "delete",
+            "rm"
+          ],
+          "index": 2,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "databases",
+                "database",
+                "db",
+                "dbs",
+                "d"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "kind",
+              "index": 1,
+              "allowed_literals": [
+                "db"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "cluster",
+              "index": 2,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "database",
+              "index": 3,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "database"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "cloud",
+                    "scope": {
+                      "kind": "unsupported",
+                      "identity": {
+                        "partition": {
+                          "state": "unknown"
+                        },
+                        "account": {
+                          "state": "unknown"
+                        },
+                        "project": {
+                          "state": "unknown"
+                        },
+                        "subscription": {
+                          "state": "unknown"
+                        },
+                        "region": {
+                          "state": "unknown"
+                        },
+                        "zone": {
+                          "state": "unknown"
+                        },
+                        "storage_account": {
+                          "state": "unknown"
+                        },
+                        "resource_group": {
+                          "state": "unknown"
+                        },
+                        "cluster": {
+                          "state": "unknown"
+                        },
+                        "namespace": {
+                          "state": "unknown"
+                        }
+                      },
+                      "access": []
+                    },
+                    "provider": {
+                      "kind": "literal",
+                      "value": "digitalocean"
+                    },
+                    "service": {
+                      "kind": "literal",
+                      "value": "databases"
+                    },
+                    "resource_kind": {
+                      "kind": "literal",
+                      "value": "database"
+                    },
+                    "id": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "positional",
+                          "name": "cluster"
+                        },
+                        {
+                          "kind": "positional",
+                          "name": "database"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

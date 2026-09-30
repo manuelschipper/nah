@@ -1,0 +1,163 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:139b52f12417e2ec836ce15d7f68fc68ee867c717e3e3a33bf87e8f44f560f12",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/unxz@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "unxz",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/unxz@v1",
+        "path": "../../tests/fixtures/model_tranche/unxz.json",
+        "digest": "blake3:fa8bea7459c99dfde090672674a7823baf38d9844d824fad90c8005e4f616bb3"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "unxz-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "unxz-not-the-command",
+            "/work/input.bin"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/transfer-archive-process/unxz@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.delete",
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/unxz@v1",
+      "commands": [
+        "unxz"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [
+        {
+          "name": "input",
+          "index": 0,
+          "variadic": true,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "property",
+                "base": {
+                  "kind": "filesystem",
+                  "path": {
+                    "kind": "current"
+                  }
+                },
+                "name": "decompressed-output"
+              },
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

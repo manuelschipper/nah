@@ -1,0 +1,813 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:de76abf774c608974c36621d5c46cf53877734e7afb11dd51186f9a87ccfa379",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/cloud/heroku@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      },
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/managed_db_delete_sources.json#p18b/cloud/heroku@v1",
+        "digest": "blake3:b0d8157d445897fa3ab86fddb6af68c0a800f9665efc977fa1010a3f7bcc39ea"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "heroku",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/cloud/heroku@v1",
+        "path": "../../tests/fixtures/model_tranche/heroku.json",
+        "digest": "blake3:c6e22c37638914cd99c2f780c645f71419f273179fce172a4ea01c5db2cdec82"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "heroku-addons:destroy-other-addon-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "heroku",
+            "addons:destroy",
+            "papertrail",
+            "--confirm",
+            "app"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "heroku-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "heroku-not-the-command",
+            "pg:reset"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      },
+      {
+        "name": "heroku-pg:backups:info-does-not-delete",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "heroku",
+            "pg:backups:info",
+            "b123",
+            "--app",
+            "app"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "heroku-pg:info-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "heroku",
+            "pg:info"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "heroku-pg:reset---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "heroku",
+            "pg:reset",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/cloud/heroku@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "cloud.resource.delete",
+      "database.read",
+      "database.schema_drop",
+      "database.write"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/cloud/heroku@v1",
+      "commands": [
+        "heroku"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--app",
+            "-a"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--remote",
+            "-r"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--confirm",
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--extensions",
+            "-e"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--wait-interval"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "database",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "pg:reset"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "database",
+              "index": 0,
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "pg:backups:restore"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "backup",
+              "index": 0,
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            },
+            {
+              "name": "database",
+              "index": 1,
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "action": {
+                      "kind": "constant_string",
+                      "value": "overwrite"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "pg:backups:delete"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "backup_id",
+              "index": 0,
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "backup_id"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "cloud",
+                    "scope": {
+                      "kind": "unsupported",
+                      "identity": {
+                        "partition": {
+                          "state": "unknown"
+                        },
+                        "account": {
+                          "state": "unknown"
+                        },
+                        "project": {
+                          "state": "unknown"
+                        },
+                        "subscription": {
+                          "state": "unknown"
+                        },
+                        "region": {
+                          "state": "unknown"
+                        },
+                        "zone": {
+                          "state": "unknown"
+                        },
+                        "storage_account": {
+                          "state": "unknown"
+                        },
+                        "resource_group": {
+                          "state": "unknown"
+                        },
+                        "cluster": {
+                          "state": "unknown"
+                        },
+                        "namespace": {
+                          "state": "unknown"
+                        }
+                      },
+                      "access": []
+                    },
+                    "provider": {
+                      "kind": "literal",
+                      "value": "heroku"
+                    },
+                    "service": {
+                      "kind": "literal",
+                      "value": "postgresql"
+                    },
+                    "resource_kind": {
+                      "kind": "literal",
+                      "value": "backup"
+                    },
+                    "id": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "pg:copy"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "source",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "target",
+              "index": 1,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.read",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "database.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "action": {
+                      "kind": "constant_string",
+                      "value": "overwrite"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "addons:destroy",
+            "addons:remove"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--force",
+                "-f"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--wait"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "addon",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "addon"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "include_literals": [
+                "heroku-postgresql"
+              ],
+              "include_prefixes": [
+                "heroku-postgresql:"
+              ],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "cloud",
+                    "scope": {
+                      "kind": "unsupported",
+                      "identity": {
+                        "partition": {
+                          "state": "unknown"
+                        },
+                        "account": {
+                          "state": "unknown"
+                        },
+                        "project": {
+                          "state": "unknown"
+                        },
+                        "subscription": {
+                          "state": "unknown"
+                        },
+                        "region": {
+                          "state": "unknown"
+                        },
+                        "zone": {
+                          "state": "unknown"
+                        },
+                        "storage_account": {
+                          "state": "unknown"
+                        },
+                        "resource_group": {
+                          "state": "unknown"
+                        },
+                        "cluster": {
+                          "state": "unknown"
+                        },
+                        "namespace": {
+                          "state": "unknown"
+                        }
+                      },
+                      "access": []
+                    },
+                    "provider": {
+                      "kind": "literal",
+                      "value": "heroku"
+                    },
+                    "service": {
+                      "kind": "literal",
+                      "value": "postgresql"
+                    },
+                    "resource_kind": {
+                      "kind": "literal",
+                      "value": "addon"
+                    },
+                    "id": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "addon"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "include_literals": [
+                "heroku-redis"
+              ],
+              "include_prefixes": [
+                "heroku-redis:"
+              ],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "cloud",
+                    "scope": {
+                      "kind": "unsupported",
+                      "identity": {
+                        "partition": {
+                          "state": "unknown"
+                        },
+                        "account": {
+                          "state": "unknown"
+                        },
+                        "project": {
+                          "state": "unknown"
+                        },
+                        "subscription": {
+                          "state": "unknown"
+                        },
+                        "region": {
+                          "state": "unknown"
+                        },
+                        "zone": {
+                          "state": "unknown"
+                        },
+                        "storage_account": {
+                          "state": "unknown"
+                        },
+                        "resource_group": {
+                          "state": "unknown"
+                        },
+                        "cluster": {
+                          "state": "unknown"
+                        },
+                        "namespace": {
+                          "state": "unknown"
+                        }
+                      },
+                      "access": []
+                    },
+                    "provider": {
+                      "kind": "literal",
+                      "value": "heroku"
+                    },
+                    "service": {
+                      "kind": "literal",
+                      "value": "redis"
+                    },
+                    "resource_kind": {
+                      "kind": "literal",
+                      "value": "addon"
+                    },
+                    "id": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "addon"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "heroku-postgresql",
+                        "heroku-redis"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "destroying an add-on is modeled only for a literal heroku-postgresql or heroku-redis service"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

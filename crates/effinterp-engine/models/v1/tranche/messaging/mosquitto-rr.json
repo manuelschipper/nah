@@ -1,0 +1,263 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:505615b55400c3877290c4268ccc313933e03db8d0836088c3005a48451ec1a6",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/messaging/mosquitto-rr@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "mosquitto_rr",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/messaging/mosquitto-rr@v1",
+        "path": "../../tests/fixtures/model_tranche/mosquitto-rr.json",
+        "digest": "blake3:a77773bd045192a0b92105a6dbf767dfe96f8c1acc6c13ac7e1de40c98b34838"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "mosquitto_rr-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "mosquitto_rr-not-the-command",
+            "--topic",
+            "request/topic",
+            "--response-topic",
+            "response/topic"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "messaging.consume",
+          "messaging.publish"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/messaging/mosquitto-rr@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "messaging.consume",
+      "messaging.publish"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/messaging/mosquitto-rr@v1",
+      "commands": [
+        "mosquitto_rr"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--topic",
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--response-topic",
+            "-e"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "--topic",
+              "-t"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "--response-topic",
+              "-e"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "messaging.publish",
+              "resource": {
+                "kind": "messaging",
+                "scope": {
+                  "kind": "mqtt_topic",
+                  "identity": {
+                    "partition": {
+                      "state": "not_applicable"
+                    },
+                    "account": {
+                      "state": "not_applicable"
+                    },
+                    "project": {
+                      "state": "not_applicable"
+                    },
+                    "subscription": {
+                      "state": "not_applicable"
+                    },
+                    "region": {
+                      "state": "not_applicable"
+                    },
+                    "zone": {
+                      "state": "not_applicable"
+                    },
+                    "storage_account": {
+                      "state": "not_applicable"
+                    },
+                    "resource_group": {
+                      "state": "not_applicable"
+                    },
+                    "cluster": {
+                      "state": "unknown"
+                    },
+                    "namespace": {
+                      "state": "not_applicable"
+                    }
+                  },
+                  "access": []
+                },
+                "system": {
+                  "kind": "literal",
+                  "value": "mqtt"
+                },
+                "name": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "--response-topic",
+              "-e"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "--topic",
+              "-t"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "messaging.consume",
+              "resource": {
+                "kind": "messaging",
+                "scope": {
+                  "kind": "mqtt_topic",
+                  "identity": {
+                    "partition": {
+                      "state": "not_applicable"
+                    },
+                    "account": {
+                      "state": "not_applicable"
+                    },
+                    "project": {
+                      "state": "not_applicable"
+                    },
+                    "subscription": {
+                      "state": "not_applicable"
+                    },
+                    "region": {
+                      "state": "not_applicable"
+                    },
+                    "zone": {
+                      "state": "not_applicable"
+                    },
+                    "storage_account": {
+                      "state": "not_applicable"
+                    },
+                    "resource_group": {
+                      "state": "not_applicable"
+                    },
+                    "cluster": {
+                      "state": "unknown"
+                    },
+                    "namespace": {
+                      "state": "not_applicable"
+                    }
+                  },
+                  "access": []
+                },
+                "system": {
+                  "kind": "literal",
+                  "value": "mqtt"
+                },
+                "name": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "messaging",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

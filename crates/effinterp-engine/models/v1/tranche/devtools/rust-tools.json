@@ -1,0 +1,726 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:f064839799a446e13ce682be89a86c4c94da118ffe02a2e8e8f2ee0c9dc05734",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/devtools/rust-tools@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "rustc",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/rust-tools@v1",
+        "path": "../../tests/fixtures/model_tranche/rust-tools.json",
+        "digest": "blake3:96659f98496dcc6e1f9aaf6070831b6ba91bc04289d4b19cbfe5051cd5e62c8a"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "rust-tools-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rust-tools-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/rust-tools@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/rust-tools/rustc@v1",
+      "commands": [
+        "rustc"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-o"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--emit"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--crate-type"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-C"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-L"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--edition"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--target"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--print"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-V"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "source",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "source"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--version",
+              "-V",
+              "--print"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-o"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--version",
+              "-V",
+              "--print",
+              "--emit"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "source"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--version",
+              "-V",
+              "--print",
+              "--emit"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-o"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "basename_in_cwd",
+                "value": {
+                  "kind": "file_stem",
+                  "value": {
+                    "kind": "current"
+                  }
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_value_may_be_stdio": [
+              "-o"
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--version",
+              "-V",
+              "--print",
+              "--emit"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [
+              "--emit"
+            ],
+            "flag_absent": [
+              "--version",
+              "-V",
+              "--print"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "unrecognized_arguments",
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "rustc emit output kinds and per-kind destinations are not modeled"
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "version",
+          "when": {
+            "flag_present": [
+              "--version",
+              "-V"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "name": "print",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "--print"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/rust-tools/rustfmt@v1",
+      "commands": [
+        "rustfmt"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--check"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--emit"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--edition"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--config"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--emit"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "flag_value_in": [
+              {
+                "flags": [
+                  "--emit"
+                ],
+                "allowed_literals": [
+                  "files",
+                  "stdout"
+                ]
+              }
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--check",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--emit"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--check",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "flag_value_in": [
+              {
+                "flags": [
+                  "--emit"
+                ],
+                "allowed_literals": [
+                  "files"
+                ]
+              }
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [
+              "--check"
+            ],
+            "flag_absent": [
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--emit"
+            ],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--version",
+              "--check"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "flag_value_in": [
+              {
+                "flags": [
+                  "--emit"
+                ],
+                "allowed_literals": [
+                  "stdout"
+                ]
+              }
+            ],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--emit"
+            ],
+            "reads_stdin": true
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--version",
+              "--check"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "flag_value_in": [
+              {
+                "flags": [
+                  "--emit"
+                ],
+                "allowed_literals": [
+                  "stdout"
+                ]
+              }
+            ],
+            "reads_stdin": true
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "stdin",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "name": "version",
+          "when": {
+            "flag_present": [
+              "--version"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    }
+  ]
+}

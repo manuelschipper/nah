@@ -1,0 +1,133 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "dramatiq",
+          "app.tasks"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "messaging"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "messaging.consume"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "topic:declared-queues"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "messaging": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "dramatiq",
+          "--bad-option"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "missing positionals: module"
+                },
+                "domains": {
+                  "all_of": [
+                    "messaging",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "missing_required_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "messaging",
+            "process"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unrecognized flags: --bad-option"
+                },
+                "domains": {
+                  "all_of": [
+                    "messaging",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "messaging",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "messaging": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    }
+  ]
+}

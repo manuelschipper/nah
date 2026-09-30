@@ -1,0 +1,4136 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:3ba5442c88ad60424a3d2fafa54df09083861d4b452e2b39bc5fd480ba74247e",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/agents_selfprot_sources.json#selfprot/agents/hermes@v1",
+        "digest": "blake3:8bab1c9cbbd0ed24f19c085e7f1dfdff7a16a16f858ccd9e628ba414b45e1b95"
+      },
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/agents/hermes@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "hermes",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/agents/hermes@v1",
+        "path": "../../tests/fixtures/model_tranche/agents-hermes.json",
+        "digest": "blake3:45e59bc985f39ee93e2d950988475275f1f922cf2461c18ef7f1d1a55d41b3a4"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "hermes-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "hermes-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "environment.read"
+        ],
+        "absent_boundaries": [
+          "unmodeled_dynamic"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/agents/hermes@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "filesystem.write",
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "protected_control": true,
+      "id": "p18b/agents/hermes@v1",
+      "commands": [
+        "hermes"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "--query",
+            "-q"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--continue"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--resume"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--safe-mode"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-r"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--in"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-V"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--worktree",
+            "-w"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--yolo"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--pass-session-id"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ignore-user-config"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ignore-rules"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--tui"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--cli"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--dev"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--profile",
+            "-p"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "container",
+          "database",
+          "environment",
+          "filesystem",
+          "git",
+          "messaging",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [
+        {
+          "names": [
+            "set"
+          ],
+          "index": 1,
+          "flags": [
+            {
+              "names": [
+                "--help",
+                "-h"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--version",
+                "-V"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "group",
+              "index": 0,
+              "allowed_literals": [
+                "config"
+              ],
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            },
+            {
+              "name": "key",
+              "index": 1,
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            },
+            {
+              "name": "arguments",
+              "index": 2,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "hooks.pre_tool_call"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call."
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call["
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "config.yaml"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/config.yaml"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".env"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/.env"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "hooks.pre_tool_call"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "config.yaml"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/config.yaml"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".env"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/.env"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "hooks.pre_tool_call"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "config.yaml"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/config.yaml"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".env"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/.env"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "config.yaml"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/config.yaml"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".env"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/.env"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "hooks.pre_tool_call"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "hooks.pre_tool_call"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "hermes --profile selects a state directory this model does not name"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": false,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "chat"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "config.yaml"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/config.yaml"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".env"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/.env"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "auth.json"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/auth.json"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "literal",
+                      "value": "openrouter.ai"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "OPENROUTER_API_KEY"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "HERMES_HOME"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            },
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "hermes --profile selects a state directory this model does not name"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "unset"
+          ],
+          "index": 1,
+          "flags": [
+            {
+              "names": [
+                "--help",
+                "-h"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--version",
+                "-V"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "group",
+              "index": 0,
+              "allowed_literals": [
+                "config"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "key",
+              "index": 1,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "hooks.pre_tool_call"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call."
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call["
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "config.yaml"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "config.yaml"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "hooks.pre_tool_call"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "config.yaml"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "config.yaml"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "hooks.pre_tool_call"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "config.yaml"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "config.yaml"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "config.yaml"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "config.yaml"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "hooks.pre_tool_call"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "hooks.pre_tool_call"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "hooks.pre_tool_call["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "hermes --profile selects a state directory this model does not name"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": false,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "revoke",
+            "remove",
+            "rm"
+          ],
+          "index": 1,
+          "flags": [
+            {
+              "names": [
+                "--help",
+                "-h"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--version",
+                "-V"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "group",
+              "index": 0,
+              "allowed_literals": [
+                "hooks"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "command",
+              "index": 1,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah hook hermes run",
+                        "nah hook hermes run --fail-closed"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "quoted_program",
+                      "program": "nah",
+                      "arguments": " hook hermes run"
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "quoted_program",
+                      "program": "nah",
+                      "arguments": " hook hermes run --fail-closed"
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "shell-hooks-allowlist.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "shell-hooks-allowlist.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah hook hermes run",
+                        "nah hook hermes run --fail-closed"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "shell-hooks-allowlist.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "shell-hooks-allowlist.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah hook hermes run",
+                        "nah hook hermes run --fail-closed"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "quoted_program",
+                      "program": "nah",
+                      "arguments": " hook hermes run"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "shell-hooks-allowlist.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "shell-hooks-allowlist.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "quoted_program",
+                      "program": "nah",
+                      "arguments": " hook hermes run"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "quoted_program",
+                      "program": "nah",
+                      "arguments": " hook hermes run --fail-closed"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "shell-hooks-allowlist.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HERMES_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".hermes"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "shell-hooks-allowlist.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "quoted_program",
+                      "program": "nah",
+                      "arguments": " hook hermes run --fail-closed"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah hook hermes run",
+                        "nah hook hermes run --fail-closed"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah hook hermes run",
+                        "nah hook hermes run --fail-closed"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "quoted_program",
+                      "program": "nah",
+                      "arguments": " hook hermes run"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "quoted_program",
+                      "program": "nah",
+                      "arguments": " hook hermes run"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "quoted_program",
+                      "program": "nah",
+                      "arguments": " hook hermes run --fail-closed"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "command"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "command"
+                    },
+                    "shape": {
+                      "kind": "quoted_program",
+                      "program": "nah",
+                      "arguments": " hook hermes run --fail-closed"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "hermes --profile selects a state directory this model does not name"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": false,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "get"
+          ],
+          "index": 1,
+          "inert": true,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "group",
+              "index": 0,
+              "allowed_literals": [
+                "config"
+              ],
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            },
+            {
+              "name": "arguments",
+              "index": 1,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "help"
+          ],
+          "index": 0,
+          "inert": true,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": [
+        {
+          "without_subcommand": true,
+          "name": "session",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--safe-mode"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "config.yaml"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/config.yaml"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".env"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/.env"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HERMES_HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "auth.json"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".hermes/auth.json"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "literal",
+                      "value": "openrouter.ai"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "OPENROUTER_API_KEY"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "HERMES_HOME"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            },
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "hermes --profile selects a state directory this model does not name"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ]
+    }
+  ]
+}

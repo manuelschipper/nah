@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use nah_proto::ctx::{GuardIdentity, GuardScope};
 
-use crate::catalog::{GuardFamily, resolve_shipped_guard};
+use crate::catalog::{GuardFamily, shipped_names};
 
 use super::{
     custom_guard_entries, disable_custom_guard, disable_custom_guard_scoped,
@@ -103,13 +103,6 @@ impl GuardChange {
     }
 }
 
-/// Result of one explicit guard mutation, named by its current identity.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct GuardMutation {
-    pub(crate) canonical_name: String,
-    pub(crate) warnings: Vec<String>,
-}
-
 pub(crate) fn guard_entries() -> Result<(Vec<GuardEntry>, Vec<String>), String> {
     let (mut entries, diagnostics) = shipped_guard_entries()?;
     entries.extend(custom_guard_entries()?);
@@ -120,8 +113,8 @@ pub(crate) fn set_guard_enabled(
     name: &str,
     enabled: bool,
     selector: &GuardSelector,
-) -> Result<GuardMutation, String> {
-    if resolve_shipped_guard(name).is_some() {
+) -> Result<Vec<String>, String> {
+    if shipped_names().contains(&name) {
         if selector != &GuardSelector::Any {
             Err(format!(
                 "built-in guard `{name}` is global; omit `--user` and `--project`"
@@ -134,24 +127,18 @@ pub(crate) fn set_guard_enabled(
             GuardSelector::Any => enable_custom_guard(name),
             _ => enable_custom_guard_scoped(name, selector),
         }
-        .map(|()| GuardMutation {
-            canonical_name: name.to_owned(),
-            warnings: vec![],
-        })
+        .map(|()| vec![])
     } else {
         match selector {
             GuardSelector::Any => disable_custom_guard(name),
             _ => disable_custom_guard_scoped(name, selector),
         }
-        .map(|()| GuardMutation {
-            canonical_name: name.to_owned(),
-            warnings: vec![],
-        })
+        .map(|()| vec![])
     }
 }
 
-pub(crate) fn reset_guard(name: &str, selector: &GuardSelector) -> Result<GuardMutation, String> {
-    if resolve_shipped_guard(name).is_none() {
+pub(crate) fn reset_guard(name: &str, selector: &GuardSelector) -> Result<Vec<String>, String> {
+    if !shipped_names().contains(&name) {
         return Err(format!("guard `{name}` was not found"));
     }
     if selector != &GuardSelector::Any {
@@ -162,12 +149,20 @@ pub(crate) fn reset_guard(name: &str, selector: &GuardSelector) -> Result<GuardM
     reset_shipped_guard(name)
 }
 
+/// Guard change preflight, run over every staged change before any is applied.
+/// Built-in changes only need a shipped guard name. A custom enable checks the
+/// reviewed bundle hash against current discovery, and a custom disable checks
+/// for an activation record; see `validate_guard_identity`.
+///
+/// Success is a point-in-time check, not a reservation or transaction: disk can
+/// change before `apply_guard_change` writes, custom applies recheck live
+/// state, and an earlier applied change stays written if a later one fails.
 pub(crate) fn validate_guard_change(change: &GuardChange) -> Result<(), String> {
     match change {
         GuardChange::BuiltInEnable { name }
         | GuardChange::BuiltInDisable { name }
         | GuardChange::BuiltInReset { name } => {
-            if resolve_shipped_guard(name).is_some() {
+            if shipped_names().contains(&name.as_str()) {
                 Ok(())
             } else {
                 Err(format!("guard `{name}` was not found"))
@@ -183,15 +178,9 @@ pub(crate) fn validate_guard_change(change: &GuardChange) -> Result<(), String> 
 
 pub(crate) fn apply_guard_change(change: &GuardChange) -> Result<Vec<String>, String> {
     match change {
-        GuardChange::BuiltInReset { name } => {
-            reset_shipped_guard(name).map(|mutation| mutation.warnings)
-        }
-        GuardChange::BuiltInEnable { name } => {
-            set_shipped_guard(name, true).map(|mutation| mutation.warnings)
-        }
-        GuardChange::BuiltInDisable { name } => {
-            set_shipped_guard(name, false).map(|mutation| mutation.warnings)
-        }
+        GuardChange::BuiltInReset { name } => reset_shipped_guard(name),
+        GuardChange::BuiltInEnable { name } => set_shipped_guard(name, true),
+        GuardChange::BuiltInDisable { name } => set_shipped_guard(name, false),
         GuardChange::CustomEnable {
             identity,
             expected_hash,

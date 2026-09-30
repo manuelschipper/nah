@@ -10,6 +10,7 @@
 
 use nah_cli::{decide_with, shipped_guard_states};
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
+use nah_proto::effects::EffectFact;
 use nah_proto::observation::{
     DescendantObservation, EnvObservation, Observation, ObservationFact, ObservationQuery,
     ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
@@ -56,14 +57,10 @@ fn decide_core(command: &str) -> Result<String, String> {
             .map(nah_proto::decision::GuardAttribution::name)
             .collect::<Vec<_>>(),
         "effects": result
-            .action_stream()
-            .effects()
-            .iter()
-            .map(|effect| serde_json::json!({
-                "id": effect.id().as_str(),
-                "kind": effect.kind(),
-            }))
-            .collect::<Vec<_>>(),
+            .guard_evidence()
+            .and_then(Result::ok)
+            .map(|evidence| evidence.graph().facts.iter().map(fact_row).collect::<Vec<_>>())
+            .unwrap_or_default(),
         "failures": result
             .failures()
             .iter()
@@ -76,6 +73,22 @@ fn decide_core(command: &str) -> Result<String, String> {
             .collect::<Vec<_>>(),
     });
     serde_json::to_string(&value).map_err(|error| error.to_string())
+}
+
+/// One typed guard-evidence fact as the page's effect row: its id and the
+/// payload variant with its operation, such as `FilesystemAccess/Delete`.
+fn fact_row(fact: &EffectFact) -> serde_json::Value {
+    let payload = serde_json::to_value(&fact.payload).unwrap_or_default();
+    let (variant, fields) = payload
+        .as_object()
+        .and_then(|object| object.iter().next())
+        .map(|(variant, fields)| (variant.clone(), fields.clone()))
+        .unwrap_or_default();
+    let kind = match fields.get("operation").and_then(serde_json::Value::as_str) {
+        Some(operation) => format!("{variant}/{operation}"),
+        None => variant,
+    };
+    serde_json::json!({ "id": format!("f{}", fact.id.0), "kind": kind })
 }
 
 /// Answer an observation request for the synthetic machine.
@@ -178,6 +191,7 @@ mod tests {
             ("git clean -f", "git-clean-force"),
             ("git restore .", "git-worktree-discard"),
             ("git checkout -f", "git-worktree-discard"),
+            ("git checkout -f main", "git-worktree-discard"),
             ("git switch --discard-changes main", "git-worktree-discard"),
         ] {
             let value = decision(command);
@@ -196,7 +210,6 @@ mod tests {
         for command in [
             "git clean -f -- src/lib.rs",
             "git restore src/lib.rs",
-            "git checkout -f main",
             "git restore :/",
         ] {
             let value = decision(command);

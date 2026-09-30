@@ -1,0 +1,942 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:70f852ff2296977c9d954ec336d93eab9cb8f705528b1ca9649a440e0a22e03f",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/xz@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "xz",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/xz@v1",
+        "path": "../../tests/fixtures/model_tranche/xz.json",
+        "digest": "blake3:13bfae4c8274c8b65a59281cb6bce45d3aa037eb7c64ad53c0d6e851b30044e4"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "xz-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "xz-not-the-command",
+            "/work/input.bin"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/transfer-archive-process/xz@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.delete",
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": [
+      "model_coverage",
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/xz@v1",
+      "commands": [
+        "xz"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--keep",
+            "-k"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--stdout",
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--decompress",
+            "--uncompress",
+            "-d"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "input",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "exclude_suffixes": [
+            ".xz",
+            ".txz",
+            ".lzma",
+            ".tlz",
+            ".lz"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "join",
+                  "parts": [
+                    {
+                      "kind": "current"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": ".xz"
+                    }
+                  ],
+                  "separator": ""
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "-k",
+              "--keep",
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "exclude_suffixes": [
+            ".xz",
+            ".txz",
+            ".lzma",
+            ".tlz",
+            ".lz"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "XZ_DEFAULTS",
+                  "XZ_OPT"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "exclude_suffixes": [
+            ".xz",
+            ".txz",
+            ".lzma",
+            ".tlz",
+            ".lz"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "join",
+                  "parts": [
+                    {
+                      "kind": "current"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": ".xz"
+                    }
+                  ],
+                  "separator": ""
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "-k",
+              "--keep",
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "XZ_DEFAULTS",
+                  "XZ_OPT"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "exclude_suffixes": [
+            ".xz",
+            ".txz",
+            ".lzma",
+            ".tlz",
+            ".lz"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "XZ_DEFAULTS",
+                  "XZ_OPT"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_absent": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "-k",
+              "--keep"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "process.stream_transform",
+              "resource": {
+                "kind": "process",
+                "executable": {
+                  "kind": "argument",
+                  "index": 0
+                },
+                "argv": []
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "transform": {
+                  "kind": "constant_string",
+                  "value": "decode"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "effect",
+            "operation": "filesystem.write",
+            "selection": "all"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "positional_may_be_stdio": [
+              "input"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "XZ_DEFAULTS",
+                  "XZ_OPT"
+                ],
+                "matches": true
+              }
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "effect",
+            "operation": "filesystem.write",
+            "selection": "all"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "XZ_DEFAULTS",
+                  "XZ_OPT"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "positional_may_be_stdio": [
+              "input"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "XZ_DEFAULTS",
+                  "XZ_OPT"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "effect",
+            "operation": "process.stream_transform",
+            "selection": "all"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "process.stream_transform",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "positional_may_be_stdio": [
+              "input"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "effect",
+            "operation": "process.stream_transform",
+            "selection": "all"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "positional_may_be_stdio": [
+              "input"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "process.stream_transform",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "transfers": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.read"
+          },
+          "destination": {
+            "operation": "filesystem.write"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--stdout",
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "XZ_DEFAULTS",
+                  "XZ_OPT"
+                ],
+                "matches": true
+              }
+            ],
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.read"
+          },
+          "destination": {
+            "operation": "filesystem.write"
+          }
+        }
+      ],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "XZ_DEFAULTS",
+                  "XZ_OPT"
+                ],
+                "matches": false
+              }
+            ],
+            "reads_stdin": false
+          },
+          "reason": "model_coverage",
+          "class": "unresolved",
+          "domains": [
+            "filesystem",
+            "process"
+          ],
+          "detail": "xz environment options may change processing or output paths"
+        },
+        {
+          "when": {
+            "flag_present": [
+              "--decompress",
+              "--uncompress",
+              "-d"
+            ],
+            "flag_absent": [
+              "-c",
+              "--stdout"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "reason": "model_coverage",
+          "class": "unresolved",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "xz -d derives the decompressed file name from the input suffix, which is not modeled"
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

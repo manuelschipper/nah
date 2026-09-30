@@ -1,0 +1,676 @@
+//! Declarative definitions for the registry, system, infrastructure and
+//! storage guards.
+
+use effinterp_matcher::{
+    Assertion, AttributePredicate, AttributeTest, ConditionPredicate, OperationMatch, Query,
+    RealmPredicate, ResourcePredicate, ResourceVariant, SelectionShape, Selector, TextPredicate,
+};
+use effinterp_proto::{AttrValue, ExecutionAssurance, RequestAssurance};
+use nah_proto::effects::Domain;
+
+use crate::registry::{GuardDefinition, GuardFamily, engine_only};
+use crate::shared_queries::{
+    bool_attr, family, present_attr, selection, string_attr, string_one_of, variant,
+};
+
+pub(crate) fn registry_publish() -> GuardDefinition {
+    GuardDefinition {
+        id: "registry-publish",
+        reason: "registry-publish blocked publication to a package registry; keep the release unpublished and ask the operator to verify the package, version, and destination",
+        family: GuardFamily::Registry,
+        default_enabled: false,
+        domain: Domain::Package,
+        gap_code: Some("package-active-mode-unavailable"),
+        clauses: engine_only(Query::new(effect(
+            "artifact.publish_request",
+            ResourcePredicate::Any,
+            vec![bool_attr("active", true), bool_attr("dry_run", false)],
+            Some(RequestAssurance::Exact),
+            None,
+        ))),
+    }
+}
+
+pub(crate) fn registry_unpublish() -> GuardDefinition {
+    GuardDefinition {
+        id: "registry-unpublish",
+        reason: "registry-unpublish blocked package removal or published-name control transfer; preserve the published identity and ask the operator to verify the removal or owner change",
+        family: GuardFamily::Registry,
+        default_enabled: true,
+        domain: Domain::Package,
+        gap_code: Some("package-active-mode-unavailable"),
+        clauses: engine_only(Query::new(Assertion::Any {
+            assertions: vec![
+                effect(
+                    "artifact.remove_request",
+                    ResourcePredicate::Any,
+                    vec![bool_attr("active", true), bool_attr("dry_run", false)],
+                    Some(RequestAssurance::Exact),
+                    None,
+                ),
+                effect(
+                    "artifact.owner_change",
+                    ResourcePredicate::Any,
+                    vec![bool_attr("active", true), bool_attr("dry_run", false)],
+                    None,
+                    Some(ExecutionAssurance::Exact),
+                ),
+                effect(
+                    "artifact.yank_request",
+                    ResourcePredicate::Any,
+                    vec![
+                        bool_attr("active", true),
+                        bool_attr("dry_run", false),
+                        string_attr("ecosystem", "rubygems"),
+                    ],
+                    Some(RequestAssurance::Exact),
+                    None,
+                ),
+            ],
+        })),
+    }
+}
+
+pub(crate) fn sys_power() -> GuardDefinition {
+    GuardDefinition {
+        id: "sys-power",
+        reason: "sys-power blocked a host power action; keep the host running and ask the operator to perform any intentional power action",
+        family: GuardFamily::System,
+        default_enabled: true,
+        domain: Domain::System,
+        gap_code: Some("system-action-controls-unavailable"),
+        clauses: engine_only(Query::new(effect(
+            "system.power",
+            variant(ResourceVariant::HostSystem),
+            system_controls(),
+            None,
+            Some(ExecutionAssurance::Exact),
+        ))),
+    }
+}
+
+pub(crate) fn sys_service_stop() -> GuardDefinition {
+    GuardDefinition {
+        id: "sys-service-stop",
+        reason: "sys-service-stop blocked a reviewed service or stop-all container shutdown; keep the service or containers running and ask the operator to perform any intentional stop",
+        family: GuardFamily::System,
+        default_enabled: false,
+        domain: Domain::System,
+        gap_code: Some("system-action-controls-unavailable"),
+        clauses: engine_only(Query::new(Assertion::Any {
+            assertions: vec![
+                effect(
+                    "system.service_stop",
+                    ResourcePredicate::AnyOf {
+                        predicates: vec![
+                            variant(ResourceVariant::ServiceUnit),
+                            ResourcePredicate::All {
+                                predicates: vec![
+                                    family("system"),
+                                    selection(SelectionShape::Pattern),
+                                ],
+                            },
+                        ],
+                    },
+                    system_controls(),
+                    None,
+                    Some(ExecutionAssurance::Exact),
+                ),
+                effect(
+                    "container.stop",
+                    ResourcePredicate::Any,
+                    vec![
+                        present_attr("all"),
+                        bool_attr("all", true),
+                        bool_attr("active", true),
+                        bool_attr("dry_run", false),
+                    ],
+                    None,
+                    None,
+                ),
+            ],
+        })),
+    }
+}
+
+pub(crate) fn infra_container_reset() -> GuardDefinition {
+    GuardDefinition {
+        id: "infra-container-reset",
+        reason: "infra-container-reset blocked a complete Podman runtime reset; keep the runtime state intact and ask the operator to perform any deliberate reset",
+        family: GuardFamily::Infrastructure,
+        default_enabled: true,
+        domain: Domain::Container,
+        gap_code: Some("semantic-fields-unavailable"),
+        clauses: engine_only(Query::new(effect(
+            "container.remove",
+            ResourcePredicate::Any,
+            vec![
+                string_attr("scope", "system"),
+                string_attr("mode", "reset"),
+                bool_attr("volumes", true),
+                bool_attr("active", true),
+                bool_attr("dry_run", false),
+            ],
+            None,
+            None,
+        ))),
+    }
+}
+
+pub(crate) fn infra_container_volume_delete() -> GuardDefinition {
+    GuardDefinition {
+        id: "infra-container-volume-delete",
+        reason: "infra-container-volume-delete blocked container volume deletion; narrow the cleanup or ask the operator to perform the reviewed prune or teardown",
+        family: GuardFamily::Infrastructure,
+        default_enabled: false,
+        domain: Domain::Container,
+        gap_code: Some("semantic-fields-unavailable"),
+        clauses: engine_only(Query::new(Assertion::Any {
+            assertions: vec![
+                effect(
+                    "container.remove",
+                    ResourcePredicate::Any,
+                    vec![
+                        string_attr("scope", "compose"),
+                        present_attr("volumes"),
+                        bool_attr("volumes", true),
+                        bool_attr("active", true),
+                        bool_attr("dry_run", false),
+                    ],
+                    None,
+                    None,
+                ),
+                effect(
+                    "container.remove",
+                    ResourcePredicate::Any,
+                    vec![
+                        string_attr("scope", "system"),
+                        string_attr("mode", "prune"),
+                        bool_attr("volumes", true),
+                        bool_attr("active", true),
+                        bool_attr("dry_run", false),
+                    ],
+                    None,
+                    None,
+                ),
+                effect(
+                    "container.remove",
+                    ResourcePredicate::Any,
+                    vec![
+                        string_attr("scope", "volume"),
+                        string_attr("mode", "prune"),
+                        bool_attr("volumes", true),
+                        bool_attr("all", true),
+                        bool_attr("active", true),
+                        bool_attr("dry_run", false),
+                    ],
+                    None,
+                    None,
+                ),
+            ],
+        })),
+    }
+}
+
+pub(crate) fn infra_iac_destroy() -> GuardDefinition {
+    let controls = vec![
+        string_attr("mode", "destroy"),
+        bool_attr("whole_stack", true),
+        bool_attr("active", true),
+        bool_attr("preview", false),
+        bool_attr("help", false),
+        bool_attr("dry_run", false),
+    ];
+    let mut unresolved_controls = controls.clone();
+    unresolved_controls.push(present_attr("mode"));
+    GuardDefinition {
+        id: "infra-iac-destroy",
+        reason: "infra-iac-destroy blocked whole-stack infrastructure destruction; keep the stack intact and ask the operator to perform any complete teardown",
+        family: GuardFamily::Infrastructure,
+        default_enabled: false,
+        domain: Domain::Infrastructure,
+        gap_code: Some("infrastructure-destruction-mode-unavailable"),
+        clauses: engine_only(Query::new(Assertion::Any {
+            assertions: vec![
+                effect(
+                    "cloud.resource.delete",
+                    variant(ResourceVariant::ManagedInfrastructure),
+                    controls,
+                    Some(RequestAssurance::Exact),
+                    None,
+                ),
+                effect(
+                    "cloud.resource.delete",
+                    family("cloud"),
+                    unresolved_controls,
+                    Some(RequestAssurance::Exact),
+                    None,
+                ),
+            ],
+        })),
+    }
+}
+
+pub(crate) fn infra_k8s_delete() -> GuardDefinition {
+    let controls = vec![
+        string_attr("mode", "delete"),
+        bool_attr("active", true),
+        bool_attr("preview", false),
+        bool_attr("help", false),
+        bool_attr("dry_run", false),
+    ];
+    let branch = |mut attributes: Vec<AttributePredicate>, resource| {
+        attributes.extend(controls.clone());
+        effect(
+            "container.resource.delete",
+            resource,
+            attributes,
+            None,
+            Some(ExecutionAssurance::Exact),
+        )
+    };
+    GuardDefinition {
+        id: "infra-k8s-delete",
+        reason: "infra-k8s-delete blocked a reviewed broad Kubernetes deletion; narrow the selection or ask the operator to perform the cluster change",
+        family: GuardFamily::Infrastructure,
+        default_enabled: false,
+        domain: Domain::Container,
+        gap_code: Some("kubernetes-scope-and-selection-unavailable"),
+        clauses: engine_only(Query::new(Assertion::Any {
+            assertions: vec![
+                branch(
+                    vec![string_one_of("scope", &["namespace", "cluster"])],
+                    variant(ResourceVariant::KubernetesResource),
+                ),
+                branch(
+                    vec![
+                        string_attr("scope", "namespaced"),
+                        string_attr("selection", "whole"),
+                    ],
+                    ResourcePredicate::KubernetesResource {
+                        namespace: None,
+                        selection: Some(SelectionShape::Whole),
+                    },
+                ),
+                branch(
+                    vec![
+                        string_attr("scope", "namespaced"),
+                        string_attr("selection", "pattern"),
+                        required_attr("selector"),
+                    ],
+                    ResourcePredicate::KubernetesResource {
+                        namespace: None,
+                        selection: Some(SelectionShape::Pattern),
+                    },
+                ),
+            ],
+        })),
+    }
+}
+
+pub(crate) fn storage_backup_destroy() -> GuardDefinition {
+    let operations = [
+        "filesystem.delete",
+        "filesystem.write",
+        "filesystem.move",
+        "cloud.object.delete",
+    ];
+    let mut assertions = Vec::new();
+    for operation in operations {
+        assertions.push(effect(
+            operation,
+            ResourcePredicate::Any,
+            vec![
+                present_attr("backup_action"),
+                string_attr("backup_action", "delete_repository"),
+                bool_attr("whole_repository", true),
+            ],
+            None,
+            None,
+        ));
+        for action in [
+            "delete_archive",
+            "delete_snapshot",
+            "delete_backup",
+            "delete_backup_set",
+        ] {
+            for control in ["unsafe_allow_remove_all", "all_requested"] {
+                assertions.push(effect(
+                    operation,
+                    ResourcePredicate::Any,
+                    vec![
+                        present_attr("backup_action"),
+                        string_attr("backup_action", action),
+                        bool_attr(control, true),
+                    ],
+                    None,
+                    None,
+                ));
+            }
+        }
+    }
+    GuardDefinition {
+        id: "storage-backup-destroy",
+        reason: "storage-backup-destroy blocked deletion of a complete backup repository or every selected backup; keep the recovery set intact and ask the operator to perform any deliberate repository removal",
+        family: GuardFamily::Infrastructure,
+        default_enabled: true,
+        domain: Domain::Storage,
+        gap_code: Some("semantic-fields-unavailable"),
+        clauses: engine_only(Query::new(Assertion::Any { assertions })),
+    }
+}
+
+pub(crate) fn storage_recursive_delete() -> GuardDefinition {
+    GuardDefinition {
+        id: "storage-recursive-delete",
+        reason: "storage-recursive-delete blocked broad remote deletion or destination-deleting synchronization; narrow the selection or ask the operator to perform the reviewed cleanup",
+        family: GuardFamily::Infrastructure,
+        default_enabled: false,
+        domain: Domain::Storage,
+        gap_code: Some("semantic-fields-unavailable"),
+        clauses: engine_only(Query::new(Assertion::Any {
+            assertions: vec![
+                effect(
+                    "cloud.object.delete",
+                    unbounded_selection(variant(ResourceVariant::ObjectStore)),
+                    vec![present_attr("recursive"), bool_attr("recursive", true)],
+                    None,
+                    Some(ExecutionAssurance::Exact),
+                ),
+                effect(
+                    "cloud.object.write",
+                    unbounded_selection(variant(ResourceVariant::ObjectStore)),
+                    vec![bool_attr("delete", true)],
+                    None,
+                    Some(ExecutionAssurance::Exact),
+                ),
+                remote_filesystem_delete(),
+                effect(
+                    "filesystem.delete",
+                    unbounded_selection(ResourcePredicate::Any),
+                    vec![
+                        present_attr("contents_only"),
+                        required_attr("contents_only"),
+                        bool_attr("contents_only", true),
+                        bool_attr("delete", true),
+                        bool_attr("active", true),
+                        bool_attr("dry_run", false),
+                        bool_attr("recursive", true),
+                    ],
+                    None,
+                    Some(ExecutionAssurance::Exact),
+                ),
+                effect_without_attribute(
+                    "cloud.resource.delete",
+                    ResourcePredicate::CloudResource {
+                        provider: None,
+                        service: Some(TextPredicate::Equals("storage".into())),
+                        kind: Some(TextPredicate::Equals("account".into())),
+                    },
+                    vec![],
+                    None,
+                    Some(ExecutionAssurance::Exact),
+                    "mode",
+                ),
+            ],
+        })),
+    }
+}
+
+pub(crate) fn storage_snapshot_delete() -> GuardDefinition {
+    let backup_operations = [
+        "filesystem.delete",
+        "filesystem.write",
+        "filesystem.move",
+        "cloud.object.delete",
+    ];
+    let mut assertions = Vec::new();
+    for operation in backup_operations {
+        assertions.push(effect(
+            operation,
+            ResourcePredicate::Any,
+            vec![
+                present_attr("backup_action"),
+                string_one_of(
+                    "backup_action",
+                    &[
+                        "delete_archive",
+                        "delete_snapshot",
+                        "delete_backup",
+                        "delete_backup_set",
+                    ],
+                ),
+                bool_attr("unsafe_allow_remove_all", false),
+                bool_attr("all_requested", false),
+            ],
+            None,
+            None,
+        ));
+    }
+    for resource in [
+        ResourcePredicate::StorageVolume {
+            manager: Some(TextPredicate::Equals("btrfs".into())),
+            name: None,
+        },
+        ResourcePredicate::StorageVolume {
+            manager: Some(TextPredicate::Equals("zfs".into())),
+            name: Some(TextPredicate::Contains("@".into())),
+        },
+        ResourcePredicate::StorageVolume {
+            manager: Some(TextPredicate::Equals("zfs".into())),
+            name: Some(TextPredicate::Contains("#".into())),
+        },
+    ] {
+        assertions.push(nondry_effect("system.storage_destroy", resource, vec![]));
+    }
+    assertions.push(nondry_effect(
+        "system.storage_destroy",
+        variant(ResourceVariant::StorageVolume),
+        vec![
+            string_attr("mode", "rollback"),
+            bool_attr("newer_snapshots_destroyed", true),
+        ],
+    ));
+    for provider in ["aws", "gcp", "azure", "heroku"] {
+        for kind in [
+            "snapshot",
+            "snapshots",
+            "volume",
+            "volumes",
+            "disk",
+            "disks",
+            "backup",
+        ] {
+            assertions.push(effect_without_attribute(
+                "cloud.resource.delete",
+                ResourcePredicate::CloudResource {
+                    provider: Some(TextPredicate::Equals(provider.into())),
+                    service: None,
+                    kind: Some(TextPredicate::Equals(kind.into())),
+                },
+                vec![],
+                None,
+                Some(ExecutionAssurance::Exact),
+                "mode",
+            ));
+        }
+    }
+    // A managed-database delete that skips its final snapshot, or removes its
+    // automated backups with it, discards recovery points the service would
+    // otherwise keep.
+    for attribute in ["final_snapshot", "automated_backups_retained"] {
+        assertions.push(effect_without_attribute(
+            "cloud.resource.delete",
+            ResourcePredicate::Any,
+            vec![present_attr(attribute), bool_attr(attribute, false)],
+            None,
+            Some(ExecutionAssurance::Exact),
+            "mode",
+        ));
+    }
+    // A BigQuery table snapshot and ClickHouse detached parts are recovery
+    // copies of a table rather than its live data.
+    assertions.push(nondry_effect(
+        "database.schema_drop",
+        family("db"),
+        vec![
+            present_attr("object_kind"),
+            string_attr("object_kind", "table_snapshot"),
+        ],
+    ));
+    assertions.push(nondry_effect(
+        "database.truncate",
+        family("db"),
+        vec![present_attr("detached"), bool_attr("detached", true)],
+    ));
+    GuardDefinition {
+        id: "storage-snapshot-delete",
+        reason: "storage-snapshot-delete blocked snapshot, backup, archive, volume, or retention deletion; keep the recovery point intact and ask the operator to perform the reviewed removal",
+        family: GuardFamily::Infrastructure,
+        default_enabled: false,
+        domain: Domain::Storage,
+        gap_code: Some("storage-target-kind-and-mode-unavailable"),
+        clauses: engine_only(Query::new(Assertion::Any { assertions })),
+    }
+}
+
+fn effect(
+    operation: &str,
+    resource: ResourcePredicate,
+    attributes: Vec<AttributePredicate>,
+    request_assurance: Option<RequestAssurance>,
+    execution_assurance: Option<ExecutionAssurance>,
+) -> Assertion {
+    Assertion::Effect {
+        selector: Selector {
+            operation: OperationMatch::Exact(operation.into()),
+            resource,
+            attributes,
+            request_assurance,
+            condition: Some(ConditionPredicate::SuccessPath),
+            modality: None,
+            execution_assurance,
+            realm: None,
+        },
+        closure: None,
+    }
+}
+
+fn nondry_effect(
+    operation: &str,
+    resource: ResourcePredicate,
+    attributes: Vec<AttributePredicate>,
+) -> Assertion {
+    let mut explicit = attributes.clone();
+    explicit.push(bool_attr("dry_run", false));
+    Assertion::Any {
+        assertions: vec![
+            effect(operation, resource.clone(), explicit, None, None),
+            Assertion::All {
+                assertions: vec![
+                    effect(operation, resource.clone(), attributes, None, None),
+                    Assertion::Not {
+                        assertion: Box::new(effect(
+                            operation,
+                            resource,
+                            vec![present_attr("dry_run")],
+                            None,
+                            None,
+                        )),
+                    },
+                ],
+            },
+        ],
+    }
+}
+
+fn effect_without_attribute(
+    operation: &str,
+    resource: ResourcePredicate,
+    attributes: Vec<AttributePredicate>,
+    request_assurance: Option<RequestAssurance>,
+    execution_assurance: Option<ExecutionAssurance>,
+    absent: &str,
+) -> Assertion {
+    Assertion::All {
+        assertions: vec![
+            effect(
+                operation,
+                resource,
+                attributes,
+                request_assurance,
+                execution_assurance,
+            ),
+            Assertion::Not {
+                assertion: Box::new(effect(
+                    operation,
+                    ResourcePredicate::Any,
+                    vec![present_attr(absent)],
+                    None,
+                    None,
+                )),
+            },
+        ],
+    }
+}
+
+fn remote_filesystem_delete() -> Assertion {
+    let mut assertion = effect(
+        "filesystem.delete",
+        unbounded_selection(variant(ResourceVariant::FsPath)),
+        vec![
+            present_attr("contents_only"),
+            required_attr("contents_only"),
+            bool_attr("contents_only", true),
+            bool_attr("active", true),
+            bool_attr("dry_run", false),
+            bool_attr("recursive", true),
+        ],
+        None,
+        Some(ExecutionAssurance::Exact),
+    );
+    if let Assertion::Effect { selector, .. } = &mut assertion {
+        selector.realm = Some(RealmPredicate::Remote);
+    }
+    assertion
+}
+
+fn unbounded_selection(resource: ResourcePredicate) -> ResourcePredicate {
+    ResourcePredicate::All {
+        predicates: vec![
+            resource,
+            ResourcePredicate::Not {
+                predicate: Box::new(ResourcePredicate::AnyOf {
+                    predicates: vec![
+                        selection(SelectionShape::NamedSet),
+                        selection(SelectionShape::Pattern),
+                    ],
+                }),
+            },
+        ],
+    }
+}
+
+fn system_controls() -> Vec<AttributePredicate> {
+    vec![
+        bool_attr("active", true),
+        bool_attr("cancel", false),
+        bool_attr("help", false),
+        bool_one_of("runtime_only", &[true, false]),
+        bool_one_of("persistent", &[true, false]),
+    ]
+}
+
+fn bool_one_of(name: &str, values: &[bool]) -> AttributePredicate {
+    AttributePredicate {
+        name: name.into(),
+        test: AttributeTest::OneOf(values.iter().copied().map(AttrValue::Bool).collect()),
+    }
+}
+
+fn required_attr(name: &str) -> AttributePredicate {
+    AttributePredicate {
+        name: name.into(),
+        test: AttributeTest::RequiredPresent,
+    }
+}

@@ -1,0 +1,21 @@
+### two-heredocs-apostrophes-fn
+f() {
+cat <<EOF
+we're here
+EOF
+rm -rf /tmp/x
+cat <<EOF
+don't panic
+EOF
+apt-get install -y docker
+}
+f
+### two-heredocs-apostrophes-toplevel
+cat <<EOF
+we're here
+EOF
+rm -rf /tmp/x
+cat <<EOF
+don't panic
+EOF
+apt-get install -y docker

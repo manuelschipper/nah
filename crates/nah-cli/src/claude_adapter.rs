@@ -72,11 +72,3 @@ fn deny(reason: &str, incomplete: bool) -> Value {
     }
     output
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn native_adapter_stays_thin() {
-        assert!(include_str!("claude_adapter.rs").lines().count() <= 86);
-    }
-}

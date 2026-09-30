@@ -1,5 +1,5 @@
 error[E0277]: the trait bound `ValidatedExtensionResponse: From<ExtensionResponse>` is not satisfied
- --> tests/ui/validated_response_from_raw.rs:4:9
+ --> ./crates/nah-proto/tests/ui/validated_response_from_raw.rs:4:9
   |
 4 |     raw.into()
   |         ^^^^ the trait `From<ExtensionResponse>` is not implemented for `ValidatedExtensionResponse`

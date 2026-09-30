@@ -444,7 +444,7 @@ mod tests {
                 mode: NapMode::SelfProtection,
                 remaining: 90,
             });
-            app.nap = nap;
+            app.nap = nap.clone();
             press(&mut app, KeyCode::Char('w'));
             assert!(app.confirmation.is_some(), "{code:?}");
 

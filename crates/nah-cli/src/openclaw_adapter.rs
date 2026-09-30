@@ -8,6 +8,7 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+use crate::adapter_fields::runtime_field_names_covered;
 use crate::code_input::{CodeInput, CodeIntake};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
@@ -83,6 +84,23 @@ fn unavailable(
     )
 }
 
+/// The tool call `run` hands the pipeline for this OpenClaw tool call.
+/// Code mode exec needs its tool kinds, which only `--source js|ts` supplies.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<(ToolCallInput, Option<CodeInput>), String> {
+    normalize(OpenClawHookInput {
+        tool_name: tool_name.into(),
+        tool_input,
+        cwd: cwd.into(),
+        session_id: None,
+        tool_kind: None,
+        tool_input_kind: None,
+    })
+}
+
 fn normalize(input: OpenClawHookInput) -> Result<(ToolCallInput, Option<CodeInput>), String> {
     let original_input = input.tool_input.clone();
     let (lowered, code) = match crate::code_input::openclaw(
@@ -110,7 +128,7 @@ fn normalize(input: OpenClawHookInput) -> Result<(ToolCallInput, Option<CodeInpu
             tool,
             tool_input,
             code.is_some()
-                || crate::adapter_fields::complete("openclaw", &input.tool_name, &original_input),
+                || runtime_field_names_covered("openclaw", &input.tool_name, &original_input),
         ),
         Err(_) => (input.tool_name.as_str(), original_input.clone(), false),
     };

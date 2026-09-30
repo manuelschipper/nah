@@ -1,0 +1,72 @@
+# Ground-truth expectations for PHPCSStandards/PHP_CodeSniffer (holdout-hidden
+# corpus).
+# Pinned SHA: f38c7d16fc94c71aed2bee1c224beb33de4b8b32.
+# Real entries: bin/phpcs and bin/phpcbf (php shebang scripts; both require
+#   requirements.php + autoload.php, then `new PHP_CodeSniffer\Runner()` and
+#   runPHPCS()/runPHPCBF() — the autoload-include-chain CLI shape; phpcbf is
+#   the fact-bearing fixer bin, the ni multiple-bins lesson).
+# Derived from:
+#   src/Files/LocalFile.php (the core product read: fopen($this->path),
+#     LocalFile.php:47, and file_get_contents($this->path), :74, for every
+#     checked file),
+#   src/Ruleset.php (ruleset XML file_get_contents, Ruleset.php:205/:536),
+#   src/Util/Common.php (getenv('HOME') for ~ expansion, Common.php:103),
+#   src/Util/Cache.php (getenv('XDG_CACHE_HOME'), Cache.php:231; cache save
+#     file_put_contents, :297),
+#   src/Config.php (reportWidth auto probes `stty size` via shell_exec,
+#     Config.php:265; --config-set writes CodeSniffer.conf via
+#     file_put_contents($configFile), :1660),
+#   src/Reporter.php (report-file writes, Reporter.php:331/:386-388, and temp
+#     cleanup unlink, :335),
+#   src/Fixer.php (generateDiff writes a temp copy, fopen($tempName, 'w'),
+#     Fixer.php:253, runs `diff` via proc_open, :285, and unlinks the temp,
+#     :302),
+#   src/Reports/Cbf.php (phpcbf's write-back of the fixed file,
+#     file_put_contents($newFilename, $newContent), Cbf.php:98),
+#   src/Reports/Gitblame.php (popen of `git blame`, Gitblame.php:75; Svnblame
+#     :58 / Hgblame :94 — report classes resolved from a report-name string).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH that reading checked files + rulesets and phpcbf's fixed-
+# file write-back are the product. All of it sits behind the PHP
+# autoload-include chain plus object method dispatch (Runner->runPHPCS), with
+# no framework command tree. Report/fixer/cache/config writes are option-
+# gated, hence modality=may. Blame reports are chosen by report-name string
+# — see known_hard. No network, database, or cloud usage exists in src/.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+
+# Fact-level assertions.
+[facts]
+op=filesystem.read origin=src/Files/LocalFile.php realm=host
+op=filesystem.read origin=src/Ruleset.php realm=host
+op=environment.read res=HOME origin=src/Util/Common.php realm=host modality=may
+op=environment.read res=XDG_CACHE_HOME origin=src/Util/Cache.php realm=host modality=may
+op=filesystem.write origin=src/Reports/Cbf.php realm=host modality=may
+op=filesystem.write origin=src/Reporter.php realm=host modality=may
+op=filesystem.write origin=src/Config.php realm=host modality=may
+op=filesystem.write origin=src/Util/Cache.php realm=host modality=may
+op=process.exec origin=src/Fixer.php realm=host modality=may
+op=process.exec res=stty origin=src/Config.php realm=host modality=may
+op=filesystem.delete origin=src/Fixer.php realm=host modality=may
+
+[forbidden]
+# A linter fetches nothing and talks to no service; blame reports only read
+# git history, so only history rewriting is categorically absent.
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]
+# Blame report classes are instantiated from the --report name string, so
+# their `git/svn/hg blame` popen sits behind string-keyed class dispatch.
+op=process.exec origin=src/Reports/Gitblame.php

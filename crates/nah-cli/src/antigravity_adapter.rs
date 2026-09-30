@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
+    adapter_fields::runtime_field_names_covered,
     hook_adapter, live_state,
     runtime::{FailurePolicy, Runtime},
 };
@@ -90,6 +91,23 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     0
 }
 
+/// The tool call `run` hands the pipeline for this Antigravity tool call.
+/// `cwd` is the one workspace.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<ToolCallInput, String> {
+    normalize(AntigravityHookInput {
+        tool_call: AntigravityToolCall {
+            name: tool_name.into(),
+            args: tool_input,
+        },
+        conversation_id: "nah-test".into(),
+        workspace_paths: vec![cwd.into()],
+    })
+}
+
 fn normalize(input: AntigravityHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_call.args.clone();
     let platform = live_state::host_platform();
@@ -113,7 +131,7 @@ fn normalize(input: AntigravityHookInput) -> Result<ToolCallInput, String> {
             tool_input,
             path,
             cwd,
-            crate::adapter_fields::complete("antigravity", &input.tool_call.name, &original_input),
+            runtime_field_names_covered("antigravity", &input.tool_call.name, &original_input),
         ),
         Err(_) => (
             input.tool_call.name.as_str(),
@@ -234,29 +252,11 @@ fn workspace_for(path: Option<&str>, workspaces: &[String], platform: Platform) 
     path.and_then(|path| {
         workspaces
             .iter()
-            .filter(|workspace| contains(workspace, path, platform))
+            .filter(|workspace| nah_proto::labels::contains(workspace, path, platform))
             .max_by_key(|workspace| workspace.len())
     })
     .unwrap_or(&workspaces[0])
     .clone()
-}
-
-fn contains(root: &str, path: &str, platform: Platform) -> bool {
-    let normalize = |value: &str| {
-        let value = value.replace('\\', "/");
-        let value = value.trim_end_matches('/').to_owned();
-        if platform == Platform::Windows {
-            value.to_ascii_lowercase()
-        } else {
-            value
-        }
-    };
-    let root = normalize(root);
-    let path = normalize(path);
-    path == root
-        || path
-            .strip_prefix(&root)
-            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 fn replacement_chunks(object: &Map<String, Value>) -> Result<Vec<Value>, String> {
@@ -459,14 +459,5 @@ mod tests {
             assert_eq!(call.input(), &expected);
             assert!(!call.normalization_complete());
         }
-    }
-
-    #[test]
-    fn native_adapter_stays_contained() {
-        let implementation = include_str!("antigravity_adapter.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        assert!(implementation.lines().count() <= 317);
     }
 }

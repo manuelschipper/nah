@@ -1,0 +1,62 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "process-prefix",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "process",
+        "executable": "python",
+        "argv": [
+          {
+            "expr": "literal",
+            "value": "-m"
+          },
+          {
+            "expr": "literal",
+            "value": "http.server"
+          }
+        ]
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "process",
+          "executable": {
+            "kind": "glob",
+            "glob": "py*"
+          },
+          "argv_prefix": [
+            {
+              "expr": "literal",
+              "value": "-m"
+            }
+          ]
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

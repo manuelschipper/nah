@@ -1,0 +1,253 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:33d310c1a97a456960e2643165fdbd93d30cabd1de92273bcea7e46d7ec4871f",
+  "provenance": {
+    "author": "llm_drafted",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/developer_commands_sources.json#p18b/devtools/open@v2",
+        "digest": "blake3:1e67f4063405c6fa5b9f31c33aba5b36cc7d075892ad0b1f7195f46269b1670a"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "open",
+        "requirement": "reviewed-exact-surface@2026-09-16"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/open@v2",
+        "path": "../../tests/fixtures/model_tranche/open.json",
+        "digest": "blake3:b4f36ab1d6118e0e11c86737fd7e82690a1cf9fcd57a8220b3e43f266ed79f71"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "open-file-is-not-network",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "open",
+            "other.pdf"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "network.request"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "open-near-name",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "open-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write",
+          "network.listen"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "open-url-is-not-file",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "open",
+            "https://example.org/other"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/open@v2-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "network.request"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/open@v2",
+      "commands": [
+        "open"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-e"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-t"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-F"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-W"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-R"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-g"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-j"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-a"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-b"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "operand_kind": "local_path",
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "operand_kind": "network_url",
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "network.request",
+              "resource": {
+                "kind": "network_url",
+                "url": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

@@ -5,26 +5,30 @@
     clippy::disallowed_types
 )]
 
-//! Pure decision reduction from shared evidence, ActionStream, PolicyCtx, and validated guard
-//! responses into DecisionCore. Shipped guards live here as plain
+//! Pure decision reduction from typed guard evidence, the call's coverage,
+//! PolicyCtx, and validated guard responses into DecisionCore. Shipped guards live here as plain
 //! Rust code; transport, validation, and orchestration do not.
 
-use nah_proto::action::ActionStream;
 use nah_proto::ctx::PolicyCtx;
 use nah_proto::decision::{
     DecisionCore, DecisionError, GuardAttribution, GuardContribution, Verdict,
 };
 use nah_proto::extension::ValidatedExtensionResponse;
 
+mod database_guards;
 mod execution_guards;
-mod filesystem_guards;
-mod git_guards;
-mod infrastructure_guards;
-mod registry_guards;
+mod filesystem_queries;
+mod flow_queries;
+mod git_queries;
+mod guard_evaluation;
+mod registry;
 mod secret_guards;
-mod storage_guards;
+mod shared_queries;
+mod simple_guards;
 mod structural;
-mod system_guards;
+
+pub use guard_evaluation::ShippedGuards;
+pub use registry::{GuardDefinition, GuardFamily};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EnforcementMode {
@@ -33,144 +37,55 @@ pub enum EnforcementMode {
     AllPaused,
 }
 
-pub const SHIPPED_GUARDS: &[&str] = &[
-    "exec-decoded",
-    "exec-network-shell",
-    "exec-obfuscated",
-    "exec-remote",
-    "fs-auth-identity",
-    "fs-forkbomb",
-    "fs-home",
-    "fs-outside-workspace-delete",
-    "fs-permission-weaken",
-    "fs-project-root",
-    "fs-raw-device",
-    "fs-shell-profile",
-    "fs-startup-management",
-    "fs-startup-persistence",
-    "fs-system-tree",
-    "fs-volume-destroy",
-    "git-clean-force",
-    "git-force-push",
-    "git-hard-reset",
-    "git-history-rewrite",
-    "git-metadata",
-    "git-path-discard",
-    "git-protected-push",
-    "git-recovery-destroy",
-    "git-ref-delete",
-    "git-remote-repo-delete",
-    "git-remote-resource-delete",
-    "git-rewrite-force",
-    "git-worktree-discard",
-    "infra-container-reset",
-    "infra-container-volume-delete",
-    "infra-iac-destroy",
-    "infra-k8s-delete",
-    "registry-publish",
-    "registry-unpublish",
-    "secrets-credentials",
-    "secrets-env",
-    "secrets-exfil",
-    "secrets-store-delete",
-    "secrets-store-destroy",
-    "secrets-store-read",
-    "storage-backup-destroy",
-    "storage-recursive-delete",
-    "storage-snapshot-delete",
-    "sys-power",
-    "sys-service-stop",
-];
-
 /// Reduces shipped policy and already-validated extension responses.
 ///
 /// Shipped guards, self-protection, and validated extension responses meet only
 /// at this reducer. Incomplete analysis is evidence, not a block: a call blocks
-/// only when a guard or self-protection positively identifies it.
+/// only when a guard or self-protection positively identifies it. `coverage` is
+/// the selected public analysis; `matches` are the shipped guard matches
+/// `shipped.evaluate` found for the same evidence.
 pub fn decide(
-    action_stream: &ActionStream,
     evidence: &nah_proto::effects::GuardEvidence,
-    policy_ctx: &PolicyCtx,
-    responses: &[ValidatedExtensionResponse],
-) -> Result<DecisionCore, DecisionError> {
-    decide_with_mode(
-        action_stream,
-        evidence,
-        policy_ctx,
-        responses,
-        EnforcementMode::Normal,
-    )
-}
-
-pub fn decide_with_mode(
-    action_stream: &ActionStream,
-    evidence: &nah_proto::effects::GuardEvidence,
-    policy_ctx: &PolicyCtx,
-    responses: &[ValidatedExtensionResponse],
-    mode: EnforcementMode,
-) -> Result<DecisionCore, DecisionError> {
-    decide_with_mode_and_language_safety_stream(
-        action_stream,
-        evidence,
-        action_stream,
-        policy_ctx,
-        responses,
-        mode,
-    )
-}
-
-/// Reduces evidence from a public action stream and its language safety stream.
-/// Git, filesystem, structural, execution and secret protection consume shared `evidence`.
-/// Remaining shipped families inspect `language_safety_stream`;
-/// `DecisionCore` is bound to `action_stream`, which custom guards inspect.
-/// Callers must supply evidence and both projections of the same tool call, with extension
-/// responses validated against that public action stream.
-pub fn decide_with_mode_and_language_safety_stream(
-    action_stream: &ActionStream,
-    evidence: &nah_proto::effects::GuardEvidence,
-    language_safety_stream: &ActionStream,
+    shipped: &ShippedGuards,
+    matches: &nah_proto::guard_host::ShippedGuardMatches,
+    coverage: nah_proto::action::Coverage,
     policy_ctx: &PolicyCtx,
     responses: &[ValidatedExtensionResponse],
     mode: EnforcementMode,
 ) -> Result<DecisionCore, DecisionError> {
     if structural::permanent_blocks(evidence) {
-        return DecisionCore::structural_block(
-            action_stream,
-            structural::terminal_reason(evidence, nah_proto::action::NahProtectionTier::Permanent)
+        return DecisionCore::structural_block_with_coverage(
+            coverage,
+            structural::terminal_reason(evidence, nah_proto::labels::NahProtectionTier::Permanent)
                 .unwrap_or(structural::PERMANENT_REASON),
         );
     }
     if mode == EnforcementMode::AllPaused {
-        return DecisionCore::new(action_stream, Verdict::Delegate, vec![]);
+        return DecisionCore::new_with_coverage(coverage, Verdict::Delegate, vec![]);
     }
     if mode == EnforcementMode::Normal && (structural::critical_blocks(evidence)) {
-        return DecisionCore::structural_block(
-            action_stream,
-            structural::terminal_reason(evidence, nah_proto::action::NahProtectionTier::Critical)
+        return DecisionCore::structural_block_with_coverage(
+            coverage,
+            structural::terminal_reason(evidence, nah_proto::labels::NahProtectionTier::Critical)
                 .unwrap_or(structural::CRITICAL_REASON),
         );
     }
 
     let mut contributions = Vec::new();
-    let filesystem_block = filesystem_guards::add(evidence, policy_ctx, &mut contributions)?;
-    let git_block = git_guards::add(evidence, policy_ctx, &mut contributions)?;
-    let infrastructure_block =
-        infrastructure_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
-    let registry_block =
-        registry_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
-    let secret_block = secret_guards::add(evidence, policy_ctx, &mut contributions)?;
-    let storage_block =
-        storage_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
-    let system_block = system_guards::add(language_safety_stream, policy_ctx, &mut contributions)?;
-    let execution_block = execution_guards::add(evidence, policy_ctx, &mut contributions)?;
-    let shipped_block = filesystem_block
-        || git_block
-        || infrastructure_block
-        || registry_block
-        || secret_block
-        || storage_block
-        || system_block
-        || execution_block;
+    let mut shipped_block = false;
+    for definition in shipped.definitions() {
+        if !matches.matched(definition.id)
+            || !policy_ctx
+                .enabled_shipped_guards()
+                .iter()
+                .any(|enabled| enabled == definition.id)
+        {
+            continue;
+        }
+        let guard = GuardAttribution::shipped(definition.id)?;
+        contributions.push(GuardContribution::new(guard, definition.reason)?);
+        shipped_block = true;
+    }
     let has_block = shipped_block || responses.iter().any(ValidatedExtensionResponse::is_block);
 
     add_extension_guards(responses, &mut contributions)?;
@@ -181,7 +96,7 @@ pub fn decide_with_mode_and_language_safety_stream(
         Verdict::Delegate
     };
 
-    DecisionCore::new(action_stream, verdict, contributions)
+    DecisionCore::new_with_coverage(coverage, verdict, contributions)
 }
 
 fn add_extension_guards(
@@ -194,22 +109,3 @@ fn add_extension_guards(
     }
     Ok(())
 }
-
-/// Common predicate boundary for the staged family migration. Family owners replace
-/// their existing `add` function in place; producer identity is never an argument.
-pub type FamilyPredicate = fn(
-    &nah_proto::effects::GuardEvidence,
-    &PolicyCtx,
-    &mut Vec<GuardContribution>,
-) -> Result<bool, DecisionError>;
-
-/// Structural predicates additionally honor the reducer's enforcement mode.
-pub type StructuralPredicate = fn(
-    &nah_proto::effects::GuardEvidence,
-    &PolicyCtx,
-    &mut Vec<GuardContribution>,
-    EnforcementMode,
-) -> Result<bool, DecisionError>;
-
-/// Git predicates shared by normal enforcement and non-enforcing producer checks.
-pub const GIT_PREDICATE: FamilyPredicate = git_guards::add;

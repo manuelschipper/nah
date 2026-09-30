@@ -1,0 +1,32 @@
+{
+  "observation_fixtures": {
+    "adv-work": {
+      "cwd": "/corpus/adv/work",
+      "env": {}
+    },
+    "adv-work-a-b": {
+      "cwd": "/corpus/adv/work-a-b",
+      "env": {}
+    },
+    "swe-app": {
+      "cwd": "/corpus/swe/app",
+      "env": {}
+    },
+    "swe-repo": {
+      "cwd": "/corpus/swe/repo",
+      "env": {}
+    },
+    "swe-testbed": {
+      "cwd": "/corpus/swe/testbed",
+      "env": {}
+    },
+    "swe-workspace": {
+      "cwd": "/corpus/swe/workspace",
+      "env": {}
+    },
+    "wild-empty": {
+      "cwd": "/corpus/wild/empty",
+      "env": {}
+    }
+  }
+}

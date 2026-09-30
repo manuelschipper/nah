@@ -1,0 +1,1597 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "npx",
+          "--package",
+          "is-number",
+          "eslint"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "filesystem:/work/node_modules"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "package_scripts"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "npx",
+          "--bad-option"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "missing positionals: command"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "missing_required_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "package_scripts"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unrecognized flags: --bad-option"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            2
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            2
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "npx",
+          "eslint"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "filesystem:/work/node_modules"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "package_scripts"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "npx",
+          "--yes",
+          "true"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "filesystem:/work/node_modules"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "package_scripts"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "bunx",
+          "npm",
+          "publish"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "filesystem:/work/node_modules"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/package.json"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "artifact"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "publish"
+                      }
+                    },
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "ecosystem",
+                      "test": {
+                        "equals": "npm"
+                      }
+                    },
+                    {
+                      "name": "package_manager",
+                      "test": {
+                        "equals": "npm"
+                      }
+                    },
+                    {
+                      "name": "selection",
+                      "test": {
+                        "equals": "unknown"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "artifact.publish_request"
+                  },
+                  "resource": {
+                    "variant": {
+                      "variant": "artifact"
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "must-on-success"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "artifact"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "publish"
+                      }
+                    },
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "ecosystem",
+                      "test": {
+                        "equals": "npm"
+                      }
+                    },
+                    {
+                      "name": "package_manager",
+                      "test": {
+                        "equals": "npm"
+                      }
+                    },
+                    {
+                      "name": "selection",
+                      "test": {
+                        "equals": "unknown"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "artifact.publish"
+                  },
+                  "resource": {
+                    "variant": {
+                      "variant": "artifact"
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "npm publication hooks may execute arbitrary code, including during dry-run"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "process",
+                    "network",
+                    "artifact"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "package_scripts"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process",
+            "network",
+            "artifact"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "npm package.json is missing, refused, or malformed"
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "model_coverage"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "npm package name or exact version is unavailable"
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "model_coverage"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "npm registry configuration is unavailable or symbolic"
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "network"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "network"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "npm pack rules and packed file inventory are unmodeled"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "model_coverage"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "publication authentication, configuration and transport details are unmodeled"
+                },
+                "domains": {
+                  "all_of": [
+                    "network",
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "network",
+            "filesystem"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ]
+        },
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "container": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "credential": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "database": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            2,
+            5,
+            6,
+            7
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "messaging": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            4,
+            6,
+            7
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            7
+          ]
+        },
+        "system": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "bunx",
+          "--bun",
+          "npm",
+          "publish"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "filesystem:/work/node_modules"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/package.json"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "artifact"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "publish"
+                      }
+                    },
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "ecosystem",
+                      "test": {
+                        "equals": "npm"
+                      }
+                    },
+                    {
+                      "name": "package_manager",
+                      "test": {
+                        "equals": "npm"
+                      }
+                    },
+                    {
+                      "name": "selection",
+                      "test": {
+                        "equals": "unknown"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "artifact.publish_request"
+                  },
+                  "resource": {
+                    "variant": {
+                      "variant": "artifact"
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "must-on-success"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "artifact"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "publish"
+                      }
+                    },
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "ecosystem",
+                      "test": {
+                        "equals": "npm"
+                      }
+                    },
+                    {
+                      "name": "package_manager",
+                      "test": {
+                        "equals": "npm"
+                      }
+                    },
+                    {
+                      "name": "selection",
+                      "test": {
+                        "equals": "unknown"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "artifact.publish"
+                  },
+                  "resource": {
+                    "variant": {
+                      "variant": "artifact"
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "npm publication hooks may execute arbitrary code, including during dry-run"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "process",
+                    "network",
+                    "artifact"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "package_scripts"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process",
+            "network",
+            "artifact"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "npm package.json is missing, refused, or malformed"
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "model_coverage"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "npm package name or exact version is unavailable"
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "model_coverage"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "npm registry configuration is unavailable or symbolic"
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "network"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "network"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "npm pack rules and packed file inventory are unmodeled"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "model_coverage"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "publication authentication, configuration and transport details are unmodeled"
+                },
+                "domains": {
+                  "all_of": [
+                    "network",
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "network",
+            "filesystem"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ]
+        },
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "container": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "credential": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "database": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            2,
+            5,
+            6,
+            7
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "messaging": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            4,
+            6,
+            7
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            7
+          ]
+        },
+        "system": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        }
+      }
+    }
+  ]
+}

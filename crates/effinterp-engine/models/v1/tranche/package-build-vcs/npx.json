@@ -1,0 +1,536 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:f4c679326ce527deb2a0bfe7cdcf45786ab1209b94f500f848c7c4b160627b8b",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/command_frequency_sources.json",
+        "digest": "blake3:0c0eaf84695d55145b42382ae8afa009bf99cc4fc705ef495a28ac24d8ce1ee7"
+      },
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/package-build-vcs/npx@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "npx",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/package-build-vcs/npx@v1",
+        "path": "../../tests/fixtures/model_tranche/npx.json",
+        "digest": "blake3:852b575b7ca77c2cd6d1c82f1fb7e8d0e9cef8fd9c8472ea96ceac0239f9233d"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "bunx-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "bunx-not-the-command",
+            "npm",
+            "publish"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "network.download",
+          "filesystem.write"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "npx-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "npx-not-the-command",
+            "--package",
+            "is-number",
+            "eslint"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write",
+          "network.download"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/package-build-vcs/npx@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.write",
+      "network.download"
+    ],
+    "expected_boundaries": [
+      "package_scripts"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/package-build-vcs/bunx@v1",
+      "commands": [
+        "bunx"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--package",
+            "-p"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--yes"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-y"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--bun"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "command",
+          "index": 0,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "command"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "network.download",
+              "resource": {
+                "kind": "unresolved",
+                "family": "network"
+              },
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "literal",
+                    "value": "node_modules"
+                  }
+                }
+              },
+              "attributes": {
+                "disclosure": {
+                  "kind": "constant_string",
+                  "value": "contents"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [],
+          "argv_tail": "command"
+        }
+      ],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "package_scripts",
+          "class": "unmodeled",
+          "scope": "environment",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "options_before_operand": 0,
+      "id": "p18b/package-build-vcs/npx@v1",
+      "commands": [
+        "npx"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--package",
+            "-p"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--yes"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-y"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--bun"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--call",
+            "-c"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "command",
+          "index": 0,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": [
+            "-c",
+            "--call"
+          ]
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "command"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-c",
+              "--call"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "network.download",
+              "resource": {
+                "kind": "unresolved",
+                "family": "network"
+              },
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "literal",
+                    "value": "node_modules"
+                  }
+                }
+              },
+              "attributes": {
+                "disclosure": {
+                  "kind": "constant_string",
+                  "value": "contents"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-c",
+              "--call"
+            ],
+            "reads_stdin": false
+          },
+          "argv": [],
+          "argv_tail": "command"
+        }
+      ],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-c",
+              "--call"
+            ],
+            "reads_stdin": false
+          },
+          "reason": "package_scripts",
+          "class": "unmodeled",
+          "scope": "environment",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "call",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-c",
+              "--call"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "nested_source": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "language": "shell",
+              "from": {
+                "kind": "flag_values",
+                "flags": [
+                  "-c",
+                  "--call"
+                ]
+              }
+            }
+          ],
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--package",
+                  "-p"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "literal",
+                        "value": "node_modules"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [
+                  "--package",
+                  "-p"
+                ],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            },
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "reason": "model_coverage",
+              "class": "unmodeled",
+              "domains": [
+                "process"
+              ],
+              "detail": "npx -c searches node_modules/.bin, which is not observed, before PATH"
+            },
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "process"
+              ],
+              "detail": "npx -c runs the call with npm's script-shell setting, which npm configuration can change and is not observed"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

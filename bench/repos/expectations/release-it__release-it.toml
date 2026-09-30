@@ -1,0 +1,61 @@
+# Ground-truth expectations for release-it/release-it (holdout-hidden corpus).
+# Pinned SHA: aa8752d30063af01f50935fb7575411911e7edbb.
+# Real entry: bin/release-it.js (package.json "bin", package.json:45-47; ESM;
+#   parseCliArguments then release(options) from lib/cli.js,
+#   bin/release-it.js:9/15).
+# Derived from:
+#   lib/util.js (module-level execOpts reads process.env.NODE_DEBUG,
+#     util.js:50; readJSON fs.readFileSync, util.js:53, invoked at module load
+#     on package.json, util.js:55 and lib/cli.js:4 — import-time effects),
+#   lib/shell.js (every hook/plugin command funnels through Shell:
+#     child_process exec, shell.js:60, and spawn, shell.js:90-91),
+#   lib/plugin/git/Git.js (the product's git add/commit/tag/push commands are
+#     strings passed to this.exec, e.g. Git.js:150/:178/:194 — they surface as
+#     the shell.js process execs),
+#   lib/plugin/factory.js (built-in plugins are static imports, factory.js:6-10;
+#     user plugins load via await import(pluginName), factory.js:27/:32/:38 —
+#     a dynamic-import wall),
+#   lib/plugin/GitRelease.js (token env read uses a computed name,
+#     process.env[tokenRef], GitRelease.js:29; GitHub.js:70-71 reads
+#     GITHUB_ACTIONS/GITHUB_ACTOR; releases are created through the
+#     GitHub/GitLab HTTP clients in dependencies).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the import-time util.js env read and package.json read
+# (module-level, unconditional). HIGH that shell.js process exec is the
+# product's core effect; it runs inside async plugin/class-method pipeline
+# dispatch. Network release creation and plugin env-token reads sit behind
+# that dispatch plus dependency code and dynamic imports — see known_hard.
+# No direct filesystem write/delete exists anywhere under lib/ (version bumps
+# happen via spawned npm/git commands).
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+op=environment.read
+op=process.exec
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=NODE_DEBUG origin=lib/util.js realm=host
+op=filesystem.read res=package.json origin=lib/util.js realm=host
+op=process.exec origin=lib/shell.js realm=host
+
+[forbidden]
+# release-it shells out and calls release APIs; it never opens a database,
+# cloud SDK, or message broker.
+op=database.
+op=cloud.
+op=messaging.
+
+[known_hard]
+# GitHub/GitLab release HTTP calls live in dependency clients behind the
+# plugin pipeline; token env reads use computed names (GitRelease.js:29);
+# external plugins arrive via dynamic import (factory.js:27-38).
+op=network.
+op=environment.read res=GITHUB_ACTIONS origin=lib/plugin/github/GitHub.js

@@ -1,0 +1,151 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:1c196d06734db0a8a6a641254b505f5e1dc8acd3dca38b844cf0330ebdacbe59",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/lftp@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "lftp",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/lftp@v1",
+        "path": "../../tests/fixtures/model_tranche/lftp.json",
+        "digest": "blake3:141326c99fc7b70016aa37fdb31f336818a191eef869d63f81176c8e0d365172"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "lftp-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "lftp-not-the-command",
+            "files.example.com"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "network.connect"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/transfer-archive-process/lftp@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "interactive_input",
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/lftp@v1",
+      "commands": [
+        "lftp"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [
+        {
+          "name": "host",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "host"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "network.connect",
+              "resource": {
+                "kind": "network",
+                "host": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "reason": "interactive_input",
+          "class": "unresolved",
+          "domains": [
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

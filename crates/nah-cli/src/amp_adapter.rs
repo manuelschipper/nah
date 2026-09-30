@@ -8,6 +8,7 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+use crate::adapter_fields::runtime_field_names_covered;
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
 
@@ -72,6 +73,20 @@ fn unavailable(
     )
 }
 
+/// The tool call `run` hands the pipeline for this Amp tool call.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<ToolCallInput, String> {
+    normalize(AmpHookInput {
+        tool_name: tool_name.into(),
+        tool_input,
+        cwd: cwd.into(),
+        session_id: None,
+    })
+}
+
 fn normalize(input: AmpHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_input.clone();
     let lowered = input
@@ -83,7 +98,7 @@ fn normalize(input: AmpHookInput) -> Result<ToolCallInput, String> {
         Ok((tool, tool_input)) => (
             tool,
             tool_input,
-            crate::adapter_fields::complete("amp", &input.tool_name, &original_input),
+            runtime_field_names_covered("amp", &input.tool_name, &original_input),
         ),
         Err(_) => (input.tool_name.as_str(), original_input.clone(), false),
     };

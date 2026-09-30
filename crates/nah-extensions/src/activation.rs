@@ -11,8 +11,12 @@ use nah_proto::ctx::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::user_state::{nah_home_path, sync_parent_directory};
+
 const ACTIVATION_DATABASE_VERSION: u32 = 1;
 
+/// One human activation of a custom guard: the exact bundle projection approved,
+/// the approving actor, and the approval time in Unix milliseconds.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ActivationRecord {
@@ -35,6 +39,8 @@ impl ActivationRecord {
     }
 }
 
+/// The custom-guard activations stored in `activations.json`, at most one per guard
+/// identity.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ActivationDatabase {
@@ -135,7 +141,7 @@ impl ActivationDatabase {
             .sync_all()
             .map_err(|_| ActivationError::Io)?;
         temporary.persist(path).map_err(|_| ActivationError::Io)?;
-        sync_parent(parent)
+        sync_parent_directory(parent).map_err(|_| ActivationError::Io)
     }
 }
 
@@ -145,6 +151,8 @@ fn valid_actor(actor: &str) -> bool {
         && !actor.chars().any(|character| character.is_control())
 }
 
+/// Activates `projection` under the database lock, replacing any earlier
+/// activation of the same guard identity.
 pub fn record_activation(
     path: &Path,
     projection: ActivationProjection,
@@ -166,6 +174,7 @@ pub fn record_activation(
     database.save(path)
 }
 
+/// Deactivates the guard with `identity` under the database lock.
 pub fn remove_activation_by_identity(
     path: &Path,
     identity: &GuardIdentity,
@@ -205,28 +214,9 @@ pub(crate) fn remove_project_activations(
     Ok(removed)
 }
 
+/// `<home>/.nah/activations.json`, spelled for the target platform.
 pub fn activation_database_path(home: &AbsolutePath, platform: Platform) -> PathBuf {
-    let separator = if platform == Platform::Windows {
-        '\\'
-    } else {
-        '/'
-    };
-    PathBuf::from(format!(
-        "{}{separator}.nah{separator}activations.json",
-        home.as_str().trim_end_matches(['/', '\\'])
-    ))
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), ActivationError> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| ActivationError::Io)
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), ActivationError> {
-    Ok(())
+    nah_home_path(home, platform, &["activations.json"])
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

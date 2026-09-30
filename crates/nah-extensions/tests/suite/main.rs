@@ -7,7 +7,7 @@ mod support;
 
 mod bundles;
 mod cache;
-mod effinterp_stream;
+mod exec_v2_request;
 mod lifecycle;
 mod transport;
 mod windows_bundles;

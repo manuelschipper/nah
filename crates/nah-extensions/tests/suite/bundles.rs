@@ -162,7 +162,7 @@ fn declared_data_bytes_are_covered_by_the_bundle_hash() {
     fs::create_dir_all(&directory).unwrap();
     fs::write(
         directory.join("policy.toml"),
-        "name = \"data\"\nmatch = [\"tool\"]\nprotocol = \"exec/v1\"\nprovenance = \"user\"\ndata = [\"rules.txt\"]\n",
+        "name = \"data\"\nmatch = [\"tool\"]\nprotocol = \"exec/v2\"\nprovenance = \"user\"\ndata = [\"rules.txt\"]\n",
     )
     .unwrap();
     fs::write(directory.join("run"), "#!/bin/sh\nexit 0\n").unwrap();
@@ -223,7 +223,7 @@ fn obsolete_manifest_kind_is_rejected() {
     fs::create_dir_all(&directory).unwrap();
     fs::write(
         directory.join("policy.toml"),
-        "kind = \"guard\"\nname = \"wrong-kind\"\nmatch = [\"tool\"]\nprotocol = \"exec/v1\"\nprovenance = \"user\"\n",
+        "kind = \"guard\"\nname = \"wrong-kind\"\nmatch = [\"tool\"]\nprotocol = \"exec/v2\"\nprovenance = \"user\"\n",
     )
     .unwrap();
     fs::write(directory.join("run"), "#!/bin/sh\nexit 0\n").unwrap();

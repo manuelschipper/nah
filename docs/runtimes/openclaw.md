@@ -30,16 +30,19 @@ beyond `command` are not fully modeled: a definite command finding still blocks,
 while other such calls stay partial. Process actions, missing workspace identity,
 malformed known input, and adapter failure delegate.
 
-Exact Code Mode exec payloads use the JavaScript/TypeScript side of nah's
-bounded effect interpreter under a QuickJS profile. Direct references and
-provenance-tracked aliases of `tools.call` and `tools.callValue` are recognized
-only as bridge invocations; nah does not infer the nested tool's filesystem or
-shell effects from the outer cell because OpenClaw hooks the actual nested call
-separately. Node globals, other bridge namespaces, shadowed or dormant calls,
+Exact Code Mode exec payloads go through nah's JavaScript analysis whichever
+executor runs them; the hook event does not say whether that is Node or
+QuickJS. Node-style module calls in a cell, such as `require('fs')`,
+`import('node:fs')`, and `require('child_process')`, are analyzed and blocked
+when dangerous. Direct references and provenance-tracked aliases of
+`tools.call` and `tools.callValue` are recognized only as bridge invocations;
+nah does not infer the nested tool's filesystem or shell effects from the outer
+cell because OpenClaw hooks each nested dispatch separately. Calls through
+`catalog.search` handles also leave the cell partial; OpenClaw 2026.9.6 hooked
+exec dispatched that way. Other bridge namespaces, shadowed or dormant calls,
 browser/process/device actions, plugins, and future tools remain unowned. A
-valid `restartSafe` boolean is retained as
-input metadata; it does not prove that code is read-only or grant additional
-ownership.
+`title` and a valid `restartSafe` boolean are input metadata; they do not prove
+that code is read-only or grant additional ownership.
 
 ## Boundaries
 
@@ -53,7 +56,7 @@ Ordinary exec events expose only a command string, not the final shell dialect
 or argv. The adapter currently applies Bash analysis to that string even though
 OpenClaw may execute it with `sh`, zsh, PowerShell, a custom shell, a remote
 node, or a sandbox. Shell-specific findings on ordinary exec are therefore best
-effort. Code Mode's discriminators do prove its QuickJS syntax profile.
+effort.
 
 The plugin gives nah five seconds inside a six-second hook budget. Child failure
 delegates; an outer timeout currently fails closed without cancelling the child.

@@ -9,6 +9,7 @@ use nah_proto::ctx::AbsolutePath;
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::{RuntimeHookStatus, RuntimeMutation};
+use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 const MARKER: &str = "// Managed by nah.";
 
@@ -148,7 +149,8 @@ fn uninstall_extension(home: &AbsolutePath, agent_dir: &AbsolutePath) -> Result<
             std::fs::remove_file(&paths.extension)
                 .map_err(|_| "prime-agent-extension-remove-failed".to_owned())?;
             if let Some(parent) = paths.extension.parent() {
-                sync_parent(parent)?;
+                sync_parent_directory(parent)
+                    .map_err(|_| "prime-agent-extension-sync-failed".to_owned())?;
             }
         }
         Ok(_) => return Err("prime-agent-extension-not-owned".into()),
@@ -190,7 +192,7 @@ fn lock(paths: &PrimeAgentHookPaths) -> Result<File, String> {
     let file = options
         .open(&paths.lock)
         .map_err(|_| "prime-agent-hook-lock-failed".to_owned())?;
-    protect_private(&file, "prime-agent-hook-permissions-failed")?;
+    restrict_file_to_owner(&file).map_err(|_| "prime-agent-hook-permissions-failed".to_owned())?;
     file.lock()
         .map_err(|_| "prime-agent-hook-lock-failed".to_owned())?;
     Ok(file)
@@ -224,10 +226,8 @@ fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .ok_or_else(|| "invalid-prime-agent-extension-path".to_owned())?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|_| "prime-agent-extension-write-failed".to_owned())?;
-    protect_private(
-        temporary.as_file(),
-        "prime-agent-extension-permissions-failed",
-    )?;
+    restrict_file_to_owner(temporary.as_file())
+        .map_err(|_| "prime-agent-extension-permissions-failed".to_owned())?;
     temporary
         .write_all(bytes)
         .map_err(|_| "prime-agent-extension-write-failed".to_owned())?;
@@ -238,7 +238,7 @@ fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
     temporary
         .persist(path)
         .map_err(|_| "prime-agent-extension-write-failed".to_owned())?;
-    sync_parent(parent)
+    sync_parent_directory(parent).map_err(|_| "prime-agent-extension-sync-failed".to_owned())
 }
 
 fn extension(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
@@ -364,28 +364,4 @@ module.exports = function nahPrimeAgentExtension(prime) {{
 fn owned(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bytes);
     text.starts_with(MARKER) && text.contains(r#"["hook", "prime-agent", "run""#)
-}
-
-#[cfg(unix)]
-fn protect_private(file: &File, error: &str) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| error.into())
-}
-
-#[cfg(not(unix))]
-fn protect_private(_file: &File, _error: &str) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), String> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| "prime-agent-extension-sync-failed".into())
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), String> {
-    Ok(())
 }

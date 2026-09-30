@@ -8,6 +8,12 @@ publish.workspace = true
 
 [dependencies]
 nah-cli = { path = "../nah-cli" }
+nah-corpus-schema = { path = "../nah-corpus-schema" }
 nah-proto = { path = "../nah-proto" }
+nah-policy = { path = "../nah-policy" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[[test]]
+name = "suite"
+path = "tests/suite/main.rs"

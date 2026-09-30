@@ -1,0 +1,3632 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:0f27ca213bba7b81ae75d72aa972c5a954cfaa94214e2db73c657efca532bdc1",
+  "provenance": {
+    "author": "migrated_handwritten",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/coreutils_sources.json#coreutils/cat@v1",
+        "digest": "blake3:ef5791b3936989886b3f15e9a6afbcddff5fb75d57c7be85938c2a601479478b"
+      },
+      {
+        "uri": "git:63356ab8bc0cef5ea66a365d08f8a86eff906a76:crates/effinterp-engine/models/v0/commands.json",
+        "digest": "blake3:8bf70c83907a00b3c3235179ae7201cda3721ad968b5394c1adc2502998e7005"
+      },
+      {
+        "uri": "git:63356ab8bc0cef5ea66a365d08f8a86eff906a76:crates/effinterp-engine/models/v0/lifecycle.json",
+        "digest": "blake3:e90f7dff817b383ca0e4e5d70bae26362a86ab7989ad1220f3d3706268fd7347"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "coreutils-and-framework-seed",
+        "requirement": "source-compatible@63356ab8"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "cat",
+        "path": "../../tests/fixtures/model_equivalence/cat.json",
+        "digest": "blake3:848b018b112776f4637789cf50f06dc6b1a2e51eed25822ae889a18122154327"
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "chmod-chown",
+        "path": "../../tests/fixtures/model_equivalence/chmod_chown.json",
+        "digest": "blake3:cb732dd1132b842a762527d5327746fcadefd60bd8165aba87eaf297fe938d80"
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "cp",
+        "path": "../../tests/fixtures/model_equivalence/cp.json",
+        "digest": "blake3:2bf5601d2bc6dfe507466c8a140252838318492fa1b8bceb89cc22a946a73106"
+      },
+      {
+        "kind": "registry",
+        "name": "lifecycle-seed",
+        "expected_entries": [
+          "argparse",
+          "cleo-application",
+          "cobra",
+          "kong",
+          "thor-command",
+          "urfave-cli-v3"
+        ]
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "ln",
+        "path": "../../tests/fixtures/model_equivalence/ln.json",
+        "digest": "blake3:1f0e57f46cd93dfd4f2c752d8412032fb008c8d9fcac83d2d9a81a7f677fd4a3"
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "mkdir",
+        "path": "../../tests/fixtures/model_equivalence/mkdir.json",
+        "digest": "blake3:8dc157e6fb4c0bd4f3cb3334fa3168fbec63f700769fb96df2de8887a31394cd"
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "mv",
+        "path": "../../tests/fixtures/model_equivalence/mv.json",
+        "digest": "blake3:4fbd4719332149372a2bc05c3041082872fe753079b065a4381b18ead8b39083"
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "rm",
+        "path": "../../tests/fixtures/model_equivalence/rm.json",
+        "digest": "blake3:9e0fa91510b43898bf1e4df449dbc1a3efd383e2f16e10e381a805bd6723294b"
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "rmdir",
+        "path": "../../tests/fixtures/model_equivalence/rmdir.json",
+        "digest": "blake3:cc075db7383cab8918127353883a9ef6f8e3b87fbdc4865109cae2ef385ecbce"
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "touch",
+        "path": "../../tests/fixtures/model_equivalence/touch.json",
+        "digest": "blake3:17c8b19501c78142c6333383c5ed3aa1d7acdac483617cfa30f66bdf6cbb6b10"
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "truncate",
+        "path": "../../tests/fixtures/model_equivalence/truncate.json",
+        "digest": "blake3:133da528ceb61b70f3ef804d7a9c232e3637e7560e687b648a8bc9c5a1b383f4"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "rm-does-not-read-target",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rm",
+            "file"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": [
+          "unmodeled_command"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "missing-effect-is-detected",
+        "mutation": "drop_first_effect"
+      },
+      {
+        "name": "wrong-operation-is-detected",
+        "mutation": "change_first_operation"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.create",
+      "filesystem.delete",
+      "filesystem.metadata",
+      "filesystem.move",
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "lifecycle",
+      "id": "argparse",
+      "lang": "python",
+      "signatures": [
+        {
+          "target": {
+            "kind": "method",
+            "name": "set_defaults",
+            "receiver_type": "argparse.ArgumentParser"
+          },
+          "role": "registers",
+          "evidence": "name_and_import",
+          "fields": [],
+          "params": [
+            "func"
+          ],
+          "hooks": []
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "add_subparsers",
+            "receiver_type": "argparse.ArgumentParser"
+          },
+          "role": "derives_dispatcher",
+          "evidence": "name_and_import",
+          "fields": [],
+          "params": [],
+          "hooks": [],
+          "derive_result": 0
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "add_parser",
+            "receiver_type": "argparse.ArgumentParser"
+          },
+          "role": "derives_dispatcher",
+          "evidence": "name_and_import",
+          "fields": [],
+          "params": [],
+          "hooks": [],
+          "derive_result": 0
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "parse_args",
+            "receiver_type": "argparse.ArgumentParser"
+          },
+          "role": "dispatches",
+          "evidence": "name_and_import",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "parse_known_args",
+            "receiver_type": "argparse.ArgumentParser"
+          },
+          "role": "dispatches",
+          "evidence": "name_and_import",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "parse_intermixed_args",
+            "receiver_type": "argparse.ArgumentParser"
+          },
+          "role": "dispatches",
+          "evidence": "name_and_import",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        }
+      ]
+    },
+    {
+      "kind": "lifecycle",
+      "id": "cleo-application",
+      "lang": "python",
+      "signatures": [
+        {
+          "target": {
+            "kind": "method",
+            "name": "run",
+            "receiver_type": "cleo.application.Application"
+          },
+          "role": "dispatches",
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [],
+          "hooks": [
+            "_run"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "lifecycle",
+      "id": "cobra",
+      "lang": "go",
+      "signatures": [
+        {
+          "target": {
+            "kind": "method",
+            "receiver_type": "github.com/spf13/cobra.Command"
+          },
+          "role": "registers",
+          "evidence": "typed_receiver",
+          "fields": [
+            "Run",
+            "RunE",
+            "PreRun",
+            "PreRunE",
+            "PostRun",
+            "PostRunE",
+            "PersistentPreRun",
+            "PersistentPreRunE",
+            "PersistentPostRun",
+            "PersistentPostRunE"
+          ],
+          "params": [],
+          "hooks": []
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "AddCommand",
+            "receiver_type": "github.com/spf13/cobra.Command"
+          },
+          "role": "attaches",
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "Execute",
+            "receiver_type": "github.com/spf13/cobra.Command"
+          },
+          "role": "dispatches",
+          "max_args": 1,
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "ExecuteC",
+            "receiver_type": "github.com/spf13/cobra.Command"
+          },
+          "role": "dispatches",
+          "max_args": 1,
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "ExecuteContext",
+            "receiver_type": "github.com/spf13/cobra.Command"
+          },
+          "role": "dispatches",
+          "max_args": 1,
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "ExecuteContextC",
+            "receiver_type": "github.com/spf13/cobra.Command"
+          },
+          "role": "dispatches",
+          "max_args": 1,
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "coreutils/cat@v1",
+      "commands": [
+        "cat"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--show-all",
+            "-A"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--number-nonblank",
+            "-b"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-e"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--show-ends",
+            "-E"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--number",
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--squeeze-blank",
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-t"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--show-tabs",
+            "-T"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-u"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--show-nonprinting",
+            "-v"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "long_option_abbreviation": true,
+      "id": "coreutils/chmod-chown@v1",
+      "commands": [
+        "chgrp",
+        "chown"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--reference"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--recursive",
+            "-R"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--changes",
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--quiet",
+            "--silent",
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-dereference",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-H"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-L"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-P"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "spec",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": [
+            "--reference"
+          ],
+          "dashed_operand": {
+            "allowed_chars": "ugoarwxXst01234567+-=,"
+          }
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "--reference"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.metadata",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "action": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "basename",
+                    "value": {
+                      "kind": "argument",
+                      "index": 0
+                    }
+                  }
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-R",
+                    "--recursive"
+                  ]
+                },
+                "spec": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "spec"
+                  }
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "long_option_abbreviation": true,
+      "id": "coreutils/chmod@v1",
+      "commands": [
+        "chmod"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--reference"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--recursive",
+            "-R"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--changes",
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--quiet",
+            "--silent",
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-dereference",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-H"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-L"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-P"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--preserve-root"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-preserve-root"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "spec",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": [
+            "--reference"
+          ],
+          "dashed_operand": {
+            "allowed_chars": "ugoarwxXst01234567+-=,"
+          }
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "--reference"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "positional",
+                  "name": "spec"
+                },
+                "shape": {
+                  "kind": "permission_mode"
+                },
+                "allow_missing": false,
+                "matches": true
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--reference"
+            ],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.metadata",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "action": {
+                  "kind": "constant_string",
+                  "value": "chmod"
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-R",
+                    "--recursive"
+                  ]
+                },
+                "spec": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "spec"
+                  }
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "positional",
+                  "name": "spec"
+                },
+                "shape": {
+                  "kind": "nonempty"
+                },
+                "allow_missing": false,
+                "matches": false
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--reference"
+            ],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.metadata",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "action": {
+                  "kind": "constant_string",
+                  "value": "chmod"
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-R",
+                    "--recursive"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "positional",
+                  "name": "spec"
+                },
+                "shape": {
+                  "kind": "nonempty"
+                },
+                "allow_missing": false,
+                "matches": false
+              },
+              {
+                "source": {
+                  "kind": "flag_values",
+                  "flags": [
+                    "--reference"
+                  ]
+                },
+                "shape": {
+                  "kind": "nonempty"
+                },
+                "allow_missing": false,
+                "matches": true
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [
+              "--reference"
+            ],
+            "flag_value_absent": [],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.metadata",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "action": {
+                  "kind": "constant_string",
+                  "value": "chmod"
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-R",
+                    "--recursive"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "positional",
+                  "name": "spec"
+                },
+                "shape": {
+                  "kind": "permission_mode",
+                  "grant": "world_write"
+                },
+                "allow_missing": false,
+                "matches": true
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--reference"
+            ],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.metadata",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "action": {
+                  "kind": "constant_string",
+                  "value": "chmod"
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-R",
+                    "--recursive"
+                  ]
+                },
+                "world_write": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "positional",
+                  "name": "spec"
+                },
+                "shape": {
+                  "kind": "permission_mode",
+                  "grant": "setuid"
+                },
+                "allow_missing": false,
+                "matches": true
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--reference"
+            ],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.metadata",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "action": {
+                  "kind": "constant_string",
+                  "value": "chmod"
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-R",
+                    "--recursive"
+                  ]
+                },
+                "setuid": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "positional",
+                  "name": "spec"
+                },
+                "shape": {
+                  "kind": "permission_mode",
+                  "grant": "setgid"
+                },
+                "allow_missing": false,
+                "matches": true
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--reference"
+            ],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.metadata",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "action": {
+                  "kind": "constant_string",
+                  "value": "chmod"
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-R",
+                    "--recursive"
+                  ]
+                },
+                "setgid": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "unknown_flags_present": false,
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "positional",
+                  "name": "spec"
+                },
+                "shape": {
+                  "kind": "permission_mode"
+                },
+                "allow_missing": false,
+                "matches": false
+              },
+              {
+                "source": {
+                  "kind": "positional",
+                  "name": "spec"
+                },
+                "shape": {
+                  "kind": "nonempty"
+                },
+                "allow_missing": false,
+                "matches": true
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--reference"
+            ],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "reason": "unrecognized_arguments",
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "chmod mode is invalid"
+        },
+        {
+          "when": {
+            "unknown_flags_present": false,
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "positional",
+                  "name": "spec"
+                },
+                "shape": {
+                  "kind": "nonempty"
+                },
+                "allow_missing": false,
+                "matches": false
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--reference"
+            ],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "reason": "unmodeled_dynamic",
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "chmod mode is empty or not a literal, so the permissions it grants are unknown"
+        },
+        {
+          "when": {
+            "unknown_flags_present": false,
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "positional",
+                  "name": "spec"
+                },
+                "shape": {
+                  "kind": "nonempty"
+                },
+                "allow_missing": false,
+                "matches": true
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [
+              "--reference"
+            ],
+            "flag_value_absent": [],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "reason": "unrecognized_arguments",
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "chmod cannot combine a mode with --reference"
+        },
+        {
+          "when": {
+            "unknown_flags_present": false,
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "flag_values",
+                  "flags": [
+                    "--reference"
+                  ]
+                },
+                "shape": {
+                  "kind": "nonempty"
+                },
+                "allow_missing": false,
+                "matches": false
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [
+              "--reference"
+            ],
+            "flag_value_absent": [],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "reason": "unrecognized_arguments",
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "chmod reference path is empty or unresolved"
+        },
+        {
+          "when": {
+            "unknown_flags_present": false,
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "reason": "missing_required_arguments",
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "chmod requires at least one target"
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "information",
+          "when": {
+            "flag_present": [
+              "--help",
+              "--version"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "coreutils/cp@v1",
+      "commands": [
+        "cp"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--target-directory",
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--suffix",
+            "-S"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--archive",
+            "--recursive",
+            "-R",
+            "-a",
+            "-r"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--force",
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-p"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-clobber",
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-L"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-P"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-u"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-target-directory",
+            "-T"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--link",
+            "-l"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--symbolic-link",
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--attributes-only",
+            "-H",
+            "-Z",
+            "-b",
+            "-x"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "flag_present": [],
+            "flag_absent": [
+              "--attributes-only",
+              "--link",
+              "-l",
+              "--symbolic-link",
+              "-s",
+              "-T",
+              "--no-target-directory"
+            ],
+            "flag_value_present": [
+              "-t",
+              "--target-directory"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-r",
+                    "-R",
+                    "-a",
+                    "--recursive",
+                    "--archive"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-t",
+              "--target-directory"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "in_directory",
+                "directory": {
+                  "kind": "flag_value",
+                  "flags": [
+                    "-t",
+                    "--target-directory"
+                  ]
+                },
+                "entry": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-r",
+                    "-R",
+                    "-a",
+                    "--recursive",
+                    "--archive"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all_but_last"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "flag_present": [],
+            "flag_absent": [
+              "--attributes-only",
+              "--link",
+              "-l",
+              "--symbolic-link",
+              "-s",
+              "-T",
+              "--no-target-directory"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-r",
+                    "-R",
+                    "-a",
+                    "--recursive",
+                    "--archive"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all_but_last"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "flag_present": [
+              "-T",
+              "--no-target-directory"
+            ],
+            "flag_absent": [
+              "--attributes-only",
+              "--link",
+              "-l",
+              "--symbolic-link",
+              "-s"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "max_operands": 2,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-r",
+                    "-R",
+                    "-a",
+                    "--recursive",
+                    "--archive"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "last_if_multiple"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-r",
+                    "-R",
+                    "-a",
+                    "--recursive",
+                    "--archive"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "transfers": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.read"
+          },
+          "destination": {
+            "operation": "filesystem.write"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "coreutils/link@v1",
+      "commands": [
+        "link"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all_but_last"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "min_operands": 2,
+            "max_operands": 2,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "metadata": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "last_if_multiple"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "min_operands": 2,
+            "max_operands": 2,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.create",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "transfers": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.read"
+          },
+          "destination": {
+            "operation": "filesystem.create"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "information",
+          "when": {
+            "flag_present": [
+              "--help",
+              "--version"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "coreutils/ln@v1",
+      "commands": [
+        "ln"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--target-directory",
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--suffix",
+            "-S"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--symbolic",
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--force",
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-dereference",
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-target-directory",
+            "-T"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--backup",
+            "-b"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--relative",
+            "-r"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-L"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-P"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-t",
+              "--target-directory"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.create",
+              "resource": {
+                "kind": "in_directory",
+                "directory": {
+                  "kind": "flag_value",
+                  "flags": [
+                    "-t",
+                    "--target-directory"
+                  ]
+                },
+                "entry": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "force": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-f",
+                    "--force"
+                  ]
+                },
+                "symlink": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-s",
+                    "--symbolic"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "single"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.create",
+              "resource": {
+                "kind": "basename_in_cwd",
+                "value": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "force": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-f",
+                    "--force"
+                  ]
+                },
+                "symlink": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-s",
+                    "--symbolic"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "last_if_multiple"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "max_operands": 2,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.create",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "force": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-f",
+                    "--force"
+                  ]
+                },
+                "symlink": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-s",
+                    "--symbolic"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all_but_last"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "min_operands": 3,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.create",
+              "resource": {
+                "kind": "in_directory",
+                "directory": {
+                  "kind": "last_operand"
+                },
+                "entry": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "force": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-f",
+                    "--force"
+                  ]
+                },
+                "symlink": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-s",
+                    "--symbolic"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-s",
+              "--symbolic"
+            ],
+            "flag_value_present": [
+              "-t",
+              "--target-directory"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "metadata": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "single"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-s",
+              "--symbolic"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "metadata": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all_but_last"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-s",
+              "--symbolic"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "metadata": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "transfers": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-s",
+              "--symbolic"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "min_operands": 2,
+            "max_operands": 2,
+            "multiple_operands_before_last": false,
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.read"
+          },
+          "destination": {
+            "operation": "filesystem.create"
+          },
+          "assurance": "exact"
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-s",
+              "--symbolic"
+            ],
+            "flag_value_present": [
+              "-t",
+              "--target-directory"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.read"
+          },
+          "destination": {
+            "operation": "filesystem.create"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-s",
+              "--symbolic"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.read"
+          },
+          "destination": {
+            "operation": "filesystem.create"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-s",
+              "--symbolic"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "min_operands": 3,
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.read"
+          },
+          "destination": {
+            "operation": "filesystem.create"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-s",
+              "--symbolic"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "min_operands": 2,
+            "max_operands": 2,
+            "multiple_operands_before_last": true,
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.read"
+          },
+          "destination": {
+            "operation": "filesystem.create"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "coreutils/mkdir@v1",
+      "commands": [
+        "mkdir"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--parents",
+            "-p"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--mode",
+            "-m"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.create",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "parents": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-p",
+                    "--parents"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "flag_values",
+                  "flags": [
+                    "--mode",
+                    "-m"
+                  ]
+                },
+                "shape": {
+                  "kind": "permission_mode",
+                  "grant": "world_write"
+                },
+                "allow_missing": false,
+                "matches": true
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.metadata",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "action": {
+                  "kind": "constant_string",
+                  "value": "chmod"
+                },
+                "world_write": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "coreutils/mv@v1",
+      "commands": [
+        "mv"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--target-directory",
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--suffix",
+            "-S"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--backup",
+            "--no-clobber",
+            "--no-target-directory",
+            "--strip-trailing-slashes",
+            "--update",
+            "--verbose",
+            "-T",
+            "-b",
+            "-f",
+            "-i",
+            "-n",
+            "-u",
+            "-v"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-t",
+              "--target-directory"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.move",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "in_directory",
+                "directory": {
+                  "kind": "flag_value",
+                  "flags": [
+                    "-t",
+                    "--target-directory"
+                  ]
+                },
+                "entry": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all_but_last"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.move",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all_but_last"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--no-target-directory",
+              "-T"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "multiple_operands_before_last": true,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "in_directory",
+                "directory": {
+                  "kind": "last_operand"
+                },
+                "entry": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "last_if_multiple"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "multiple_operands_before_last": false,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "last_if_multiple"
+          },
+          "when": {
+            "flag_present": [
+              "--no-target-directory",
+              "-T"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "multiple_operands_before_last": true,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "transfers": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "source": {
+            "operation": "filesystem.delete"
+          },
+          "destination": {
+            "operation": "filesystem.write"
+          },
+          "assurance": "exact"
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "coreutils/rm@v1",
+      "commands": [
+        "rm"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--recursive",
+            "-r"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-R"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--force",
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            ""
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "force": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-f",
+                    "--force"
+                  ]
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-r",
+                    "-R",
+                    "--recursive"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "information",
+          "when": {
+            "flag_present": [
+              "--help",
+              "--version"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "coreutils/rmdir@v1",
+      "commands": [
+        "rmdir"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--parents",
+            "-p"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ignore-fail-on-non-empty"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "directory": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "parents": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-p",
+                    "--parents"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "coreutils/touch@v1",
+      "commands": [
+        "touch"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--date",
+            "-d"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--reference",
+            "-r"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-m"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-create",
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-dereference",
+            "-h"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-r",
+              "--reference"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.metadata",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "create": {
+                  "kind": "flag_absent",
+                  "flags": [
+                    "-c",
+                    "--no-create"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "--no-create"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.create",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "coreutils/truncate@v1",
+      "commands": [
+        "truncate"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--size",
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--reference",
+            "-r"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--no-create",
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-o"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-r",
+              "--reference"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "truncate": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "lifecycle",
+      "id": "fire",
+      "lang": "python",
+      "signatures": [
+        {
+          "target": {
+            "kind": "function",
+            "name": "Fire",
+            "import_path": "fire"
+          },
+          "role": "registers",
+          "component": 0,
+          "evidence": "exact_import",
+          "fields": [],
+          "params": [
+            "component"
+          ],
+          "hooks": []
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "Fire",
+            "import_path": "fire"
+          },
+          "role": "dispatches",
+          "evidence": "exact_import",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        }
+      ]
+    },
+    {
+      "kind": "lifecycle",
+      "id": "kong",
+      "lang": "go",
+      "signatures": [
+        {
+          "target": {
+            "kind": "function",
+            "name": "Parse",
+            "import_path": "github.com/alecthomas/kong"
+          },
+          "role": "registers",
+          "evidence": "exact_import",
+          "fields": [],
+          "params": [],
+          "hooks": [
+            "Run"
+          ],
+          "derive_result": 0,
+          "result_type": "github.com/alecthomas/kong.Context",
+          "field_tags": [
+            "cmd"
+          ]
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "Run",
+            "receiver_type": "github.com/alecthomas/kong.Context"
+          },
+          "role": "dispatches",
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        }
+      ]
+    },
+    {
+      "kind": "lifecycle",
+      "id": "thor-command",
+      "lang": "ruby",
+      "signatures": [
+        {
+          "target": {
+            "kind": "method",
+            "name": "desc",
+            "receiver_type": "thor.Thor"
+          },
+          "role": "registers",
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [
+            "command"
+          ],
+          "hooks": []
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "start",
+            "receiver_type": "thor.Thor"
+          },
+          "role": "dispatches",
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        }
+      ]
+    },
+    {
+      "kind": "lifecycle",
+      "id": "urfave-cli-v3",
+      "lang": "go",
+      "signatures": [
+        {
+          "target": {
+            "kind": "method",
+            "receiver_type": "github.com/urfave/cli/v3.Command"
+          },
+          "role": "registers",
+          "evidence": "typed_receiver",
+          "fields": [
+            "Action"
+          ],
+          "params": [],
+          "hooks": []
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "Run",
+            "receiver_type": "github.com/urfave/cli/v3.Command"
+          },
+          "role": "dispatches",
+          "max_args": 2,
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        }
+      ]
+    }
+  ]
+}

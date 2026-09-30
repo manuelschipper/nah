@@ -2,26 +2,25 @@
 
 use crate::support;
 
-use std::hint::black_box;
-use std::time::{Duration, Instant};
-
-use nah_proto::action::{Coverage, Sensitivity};
+use nah_policy::EnforcementMode;
+use nah_proto::action::Coverage;
 use nah_proto::decision::{DecisionError, Verdict};
 use nah_proto::extension::{ExtensionResponse, validate_response};
 use nah_proto::observation::ProjectGuardDeclaration;
-use support::{activation, context, project_scope, read_stream};
+use support::{activation, context, quiet_evidence};
 
 #[test]
 fn full_and_partial_coverage_both_delegate_when_no_guard_blocks() {
-    let full = read_stream(Coverage::Full, project_scope(), Sensitivity::None);
-    let partial = read_stream(Coverage::Partial, project_scope(), Sensitivity::None);
     let (_, policy) = context(&[], vec![], ProjectGuardDeclaration::Absent);
 
     let full_decision = nah_policy::decide(
-        &full,
-        &crate::support::evidence(&full, &nah_inline::InlineReport::default()),
+        &quiet_evidence(),
+        &nah_policy::ShippedGuards::new(),
+        &Default::default(),
+        Coverage::Full,
         &policy,
         &[],
+        EnforcementMode::Normal,
     )
     .unwrap();
     assert_eq!(full_decision.verdict(), Verdict::Delegate);
@@ -29,10 +28,13 @@ fn full_and_partial_coverage_both_delegate_when_no_guard_blocks() {
     assert!(full_decision.policy_attributions().is_empty());
 
     let partial_decision = nah_policy::decide(
-        &partial,
-        &crate::support::evidence(&partial, &nah_inline::InlineReport::default()),
+        &quiet_evidence(),
+        &nah_policy::ShippedGuards::new(),
+        &Default::default(),
+        Coverage::Partial,
         &policy,
         &[],
+        EnforcementMode::Normal,
     )
     .unwrap();
     assert_eq!(partial_decision.verdict(), Verdict::Delegate);
@@ -40,8 +42,95 @@ fn full_and_partial_coverage_both_delegate_when_no_guard_blocks() {
 }
 
 #[test]
+fn a_guard_witness_stands_beside_an_unrelated_gap() {
+    use nah_proto::effects::*;
+    let witnessed = support::quiet_evidence();
+    let mut graph = witnessed.graph().clone();
+    graph.gaps.push(EffectGap {
+        id: GapId(graph.gaps.len() as u32),
+        phase: GapPhase::Translation,
+        category: GapCategory::Unmodeled,
+        call: CallId(0),
+        domain: Some(Domain::Storage),
+        code: "storage-target-kind-and-mode-unavailable".into(),
+    });
+    let evidence = GuardEvidence::new(graph, witnessed.public_selection().clone()).unwrap();
+    let (_, policy) = context(
+        &[("sys-power", true), ("sys-service-stop", true)],
+        vec![],
+        ProjectGuardDeclaration::Absent,
+    );
+
+    let core = nah_policy::decide(
+        &evidence,
+        &nah_policy::ShippedGuards::new(),
+        &support::guard_matches(&["sys-power"]),
+        Coverage::Partial,
+        &policy,
+        &[],
+        EnforcementMode::Normal,
+    )
+    .unwrap();
+    assert_eq!(core.verdict(), Verdict::Block);
+    assert_eq!(
+        core.policy_attributions()
+            .iter()
+            .map(|guard| guard.name())
+            .collect::<Vec<_>>(),
+        ["sys-power"]
+    );
+}
+
+#[test]
+fn only_enabled_matched_guards_block_and_each_is_attributed() {
+    let evidence = support::quiet_evidence();
+    let decide = |enabled: &[(&str, bool)], matched: &[&'static str]| {
+        let (_, policy) = context(enabled, vec![], ProjectGuardDeclaration::Absent);
+        nah_policy::decide(
+            &evidence,
+            &nah_policy::ShippedGuards::new(),
+            &support::guard_matches(matched),
+            Coverage::Full,
+            &policy,
+            &[],
+            EnforcementMode::Normal,
+        )
+        .unwrap()
+    };
+    let attributions = |decision: &nah_proto::decision::DecisionCore| {
+        decision
+            .policy_attributions()
+            .iter()
+            .map(|guard| guard.name().to_owned())
+            .collect::<Vec<_>>()
+    };
+
+    let both = decide(
+        &[("sys-power", true), ("fs-system-tree", true)],
+        &["sys-power", "fs-system-tree"],
+    );
+    assert_eq!(both.verdict(), Verdict::Block);
+    assert_eq!(attributions(&both), ["fs-system-tree", "sys-power"]);
+
+    // A disabled guard's match neither blocks nor suppresses an enabled one.
+    let one = decide(
+        &[("sys-power", false), ("fs-system-tree", true)],
+        &["sys-power", "fs-system-tree"],
+    );
+    assert_eq!(one.verdict(), Verdict::Block);
+    assert_eq!(attributions(&one), ["fs-system-tree"]);
+
+    // An enabled guard never blocks on another guard's match.
+    let other = decide(
+        &[("sys-power", false), ("fs-system-tree", true)],
+        &["sys-power"],
+    );
+    assert_eq!(other.verdict(), Verdict::Delegate);
+    assert!(attributions(&other).is_empty());
+}
+
+#[test]
 fn validated_extensions_can_only_add_a_block() {
-    let stream = read_stream(Coverage::Full, project_scope(), Sensitivity::None);
     let quiet = activation("read");
     let guard = activation("custom-guard");
     let (ctx, policy) = context(
@@ -52,7 +141,6 @@ fn validated_extensions_can_only_add_a_block() {
     let abstained = validate_response(
         &ctx,
         &quiet,
-        &stream,
         ExtensionResponse {
             block: None,
             abstain: Some(true),
@@ -63,7 +151,6 @@ fn validated_extensions_can_only_add_a_block() {
     let guard_response = validate_response(
         &ctx,
         &guard,
-        &stream,
         ExtensionResponse {
             block: Some(true),
             abstain: None,
@@ -71,62 +158,28 @@ fn validated_extensions_can_only_add_a_block() {
         },
     )
     .unwrap();
+    let decide = |responses: &[_]| {
+        nah_policy::decide(
+            &quiet_evidence(),
+            &nah_policy::ShippedGuards::new(),
+            &Default::default(),
+            Coverage::Full,
+            &policy,
+            responses,
+            EnforcementMode::Normal,
+        )
+    };
 
-    let quiet_decision = nah_policy::decide(
-        &stream,
-        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
-        &policy,
-        std::slice::from_ref(&abstained),
-    )
-    .unwrap();
+    let quiet_decision = decide(std::slice::from_ref(&abstained)).unwrap();
     assert_eq!(quiet_decision.verdict(), Verdict::Delegate);
     assert!(quiet_decision.policy_attributions().is_empty());
 
     assert_eq!(
-        nah_policy::decide(
-            &stream,
-            &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
-            &policy,
-            &[guard_response.clone(), guard_response.clone()]
-        ),
+        decide(&[guard_response.clone(), guard_response.clone()]),
         Err(DecisionError::DuplicateAttribution)
     );
 
-    let block = nah_policy::decide(
-        &stream,
-        &crate::support::evidence(&stream, &nah_inline::InlineReport::default()),
-        &policy,
-        &[abstained, guard_response],
-    )
-    .unwrap();
+    let block = decide(&[abstained, guard_response]).unwrap();
     assert_eq!(block.verdict(), Verdict::Block);
     assert_eq!(block.reason(), "custom guard blocked");
-}
-
-#[test]
-#[ignore = "release-mode KPI; run isolated with --release --ignored --test-threads=1"]
-fn captured_policy_p99_is_below_one_millisecond() {
-    let stream = read_stream(Coverage::Full, project_scope(), Sensitivity::None);
-    let evidence = crate::support::evidence(&stream, &nah_inline::InlineReport::default());
-    let (_, policy) = context(
-        &[("fs-system-tree", true)],
-        vec![],
-        ProjectGuardDeclaration::Absent,
-    );
-    for _ in 0..100 {
-        black_box(nah_policy::decide(&stream, &evidence, &policy, &[]).unwrap());
-    }
-
-    let mut samples = Vec::with_capacity(2_000);
-    for _ in 0..2_000 {
-        let started = Instant::now();
-        black_box(nah_policy::decide(&stream, &evidence, &policy, &[]).unwrap());
-        samples.push(started.elapsed());
-    }
-    samples.sort_unstable();
-    let p99 = samples[(samples.len() * 99) / 100];
-    assert!(
-        p99 <= Duration::from_millis(1),
-        "captured policy p99 {p99:?} exceeds 1 ms"
-    );
 }

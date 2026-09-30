@@ -61,16 +61,18 @@ fn opencode_adapter_maps_builtins_and_guards() {
     std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
 
     for (tool, input) in [
-        ("bash", json!({"command":"echo ok"})),
-        ("read", json!({"filePath":"src/lib.rs","offset":1})),
+        ("shell", json!({"command":"echo ok","workdir":project})),
+        // blocked below once its workdir is Nah's plugin directory
+        ("shell", json!({"command":"printf disabled > nah.js"})),
+        ("read", json!({"path":"src/lib.rs","offset":1})),
         (
             "write",
-            json!({"filePath":"src/new.rs","content":"pub fn new() {}\n"}),
+            json!({"path":"src/new.rs","content":"pub fn new() {}\n"}),
         ),
         (
             "edit",
             json!({
-                "filePath":"src/lib.rs",
+                "path":"src/lib.rs",
                 "oldString":"demo",
                 "newString":"example",
                 "replaceAll":false
@@ -79,7 +81,7 @@ fn opencode_adapter_maps_builtins_and_guards() {
         ("glob", json!({"pattern":"src","path":project})),
         ("grep", json!({"pattern":"demo","path":"src"})),
         (
-            "apply_patch",
+            "patch",
             json!({
                 "patchText":"*** Begin Patch\n*** Update File: src/lib.rs\n@@\n-old\n+new\n*** End Patch\n"
             }),
@@ -94,17 +96,28 @@ fn opencode_adapter_maps_builtins_and_guards() {
         );
     }
 
-    let secret = run_adapter(home, &project, "read", json!({"filePath":".env"}));
+    let secret = run_adapter(home, &project, "read", json!({"path":".env"}));
     let secret = decision(&secret);
     assert_eq!(secret["block"], true);
     assert!(secret["reason"].as_str().unwrap().starts_with("nah - "));
+
+    let wiring_workdir = run_adapter(
+        home,
+        &project,
+        "shell",
+        json!({
+            "command":"printf disabled > nah.js",
+            "workdir":home.join(".config/opencode/plugins")
+        }),
+    );
+    assert_eq!(decision(&wiring_workdir)["block"], true);
 
     let wiring_edit = run_adapter(
         home,
         &project,
         "write",
         json!({
-            "filePath":home.join(".config/opencode/plugins/nah.js"),
+            "path":home.join(".config/opencode/plugins/nah.js"),
             "content":"disabled"
         }),
     );
@@ -120,7 +133,7 @@ fn opencode_adapter_maps_builtins_and_guards() {
     let lifecycle = run_adapter(
         home,
         &project,
-        "bash",
+        "shell",
         json!({"command":"nah hook opencode uninstall"}),
     );
     assert_eq!(decision(&lifecycle)["block"], true);
@@ -135,9 +148,9 @@ fn malformed_opencode_input_delegates_as_opaque() {
     let home = home.as_path();
     let project = repo(home);
     for (tool, input) in [
-        ("bash", json!({"command":7})),
-        ("edit", json!({"filePath":"src/lib.rs"})),
-        ("apply_patch", json!({"patchText":""})),
+        ("shell", json!({"command":7})),
+        ("edit", json!({"path":"src/lib.rs"})),
+        ("patch", json!({"patchText":""})),
         ("grep", json!({"pattern":"x","path":7})),
     ] {
         let output = run_adapter(home, &project, tool, input);

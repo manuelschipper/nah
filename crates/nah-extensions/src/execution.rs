@@ -1,27 +1,20 @@
 //! Coordinates selected extension consultations and memoization; it does not decide policy.
 
-use nah_proto::action::ActionStream;
+use crate::bundle::{ActiveExtensionCatalog, ExtensionBundle};
+use crate::cache::{MemoCache, decode_cache_entry, encode_cache_entry};
+use crate::memo::{MemoContext, memo_key};
+use crate::selection::{exec_request, selected_extensions};
+use crate::transport::execute;
 use nah_proto::ctx::Ctx;
+use nah_proto::effects::GuardEvidence;
+use nah_proto::exec_v2::ExecV2Request;
 use nah_proto::extension::{
     ConsultationOutcome, ExtensionConsultation, ExtensionValidationError, TransportRejectionCode,
     ValidatedExtensionResponse, validate_response,
 };
 use nah_proto::observation::Observation;
-#[cfg(feature = "effinterp")]
-use nah_proto::stream::ActionStream as EffinterpActionStream;
 
-use crate::bundle::{ActiveExtensionCatalog, ExtensionBundle};
-use crate::cache::MemoCache;
-#[cfg(feature = "effinterp")]
-use crate::selection::ExtensionExecRequest;
-use crate::selection::{exec_request, memo_key, selected_extensions};
-use crate::transport::{decode_cache_entry, encode_cache_entry, execute, outcome_code};
-
-#[cfg(not(feature = "effinterp"))]
-type ActiveExecRequest = nah_proto::exec_v1::ExecV1Request;
-#[cfg(feature = "effinterp")]
-type ActiveExecRequest = ExtensionExecRequest;
-
+/// Everything one round of custom-guard consultation produced.
 pub struct ConsultationOutput {
     pub consultations: Vec<ExtensionConsultation>,
     pub responses: Vec<ValidatedExtensionResponse>,
@@ -83,27 +76,19 @@ impl ConsultationDiagnostic {
     }
 }
 
+/// Consults every active custom guard selected by a visible call, reusing memo
+/// cache entries. Unsupported: calls launched from interpreter source
+/// (source-internal calls) never select a custom guard.
 pub fn consult_extensions(
     catalog: &ActiveExtensionCatalog,
     ctx: &Ctx,
     observation: &Observation,
-    action_stream: &ActionStream,
-    #[cfg(feature = "effinterp")] effinterp_action_stream: Option<&EffinterpActionStream>,
+    evidence: &GuardEvidence,
     cache: &MemoCache,
+    memo_context: &MemoContext,
 ) -> ConsultationOutput {
-    let selected = selected_extensions(
-        catalog,
-        ctx,
-        action_stream,
-        #[cfg(feature = "effinterp")]
-        effinterp_action_stream,
-    );
-    let request = match exec_request(
-        action_stream,
-        #[cfg(feature = "effinterp")]
-        effinterp_action_stream,
-        observation,
-    ) {
+    let selected = selected_extensions(catalog, ctx, evidence);
+    let request = match exec_request(evidence, observation) {
         Ok(request) => request,
         Err(error) => {
             return ConsultationOutput {
@@ -128,18 +113,19 @@ pub fn consult_extensions(
     let mut failures = Vec::new();
 
     for extension in selected {
-        let key = memo_key(&request, ctx, extension);
+        let key = memo_key(
+            &request,
+            ctx,
+            extension,
+            memo_context,
+            evidence,
+            observation,
+        );
         let mut should_cache = false;
         let (consultation, diagnostic) = match cache.get(&key) {
             Ok(Some(bytes)) => match decode_cache_entry(&bytes, &key, extension.projection()) {
                 Ok(response)
-                    if validate_response(
-                        ctx,
-                        extension.projection(),
-                        action_stream,
-                        response.clone(),
-                    )
-                    .is_ok() =>
+                    if validate_response(ctx, extension.projection(), response.clone()).is_ok() =>
                 {
                     (
                         ExtensionConsultation {
@@ -169,7 +155,7 @@ pub fn consult_extensions(
             }
         };
         if let ConsultationOutcome::Response { response } = &consultation.outcome {
-            match validate_response(ctx, extension.projection(), action_stream, response.clone()) {
+            match validate_response(ctx, extension.projection(), response.clone()) {
                 Ok(response) => {
                     if should_cache
                         && let ConsultationOutcome::Response { response: raw } =
@@ -204,7 +190,7 @@ pub fn consult_extensions(
             warnings.push(format!(
                 "extension `{}` failed: {}",
                 extension.projection().identity().name(),
-                outcome_code(&consultation.outcome)
+                consultation.outcome.code()
             ));
         }
         if let Some(diagnostic) = diagnostic {
@@ -247,7 +233,7 @@ const fn transport_rejection_code(code: TransportRejectionCode) -> &'static str 
 
 fn execute_extension(
     extension: &ExtensionBundle,
-    request: &ActiveExecRequest,
+    request: &ExecV2Request,
 ) -> (ExtensionConsultation, Option<ConsultationDiagnostic>) {
     let executed = execute(extension, request);
     let diagnostic = executed.stderr.map(|stderr| ConsultationDiagnostic {

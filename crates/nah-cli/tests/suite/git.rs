@@ -22,421 +22,16 @@ fn destructive_git_guards_are_semantic_end_to_end() {
     let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
+    // Decision cases live in corpus/git.jsonl; these keep a real repository's
+    // observed .git in the decision path.
     for (command, guard) in [
         ("rm -rf .git", "git-metadata"),
-        ("rm -rf .git/objects/aa", "git-metadata"),
-        ("rm -rf .git//objects/aa", "git-metadata"),
-        ("unlink .git/objects/aa", "git-metadata"),
-        ("rm -rf '.git/*'", "git-metadata"),
-        ("rm -rf '.git/{objects,refs}'", "git-metadata"),
-        ("echo corrupt > .git/objects/aa", "git-metadata"),
-        ("cp replacement .git/refs/heads/main", "git-metadata"),
-        ("touch .git/packed-refs", "git-metadata"),
-        ("chmod 600 .git/refs/heads/main", "git-metadata"),
-        ("mv .git/refs/heads/main saved-ref", "git-metadata"),
-        ("mv replacement .git/refs/heads/main", "git-metadata"),
-        ("rm -rf backup.git/objects", "git-metadata"),
-        ("echo corrupt > backup.git/refs/heads/main", "git-metadata"),
-        ("git push --force", "git-force-push"),
-        ("git push --mirror origin", "git-force-push"),
-        (
-            "git -c advice.detachedHead=false push --mirror",
-            "git-force-push",
-        ),
-        (
-            "git push --force --repo --help origin main",
-            "git-force-push",
-        ),
-        ("git push --force \"$REMOTE\"", "git-force-push"),
-        ("git push origin +main", "git-force-push"),
-        (
-            "git push --force-with-lease=other origin +main",
-            "git-force-push",
-        ),
-        (
-            "git push --force-with-lease --no-force-with-lease origin +main",
-            "git-force-push",
-        ),
-        (
-            "git push --repo --force-with-lease origin +main",
-            "git-force-push",
-        ),
-        ("git push --force-with-lease", "git-history-rewrite"),
-        ("git push origin main", "git-protected-push"),
-        (
-            "git push --force-with-lease origin +main",
-            "git-protected-push",
-        ),
-        (
-            "git push --force-with-lease=main origin +main",
-            "git-protected-push",
-        ),
         ("git reset --hard", "git-hard-reset"),
-        ("git -c 'alias.wipe=reset --hard' wipe", "git-hard-reset"),
-        ("git -c 'alias.wipe=!rm -rf /' wipe", "fs-system-tree"),
-        ("git reset --h", "git-hard-reset"),
-        ("/usr/bin/git reset --h", "git-hard-reset"),
-        ("git reset --hard \"$REV\"", "git-hard-reset"),
-        ("git filter-branch -f -- --all", "git-rewrite-force"),
-        ("git filter-branch --force -- --all", "git-rewrite-force"),
-        ("git filter-repo --force", "git-rewrite-force"),
-        (
-            "git filter-repo --force --replace-text --help",
-            "git-rewrite-force",
-        ),
-        ("sudo git filter-repo --force", "git-rewrite-force"),
-        ("git rebase main", "git-history-rewrite"),
-        ("git rebase --continue", "git-history-rewrite"),
-        ("git rebase --skip", "git-history-rewrite"),
-        ("git filter-branch -- --all", "git-history-rewrite"),
-        (
-            "git filter-repo --invert-paths --path secret",
-            "git-history-rewrite",
-        ),
-        ("git reflog expire --all", "git-history-rewrite"),
-        ("git gc --aggressive", "git-history-rewrite"),
-        ("git gc --prune=2.weeks.ago", "git-history-rewrite"),
-        (
-            "git -c gc.pruneExpire=now gc --prune=2.weeks.ago",
-            "git-history-rewrite",
-        ),
-        (
-            "git reflog expire --all --expire=now",
-            "git-recovery-destroy",
-        ),
-        (
-            "git reflog expire --expire-unreachable=now --all",
-            "git-recovery-destroy",
-        ),
-        ("git gc --prune=now", "git-recovery-destroy"),
-        ("git -c gc.pruneExpire=now gc", "git-recovery-destroy"),
-        ("git gc --p=now", "git-recovery-destroy"),
-        ("git prune --expire=now", "git-recovery-destroy"),
-        ("git prune --exp=now", "git-recovery-destroy"),
-        ("git prune --expire now", "git-recovery-destroy"),
-        (
-            "git reflog expire --expire-=now --a",
-            "git-recovery-destroy",
-        ),
-        ("git push --force-w=other origin +main", "git-force-push"),
-        ("sudo git -C . reset --hard", "git-hard-reset"),
-        ("git clean -f", "git-clean-force"),
-        ("git clean -fdx", "git-clean-force"),
-        ("git clean . -f", "git-clean-force"),
-        ("git clean build -f .", "git-clean-force"),
-        ("git clean -f .git/..", "git-clean-force"),
-        ("git clean . -f -", "git-clean-force"),
-        ("git -c clean.requireForce=false clean", "git-clean-force"),
-        ("git checkout -- .", "git-worktree-discard"),
-        ("git checkout .", "git-worktree-discard"),
-        ("git restore .", "git-worktree-discard"),
-        ("git restore --staged --worktree .", "git-worktree-discard"),
-        ("git checkout -f", "git-worktree-discard"),
-        ("git checkout -f --no-merge", "git-worktree-discard"),
-        ("git checkout -f --no-patch", "git-worktree-discard"),
-        (
-            "git checkout -f -b topic --no-detach origin/other",
-            "git-worktree-discard",
-        ),
-        ("git checkout -- . --keep", "git-worktree-discard"),
-        ("git checkout --no-patch -- .", "git-worktree-discard"),
-        ("git checkout HEAD .", "git-worktree-discard"),
-        ("git restore -- . --keep", "git-worktree-discard"),
-        ("git switch --discard-changes main", "git-worktree-discard"),
-        ("git switch -f --no-merge main", "git-worktree-discard"),
-        ("git checkout -f -- src/lib.rs", "git-path-discard"),
-        ("git restore src/lib.rs", "git-path-discard"),
-        ("git restore src/lib.rs > .", "git-path-discard"),
-        ("git show HEAD:src/lib.rs > src/lib.rs", "git-path-discard"),
-        ("git branch -D old", "git-ref-delete"),
-        ("git tag -d v1", "git-ref-delete"),
-        ("git stash drop 'stash@{0}'", "git-ref-delete"),
-        ("git stash clear", "git-ref-delete"),
-        ("git push origin --delete old", "git-ref-delete"),
-        ("git push origin :old", "git-ref-delete"),
-        ("git update-ref -d refs/heads/old", "git-ref-delete"),
-        ("git worktree remove ../old", "git-ref-delete"),
-        ("git worktree prune", "git-ref-delete"),
-        ("git submodule deinit vendor/library", "git-ref-delete"),
-        ("timeout 5 git worktree remove old", "git-ref-delete"),
-        ("gh repo delete", "git-remote-repo-delete"),
-        (
-            "gh repo delete github.example.com/owner/project --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete localhost/owner/project --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete localhost:9/owner/project --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete localhost./owner/project --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete '[::1]/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete 'bücher.invalid/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete 'bücher.invalid:9/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete 'bu\u{308}cher.invalid/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete 'हिन्दी.invalid/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete 'শক্তি.invalid/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete 'தமிழ்.invalid/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete 'ಕನ್ನಡ.invalid/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete 'శక్తి.invalid/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete '[::ffff:127.0.0.1]:9/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete '[fe80::1%25lo]:9/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete '[fe80::1%25%6Co]:9/owner/project' --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "/usr/bin/../bin/gh repo delete owner/project --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "/../../usr/bin/gh repo delete owner/project --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete owner/project --confirm=1",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab repo delete group/project -y",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab repo delete group/project -y=TRUE",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab repo delete group/project -yh=false",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab repo delete group/project -yRother/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api -iRother/project -X DELETE projects/123",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api -X DELETE repos/{owner}/{repo}",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api -X DELETE repos/%63li/%63li",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api -iXDELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api -iiX DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api -ip corsair -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --paginate=false -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --allow-escape-sequences -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api -X DELETE 'repos/owner/project#/issues'",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api --method DELETE projects/group%2Fproject",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api -X DELETE projects/%67itlab-org%2Fcli",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api -X DELETE projects/%32%37%38%39%36%34",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api -X DELETE 'projects/123#anything'",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api -X DELETE projects/:namespace/:repo",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api -X DELETE projects/:group%2F:repo",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api -X DELETE projects/:group/:namespace/:repo",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete owner/project --yes --help=false",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo delete --help --help=false --yes owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --paginate --paginate=false -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api --help=0 -X DELETE projects/123",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh --help=false repo delete owner/project --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab --help=0 api -X DELETE projects/123",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh repo --help=false delete owner/project --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab repo --help=false delete group/project --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab project --help=false delete group/project --yes",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api -X DELETE repos/owner/project -F ref={branch}",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api -X DELETE projects/:user%2F:repo",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api --paginate=false -X DELETE projects/123",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --slurp=false -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --jq= --silent -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --template '' --verbose -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --template '}}' -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --template '{{$item := .}}{{$item}}' -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --hostname bücher.example -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --hostname bu\u{308}cher.example -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --hostname हिन्दी.example -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --hostname শক্তি.example -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --hostname தமிழ்.example -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --hostname ಕನ್ನಡ.example -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api --hostname bücher.invalid -X DELETE projects/123",
-            "git-remote-repo-delete",
-        ),
-        (
-            "glab api --hostname bu\u{308}cher.invalid -X DELETE projects/123",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --template '{{1_000}}' -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --template '{{0x1.fp2}}' -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --template '{{1+2i}}' -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
-        (
-            "gh api --template '{{$é := .}}{{$é}}' -X DELETE repos/owner/project",
-            "git-remote-repo-delete",
-        ),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            support::fulfill_observation,
         );
         assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
         assert!(
@@ -458,7 +53,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
                 &repo,
             ),
             &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            support::fulfill_observation,
         );
         assert_eq!(
             result
@@ -581,7 +176,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
                     let result = decide_with(
                         &call("Bash", json!({"command": command}), &repo),
                         &context,
-                        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+                        support::fulfill_observation,
                     );
                     let actual = result
                         .core()
@@ -607,147 +202,53 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         }
     }
 
+    let states = nah_cli::shipped_guard_states()
+        .into_iter()
+        .map(|state| match state.name() {
+            "git-ref-delete" => nah_proto::ctx::ShippedGuardState::new(state.name(), true).unwrap(),
+            "git-force-push" | "git-history-rewrite" | "git-protected-push" => {
+                nah_proto::ctx::ShippedGuardState::new(state.name(), false).unwrap()
+            }
+            _ => state,
+        })
+        .collect();
+    let ref_delete_only = nah_proto::ctx::Ctx::new(
+        support::host_platform(),
+        support::absolute(&root),
+        states,
+        vec![],
+        nah_proto::ctx::TrustProjection::new(vec![]).unwrap(),
+    )
+    .unwrap();
+    // A deletion blocks under git-ref-delete even when the same push is also
+    // forced, leased, or updates a protected branch whose guards are off.
     for command in [
-        "rm -rf .git/index",
-        "rm -rf .git/objects/../index",
-        "rm -rf .git/hooks/pre-commit",
-        "rm -rf assets.git/index",
-        "git push -- --force",
-        "git push --force-with-lease --no-force-with-lease",
-        "git -- push --force",
-        "git reset --soft HEAD~1",
-        "git reset -- --hard",
-        "git filter-repo --dry-run --force",
-        "git filter-repo --analyze",
-        "git filter-repo --version",
-        "git reflog show",
-        "git reflog show expire",
-        "git reflog expire --dry-run --all --expire=now",
-        "git reflog delete HEAD@{0}",
-        "git rebase --abort",
-        "git rebase --quit",
-        "git rebase --show-current-patch",
-        "git gc",
-        "git gc --prune=2.weeks.ago --no-prune",
-        "git commit --amend -m update",
-        "git cherry-pick topic",
-        "git push --dry-run --force origin main",
-        "git push -nf origin main",
-        "git push --dry-run --mirror origin",
-        "git push -n --mirror origin",
-        "git clone --mirror origin local.git",
-        "git push --prune origin",
-        "git prune",
-        "git prune --expire=2.weeks.ago",
-        "echo safe > .git/index",
-        "echo safe > .git/hooks/pre-commit",
-        "git push --help --mirror",
-        "git reset --hard --help",
-        "git filter-repo --force --help",
-        "git gc --prune=now --help",
-        "git push -- --delete",
-        "git push -- --mirror",
-        "git push \"$FLAGS\"",
-        "git prune --dry-run",
-        "git prune --d --exp=now",
-        "git prune -n",
-        "git reflog \"$ACTION\"",
-        "git reflog expire --d --a --expire=now",
-        "git push --dr --force origin main",
-        "git worktree list",
-        "git worktree prune --dry-run",
-        "git worktree -- remove old",
-        "git -c user.name=Alice status",
-        "git -c gc.pruneExpire=now gc --no-prune",
-        "git clean -n -f",
-        "git clean -f -- src/lib.rs",
-        "git clean -f ':/'",
-        "git clean -- . -f",
-        "GIT_WORK_TREE=/tmp/alternate git clean -f",
-        "git clean .git",
-        "git clean -f .git",
-        "git checkout -f main",
-        "git checkout HEAD HEAD -- .",
-        "git restore ':/'",
-        "git switch -f main other",
-        "git checkout -f --no-merge --merge",
-        "git checkout -f --no-patch --patch",
-        "git checkout --no-patch --patch -- .",
-        "git switch -f --no-merge --merge main",
-        "gh repo archive owner/project --yes",
-        "gh repo delete \"$REPOSITORY\" --yes",
-        "gh api -X DELETE repos/owner/project/issues",
-        "gh api --paginate -X DELETE repos/owner/project",
-        "gh api --paginate=true -X DELETE repos/owner/project",
-        "gh api --paginate=false --paginate -X DELETE repos/owner/project",
-        "gh api --header * -X DELETE repos/owner/project",
-        "glab api --input *.json -X DELETE projects/123",
-        "glab api --form a=b --field c=d -X DELETE projects/123",
-        "glab api --paginate=false --input /dev/null -X DELETE projects/123",
-        "glab api --form first=@- --form second=@- -X DELETE projects/123",
-        "glab api -F 'data={' -X DELETE projects/123",
-        "glab api -F 'data={\"audit\":true}' -X DELETE projects/123",
-        "glab api -f missingequals -X DELETE projects/123",
-        "glab api --output yaml -X DELETE projects/123",
-        "gh api --hostname bad/host -X DELETE repos/owner/project",
-        "gh api --hostname 'bad#host' -X DELETE repos/owner/project",
-        "gh api --hostname 'bad?host' -X DELETE repos/owner/project",
-        "gh api --hostname 'bad host' -X DELETE repos/owner/project",
-        "gh api -f invalid -X DELETE repos/owner/project",
-        "gh api -F invalid -X DELETE repos/owner/project",
-        "gh api -H invalid -X DELETE repos/owner/project",
-        "gh api --header ': value' -X DELETE repos/owner/project",
-        "gh api --cache invalid -X DELETE repos/owner/project",
-        "gh api --template '{{' -X DELETE repos/owner/project",
-        "gh api --template '{{break}}' -X DELETE repos/owner/project",
-        "gh api --template '{{08}}' -X DELETE repos/owner/project",
-        "gh api --template '{{1-}}' -X DELETE repos/owner/project",
-        "gh api -f a=1 -f a=2 -X DELETE repos/owner/project",
-        "gh api -f a=1 -F a=2 -X DELETE repos/owner/project",
-        "glab api -H invalid -X DELETE projects/123",
-        "glab api -H 'bad name:value' -X DELETE projects/123",
-        "glab api -H 'Content-Length:nope' -X DELETE projects/123",
-        "/tmp/probe/usr/bin/../../../../usr/bin/gh repo delete owner/project --yes",
-        "gh api --silent --verbose -X DELETE repos/owner/project",
-        "gh api --jq= --jq . --silent -X DELETE repos/owner/project",
-        "gh repo delete --help=false --help --yes owner/project",
-        "gh --help=false repo delete --help --yes owner/project",
-        "gh api -h=false -X DELETE repos/owner/project",
-        "gh repo --help delete owner/project --yes",
-        "glab project --help delete group/project --yes",
-        "glab api --paginate -X DELETE projects/123",
-        "gh api --slurp -X DELETE repos/owner/project",
-        "glab repo transfer group/project other",
-        "glab api -X DELETE projects/group/project",
-        "curl -X DELETE https://api.github.com/repos/owner/project",
+        "git push origin :old",
+        "git push --force origin :old",
+        "git push --force-with-lease origin :old",
+        "git push origin main :old",
     ] {
         let result = decide_with(
-            &call("Bash", json!({"command":command}), &repo),
-            &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            &call("Bash", json!({"command": command}), &repo),
+            &ref_delete_only,
+            support::fulfill_observation,
         );
-        assert_ne!(result.core().verdict(), Verdict::Block, "{command}");
-    }
-
-    for (command, coverage) in [
-        ("git -c user.name=Alice status", Coverage::Full),
-        ("git -c \"user.name=$NAME\" status", Coverage::Full),
-        ("git -c \"alias.wipe=$ALIAS\" wipe", Coverage::Partial),
-        ("git --config-env=alias.wipe=ALIAS wipe", Coverage::Partial),
-    ] {
-        let result = decide_with(
-            &call("Bash", json!({"command":command}), &repo),
-            &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
+        assert_eq!(
+            result.core().policy_attributions()[0].name(),
+            "git-ref-delete",
+            "{command}"
         );
-        assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
-        assert_eq!(result.core().coverage(), coverage, "{command}");
     }
 }
 
+/// Executes host Git only, pinning the path effects of destructive forms that
+/// Nah's Git model must agree with. It never invokes Nah, so a model
+/// regression cannot fail it; modeled verdicts are qualified by the Nah tests
+/// in this suite and by the corpus.
 #[cfg(unix)]
 #[test]
-fn parser_regressions_match_real_git_behavior() {
+fn host_git_destructive_forms_have_expected_path_effects() {
     let clean_temp = tempfile::tempdir().unwrap();
     let clean_repo = repo(clean_temp.path());
     std::fs::write(clean_repo.join("untracked"), "discard me\n").unwrap();
@@ -848,19 +349,6 @@ fn parser_regressions_match_real_git_behavior() {
     assert!(!refused.success());
     git(&metadata_repo, &["clean", "-f", ".git"]);
     assert!(metadata_repo.join(".git").exists());
-
-    let inherited_home = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_nah"))
-        .current_dir(&alternate_repo)
-        .env("HOME", inherited_home.path())
-        .env("GIT_WORK_TREE", &alternate_tree)
-        .args(["test", "--json", "git clean -f"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(result["decision"]["verdict"], "delegate");
-    assert_eq!(result["decision"]["coverage"], "partial");
 }
 
 #[test]
@@ -870,113 +358,17 @@ fn granular_git_operations_lower_to_their_exact_coverage() {
     // paths before matching them
     let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
-    std::fs::write(repo.join(".env"), "TOKEN=secret\n").unwrap();
     let context = ctx(&root);
 
-    for command in [
-        "git status --short",
-        "git status > status.txt",
-        "git branch -a",
-        "git tag --list",
-        "git remote",
-        "git add src/lib.rs",
-        "git commit -m update",
-        "git switch -c topic",
-        "git checkout -b topic",
-        "git restore --staged src/lib.rs",
-        "git restore --staged --source=HEAD~1 src/lib.rs",
-    ] {
+    // The corpus fixture observes neither path, so these stay on the host.
+    for command in ["git status > status.txt", "git add src"] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            support::fulfill_observation,
         );
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
         assert_eq!(result.core().coverage(), Coverage::Full, "{command}");
-    }
-
-    for (command, coverage) in [
-        ("git fetch origin", Coverage::Full),
-        ("git log --oneline -1", Coverage::Partial),
-        ("git diff -- src/lib.rs", Coverage::Partial),
-        ("git show HEAD:src/lib.rs", Coverage::Partial),
-        ("git blame src/lib.rs", Coverage::Partial),
-        ("git branch topic", Coverage::Full),
-        ("git tag v1", Coverage::Full),
-        ("git remote -v", Coverage::Full),
-        ("git checkout main", Coverage::Full),
-        ("git stash push", Coverage::Full),
-        ("git stash apply", Coverage::Full),
-        ("git diff --output=patch.txt", Coverage::Partial),
-        ("git commit --amend -m update", Coverage::Partial),
-        ("git commit -am update", Coverage::Partial),
-        ("git commit -m update src/lib.rs", Coverage::Partial),
-        ("git commit --no-verify -m update", Coverage::Partial),
-        ("git commit -n -m update", Coverage::Partial),
-        ("git add -A", Coverage::Partial),
-        ("git add .", Coverage::Partial),
-        ("git add src", Coverage::Partial),
-        ("git add 'src/*'", Coverage::Partial),
-        ("git switch main", Coverage::Partial),
-        ("git switch --create=topic main", Coverage::Partial),
-        ("git switch --orphan topic", Coverage::Partial),
-        ("git switch --detach HEAD", Coverage::Partial),
-        ("git restore --staged 'src/*'", Coverage::Partial),
-        ("git restore --staged", Coverage::Partial),
-    ] {
-        let result = decide_with(
-            &call("Bash", json!({"command":command}), &repo),
-            &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-        );
-        assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
-        assert_eq!(result.core().coverage(), coverage, "{command}");
-    }
-
-    for (command, coverage) in [
-        ("git restore src/lib.rs", Coverage::Full),
-        ("git show HEAD:src/lib.rs > src/lib.rs", Coverage::Partial),
-    ] {
-        let result = decide_with(
-            &call("Bash", json!({"command":command}), &repo),
-            &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-        );
-        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
-        assert_eq!(result.core().coverage(), coverage, "{command}");
-        assert!(
-            result
-                .core()
-                .policy_attributions()
-                .iter()
-                .any(|guard| guard.name() == "git-path-discard"),
-            "{command}: {:?}",
-            result.core().policy_attributions()
-        );
-    }
-
-    for command in [
-        "git diff -- .env",
-        "git show HEAD:.env",
-        "git log -p -- .env",
-        "git blame .env",
-        "git add .env",
-    ] {
-        let result = decide_with(
-            &call("Bash", json!({"command":command}), &repo),
-            &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-        );
-        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
-        assert!(
-            result
-                .core()
-                .policy_attributions()
-                .iter()
-                .any(|guard| guard.name() == "secrets-env"),
-            "{command}: {:?}",
-            result.core().policy_attributions()
-        );
     }
 
     let outside = &root.join("outside");
@@ -984,10 +376,10 @@ fn granular_git_operations_lower_to_their_exact_coverage() {
     let result = decide_with(
         &call("Bash", json!({"command":"git status"}), outside),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(result.core().verdict(), Verdict::Delegate);
-    assert_eq!(result.core().coverage(), Coverage::Partial);
+    assert_eq!(result.core().coverage(), Coverage::Full);
 }
 
 #[cfg(unix)]
@@ -1033,7 +425,7 @@ fn stash_and_forced_tree_loss_block_at_factory_defaults_and_keep_independent_con
             let result = decide_with(
                 &call("Bash", json!({"command": command}), &repo),
                 &context,
-                |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+                support::fulfill_observation,
             );
             let (loss_enabled, ref_enabled) = controls.unwrap_or((true, false));
             assert_eq!(
@@ -1059,29 +451,5 @@ fn stash_and_forced_tree_loss_block_at_factory_defaults_and_keep_independent_con
                 "{command}"
             );
         }
-    }
-    for command in [
-        "git worktree remove old",
-        "git worktree remove -ff --no-force old",
-        "git worktree remove -- --force",
-        "git submodule deinit vendor/library",
-        "git submodule deinit --all",
-        "git submodule deinit vendor/library --force",
-        "git submodule deinit --force --no-force vendor/library",
-        "git submodule deinit -qf vendor/library",
-        "git submodule deinit -f --all vendor/library",
-        "git branch -D old",
-        "git stash drop",
-        "git stash push",
-        "git stash apply",
-        "git stash pop",
-        "git stash branch recovered",
-    ] {
-        let result = decide_with(
-            &call("Bash", json!({"command": command}), &repo),
-            &support::factory_ctx(&root),
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-        );
-        assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
     }
 }

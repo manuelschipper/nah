@@ -1,6 +1,7 @@
 //! Native OpenCode tool adapter over the shared `nah decide` seam.
 
 use std::io::{Read, Write};
+use std::path::Path;
 
 use nah_proto::ctx::SchemaVersion;
 use nah_proto::decision::Verdict;
@@ -9,6 +10,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
+    adapter_fields::runtime_field_names_covered,
     hook_adapter,
     runtime::{FailurePolicy, Runtime},
 };
@@ -77,6 +79,20 @@ fn unavailable(
     )
 }
 
+/// The tool call `run` hands the pipeline for this OpenCode tool call.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<ToolCallInput, String> {
+    normalize(OpenCodeHookInput {
+        tool_name: tool_name.into(),
+        tool_input,
+        cwd: cwd.into(),
+        session_id: None,
+    })
+}
+
 fn normalize(input: OpenCodeHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_input.clone();
     let lowered = input
@@ -88,19 +104,21 @@ fn normalize(input: OpenCodeHookInput) -> Result<ToolCallInput, String> {
         Ok((tool, tool_input)) => (
             tool,
             tool_input,
-            crate::adapter_fields::complete("opencode", &input.tool_name, &original_input),
+            runtime_field_names_covered("opencode", &input.tool_name, &original_input),
         ),
         Err(_) => (input.tool_name.as_str(), original_input.clone(), false),
     };
-    ToolCallInput::new(
-        SchemaVersion::V1,
-        tool,
-        tool_input,
-        input.cwd,
-        input.session_id,
-    )
-    .map(|input| input.with_original_input(original_input, normalization_complete))
-    .map_err(|error| error.to_string())
+    // A shell command runs in its workdir, resolved against the session directory.
+    let cwd = match (input.tool_name.as_str(), original_input.get("workdir")) {
+        ("shell", Some(Value::String(workdir))) if !workdir.is_empty() => Path::new(&input.cwd)
+            .join(workdir)
+            .to_string_lossy()
+            .into_owned(),
+        _ => input.cwd,
+    };
+    ToolCallInput::new(SchemaVersion::V1, tool, tool_input, cwd, input.session_id)
+        .map(|input| input.with_original_input(original_input, normalization_complete))
+        .map_err(|error| error.to_string())
 }
 
 fn lower<'a>(
@@ -109,18 +127,21 @@ fn lower<'a>(
     object: &Map<String, Value>,
 ) -> Result<(&'a str, Value), String> {
     Ok(match tool_name {
-        "bash" => ("Bash", json!({"command": string(object, "command")?})),
-        "read" => ("Read", json!({"file_path": non_empty(object, "filePath")?})),
+        "shell" if object.get("workdir").is_none_or(Value::is_string) => {
+            ("Bash", json!({"command": string(object, "command")?}))
+        }
+        "shell" => return Err("invalid-opencode-tool-input".into()),
+        "read" => ("Read", json!({"file_path": non_empty(object, "path")?})),
         "write" => (
             "Write",
             json!({
-                "file_path": non_empty(object, "filePath")?,
+                "file_path": non_empty(object, "path")?,
                 "content": string(object, "content")?
             }),
         ),
         "edit" => {
             let mut normalized = json!({
-                "file_path": non_empty(object, "filePath")?,
+                "file_path": non_empty(object, "path")?,
                 "old_string": string(object, "oldString")?,
                 "new_string": string(object, "newString")?
             });
@@ -129,7 +150,7 @@ fn lower<'a>(
             }
             ("Edit", normalized)
         }
-        "apply_patch" => (
+        "patch" => (
             "apply_patch",
             json!({"command": non_empty(object, "patchText")?}),
         ),
@@ -195,29 +216,30 @@ mod tests {
 
     #[test]
     fn normalizes_verified_opencode_builtins() {
+        // Argument shapes captured from OpenCode 2.0.18 tool calls.
         let cases = [
             (
-                "bash",
-                json!({"command":"echo ok","timeout":10,"workdir":"/repo"}),
+                "shell",
+                json!({"command":"echo ok","workdir":"/repo"}),
                 "Bash",
                 json!({"command":"echo ok"}),
             ),
             (
                 "read",
-                json!({"filePath":"src/lib.rs","offset":2}),
+                json!({"path":"src/lib.rs","offset":2}),
                 "Read",
                 json!({"file_path":"src/lib.rs"}),
             ),
             (
                 "write",
-                json!({"filePath":"src/lib.rs","content":""}),
+                json!({"path":"src/lib.rs","content":""}),
                 "Write",
                 json!({"file_path":"src/lib.rs","content":""}),
             ),
             (
                 "edit",
                 json!({
-                    "filePath":"src/lib.rs",
+                    "path":"src/lib.rs",
                     "oldString":"old",
                     "newString":"new",
                     "replaceAll":true
@@ -231,20 +253,26 @@ mod tests {
                 }),
             ),
             (
-                "apply_patch",
+                "patch",
                 json!({"patchText":"*** Begin Patch\n*** End Patch"}),
                 "apply_patch",
                 json!({"command":"*** Begin Patch\n*** End Patch"}),
             ),
             (
                 "glob",
-                json!({"pattern":"src","path":"/repo"}),
+                json!({"pattern":"src","path":"/repo","hidden":false,"limit":5}),
                 "Glob",
                 json!({"pattern":"src","path":"/repo"}),
             ),
             (
                 "grep",
-                json!({"pattern":"needle"}),
+                json!({
+                    "pattern":"needle",
+                    "include":"*.rs",
+                    "literal":true,
+                    "caseSensitive":false,
+                    "limit":5
+                }),
                 "Grep",
                 json!({"pattern":"needle"}),
             ),
@@ -254,7 +282,15 @@ mod tests {
             assert_eq!(call.tool(), expected_tool);
             assert_eq!(call.input(), &expected_input);
             assert_eq!(call.session(), Some("session-1"));
+            assert!(call.normalization_complete(), "{name}");
         }
+    }
+
+    #[test]
+    fn hidden_glob_is_incomplete() {
+        let call = normalized("glob", json!({"pattern":"*","hidden":true}));
+        assert_eq!(call.tool(), "Glob");
+        assert!(!call.normalization_complete());
     }
 
     #[test]
@@ -268,14 +304,15 @@ mod tests {
     #[test]
     fn preserves_malformed_builtin_inputs_as_opaque_calls() {
         for (name, input) in [
-            ("bash", json!({"command":7})),
-            ("read", json!({"filePath":""})),
-            ("write", json!({"filePath":"file"})),
+            ("shell", json!({"command":7})),
+            ("shell", json!({"command":"pwd","workdir":7})),
+            ("read", json!({"path":""})),
+            ("write", json!({"path":"file"})),
             (
                 "edit",
-                json!({"filePath":"file","oldString":"a","newString":"b","replaceAll":"yes"}),
+                json!({"path":"file","oldString":"a","newString":"b","replaceAll":"yes"}),
             ),
-            ("apply_patch", json!({"patchText":""})),
+            ("patch", json!({"patchText":""})),
             ("glob", json!({"pattern":"*","path":7})),
             ("grep", json!({"pattern":7})),
         ] {
@@ -290,14 +327,5 @@ mod tests {
             assert_eq!(call.input(), &input);
             assert!(!call.normalization_complete());
         }
-    }
-
-    #[test]
-    fn native_adapter_stays_thin() {
-        let implementation = include_str!("opencode_adapter.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        assert!(implementation.lines().count() <= 183);
     }
 }

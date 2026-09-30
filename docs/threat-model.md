@@ -102,6 +102,7 @@ Direct operator work outside an intercepted call remains available. When an
 intercepted tool must intentionally change protected nah state or active
 runtime wiring, the operator can run `nah nap` in a separate interactive
 terminal, let the tool make the change during the fixed maintenance window,
-and run `nah wake` to resume sooner. `nah nap --all` pauses all non-permanent
-enforcement; authenticated nap state remains protected. See `nah docs
+and run `nah wake` to resume sooner. `nah nap all` pauses all non-permanent
+enforcement, and `nah nap <guard>...` pauses only the named guards;
+authenticated nap state remains protected. See `nah docs
 configuration`.

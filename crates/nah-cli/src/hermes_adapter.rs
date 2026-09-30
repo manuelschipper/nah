@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
+    adapter_fields::runtime_field_names_covered,
     code_input::{CodeInput, CodeIntake},
     hook_adapter,
     runtime::{FailurePolicy, Runtime},
@@ -94,6 +95,21 @@ fn unavailable(
         .map(|reason| json!({"decision":"block","reason":format!("nah - {reason}")}))
 }
 
+/// The tool call `run` hands the pipeline for this Hermes tool call.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<(ToolCallInput, Option<CodeInput>), String> {
+    normalize(HermesHookInput {
+        hook_event_name: "pre_tool_call".into(),
+        tool_name: tool_name.into(),
+        tool_input,
+        cwd: cwd.into(),
+        session_id: None,
+    })
+}
+
 fn normalize(input: HermesHookInput) -> Result<(ToolCallInput, Option<CodeInput>), String> {
     let original_input = input.tool_input.clone();
     if input.hook_event_name != "pre_tool_call" {
@@ -119,7 +135,7 @@ fn normalize(input: HermesHookInput) -> Result<(ToolCallInput, Option<CodeInput>
             tool,
             tool_input,
             cwd,
-            crate::adapter_fields::complete("hermes", &input.tool_name, &original_input),
+            runtime_field_names_covered("hermes", &input.tool_name, &original_input),
         ),
         Err(_) => (
             input.tool_name.as_str(),
@@ -128,7 +144,10 @@ fn normalize(input: HermesHookInput) -> Result<(ToolCallInput, Option<CodeInput>
             false,
         ),
     };
-    ToolCallInput::new(SchemaVersion::V1, tool, tool_input, cwd, input.session_id)
+    // Calls made through `hermes_tools` inside `execute_code` carry an empty
+    // session id.
+    let session = input.session_id.filter(|session| !session.is_empty());
+    ToolCallInput::new(SchemaVersion::V1, tool, tool_input, cwd, session)
         .map(|input| input.with_original_input(original_input, normalization_complete))
         .map(|input| (input, code))
         .map_err(|error| error.to_string())
@@ -165,8 +184,10 @@ fn lower<'a>(
 }
 
 fn patch_input(object: &Map<String, Value>) -> Result<(&'static str, Value), String> {
-    match object.get("mode").and_then(Value::as_str) {
-        Some("replace") => {
+    // Hermes advertises `mode` only to OpenAI-family models; its handler
+    // treats an omitted mode as `replace`.
+    match object.get("mode").map(Value::as_str) {
+        None | Some(Some("replace")) => {
             let replace_all = optional_bool(object, "replace_all")?.unwrap_or(false);
             Ok((
                 "Edit",
@@ -178,7 +199,7 @@ fn patch_input(object: &Map<String, Value>) -> Result<(&'static str, Value), Str
                 }),
             ))
         }
-        Some("patch") => Ok((
+        Some(Some("patch")) => Ok((
             "apply_patch",
             json!({"command":non_empty(object, "patch")?}),
         )),
@@ -189,6 +210,10 @@ fn patch_input(object: &Map<String, Value>) -> Result<(&'static str, Value), Str
 fn search_input(object: &Map<String, Value>) -> Result<(&'static str, Value), String> {
     let pattern = string(object, "pattern")?;
     let path = optional_non_empty(object, "path")?.unwrap_or_else(|| ".".into());
+    // Hermes applies `file_glob` as a filter inside `path` (`rg --glob`,
+    // `grep --include`, `find -name`), so it only narrows the search; the
+    // lowered search keeps the whole of `path` as its bound.
+    optional_non_empty(object, "file_glob")?;
     match object
         .get("target")
         .and_then(Value::as_str)
@@ -231,7 +256,9 @@ fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> 
 fn optional_non_empty(object: &Map<String, Value>, name: &str) -> Result<Option<String>, String> {
     match object.get(name) {
         Some(Value::String(value)) if !value.is_empty() => Ok(Some(value.clone())),
-        Some(Value::String(_)) | None => Ok(None),
+        // Hermes treats null like an omitted field, and its `hermes_tools`
+        // stubs send null for every unset optional argument.
+        Some(Value::String(_) | Value::Null) | None => Ok(None),
         Some(_) => Err("invalid-hermes-tool-input".into()),
     }
 }
@@ -293,11 +320,26 @@ mod tests {
                 "Grep",
                 json!({"pattern":"needle","path":"src"}),
             ),
+            // The `hermes_tools.search_files` stub sends every argument.
+            (
+                "search_files",
+                json!({"pattern":"needle","target":"content","path":".","file_glob":null,"limit":50,"offset":0,"output_mode":"content","context":0,"order":"discovery"}),
+                "Grep",
+                json!({"pattern":"needle","path":"."}),
+            ),
+            // A glob only filters files under `path`, which stays the bound.
+            (
+                "search_files",
+                json!({"pattern":"needle","target":"content","path":"src","file_glob":"*.rs","limit":50,"offset":0,"output_mode":"files_only","context":0,"order":"discovery"}),
+                "Grep",
+                json!({"pattern":"needle","path":"src"}),
+            ),
         ];
         for (name, input, expected_tool, expected_input) in cases {
             let call = normalized(name, input);
             assert_eq!(call.tool(), expected_tool);
             assert_eq!(call.input(), &expected_input);
+            assert!(call.normalization_complete(), "{name}");
             assert_eq!(call.session(), Some("session-1"));
         }
         assert_eq!(
@@ -312,6 +354,24 @@ mod tests {
             normalized("read_file", json!({"path":"src/lib.rs"})).cwd(),
             "/repo"
         );
+        // `hermes_tools` stubs send every argument; an uncovered field would
+        // make a fail-closed install block these calls.
+        for (name, input) in [
+            (
+                "terminal",
+                json!({"command":"echo ok","timeout":null,"workdir":null}),
+            ),
+            (
+                "write_file",
+                json!({"path":"src/new.rs","content":"","cross_profile":false}),
+            ),
+            (
+                "patch",
+                json!({"path":"src/lib.rs","old_string":"a","new_string":"b","replace_all":false,"mode":"replace","patch":null,"cross_profile":false}),
+            ),
+        ] {
+            assert!(normalized(name, input).normalization_complete(), "{name}");
+        }
     }
 
     #[test]
@@ -386,7 +446,15 @@ mod tests {
             ("read_file", json!({"path":""})),
             ("write_file", json!({"path":"x"})),
             ("patch", json!({"mode":"patch","patch":""})),
+            (
+                "patch",
+                json!({"mode":"append","path":"x","old_string":"a","new_string":"b"}),
+            ),
             ("search_files", json!({"pattern":7})),
+            (
+                "search_files",
+                json!({"pattern":"needle","target":"content","file_glob":7}),
+            ),
         ] {
             let call = normalize(HermesHookInput {
                 hook_event_name: "pre_tool_call".into(),

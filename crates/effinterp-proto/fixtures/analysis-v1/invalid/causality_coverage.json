@@ -1,0 +1,226 @@
+{
+  "schema": "effinterp/repo-query/v1",
+  "snapshot_id": "blake3:ac691a9a2a924a324742b50adc6fd394d479d009dba2042b418f62a98a61fc6e",
+  "identity": {
+    "analyzer": {
+      "name": "effinterp-fixture",
+      "version": "fixture-analyzer@1",
+      "build_digest": "blake3:45e62c443d22a3246930607f61ebe383873b6f1c039c70fd7fe8cc38fd3a813a"
+    },
+    "configuration_digest": "blake3:4dedbabfb3c13291cffbd869171cbf04b13df9b38e089349d9a6a1c55e470bc6",
+    "model_set_digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "dependencies": [
+      {
+        "key": "analyzer",
+        "kind": "analyzer",
+        "digest": "blake3:45e62c443d22a3246930607f61ebe383873b6f1c039c70fd7fe8cc38fd3a813a"
+      },
+      {
+        "key": "limit:analysis.max_effects",
+        "kind": "limit",
+        "digest": "blake3:c827da883b6cc26801e16589789e5099917440b5b52caa63b5248a7dd49128f9"
+      },
+      {
+        "key": "model-set",
+        "kind": "model_set",
+        "digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "key": "source:src/app.py",
+        "kind": "source_module",
+        "digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    ]
+  },
+  "subjects": [
+    {
+      "entrypoint": "src/app.py",
+      "source_path": "src/app.py",
+      "subject": {
+        "kind": "source",
+        "language": "python",
+        "source": "src/app.py"
+      },
+      "subject_digest": "blake3:60fa85e17ee7b8fc2c1ea2a2041d61f3e7972eb3240a351a2df432d4b20283ee"
+    }
+  ],
+  "status": {
+    "kind": "partial",
+    "reasons": [
+      {
+        "kind": "analysis_failure",
+        "entrypoint": "src/failed.py",
+        "scope": {
+          "all_entrypoints": true,
+          "entrypoints": [],
+          "graphs": [
+            "effects",
+            "execution",
+            "occurrences",
+            "resource_state",
+            "causality",
+            "provenance"
+          ]
+        }
+      },
+      {
+        "kind": "analysis_failure",
+        "entrypoint": "src/failed.py",
+        "scope": {
+          "all_entrypoints": true,
+          "entrypoints": [],
+          "graphs": [
+            "effects"
+          ]
+        }
+      },
+      {
+        "kind": "limit_reached",
+        "limit": "analysis.max_effects",
+        "scope": {
+          "all_entrypoints": true,
+          "entrypoints": [],
+          "graphs": [
+            "effects",
+            "execution",
+            "occurrences",
+            "resource_state",
+            "causality",
+            "provenance"
+          ]
+        }
+      },
+      {
+        "kind": "truncated",
+        "collection": "payload.boundaries",
+        "limit": 1,
+        "scope": {
+          "all_entrypoints": true,
+          "entrypoints": [],
+          "graphs": [
+            "effects",
+            "execution",
+            "occurrences",
+            "resource_state",
+            "causality",
+            "provenance"
+          ]
+        }
+      },
+      {
+        "kind": "unanalyzed_input",
+        "path": "src/skipped.py",
+        "scope": {
+          "all_entrypoints": true,
+          "entrypoints": [],
+          "graphs": [
+            "effects",
+            "execution",
+            "occurrences",
+            "resource_state",
+            "causality",
+            "provenance"
+          ]
+        }
+      },
+      {
+        "kind": "unsupported_evidence",
+        "boundary_id": "boundary:blake3:e7c074d1e21914037cabbd3778ac63e40e154e2580be3951a507b2efbe29560e",
+        "scope": {
+          "all_entrypoints": true,
+          "entrypoints": [],
+          "graphs": [
+            "effects",
+            "execution",
+            "occurrences",
+            "resource_state",
+            "causality",
+            "provenance"
+          ]
+        }
+      }
+    ]
+  },
+  "coverage": {
+    "domains": {
+      "filesystem": {
+        "level": "partial",
+        "gaps": [
+          "boundary:blake3:e7c074d1e21914037cabbd3778ac63e40e154e2580be3951a507b2efbe29560e"
+        ]
+      }
+    },
+    "causality": {
+      "level": "none"
+    }
+  },
+  "boundaries": [
+    {
+      "class": "unresolved",
+      "id": "boundary:blake3:e7c074d1e21914037cabbd3778ac63e40e154e2580be3951a507b2efbe29560e",
+      "reason": "unresolved_call",
+      "domains": [
+        "filesystem"
+      ],
+      "affected_resource": null,
+      "detail": "dynamic target",
+      "limit": null,
+      "dispatch": null,
+      "provenance_roots": [
+        "occurrence:blake3:b59c4baca1b45f2ea4ea0f63a509acbea171a4541a178827d451cd94afcf2f25"
+      ]
+    }
+  ],
+  "provenance": {
+    "nodes": [
+      {
+        "id": "occurrence:blake3:b59c4baca1b45f2ea4ea0f63a509acbea171a4541a178827d451cd94afcf2f25",
+        "occurrence": {
+          "input_digest": "blake3:2222222222222222222222222222222222222222222222222222222222222222",
+          "origin": "src/app.py",
+          "span": {
+            "start": 0,
+            "end": 5
+          },
+          "semantic_kind": "boundary",
+          "local_ordinal": 0
+        },
+        "evidence": {
+          "kind": "boundary",
+          "reason": "unresolved_call"
+        }
+      }
+    ],
+    "edges": []
+  },
+  "payload_kind": "effects",
+  "payload": {
+    "boundaries": [
+      {
+        "affected_resource": null,
+        "boundary_id": "boundary:blake3:e7c074d1e21914037cabbd3778ac63e40e154e2580be3951a507b2efbe29560e",
+        "detail": "dynamic target",
+        "domains": [
+          "filesystem"
+        ],
+        "exemplar_paths": [],
+        "occurrences": 1,
+        "provenance_roots": [
+          "occurrence:blake3:b59c4baca1b45f2ea4ea0f63a509acbea171a4541a178827d451cd94afcf2f25"
+        ],
+        "reason": "unresolved_call"
+      }
+    ],
+    "coverage": {
+      "filesystem": {
+        "gaps": [
+          "boundary:blake3:e7c074d1e21914037cabbd3778ac63e40e154e2580be3951a507b2efbe29560e"
+        ],
+        "level": "partial"
+      }
+    },
+    "effects": [],
+    "entrypoint": "src/app.py"
+  },
+  "content_hash": "blake3:e9bdc5780e054aeff57fd4ca10abc90c46e31a4ee66c7b6988e034bbc233e600"
+}

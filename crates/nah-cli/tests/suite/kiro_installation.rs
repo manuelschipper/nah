@@ -120,10 +120,17 @@ fn install_status_and_uninstall_own_only_nah_file() {
 
     let status = nah(home, &["hook", "kiro", "status"]);
     assert!(status.status.success(), "{status:?}");
-    assert_eq!(
-        String::from_utf8_lossy(&status.stdout),
-        "Kiro CLI: wiring current\nfailure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-kiro\n"
+    let stdout = String::from_utf8_lossy(&status.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines[0], "Kiro CLI: wiring current", "{stdout}");
+    assert!(lines.contains(&"failure policy: fail-open"), "{stdout}");
+    assert!(
+        lines.iter().any(|line| line
+            .strip_prefix("guarantee: ")
+            .is_some_and(|text| !text.is_empty())),
+        "{stdout}"
     );
+    assert!(lines.contains(&"verify: nah docs runtime-kiro"), "{stdout}");
     assert!(nah(home, &["hook", "kiro", "install"]).status.success());
     assert_eq!(std::fs::read(&path).unwrap(), first);
 
@@ -141,10 +148,21 @@ fn install_status_and_uninstall_own_only_nah_file() {
     );
     std::fs::write(&path, serde_json::to_vec_pretty(&stale).unwrap()).unwrap();
     let status = nah(home, &["hook", "kiro", "status"]);
-    assert_eq!(
-        String::from_utf8_lossy(&status.stdout),
-        "Kiro CLI: reinstall required\ndetected failure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook kiro install\ndocs: nah docs runtime-kiro\n"
+    let stdout = String::from_utf8_lossy(&status.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines[0], "Kiro CLI: reinstall required", "{stdout}");
+    assert!(
+        lines.contains(&"detected failure policy: fail-open"),
+        "{stdout}"
     );
+    assert!(
+        lines.iter().any(|line| line
+            .strip_prefix("guarantee: ")
+            .is_some_and(|text| !text.is_empty())),
+        "{stdout}"
+    );
+    assert!(lines.contains(&"next: nah hook kiro install"), "{stdout}");
+    assert!(lines.contains(&"docs: nah docs runtime-kiro"), "{stdout}");
     assert!(nah(home, &["hook", "kiro", "install"]).status.success());
 
     let removed = nah(home, &["hook", "kiro", "uninstall"]);

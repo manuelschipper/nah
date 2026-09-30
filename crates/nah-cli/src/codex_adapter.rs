@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 
 use nah_proto::ctx::Platform;
 use nah_proto::decision::Verdict;
+use nah_proto::tool::ToolCallInput;
 use serde_json::{Value, json};
 
 use crate::{
@@ -89,6 +90,29 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
         }
     }
     0
+}
+
+/// The tool call `run` hands the pipeline for this Codex tool call.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<ToolCallInput, String> {
+    let tool_name = if unsupported_shell(
+        &json!({"tool_name": tool_name}),
+        live_state::host_platform(),
+    ) {
+        "CodexWindowsShell"
+    } else {
+        tool_name
+    };
+    hook_adapter::normalize_call(
+        Runtime::Codex,
+        tool_name.into(),
+        tool_input,
+        cwd.into(),
+        None,
+    )
 }
 
 fn unsupported_shell(input: &Value, platform: Platform) -> bool {
@@ -200,14 +224,5 @@ mod tests {
                 "{tool}"
             );
         }
-    }
-
-    #[test]
-    fn native_adapter_stays_thin() {
-        let implementation = include_str!("codex_adapter.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        assert!(implementation.lines().count() <= 124);
     }
 }

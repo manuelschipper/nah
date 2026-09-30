@@ -1,0 +1,547 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:00e55dbed83b5bf74b470a4919ea9b2f22a01fb978497394aad04d952b964803",
+  "provenance": {
+    "author": "migrated_handwritten",
+    "sources": [
+      {
+        "uri": "git:6f9011c15838a1c765f5ddd3635f751b217dc8c4:crates/effinterp-engine/src/models/container.rs",
+        "digest": "blake3:872ba3227a7f9d35d12774e309bd2d161186a2dfcdc2862da65a62f1a2e57945"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "kubectl",
+        "requirement": ">=1.0"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "kubectl",
+        "path": "../../tests/fixtures/model_tranche/kubectl.json",
+        "digest": "blake3:4d8bebf4f88341a50ce025cf88516f57237a22b61167706df1ee8112114fe279"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "cluster-api",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "kubectl",
+            "get",
+            "pods"
+          ],
+          "cwd": "/tmp"
+        },
+        "absent_operations": [
+          "filesystem.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "legacy-options",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "kubectl",
+            "exec",
+            "pod",
+            "ls",
+            "-la"
+          ],
+          "cwd": "/tmp"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "unknown-global",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "kubectl",
+            "--unknown-global",
+            "exec",
+            "pod",
+            "--",
+            "rm",
+            "/data"
+          ],
+          "cwd": "/tmp"
+        },
+        "absent_operations": [
+          "filesystem.delete"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "missing-effect-is-detected",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [],
+    "expected_boundaries": [
+      "cluster_api",
+      "unrecognized_arguments",
+      "unrecoverable_source"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "kubernetes/kubectl@v1",
+      "commands": [
+        "kubectl"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--namespace",
+            "-n"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--context"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--kubeconfig"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--cluster"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--server",
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--user"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--as"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--as-group"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--as-uid"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--token"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--certificate-authority"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--client-certificate"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--client-key"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--request-timeout"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--cache-dir"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--log-flush-frequency"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--profile"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--profile-output"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--tls-server-name"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--v",
+            "-v"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--vmodule"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--password"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--username"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--insecure-skip-tls-verify"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--warnings-as-errors"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--match-server-version"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--disable-compression"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "subcommand_matched": false,
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "cluster_api",
+          "class": "unmodeled",
+          "domains": [
+            "network",
+            "container"
+          ],
+          "detail": "kubectl operates on the cluster API"
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "container",
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [
+        {
+          "names": [
+            "exec"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-c",
+                "--container"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-f",
+                "--filename"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--pod-running-timeout"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-i",
+                "--stdin"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-t",
+                "--tty"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-q",
+                "--quiet"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "pod",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "command",
+              "index": 1,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "pod"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--server",
+                  "-s"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "flag_value",
+                      "flags": [
+                        "--server",
+                        "-s"
+                      ]
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "pod"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--server",
+                  "-s"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [
+            {
+              "realm": {
+                "kind": "kubernetes",
+                "namespace": {
+                  "kind": "flag_value",
+                  "flags": [
+                    "-n",
+                    "--namespace"
+                  ]
+                },
+                "pod": {
+                  "kind": "positional",
+                  "name": "pod"
+                },
+                "container": {
+                  "kind": "flag_value",
+                  "flags": [
+                    "-c",
+                    "--container"
+                  ]
+                }
+              },
+              "when": {
+                "tail_has_options": {
+                  "present": false,
+                  "except": [
+                    {
+                      "head": "rm",
+                      "allowed_chars": "rRf"
+                    }
+                  ]
+                },
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "argv": [],
+              "argv_tail": "command"
+            }
+          ],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "tail_has_options": {
+                  "present": true,
+                  "except": [
+                    {
+                      "head": "rm",
+                      "allowed_chars": "rRf"
+                    }
+                  ]
+                },
+                "unknown_flags_present": false,
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecoverable_source",
+              "class": "unresolved",
+              "domains": [
+                "process"
+              ],
+              "detail": "kubectl exec without -- command"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "container",
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": false
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

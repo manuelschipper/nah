@@ -29,9 +29,34 @@ nah is just one Rust binary: a verdict is
 deterministic and needs no LLM. 
 Extensions are just programs. Point your agent to nah's docs and ask it to build a custom nah guard.
 
+## How it compares.
+
+47 guards. 29 on by default. Zero approvals.
+nah models what every call does, then blocks the disasters. It never says yes on your behalf.
+
+| | nah | dcg | cc-safety-net |
+| --- | :---: | :---: | :---: |
+| Stops destructive Git: hard resets, force pushes, git clean | ✓ | ✓ | ✓ |
+| Stops wiping root, home or your project | ✓ | ✓ | ✓ |
+| Stops downloaded or decoded code from running (curl \| bash) | ✓ | ✓ | ✓ |
+| Understands inline scripts (python -c, node -e, perl -e) | ✓ | ✓ | partial |
+| Deterministic and local, no LLM | ✓ | ✓ | ✓ |
+| One set of guards for shell, code and the agent's file tools | ✓ | ✗ | partial |
+| Reads the scripts, Makefiles and npm scripts it's about to run | ✓ | ✗ | ✗ |
+| Tracks secrets all the way to the network | ✓ | ✗ | ✗ |
+| Your agent can't switch it off, on by default | ✓ | ✗ | ✗ |
+| Extensions are real programs, in any language | ✓ | ✗ | ✗ |
+| MIT, no strings attached | ✓ | ✗ | ✓ |
+
+<sub>dcg v0.14.4 and cc-safety-net 2.4.11, default settings, tested 2026-09-27.</sub>
+
+### Already using auto mode?
+
+Claude Code's auto mode and Codex's auto-review use LLM classifiers. They're great at flagging unsafe commands, but far from perfect: Anthropic's own evaluation found its classifier misses 17% of real overeager actions. nah adds structural protection underneath them, and it plays well with them: its hook runs before the classifier. nah never approves anything; it only blocks. Whatever nah doesn't catch goes on to auto mode or your permission layer, just as it did before.
+
 ## It knows a disaster when it sees one.
 
-46 guards, 29 on by default, covering seven classes of disaster: **execution
+47 guards, 29 on by default, covering seven classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 **infrastructure, storage, and backup teardown**, **package-registry operations**,
 and **host power and service-stop actions**.
@@ -42,18 +67,18 @@ and **host power and service-stop actions**.
 | `exec-decoded` | Execution reached from a visible decode stage. |
 | `exec-obfuscated` | Encoded, pattern-selected, or unresolved execution. |
 | `exec-network-shell` | Shells attached to a network connection, including netcat, socat, and shell redirection. |
-| `secrets-env` | Reads of `.env` files and sensitive basenames, plus direct output of catalogued credential environment variables. |
-| `secrets-credentials` | Reads or writes of private-key and credential-store paths. |
+| `secrets-env` | Reads of `.env` files and sensitive basenames, including contents from Git history, plus direct output of catalogued credential environment variables. |
+| `secrets-credentials` | Reads or writes of private-key and credential-store paths, including content reads from Git history; deleting or moving away private keys; metadata or value reads of the macOS keychain. |
 | `secrets-exfil` | A visible flow from a sensitive source to a network stage. |
 | `secrets-store-delete` | Remaining reviewed secret-store deletion with recoverable or context-dependent semantics. Off by default. |
-| `secrets-store-destroy` | Proven permanent secret-store destruction: Vault version/metadata/engine removal, AWS force and SSM deletion, Google whole-secret deletion, Azure purge, and Doppler configuration deletion. |
+| `secrets-store-destroy` | Proven permanent secret-store destruction: Vault version/metadata/engine removal, AWS force and SSM deletion, Google whole-secret deletion, Azure purge, Doppler project/configuration deletion, and 1Password vault deletion. |
 | `secrets-store-read` | Reviewed value reads across common secret-manager CLIs. |
 | `fs-system-tree` | Deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree. |
 | `fs-home` | Deletion or recursive permission changes selecting the home root. |
 | `fs-outside-workspace-delete` | Recursive deletion outside the active project, except under reviewed temporary roots. Off by default. |
 | `fs-permission-weaken` | `chmod` modes that provably grant world-write or setuid/setgid permission. Off by default. |
 | `fs-project-root` | Concrete Project-scoped recursive deletion or known recursive permission changes selecting the exact project root or its exact `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target. |
-| `fs-raw-device` | Visible writes to raw storage devices and the sysrq trigger. |
+| `fs-raw-device` | Visible writes to, and whole-device destruction of, raw storage devices, and the sysrq trigger. |
 | `fs-volume-destroy` | Definite logical-volume, storage-pool, and live ZFS dataset destruction. |
 | `fs-forkbomb` | Structurally recognized shell fork-bomb patterns. |
 | `fs-auth-identity` | Modification or deletion of reviewed host authentication, identity, and privilege-policy files, including recursive deletion of their parent directories. |
@@ -73,8 +98,9 @@ and **host power and service-stop actions**.
 | `git-remote-repo-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
 | `git-remote-resource-delete` | Statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes. Off by default. |
 | `git-worktree-discard` | Project-wide checkout or restore, proven forced branch changes, and forced worktree removal or submodule deinitialization. |
+| `db-destroy` | Dropping, truncating, flushing, resetting, or overwriting live database data, and deleting managed databases. Off by default. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
-| `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands. Off by default. |
+| `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands, and Compose `down -v`/`rm -v` volume removal. Off by default. |
 | `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction. Off by default. |
 | `infra-k8s-delete` | Static namespace, reviewed cluster-resource, and bulk reviewed namespaced-resource deletion through `kubectl`. Off by default. |
 | `storage-backup-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, and Velero commands. |
@@ -83,7 +109,7 @@ and **host power and service-stop actions**.
 | `registry-publish` | Reviewed package publication commands. Off by default. |
 | `registry-unpublish` | Reviewed package unpublish, irreversible RubyGems yank, and published-name owner changes. |
 | `sys-power` | Fully visible local host shutdown, reboot, halt, and suspend actions. |
-| `sys-service-stop` | Reviewed service shutdown, target isolation, Podman stop-all, and the exact `docker stop $(docker ps -q)` flow. Off by default. |
+| `sys-service-stop` | Reviewed service shutdown, target isolation, Podman stop-all or kill-all, and `docker stop` or `docker kill` of every listed container. Off by default. |
 
 Run `nah docs guards` to see the full built-in catalog, with each guard's
 exact scope and three tested examples, plus current custom guard status.

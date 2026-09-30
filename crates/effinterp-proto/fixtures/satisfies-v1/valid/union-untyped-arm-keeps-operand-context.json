@@ -1,0 +1,53 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "union-untyped-arm-keeps-operand-context",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/x"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "union",
+        "alternatives": [
+          {
+            "expr": "concrete",
+            "identity": {
+              "family": "network_endpoint",
+              "host": "example.test"
+            }
+          },
+          {
+            "expr": "literal",
+            "value": "/x"
+          }
+        ]
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "alternative",
+          "index": 1
+        }
+      ]
+    }
+  }
+}

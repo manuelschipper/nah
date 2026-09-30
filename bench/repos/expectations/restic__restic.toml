@@ -1,0 +1,63 @@
+# Ground-truth expectations for restic/restic (holdout-hidden corpus).
+# Pinned SHA: a80be1478a4c537f8396e0db2b05120aa78f11e0.
+# Real entry: cmd/restic/main.go (package main; builds the cobra root command
+#   and runs it, with global options wired via
+#   globalOptions.AddFlags(cmd.PersistentFlags()), main.go:70 — the
+#   interface-dispatch + cobra command-tree shape).
+# Derived from:
+#   cmd/restic/main.go (main() applies RESTIC_FEATURES from os.Getenv,
+#     main.go:168, before dispatch),
+#   internal/global/global.go (AddFlags seeds option defaults from env:
+#     RESTIC_REPOSITORY/RESTIC_REPOSITORY_FILE/RESTIC_PASSWORD_FILE/
+#     RESTIC_KEY_HINT/RESTIC_PASSWORD_COMMAND, global.go:120-124;
+#     RESTIC_CACERT/RESTIC_TLS_CLIENT_CERT, :125-128; RESTIC_PACK_SIZE/
+#     RESTIC_COMPRESSION, :138/:146; the password command runs via
+#     exec.Command, :194),
+#   internal/fs/file.go (backup source reads funnel through the fs
+#     abstraction's os.OpenFile, file.go:50),
+#   internal/backend/local/local.go (local repo pack writes via tempFile +
+#     os.Rename, local.go:180/:203),
+#   internal/restorer/fileswriter.go (restore writes via fs.OpenFile with
+#     O_CREATE, fileswriter.go:83),
+#   internal/backend/rclone/backend.go (rclone backend spawns the rclone
+#     binary via exec.Command, backend.go:48).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the env-default reads: AddFlags runs while main builds
+# the command, before cobra dispatch. The repository I/O — source-file reads,
+# pack writes, restore writes, and REST/S3/Azure network — sits behind cobra
+# RunE closures plus the backend/fs interface dispatch (backends chosen from
+# the repository URL scheme at runtime) — see known_hard. Cloud-SDK-backed
+# backends are real behavior, so no cloud/network forbidden is asserted.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=RESTIC_FEATURES origin=cmd/restic/main.go realm=host
+op=environment.read res=RESTIC_REPOSITORY origin=internal/global/global.go realm=host
+op=environment.read res=RESTIC_PASSWORD_COMMAND origin=internal/global/global.go realm=host
+op=process.exec origin=internal/global/global.go realm=host modality=may
+
+[forbidden]
+op=database.
+op=messaging.
+op=git.
+
+[known_hard]
+# Repository and filesystem I/O run behind cobra RunE plus the backend/fs
+# interface registry (backend selected from the repo URL scheme): source
+# reads, local pack writes, restore writes, REST/S3/Azure network, and the
+# rclone subprocess.
+op=filesystem.read origin=internal/fs/file.go
+op=filesystem.write origin=internal/backend/local/local.go
+op=filesystem.write origin=internal/restorer/fileswriter.go
+op=network.
+op=process.exec origin=internal/backend/rclone/backend.go

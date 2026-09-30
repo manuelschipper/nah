@@ -10,7 +10,9 @@ use serde_json::{Map, Value, json};
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
+use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
+use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 pub(crate) fn mutate_codex_hook(
     install: bool,
@@ -146,7 +148,7 @@ fn lock(paths: &CodexHookPaths) -> Result<File, String> {
     let file = options
         .open(&paths.lock)
         .map_err(|_| "codex-hook-lock-failed")?;
-    protect_private(&file)?;
+    restrict_file_to_owner(&file).map_err(|_| "codex-hook-permissions-failed".to_owned())?;
     file.lock().map_err(|_| "codex-hook-lock-failed")?;
     Ok(file)
 }
@@ -176,7 +178,8 @@ fn save(path: &Path, hooks: &Value) -> Result<(), String> {
     std::fs::create_dir_all(parent).map_err(|_| "codex-hooks-write-failed")?;
     let mut temporary =
         tempfile::NamedTempFile::new_in(parent).map_err(|_| "codex-hooks-write-failed")?;
-    protect_private(temporary.as_file())?;
+    restrict_file_to_owner(temporary.as_file())
+        .map_err(|_| "codex-hook-permissions-failed".to_owned())?;
     serde_json::to_writer_pretty(&mut temporary, hooks).map_err(|_| "codex-hooks-write-failed")?;
     temporary
         .write_all(b"\n")
@@ -188,7 +191,7 @@ fn save(path: &Path, hooks: &Value) -> Result<(), String> {
     temporary
         .persist(path)
         .map_err(|_| "codex-hooks-write-failed")?;
-    sync_parent(parent)
+    sync_parent_directory(parent).map_err(|_| "codex-hook-sync-failed".to_owned())
 }
 
 fn reject_symlink(path: &Path) -> Result<(), String> {
@@ -218,7 +221,7 @@ fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, St
     } else {
         format!(
             "{} hook codex run{}",
-            shell_quote(executable),
+            quote_posix_shell_word(executable),
             policy.command_suffix()
         )
     };
@@ -227,10 +230,6 @@ fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, St
         "command": command,
         "timeout": 5
     }))
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn is_nah_handler(handler: &Value) -> bool {
@@ -258,28 +257,4 @@ fn is_fail_closed_handler(handler: &Value) -> bool {
         .get("command")
         .and_then(Value::as_str)
         .is_some_and(|command| command.ends_with(" hook codex run --fail-closed"))
-}
-
-#[cfg(unix)]
-fn protect_private(file: &File) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| "codex-hook-permissions-failed".into())
-}
-
-#[cfg(not(unix))]
-fn protect_private(_file: &File) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), String> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| "codex-hook-sync-failed".into())
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), String> {
-    Ok(())
 }

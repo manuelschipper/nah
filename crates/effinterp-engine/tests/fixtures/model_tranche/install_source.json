@@ -1,0 +1,24 @@
+{
+  "id": "p18b/package-build-vcs/install@v1",
+  "selection": "p11-unmodeled-command-miss",
+  "surface": "[FLAGS] SOURCE... DEST or -d DIRECTORY... or -t DIRECTORY SOURCE...",
+  "p11_observations": [
+    {
+      "id": "p11b_v1:cli/cli:all-entrypoints:unmodeled_command:install",
+      "boundary_reason": "unmodeled_command",
+      "command": "install",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 10,
+      "repo": "cli/cli",
+      "repo_sha": "0eeec0b92edbe70199f9768522f831d3534f41ad"
+    }
+  ],
+  "p11_run": {
+    "label": "p11b_v1",
+    "kind": "checkpoint",
+    "report": "stress_test_runs/RUN_p11b_v1.json",
+    "output_schema": "effinterp/evaluation-report/v1",
+    "evaluation_class": "observed-regression",
+    "semantic_identity": "blake3:6749ff4d256eb9952f391ffa5ef2450f27823b228e657353be0073f79e34e78a"
+  }
+}

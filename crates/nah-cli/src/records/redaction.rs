@@ -1,33 +1,16 @@
 //! Constructs audit DTOs through one deterministic redaction boundary.
 
 use nah_extensions::ConsultationDiagnostic;
-use nah_proto::action::{
-    ActionStream, EffectKind, FilesystemOperation, InvocationEffect, Sensitivity,
-};
 use nah_proto::ctx::SchemaVersion;
 use nah_proto::decision::{DecisionCore, DecisionEnvelope, GuardAttribution, Verdict};
-use nah_proto::extension::{ConsultationOutcome, ExtensionConsultation, TransportRejectionCode};
-#[cfg(feature = "effinterp")]
-use nah_proto::stream::effinterp_proto::{
-    BoundaryClass, BoundaryReason, Coverage as EffinterpCoverage, Domain, ExecutionRealm, Modality,
-    Operation, ResourceExpr, ResourceIdentity, Subject, identity_family, resource_domain,
-    selector_family,
-};
-#[cfg(feature = "effinterp")]
-use nah_proto::stream::{ActionStream as EffinterpActionStream, EffectAnnotation, PathLabel};
+use nah_proto::extension::ExtensionConsultation;
+use nah_proto::labels::Sensitivity;
 use nah_proto::tool::ToolCallInput;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 
 use crate::pipeline::{AnalysisRefusal, EvaluationFailure};
 
 const MASK: &str = "[redacted]";
-
-/// Effects a listing row names before it collapses the rest into a count.
-const LISTING_EFFECTS: usize = 2;
-
-/// Column every detail value starts in: `command:`, `verdict:`, and `runtime:`
-/// are the widest keys and every record prints them.
-const VALUE_COLUMN: usize = 9;
 
 /// Recorded when the caller declared no runtime: generic `nah decide` cannot
 /// know which agent sent the call.
@@ -49,10 +32,11 @@ pub(super) struct AuditRecordV1 {
     /// decided is not a record nah accepts. nah owns every value written here,
     /// so it is recorded unredacted.
     runtime: String,
-    command: RedactedText,
-    #[cfg(feature = "effinterp")]
+    /// Producer whose analysis this decision was reduced from. Absent when the
+    /// call was answered before any producer ran.
     #[serde(skip_serializing_if = "Option::is_none")]
-    plan: Option<RedactedPlan>,
+    producer: Option<String>,
+    command: RedactedText,
     effects: Vec<AuditEffect>,
     diagnostics: Vec<RedactedText>,
     consultations: Vec<AuditConsultation>,
@@ -66,6 +50,7 @@ pub(super) struct AuditRecordV1 {
 #[serde(tag = "status", rename_all = "kebab-case")]
 enum AuditOutcome {
     Decision { core: AuditCore },
+    Refused { core: AuditCore },
     Unavailable { reason: RedactedText },
 }
 
@@ -79,10 +64,9 @@ struct AuditRecordWire {
     reason: Option<RedactedText>,
     envelope: DecisionEnvelope,
     runtime: String,
-    command: RedactedText,
-    #[cfg(feature = "effinterp")]
     #[serde(default)]
-    plan: Option<RedactedPlan>,
+    producer: Option<String>,
+    command: RedactedText,
     effects: Vec<AuditEffect>,
     diagnostics: Vec<RedactedText>,
     consultations: Vec<AuditConsultation>,
@@ -96,6 +80,7 @@ struct AuditRecordWire {
 #[serde(rename_all = "kebab-case")]
 enum AuditStatus {
     Decision,
+    Refused,
     Unavailable,
 }
 
@@ -110,6 +95,7 @@ impl<'de> Deserialize<'de> for AuditRecordV1 {
         }
         let outcome = match (wire.status, wire.core, wire.reason) {
             (AuditStatus::Decision, Some(core), None) => AuditOutcome::Decision { core },
+            (AuditStatus::Refused, Some(core), None) => AuditOutcome::Refused { core },
             (AuditStatus::Unavailable, None, Some(reason)) => AuditOutcome::Unavailable { reason },
             _ => return Err(D::Error::custom("invalid audit outcome")),
         };
@@ -119,9 +105,8 @@ impl<'de> Deserialize<'de> for AuditRecordV1 {
             outcome,
             envelope: wire.envelope,
             runtime: wire.runtime,
+            producer: wire.producer,
             command: wire.command,
-            #[cfg(feature = "effinterp")]
-            plan: wire.plan,
             effects: wire.effects,
             diagnostics: wire.diagnostics,
             consultations: wire.consultations,
@@ -145,112 +130,6 @@ struct AuditCore {
 struct AuditEffect {
     id: String,
     description: RedactedText,
-}
-
-#[cfg(feature = "effinterp")]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RedactedPlan {
-    subject: RedactedSubject,
-    coverage: EffinterpCoverage,
-    effects: Vec<RedactedPlanEffect>,
-    boundaries: Vec<RedactedBoundary>,
-}
-
-#[cfg(feature = "effinterp")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-enum RedactedSubject {
-    Exec,
-    Shell,
-    Python,
-    Js,
-    Sql,
-    Source,
-}
-
-#[cfg(feature = "effinterp")]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "realm", rename_all = "snake_case", deny_unknown_fields)]
-enum RedactedRealm {
-    Host,
-    Container { runtime: String },
-    Kubernetes,
-    Chroot,
-    Remote,
-}
-
-#[cfg(feature = "effinterp")]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RedactedPlanEffect {
-    operation: Operation,
-    realm: RedactedRealm,
-    modality: Modality,
-    resource: RedactedResource,
-    annotation: RedactedEffectAnnotation,
-}
-
-#[cfg(feature = "effinterp")]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RedactedResource {
-    family: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    path: Option<RedactedText>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    executable: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    value: Option<RedactedText>,
-}
-
-#[cfg(feature = "effinterp")]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RedactedEffectAnnotation {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    path: Option<RedactedPathLabel>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    runtime_cli: Option<String>,
-}
-
-#[cfg(feature = "effinterp")]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
-enum RedactedPathLabel {
-    Resolved {
-        path: RedactedText,
-        scope: RedactedPathScope,
-        sensitivity: Sensitivity,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        protection: Option<nah_proto::labels::NahProtectionTier>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        host_integrity: Option<nah_proto::labels::HostIntegrityClass>,
-        selects_root: bool,
-        selects_home: bool,
-    },
-    Unresolved,
-}
-
-#[cfg(feature = "effinterp")]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
-enum RedactedPathScope {
-    Project { root: RedactedText },
-    Home,
-    System,
-    OutsideProject,
-}
-
-#[cfg(feature = "effinterp")]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RedactedBoundary {
-    reason: BoundaryReason,
-    class: BoundaryClass,
-    domains: Vec<Domain>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    limit: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -320,8 +199,8 @@ pub(super) struct AuditDiagnostics<'a> {
     stderr: &'a [ConsultationDiagnostic],
     failures: &'a [EvaluationFailure],
     refusals: &'a [AnalysisRefusal],
-    #[cfg(feature = "effinterp")]
-    effinterp: Option<&'a crate::pipeline::EffinterpShadow>,
+    producer: Option<&'a str>,
+    effinterp: Option<&'a crate::pipeline::EffinterpAnalysis>,
 }
 
 impl<'a> AuditDiagnostics<'a> {
@@ -336,7 +215,7 @@ impl<'a> AuditDiagnostics<'a> {
             stderr,
             failures: &[],
             refusals: &[],
-            #[cfg(feature = "effinterp")]
+            producer: None,
             effinterp: None,
         }
     }
@@ -351,10 +230,14 @@ impl<'a> AuditDiagnostics<'a> {
         self
     }
 
-    #[cfg(feature = "effinterp")]
+    pub(super) const fn with_producer(mut self, producer: Option<&'a str>) -> Self {
+        self.producer = producer;
+        self
+    }
+
     pub(super) fn with_effinterp(
         mut self,
-        effinterp: Option<&'a crate::pipeline::EffinterpShadow>,
+        effinterp: Option<&'a crate::pipeline::EffinterpAnalysis>,
     ) -> Self {
         self.effinterp = effinterp;
         self
@@ -366,18 +249,22 @@ impl AuditRecordV1 {
 
     pub(super) fn redact(
         tool_call: &ToolCallInput,
-        action_stream: &ActionStream,
         core: &DecisionCore,
         envelope: DecisionEnvelope,
         runtime: &str,
         diagnostics: AuditDiagnostics<'_>,
     ) -> Self {
-        let effects = action_stream
-            .effects()
-            .iter()
-            .map(|effect| AuditEffect {
-                id: effect.id().as_str().to_owned(),
-                description: redact_effect(effect.kind()),
+        // The listing row and the explanation read what the command did from
+        // these; they are the engine's annotated plan effects, already redacted.
+        let effects = diagnostics
+            .effinterp
+            .map(effinterp_effects)
+            .unwrap_or_default()
+            .into_iter()
+            .enumerate()
+            .map(|(index, effect)| AuditEffect {
+                id: format!("e{index}"),
+                description: RedactedText(format!("{} {}", effect.operation, effect.resource.0)),
             })
             .collect();
         let consultations = diagnostics
@@ -385,7 +272,7 @@ impl AuditRecordV1 {
             .iter()
             .map(|consultation| AuditConsultation {
                 policy: GuardAttribution::extension(consultation.activation.clone()),
-                outcome: consultation_outcome(&consultation.outcome).to_owned(),
+                outcome: consultation.outcome.code().to_owned(),
                 stderr: diagnostics
                     .stderr
                     .iter()
@@ -394,22 +281,25 @@ impl AuditRecordV1 {
             })
             .collect();
 
-        let outcome = AuditOutcome::Decision {
-            core: redact_core(core),
+        let core = redact_core(core);
+        let outcome = if diagnostics
+            .refusals
+            .iter()
+            .any(|refusal| refusal.code() == "deadline-exceeded")
+        {
+            AuditOutcome::Refused { core }
+        } else {
+            AuditOutcome::Decision { core }
         };
-        #[cfg(feature = "effinterp")]
         let effinterp = diagnostics.effinterp.map(redact_effinterp);
-        #[cfg(not(feature = "effinterp"))]
-        let effinterp = None;
         Self {
             schema: Self::SCHEMA,
             v: SchemaVersion::V1,
             outcome,
             envelope,
             runtime: runtime.to_owned(),
+            producer: diagnostics.producer.map(str::to_owned),
             command: redact_tool_call(tool_call),
-            #[cfg(feature = "effinterp")]
-            plan: None,
             effects,
             diagnostics: diagnostics
                 .warnings
@@ -422,40 +312,6 @@ impl AuditRecordV1 {
         }
     }
 
-    #[cfg(feature = "effinterp")]
-    pub(super) fn redact_with_plan(
-        tool_call: &ToolCallInput,
-        action_stream: &ActionStream,
-        effinterp_action_stream: Option<&EffinterpActionStream>,
-        core: &DecisionCore,
-        envelope: DecisionEnvelope,
-        runtime: &str,
-        diagnostics: AuditDiagnostics<'_>,
-    ) -> Self {
-        let mut record = Self::redact(
-            tool_call,
-            action_stream,
-            core,
-            envelope,
-            runtime,
-            diagnostics,
-        );
-        if let Some(stream) = effinterp_action_stream {
-            let plan = RedactedPlan::from(stream);
-            record.effects = plan
-                .effects
-                .iter()
-                .enumerate()
-                .map(|(index, effect)| AuditEffect {
-                    id: format!("e{index}"),
-                    description: redact_plan_effect(effect),
-                })
-                .collect();
-            record.plan = Some(plan);
-        }
-        record
-    }
-
     pub(super) fn failure(
         tool_call: &ToolCallInput,
         core: &DecisionCore,
@@ -465,8 +321,14 @@ impl AuditRecordV1 {
         failures: &[EvaluationFailure],
         refusals: &[AnalysisRefusal],
     ) -> Self {
-        let outcome = AuditOutcome::Decision {
-            core: redact_core(core),
+        let core = redact_core(core);
+        let outcome = if refusals
+            .iter()
+            .any(|refusal| refusal.code() == "deadline-exceeded")
+        {
+            AuditOutcome::Refused { core }
+        } else {
+            AuditOutcome::Decision { core }
         };
         Self {
             schema: Self::SCHEMA,
@@ -474,9 +336,8 @@ impl AuditRecordV1 {
             outcome,
             envelope,
             runtime: runtime.to_owned(),
+            producer: None,
             command: redact_tool_call(tool_call),
-            #[cfg(feature = "effinterp")]
-            plan: None,
             effects: vec![],
             diagnostics: warnings
                 .iter()
@@ -503,9 +364,8 @@ impl AuditRecordV1 {
             },
             envelope,
             runtime: runtime.to_owned(),
+            producer: None,
             command: RedactedText("[unavailable]".into()),
-            #[cfg(feature = "effinterp")]
-            plan: None,
             effects: vec![],
             diagnostics: vec![],
             consultations: vec![],
@@ -528,7 +388,7 @@ impl AuditRecordV1 {
 
     pub(super) const fn verdict(&self) -> Option<Verdict> {
         match &self.outcome {
-            AuditOutcome::Decision { core } => Some(core.verdict),
+            AuditOutcome::Decision { core } | AuditOutcome::Refused { core } => Some(core.verdict),
             AuditOutcome::Unavailable { .. } => None,
         }
     }
@@ -538,7 +398,10 @@ impl AuditRecordV1 {
     }
 
     pub(super) fn evaluation_failed(&self) -> bool {
-        matches!(self.outcome, AuditOutcome::Unavailable { .. }) || !self.failures.is_empty()
+        matches!(
+            self.outcome,
+            AuditOutcome::Refused { .. } | AuditOutcome::Unavailable { .. }
+        ) || !self.failures.is_empty()
     }
 
     pub(super) fn effinterp_gap(&self) -> bool {
@@ -552,189 +415,60 @@ impl AuditRecordV1 {
             _ => "multiple components".into(),
         }
     }
-
-    /// One scannable line for the record. A masked command names the tool at
-    /// best, so the row falls back to the effects, whose descriptions already
-    /// crossed the same redaction boundary the command did. The tool's own
-    /// invocation effect and the `invoke` prefix only restate that boundary,
-    /// so the row drops them and reads `Tool: what it did`.
-    pub(super) fn display(&self) -> String {
-        let command = single_line(&self.command.0);
-        let Some(tool) = command.strip_suffix(MASK) else {
-            return command;
-        };
-        let tool = tool.trim_end();
-        let self_invocation = format!("invoke {tool} ");
-        let duplicated_verb = format!("{} ", tool.to_lowercase());
-        let named = self
-            .effects
-            .iter()
-            .filter(|effect| !effect.description.0.starts_with(&self_invocation))
-            .map(|effect| {
-                let description = effect.description.0.as_str();
-                let description = description.strip_prefix("invoke ").unwrap_or(description);
-                description
-                    .strip_prefix(&duplicated_verb)
-                    .unwrap_or(description)
-            })
-            .collect::<Vec<_>>();
-        if named.is_empty() {
-            // Nothing but its own invocation is still more readable than a
-            // repeated mask; a record with no effects at all keeps the mask.
-            return if self.effects.is_empty() {
-                command
-            } else {
-                tool.to_owned()
-            };
-        }
-        let shown = &named[..named.len().min(LISTING_EFFECTS)];
-        let remaining = match named.len() - shown.len() {
-            0 => String::new(),
-            hidden => format!(" (+{hidden})"),
-        };
-        single_line(&format!("{tool}: {}{remaining}", shown.join(", ")))
-    }
-
-    pub(super) fn summary(&self) -> String {
-        format!(
-            "{}  {:<8}  {:<10}  {}  ({})",
-            short_time(self.envelope.timestamp_rfc3339()),
-            self.outcome_name(),
-            self.runtime,
-            self.display(),
-            self.envelope.id()
-        )
-    }
-
-    pub(super) fn explanation(&self) -> String {
-        let (outcome, reason) = match &self.outcome {
-            AuditOutcome::Decision { core } => {
-                // A call can trip more than one guard, so the verdict line
-                // names every guard that attributed it.
-                let mut verdict = verdict_name(core.verdict).to_owned();
-                for guard in &core.policy_attributions {
-                    verdict.push_str(" · ");
-                    verdict.push_str(guard.name());
-                }
-                (field("verdict:", &verdict), core.reason.0.as_str())
-            }
-            AuditOutcome::Unavailable { reason } => {
-                (field("status:", "unavailable"), reason.0.as_str())
-            }
-        };
-        let mut lines = vec![field("id:", self.envelope.id()), outcome];
-        // Stored reasons join their clauses with `; `. The detail view gives
-        // each following clause its own line; the stored string is untouched.
-        let mut clauses = reason.split("; ");
-        lines.push(field("reason:", clauses.next().unwrap_or_default()));
-        for clause in clauses {
-            lines.push(format!("{:VALUE_COLUMN$}→ {clause}", ""));
-        }
-        lines.push(String::new());
-        lines.push(field("command:", &self.command.0));
-        lines.push(field("runtime:", &self.runtime));
-        lines.push(String::new());
-        lines.push("effects:".into());
-        let id_width = self
-            .effects
-            .iter()
-            .map(|effect| effect.id.chars().count())
-            .max()
-            .unwrap_or_default();
-        for effect in &self.effects {
-            lines.push(format!(
-                "  {:id_width$}  {}",
-                effect.id, effect.description.0
-            ));
-        }
-        if let Some(effinterp) = &self.effinterp {
-            lines.push(String::new());
-            lines.push(format!(
-                "effinterp: {}us{}",
-                effinterp.engine_time_us,
-                if effinterp.gap { " · gap" } else { "" }
-            ));
-            lines.push("effinterp effects:".into());
-            for effect in &effinterp.effects {
-                lines.push(format!("  {} {}", effect.operation, effect.resource.0));
-            }
-            if effinterp.boundary_count > 0 {
-                lines.push(format!(
-                    "effinterp boundaries: {}",
-                    effinterp.boundary_count
-                ));
-            }
-            if !effinterp.coverage.is_empty() {
-                lines.push(format!(
-                    "effinterp coverage: {}",
-                    effinterp
-                        .coverage
-                        .iter()
-                        .map(|coverage| format!("{}={}", coverage.domain, coverage.level))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                ));
-            }
-        }
-        for diagnostic in &self.diagnostics {
-            lines.push(format!("diagnostic: {}", diagnostic.0));
-        }
-        for consultation in &self.consultations {
-            let stderr = consultation
-                .stderr
-                .as_ref()
-                .map(|stderr| format!("; stderr: {}", stderr.0))
-                .unwrap_or_default();
-            lines.push(format!(
-                "policy {}: {}{}",
-                consultation.policy.name(),
-                consultation.outcome,
-                stderr
-            ));
-        }
-        for failure in &self.failures {
-            lines.push(format!(
-                "failure: {}/{}/{}",
-                failure.source, failure.component, failure.code
-            ));
-        }
-        lines.join("\n")
-    }
-
-    fn outcome_name(&self) -> &'static str {
-        match self.verdict() {
-            Some(verdict) => verdict_name(verdict),
-            None => "unavailable",
-        }
-    }
 }
 
-#[cfg(feature = "effinterp")]
-fn redact_effinterp(shadow: &crate::pipeline::EffinterpShadow) -> AuditEffinterp {
-    use nah_proto::action::{HostIntegrityClass, NahProtectionTier, PathScope, Sensitivity};
-    use nah_proto::action_v2::PathLabel;
+fn effinterp_effects(analysis: &crate::pipeline::EffinterpAnalysis) -> Vec<AuditEffinterpEffect> {
+    use nah_proto::effect_annotation::PathLabel;
 
-    let effects = shadow
+    analysis
         .plan()
         .effects
         .iter()
-        .zip(shadow.annotations())
+        .zip(analysis.annotations())
         .map(|(effect, annotation)| {
             let sensitive = matches!(
                 &annotation.path,
                 Some(PathLabel::Resolved { sensitivity, .. }) if sensitivity != &Sensitivity::None
             );
             let masks_resource = sensitive || effect.operation.domain() != "filesystem";
-            AuditEffinterpEffect {
-                operation: effect.operation.as_str().to_owned(),
-                resource: redact(
-                    &nah_effinterp::display_resource(&effect.resource),
+            // A process is named by its executable; its arguments are
+            // operands the record never persists.
+            let resource = match &effect.resource {
+                nah_proto::effinterp_proto::ResourceExpr::Concrete {
+                    identity:
+                        nah_proto::effinterp_proto::ResourceIdentity::Process { executable, .. },
+                } => RedactedText(executable.clone()),
+                resource => redact(
+                    &nah_proto::effinterp_proto::display_resource(resource),
                     masks_resource,
                 ),
+            };
+            AuditEffinterpEffect {
+                operation: effect.operation.as_str().to_owned(),
+                resource,
             }
         })
-        .collect();
-    let annotations = shadow
+        .collect()
+}
+
+/// Audit label name: a `nah_proto::labels` label spelled by its serde name, so
+/// the audit record never spells a label itself. A tagged label such as
+/// `PathScope` records its `kind` alone, which drops the project root.
+fn audit_label_name(label: &impl Serialize) -> String {
+    let value = serde_json::to_value(label).expect("labels serialize to JSON");
+    value
+        .get("kind")
+        .unwrap_or(&value)
+        .as_str()
+        .expect("labels serialize to a name or a tagged kind")
+        .to_owned()
+}
+
+fn redact_effinterp(analysis: &crate::pipeline::EffinterpAnalysis) -> AuditEffinterp {
+    use nah_proto::effect_annotation::PathLabel;
+
+    let effects = effinterp_effects(analysis);
+    let annotations = analysis
         .annotations()
         .iter()
         .map(|annotation| match &annotation.path {
@@ -747,40 +481,10 @@ fn redact_effinterp(shadow: &crate::pipeline::EffinterpShadow) -> AuditEffinterp
                 selects_home,
                 ..
             }) => AuditEffinterpAnnotation {
-                scope: Some(
-                    match scope {
-                        PathScope::Project { .. } => "project",
-                        PathScope::Home => "home",
-                        PathScope::System => "system",
-                        PathScope::OutsideProject => "outside-project",
-                    }
-                    .into(),
-                ),
-                sensitivity: Some(
-                    match sensitivity {
-                        Sensitivity::None => "none",
-                        Sensitivity::EnvironmentSecret => "environment-secret",
-                        Sensitivity::CredentialSecret => "credential-secret",
-                        Sensitivity::OtherSensitive => "other-sensitive",
-                    }
-                    .into(),
-                ),
-                protection: protection.map(|tier| {
-                    match tier {
-                        NahProtectionTier::Critical => "critical",
-                        NahProtectionTier::Permanent => "permanent",
-                        NahProtectionTier::Proposal => "proposal",
-                    }
-                    .into()
-                }),
-                host_integrity: host_integrity.map(|class| {
-                    match class {
-                        HostIntegrityClass::ShellProfile => "shell-profile",
-                        HostIntegrityClass::StartupPersistence => "startup-persistence",
-                        HostIntegrityClass::AuthIdentity => "auth-identity",
-                    }
-                    .into()
-                }),
+                scope: Some(audit_label_name(scope)),
+                sensitivity: Some(audit_label_name(sensitivity)),
+                protection: protection.as_ref().map(audit_label_name),
+                host_integrity: host_integrity.as_ref().map(audit_label_name),
                 selects_root: Some(*selects_root),
                 selects_home: Some(*selects_home),
                 runtime_cli: annotation.runtime_cli.clone(),
@@ -796,7 +500,7 @@ fn redact_effinterp(shadow: &crate::pipeline::EffinterpShadow) -> AuditEffinterp
             },
         })
         .collect();
-    let coverage = shadow
+    let coverage = analysis
         .plan()
         .coverage
         .0
@@ -804,19 +508,19 @@ fn redact_effinterp(shadow: &crate::pipeline::EffinterpShadow) -> AuditEffinterp
         .map(|(domain, level)| AuditEffinterpCoverage {
             domain: domain.0.clone(),
             level: match level.level {
-                nah_effinterp::CoverageLevel::Full => "full",
-                nah_effinterp::CoverageLevel::Partial => "partial",
-                nah_effinterp::CoverageLevel::None => "none",
+                nah_proto::effinterp_proto::CoverageLevel::Full => "full",
+                nah_proto::effinterp_proto::CoverageLevel::Partial => "partial",
+                nah_proto::effinterp_proto::CoverageLevel::None => "none",
             }
             .into(),
         })
         .collect();
     AuditEffinterp {
-        engine_time_us: shadow.engine_time_us(),
-        gap: shadow.gap(),
+        engine_time_us: analysis.engine_time_us(),
+        gap: analysis.gap(),
         effects,
         annotations,
-        boundary_count: shadow.plan().boundaries.len(),
+        boundary_count: analysis.plan().boundaries.len(),
         coverage,
     }
 }
@@ -853,31 +557,6 @@ fn redact_core(core: &DecisionCore) -> AuditCore {
     }
 }
 
-/// One detail line with its value in the shared column.
-pub(crate) fn field(key: &str, value: &str) -> String {
-    format!("{key:<VALUE_COLUMN$}{value}")
-}
-
-/// Collapses newlines and runs of spaces so a multi-line command stays on one listing row.
-fn single_line(command: &str) -> String {
-    command.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Shortens `2026-07-26T21:58:24Z` to `07-26 21:58:24` for narrow list rows.
-pub(crate) fn short_time(timestamp: &str) -> String {
-    match (timestamp.get(5..10), timestamp.get(11..19)) {
-        (Some(date), Some(time)) => format!("{date} {time}"),
-        _ => timestamp.to_owned(),
-    }
-}
-
-pub(crate) const fn verdict_name(verdict: Verdict) -> &'static str {
-    match verdict {
-        Verdict::Block => "block",
-        Verdict::Delegate => "delegate",
-    }
-}
-
 fn redact(value: &str, masked: bool) -> RedactedText {
     RedactedText(if masked { MASK.into() } else { value.into() })
 }
@@ -886,261 +565,7 @@ fn redact_tool_call(tool_call: &ToolCallInput) -> RedactedText {
     RedactedText(format!("{} {MASK}", tool_call.tool()))
 }
 
-fn consultation_outcome(outcome: &ConsultationOutcome) -> &'static str {
-    match outcome {
-        ConsultationOutcome::Response { .. } => "response",
-        ConsultationOutcome::Silence => "silence",
-        ConsultationOutcome::Crash => "crash",
-        ConsultationOutcome::Timeout => "timeout",
-        ConsultationOutcome::SpawnFailure => "spawn-failure",
-        ConsultationOutcome::RejectedTransport { code } => match code {
-            TransportRejectionCode::Oversize => "rejected-transport:oversize",
-            TransportRejectionCode::InvalidUtf8 => "rejected-transport:invalid-utf8",
-            TransportRejectionCode::InvalidJson => "rejected-transport:invalid-json",
-            TransportRejectionCode::MultipleValues => "rejected-transport:multiple-values",
-            TransportRejectionCode::InvalidFraming => "rejected-transport:invalid-framing",
-            TransportRejectionCode::InvalidResponseFields => {
-                "rejected-transport:invalid-response-fields"
-            }
-        },
-    }
-}
-
-#[cfg(feature = "effinterp")]
-impl From<&EffinterpActionStream> for RedactedPlan {
-    fn from(stream: &EffinterpActionStream) -> Self {
-        let plan = stream.plan();
-        let subject = match &plan.subject {
-            Subject::Exec { .. } => RedactedSubject::Exec,
-            Subject::Shell { .. } => RedactedSubject::Shell,
-            Subject::Source { language, .. } if language == "python" => RedactedSubject::Python,
-            Subject::Source { language, .. } if language == "js" => RedactedSubject::Js,
-            Subject::ToolCall { .. } => RedactedSubject::Exec,
-            Subject::Sql { .. } => RedactedSubject::Sql,
-            Subject::Source { .. } => RedactedSubject::Source,
-        };
-        let effects = plan
-            .effects
-            .iter()
-            .zip(stream.annotations())
-            .map(|(effect, annotation)| RedactedPlanEffect {
-                operation: effect.operation.clone(),
-                realm: RedactedRealm::from(&effect.realm),
-                modality: effect.modality,
-                resource: redact_resource(&effect.resource, annotation),
-                annotation: RedactedEffectAnnotation::from(annotation),
-            })
-            .collect();
-        let boundaries = plan
-            .boundaries
-            .iter()
-            .map(|boundary| RedactedBoundary {
-                reason: boundary.reason.clone(),
-                class: boundary.class,
-                domains: boundary.domains.clone(),
-                limit: boundary.limit.clone(),
-            })
-            .collect();
-        Self {
-            subject,
-            coverage: plan.coverage.clone(),
-            effects,
-            boundaries,
-        }
-    }
-}
-
-#[cfg(feature = "effinterp")]
-impl From<&ExecutionRealm> for RedactedRealm {
-    fn from(realm: &ExecutionRealm) -> Self {
-        match realm {
-            ExecutionRealm::Host => Self::Host,
-            ExecutionRealm::Container { runtime, .. } => Self::Container {
-                runtime: runtime.clone(),
-            },
-            ExecutionRealm::Kubernetes { .. } => Self::Kubernetes,
-            ExecutionRealm::Chroot { .. } => Self::Chroot,
-            ExecutionRealm::Remote { .. } => Self::Remote,
-        }
-    }
-}
-
-#[cfg(feature = "effinterp")]
-impl From<&EffectAnnotation> for RedactedEffectAnnotation {
-    fn from(annotation: &EffectAnnotation) -> Self {
-        Self {
-            path: annotation.path.as_ref().map(RedactedPathLabel::from),
-            runtime_cli: annotation.runtime_cli.clone(),
-        }
-    }
-}
-
-#[cfg(feature = "effinterp")]
-impl From<&PathLabel> for RedactedPathLabel {
-    fn from(label: &PathLabel) -> Self {
-        match label {
-            PathLabel::Resolved {
-                path,
-                scope,
-                sensitivity,
-                protection,
-                host_integrity,
-                selects_root,
-                selects_home,
-            } => Self::Resolved {
-                path: redact(path.as_str(), *sensitivity != Sensitivity::None),
-                scope: match scope {
-                    nah_proto::labels::PathScope::Project { root } => RedactedPathScope::Project {
-                        root: redact(root.as_str(), *sensitivity != Sensitivity::None),
-                    },
-                    nah_proto::labels::PathScope::Home => RedactedPathScope::Home,
-                    nah_proto::labels::PathScope::System => RedactedPathScope::System,
-                    nah_proto::labels::PathScope::OutsideProject => {
-                        RedactedPathScope::OutsideProject
-                    }
-                },
-                sensitivity: *sensitivity,
-                protection: *protection,
-                host_integrity: *host_integrity,
-                selects_root: *selects_root,
-                selects_home: *selects_home,
-            },
-            PathLabel::Unresolved => Self::Unresolved,
-        }
-    }
-}
-
-#[cfg(feature = "effinterp")]
-fn redact_resource(resource: &ResourceExpr, annotation: &EffectAnnotation) -> RedactedResource {
-    match resource {
-        ResourceExpr::Concrete {
-            identity: ResourceIdentity::FsPath { path },
-        } => RedactedResource {
-            family: "fs".into(),
-            path: Some(redact(
-                path,
-                !matches!(
-                    annotation.path.as_ref(),
-                    Some(PathLabel::Resolved {
-                        sensitivity: Sensitivity::None,
-                        ..
-                    })
-                ),
-            )),
-            executable: None,
-            value: None,
-        },
-        ResourceExpr::Concrete {
-            identity: ResourceIdentity::Process { executable, .. },
-        } => RedactedResource {
-            family: "proc".into(),
-            path: None,
-            executable: Some(executable.clone()),
-            value: Some(RedactedText(MASK.into())),
-        },
-        ResourceExpr::Concrete { identity } => masked_resource(identity_family(identity)),
-        ResourceExpr::Pattern { pattern } => masked_resource(&pattern.family().0),
-        ResourceExpr::Unresolved { family } => masked_resource(&family.0),
-        ResourceExpr::Literal { .. } => masked_resource("literal"),
-        ResourceExpr::Parameter { .. } => masked_resource("parameter"),
-        ResourceExpr::Environment { .. } => masked_resource("environment"),
-        ResourceExpr::Property { .. } => masked_expression_resource(resource, "property"),
-        ResourceExpr::Join { .. } => masked_expression_resource(resource, "join"),
-        ResourceExpr::Union { .. } => masked_expression_resource(resource, "union"),
-    }
-}
-
-#[cfg(feature = "effinterp")]
-fn masked_expression_resource(resource: &ResourceExpr, fallback: &str) -> RedactedResource {
-    masked_resource(
-        resource_domain(resource)
-            .map(selector_family)
-            .unwrap_or(fallback),
-    )
-}
-
-#[cfg(feature = "effinterp")]
-fn masked_resource(family: &str) -> RedactedResource {
-    RedactedResource {
-        family: family.to_owned(),
-        path: None,
-        executable: None,
-        value: Some(RedactedText(MASK.into())),
-    }
-}
-
-#[cfg(feature = "effinterp")]
-fn redact_plan_effect(effect: &RedactedPlanEffect) -> RedactedText {
-    let operation = effect.operation.as_str();
-    let description = match effect.resource.executable.as_deref() {
-        Some(executable) => format!("invoke {executable} {operation}"),
-        None if effect.resource.family == "fs" => format!(
-            "{} {}",
-            operation.rsplit('.').next().unwrap_or(operation),
-            effect
-                .resource
-                .path
-                .as_ref()
-                .map_or(MASK, |path| path.0.as_str())
-        ),
-        None if effect.resource.family == "net" => format!(
-            "network {} {MASK}",
-            operation.rsplit('.').next().unwrap_or(operation)
-        ),
-        None => format!("{operation} {MASK}"),
-    };
-    RedactedText(description)
-}
-
-fn redact_effect(kind: &EffectKind) -> RedactedText {
-    let description = match kind {
-        EffectKind::Invocation { invocation } => match invocation {
-            InvocationEffect::TerminalControl { control, .. } => format!(
-                "terminal {:?} {:?} {:?}",
-                control.carrier, control.operation, control.candidate
-            ),
-            InvocationEffect::Known {
-                program, operation, ..
-            } => {
-                format!("invoke {program} {operation}")
-            }
-            InvocationEffect::Opaque { program, .. } => format!("invoke {program} opaque"),
-            InvocationEffect::CodeExecution {
-                interpreter,
-                source,
-                ..
-            } => format!(
-                "execute {} {source}",
-                interpreter.as_deref().unwrap_or("unknown")
-            ),
-        },
-        EffectKind::Filesystem { effect } => {
-            let operation = match effect.operation {
-                FilesystemOperation::Read => "read",
-                FilesystemOperation::Write => "write",
-                FilesystemOperation::Delete => "delete",
-            };
-            let target = if effect.sensitivity == Sensitivity::None {
-                effect.target.as_str()
-            } else {
-                MASK
-            };
-            format!("{operation} {target}")
-        }
-        EffectKind::FilesystemUnresolved { operation, .. } => {
-            let operation = match operation {
-                FilesystemOperation::Read => "read",
-                FilesystemOperation::Write => "write",
-                FilesystemOperation::Delete => "delete",
-            };
-            format!("{operation} unresolved filesystem target")
-        }
-        EffectKind::Git { operation } => format!("git {operation}"),
-        EffectKind::Network { .. } => format!("network outbound {MASK}"),
-        EffectKind::SystemState { operation } => format!("system {operation}"),
-    };
-    RedactedText(description)
-}
+pub(super) mod presentation;
 
 #[cfg(test)]
 mod tests;

@@ -12,42 +12,61 @@ use nah_proto::ctx::{AbsolutePath, Platform};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
+use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
+use crate::state_protection::nah_state_file_path;
 use crate::state_protection::validate_private_file;
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const DURATION_SECONDS: u64 = 10 * 60;
 const KEY_BYTES: usize = 32;
-const MAC_DOMAIN: &[u8] = b"nah nap state v1\0";
+const MAC_DOMAIN: &[u8] = b"nah nap state v2\0";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum NapMode {
     SelfProtection,
     All,
+    /// Only these guards pause, named as `nah guards` lists them; sorted and
+    /// unique.
+    Guards(Vec<String>),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+impl NapMode {
+    /// What the nap pauses, in the words `nah nap` confirms it with.
+    pub(crate) fn scope(&self) -> String {
+        match self {
+            Self::SelfProtection => "self-protection".to_owned(),
+            Self::All => "all enforcement".to_owned(),
+            Self::Guards(names) => {
+                let noun = if names.len() == 1 { "guard" } else { "guards" };
+                format!("{noun} {}", names.join(", "))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ActiveNap {
     mode: NapMode,
     expires_at: u64,
 }
 
 impl ActiveNap {
-    pub(crate) const fn mode(self) -> NapMode {
-        self.mode
+    pub(crate) const fn mode(&self) -> &NapMode {
+        &self.mode
     }
 
-    pub(crate) const fn expires_at(self) -> u64 {
+    pub(crate) const fn expires_at(&self) -> u64 {
         self.expires_at
     }
 
     /// Seconds before the nap expires on its own, for a live countdown.
-    pub(crate) fn remaining(self) -> u64 {
+    pub(crate) fn remaining(&self) -> u64 {
         self.expires_at.saturating_sub(unix_seconds())
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredNap {
     v: u32,
@@ -74,15 +93,7 @@ pub(crate) fn wake(home: &AbsolutePath, platform: Platform) -> Result<(), NapErr
 }
 
 pub(crate) fn nap_path(home: &AbsolutePath, platform: Platform) -> PathBuf {
-    let separator = if platform == Platform::Windows {
-        '\\'
-    } else {
-        '/'
-    };
-    PathBuf::from(format!(
-        "{}{separator}.nah{separator}nap.json",
-        home.as_str().trim_end_matches(['/', '\\'])
-    ))
+    nah_state_file_path(home, platform, "nap.json")
 }
 
 fn load_at(path: &Path, now: u64) -> Result<Option<ActiveNap>, NapError> {
@@ -93,7 +104,13 @@ fn load_at(path: &Path, now: u64) -> Result<Option<ActiveNap>, NapError> {
         Err(_) => return Err(NapError::Io),
     };
     let stored: StoredNap = serde_json::from_reader(file).map_err(|_| NapError::InvalidState)?;
-    if stored.v != VERSION {
+    // An older file cannot be verified under the current MAC, so it grants
+    // no nap: reading it as awake is the safe reading. A newer file means a
+    // downgrade, which stays an error.
+    if stored.v < VERSION {
+        return Ok(None);
+    }
+    if stored.v > VERSION {
         return Err(NapError::UnsupportedVersion);
     }
     let key = load_key(&key_path(path))?.ok_or(NapError::InvalidState)?;
@@ -124,7 +141,7 @@ fn start_at(path: &Path, mode: NapMode, now: u64) -> Result<ActiveNap, NapError>
         let key = load_or_create_key(&key_path(path))?;
         let mut stored = StoredNap {
             v: VERSION,
-            mode,
+            mode: mode.clone(),
             started_at: now,
             expires_at,
             mac: [0; 32],
@@ -139,7 +156,8 @@ fn wake_path(path: &Path) -> Result<(), NapError> {
     with_lock(path, || {
         reject_symlink(path)?;
         match std::fs::remove_file(path) {
-            Ok(()) => sync_parent(path.parent().ok_or(NapError::InvalidPath)?),
+            Ok(()) => sync_parent_directory(path.parent().ok_or(NapError::InvalidPath)?)
+                .map_err(|_| NapError::Io),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(_) => Err(NapError::Io),
         }
@@ -162,7 +180,7 @@ fn with_lock<T>(
         options.mode(0o600);
     }
     let lock = options.open(lock_path).map_err(|_| NapError::Io)?;
-    protect_file(&lock)?;
+    restrict_file_to_owner(&lock).map_err(|_| NapError::Io)?;
     lock.lock().map_err(|_| NapError::Io)?;
     reject_symlink(path)?;
     operation()
@@ -171,12 +189,12 @@ fn with_lock<T>(
 fn save(path: &Path, state: &StoredNap) -> Result<(), NapError> {
     let parent = path.parent().ok_or(NapError::InvalidPath)?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|_| NapError::Io)?;
-    protect_file(temporary.as_file())?;
+    restrict_file_to_owner(temporary.as_file()).map_err(|_| NapError::Io)?;
     serde_json::to_writer(&mut temporary, state).map_err(|_| NapError::Io)?;
     temporary.write_all(b"\n").map_err(|_| NapError::Io)?;
     temporary.as_file().sync_all().map_err(|_| NapError::Io)?;
     temporary.persist(path).map_err(|_| NapError::Io)?;
-    sync_parent(parent)
+    sync_parent_directory(parent).map_err(|_| NapError::Io)
 }
 
 fn key_path(path: &Path) -> PathBuf {
@@ -205,13 +223,13 @@ fn load_or_create_key(path: &Path) -> Result<[u8; KEY_BYTES], NapError> {
         }
         Err(_) => return Err(NapError::Io),
     };
-    protect_file(&file)?;
+    restrict_file_to_owner(&file).map_err(|_| NapError::Io)?;
     if file.write_all(&key).and_then(|()| file.sync_all()).is_err() {
         drop(file);
         let _ = std::fs::remove_file(path);
         return Err(NapError::Io);
     }
-    sync_parent(parent)?;
+    sync_parent_directory(parent).map_err(|_| NapError::Io)?;
     Ok(key)
 }
 
@@ -269,10 +287,18 @@ fn verify_mac(state: &StoredNap, key: &[u8; KEY_BYTES]) -> Result<(), NapError> 
 fn update_mac(mac: &mut Hmac<Sha256>, state: &StoredNap) {
     mac.update(MAC_DOMAIN);
     mac.update(&state.v.to_be_bytes());
-    mac.update(&[match state.mode {
-        NapMode::SelfProtection => 0,
-        NapMode::All => 1,
-    }]);
+    match &state.mode {
+        NapMode::SelfProtection => mac.update(&[0]),
+        NapMode::All => mac.update(&[1]),
+        NapMode::Guards(names) => {
+            mac.update(&[2]);
+            mac.update(&(names.len() as u64).to_be_bytes());
+            for name in names {
+                mac.update(&(name.len() as u64).to_be_bytes());
+                mac.update(name.as_bytes());
+            }
+        }
+    }
     mac.update(&state.started_at.to_be_bytes());
     mac.update(&state.expires_at.to_be_bytes());
 }
@@ -291,30 +317,6 @@ fn unix_seconds() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
-}
-
-#[cfg(unix)]
-fn protect_file(file: &File) -> Result<(), NapError> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| NapError::Io)
-}
-
-#[cfg(not(unix))]
-fn protect_file(_file: &File) -> Result<(), NapError> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), NapError> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| NapError::Io)
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), NapError> {
-    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -392,10 +394,16 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = test_path(&temp);
         let active = start_at(&path, NapMode::SelfProtection, 100).unwrap();
-        assert_eq!(active.mode(), NapMode::SelfProtection);
+        assert_eq!(active.mode(), &NapMode::SelfProtection);
         assert_eq!(active.expires_at(), 700);
         assert_eq!(load_at(&path, 699).unwrap(), Some(active));
         assert_eq!(load_at(&path, 700).unwrap(), None);
+        // A new nap replaces the paused set and restarts the timer.
+        let guards = NapMode::Guards(vec!["fs-home".into(), "git-history".into()]);
+        start_at(&path, NapMode::All, 100).unwrap();
+        let replaced = start_at(&path, guards.clone(), 300).unwrap();
+        assert_eq!(load_at(&path, 899).unwrap(), Some(replaced));
+        assert_eq!(load_at(&path, 899).unwrap().unwrap().mode(), &guards);
         assert!(path.is_file());
         assert!(key_path(&path).is_file());
         wake_path(&path).unwrap();
@@ -409,7 +417,7 @@ mod tests {
         let path = test_path(&temp);
         std::fs::write(
             &path,
-            r#"{"v":1,"mode":"all","started_at":100,"expires_at":700}"#,
+            r#"{"v":2,"mode":"all","started_at":100,"expires_at":700}"#,
         )
         .unwrap();
         assert_eq!(load_at(&path, 101), Err(NapError::InvalidState));
@@ -417,16 +425,37 @@ mod tests {
         start_at(&path, NapMode::SelfProtection, 100).unwrap();
         let key = load_key(&key_path(&path)).unwrap().unwrap();
         let valid = signed_state(VERSION, NapMode::SelfProtection, 100, 700, &key);
+        let guards = signed_state(
+            VERSION,
+            NapMode::Guards(vec!["fs-home".into()]),
+            100,
+            700,
+            &key,
+        );
 
-        let mut mode = valid;
+        let mut mode = valid.clone();
         mode.mode = NapMode::All;
-        let mut started_at = valid;
+        let mut started_at = valid.clone();
         started_at.started_at += 1;
-        let mut expires_at = valid;
+        let mut expires_at = valid.clone();
         expires_at.expires_at += 1;
         let mut mac = valid;
         mac.mac[0] ^= 1;
-        for state in [mode, started_at, expires_at, mac] {
+        let mut added_guard = guards.clone();
+        added_guard.mode = NapMode::Guards(vec!["fs-home".into(), "git-history".into()]);
+        let mut renamed_guard = guards.clone();
+        renamed_guard.mode = NapMode::Guards(vec!["git-history".into()]);
+        let mut widened = guards;
+        widened.mode = NapMode::All;
+        for state in [
+            mode,
+            started_at,
+            expires_at,
+            mac,
+            added_guard,
+            renamed_guard,
+            widened,
+        ] {
             write_state(&path, &state);
             assert_eq!(load_at(&path, 101), Err(NapError::InvalidState));
         }
@@ -435,11 +464,16 @@ mod tests {
         assert_eq!(load_at(&path, 101), Err(NapError::InvalidState));
         write_state(&path, &signed_state(VERSION, NapMode::All, 200, 800, &key));
         assert_eq!(load_at(&path, 101), Err(NapError::InvalidState));
-        write_state(&path, &signed_state(2, NapMode::All, 100, 700, &key));
+        write_state(&path, &signed_state(1, NapMode::All, 100, 700, &key));
+        assert_eq!(load_at(&path, 101), Ok(None));
+        write_state(
+            &path,
+            &signed_state(VERSION + 1, NapMode::All, 100, 700, &key),
+        );
         assert_eq!(load_at(&path, 101), Err(NapError::UnsupportedVersion));
         std::fs::write(
             &path,
-            r#"{"v":1,"mode":"unknown","started_at":100,"expires_at":700,"mac":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}"#,
+            r#"{"v":2,"mode":"unknown","started_at":100,"expires_at":700,"mac":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}"#,
         )
         .unwrap();
         assert_eq!(load_at(&path, 101), Err(NapError::InvalidState));
@@ -535,7 +569,7 @@ mod tests {
         let first = std::fs::read(&path).unwrap();
         start_at(&path, NapMode::All, 101).unwrap();
         assert_ne!(std::fs::read(&path).unwrap(), first);
-        assert_eq!(load_at(&path, 102).unwrap().unwrap().mode(), NapMode::All);
+        assert_eq!(load_at(&path, 102).unwrap().unwrap().mode(), &NapMode::All);
 
         for path in [&key_path(&path), &path.with_extension("lock")] {
             let file = File::open(path).unwrap();

@@ -11,7 +11,10 @@ use serde_json::{Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_paths::reject_hook_path_symlink;
+use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
+use crate::private_files::restrict_file_to_owner;
 
 const MAX_HOOK_FILE_BYTES: u64 = 1024 * 1024;
 
@@ -171,7 +174,7 @@ fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, Strin
     } else {
         format!(
             "{} hook kiro run{}",
-            shell_quote(executable),
+            quote_posix_shell_word(executable),
             policy.command_suffix()
         )
     };
@@ -248,7 +251,7 @@ fn is_owned_command(command: &str) -> bool {
             return false;
         }
         let decoded = executable[1..executable.len() - 1].replace("'\"'\"'", "'");
-        return shell_quote(&decoded) == executable
+        return quote_posix_shell_word(&decoded) == executable
             && decoded.ends_with("/nah")
             && AbsolutePath::new(Platform::Linux, &decoded).is_ok();
     }
@@ -269,10 +272,6 @@ fn is_owned_command(command: &str) -> bool {
         })
 }
 
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
 #[cfg(all(unix, not(target_os = "redox")))]
 fn lock(paths: &KiroHookPaths) -> Result<File, String> {
     use rustix::fs::{Mode, OFlags};
@@ -281,7 +280,7 @@ fn lock(paths: &KiroHookPaths) -> Result<File, String> {
         .lock
         .parent()
         .ok_or_else(|| "invalid-kiro-hook-lock-path".to_owned())?;
-    reject_symlink(parent, "kiro-hook-lock-failed")?;
+    reject_hook_path_symlink(parent, "kiro-hook-lock-failed")?;
     std::fs::create_dir_all(parent).map_err(|_| "kiro-hook-lock-failed")?;
     let directory = rustix::fs::open(
         parent,
@@ -297,7 +296,7 @@ fn lock(paths: &KiroHookPaths) -> Result<File, String> {
     )
     .map_err(|_| "kiro-hook-lock-failed")?;
     let file = File::from(descriptor);
-    protect_private(&file)?;
+    restrict_file_to_owner(&file).map_err(|_| "kiro-hook-permissions-failed".to_owned())?;
     file.lock().map_err(|_| "kiro-hook-lock-failed")?;
     Ok(file)
 }
@@ -308,38 +307,17 @@ fn lock(paths: &KiroHookPaths) -> Result<File, String> {
         .lock
         .parent()
         .ok_or_else(|| "invalid-kiro-hook-lock-path".to_owned())?;
-    reject_symlink(parent, "kiro-hook-lock-failed")?;
+    reject_hook_path_symlink(parent, "kiro-hook-lock-failed")?;
     std::fs::create_dir_all(parent).map_err(|_| "kiro-hook-lock-failed")?;
-    reject_symlink(&paths.lock, "kiro-hook-lock-failed")?;
+    reject_hook_path_symlink(&paths.lock, "kiro-hook-lock-failed")?;
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
     let file = options
         .open(&paths.lock)
         .map_err(|_| "kiro-hook-lock-failed")?;
-    protect_private(&file)?;
+    restrict_file_to_owner(&file).map_err(|_| "kiro-hook-permissions-failed".to_owned())?;
     file.lock().map_err(|_| "kiro-hook-lock-failed")?;
     Ok(file)
-}
-
-fn reject_symlink(path: &Path, error: &'static str) -> Result<(), String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(error.into()),
-        Ok(_) => Ok(()),
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(error.into()),
-    }
-}
-
-#[cfg(unix)]
-fn protect_private(file: &File) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| "kiro-hook-permissions-failed".to_owned())
-}
-
-#[cfg(not(unix))]
-fn protect_private(_file: &File) -> Result<(), String> {
-    Ok(())
 }
 
 #[cfg(all(not(windows), not(all(unix, not(target_os = "redox")))))]
@@ -406,7 +384,7 @@ fn open_hook_directory(
     use rustix::fs::{Mode, OFlags};
 
     if create {
-        reject_symlink(&paths.root, "kiro-hook-symlink-unsupported")?;
+        reject_hook_path_symlink(&paths.root, "kiro-hook-symlink-unsupported")?;
         std::fs::create_dir_all(&paths.root).map_err(|_| "kiro-hook-write-failed")?;
     }
     let flags =
@@ -438,9 +416,9 @@ fn open_hook_directory(
     create: bool,
 ) -> Result<Option<HookDirectory>, String> {
     let hooks = paths.root.join("hooks");
-    reject_symlink(&paths.root, "kiro-hook-symlink-unsupported")?;
-    reject_symlink(&hooks, "kiro-hook-symlink-unsupported")?;
-    reject_symlink(&paths.hook, "kiro-hook-symlink-unsupported")?;
+    reject_hook_path_symlink(&paths.root, "kiro-hook-symlink-unsupported")?;
+    reject_hook_path_symlink(&hooks, "kiro-hook-symlink-unsupported")?;
+    reject_hook_path_symlink(&paths.hook, "kiro-hook-symlink-unsupported")?;
     if create {
         std::fs::create_dir_all(&hooks).map_err(|_| "kiro-hook-write-failed")?;
     } else if !hooks.exists() {
@@ -494,7 +472,7 @@ fn load_named(directory: &HookDirectory, name: &str) -> Result<Option<LoadedHook
 #[cfg(not(all(unix, not(target_os = "redox"))))]
 fn load(directory: &HookDirectory) -> Result<Option<LoadedHook>, String> {
     let path = directory.path.join("nah.json");
-    reject_symlink(&path, "kiro-hook-symlink-unsupported")?;
+    reject_hook_path_symlink(&path, "kiro-hook-symlink-unsupported")?;
     let file = match File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -630,7 +608,8 @@ fn save(
 ) -> Result<(), String> {
     let mut temporary =
         tempfile::NamedTempFile::new_in(&directory.path).map_err(|_| "kiro-hook-write-failed")?;
-    protect_private(temporary.as_file())?;
+    restrict_file_to_owner(temporary.as_file())
+        .map_err(|_| "kiro-hook-permissions-failed".to_owned())?;
     serde_json::to_writer_pretty(&mut temporary, config).map_err(|_| "kiro-hook-write-failed")?;
     temporary
         .write_all(b"\n")

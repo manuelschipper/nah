@@ -1,0 +1,54 @@
+# Ground-truth expectations for junegunn/fzf (holdout-dev corpus).
+# Pinned SHA: 15f64c492a08f0840b81540c7d1de35737448086.
+# Real entry: main.go (package main; shell/*.sh wrappers are a separate surface).
+# Derived from:
+#   main.go (options.Man path: fzf.WriteTemporaryFile then exec.Command("man", file)
+#     with a deferred os.Remove(file); main calls fzf.ParseOptions directly),
+#   src/options.go (ParseOptions reads $FZF_DEFAULT_OPTS_FILE, options.go:3911, and
+#     os.ReadFile's that path, options.go:3912; reads $FZF_DEFAULT_OPTS,
+#     options.go:3929; reads $NO_COLOR, options.go:726),
+#   src/functions.go (WriteTemporaryFile: os.CreateTemp("", "fzf-temp-*") +
+#     WriteString, functions.go:10-18),
+#   src/reader.go (Reader reads $FZF_DEFAULT_COMMAND, reader.go:139, and either
+#     walks the filesystem (readFiles) or runs that command (readFromCommand)),
+#   src/history.go (History persists input history via os.WriteFile,
+#     history.go:33/64, behind --history),
+#   src/server.go (--listen starts a local HTTP server — network, option-gated).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the env reads (ParseOptions is called directly from main)
+# and the man-page temp-file path (straight-line in main). The reader/history
+# effects sit behind fzf.Run's internal goroutine plumbing.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=process.exec
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=FZF_DEFAULT_OPTS_FILE origin=src/options.go realm=host
+op=environment.read res=FZF_DEFAULT_OPTS origin=src/options.go realm=host
+op=environment.read res=NO_COLOR origin=src/options.go realm=host
+op=filesystem.read origin=src/options.go realm=host modality=may
+op=process.exec res=man origin=main.go realm=host modality=may
+op=filesystem.write origin=src/functions.go realm=host modality=may
+op=filesystem.delete origin=main.go realm=host modality=may
+op=environment.read res=FZF_DEFAULT_COMMAND origin=src/reader.go realm=host
+op=filesystem.write origin=src/history.go realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]
+# --listen HTTP server and the user-supplied $FZF_DEFAULT_COMMAND / execute()
+# bindings run through fzf.Run's terminal event loop and goroutines.
+op=network.

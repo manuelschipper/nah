@@ -1,0 +1,611 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:c3d1739198fa3c2583ca48d20d13df0a3503cb0ff0b4f11ca5afdb7f2ac23d7e",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/database/prisma@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "prisma",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/database/prisma@v1",
+        "path": "../../tests/fixtures/model_tranche/prisma.json",
+        "digest": "blake3:cc0dfa8bc80798a5e68d0f835263ec3e7361bb842b1fb064aa35bc92507de732"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "prisma-db-execute---stdin---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "prisma",
+            "db",
+            "execute",
+            "--stdin",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "prisma-db-push-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "prisma",
+            "db",
+            "push"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "prisma-migrate-deploy-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "prisma",
+            "migrate",
+            "deploy"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "prisma-migrate-reset---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "prisma",
+            "migrate",
+            "reset",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "prisma-migrate-reset---version-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "prisma",
+            "migrate",
+            "reset",
+            "--version"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "prisma-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "prisma-not-the-command",
+            "migrate",
+            "reset"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/database/prisma@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "database.schema_drop",
+      "database.schema_write"
+    ],
+    "expected_boundaries": [
+      "environment_configuration",
+      "model_coverage"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/database/prisma@v1",
+      "commands": [
+        "prisma"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version",
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--schema"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--config"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "database",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "subcommands": [
+            {
+              "names": [
+                "reset"
+              ],
+              "index": 0,
+              "flags": [
+                {
+                  "names": [
+                    "--force",
+                    "-f"
+                  ],
+                  "takes_value": false
+                },
+                {
+                  "names": [
+                    "--skip-generate"
+                  ],
+                  "takes_value": false
+                },
+                {
+                  "names": [
+                    "--skip-seed"
+                  ],
+                  "takes_value": false
+                }
+              ],
+              "positionals": [],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "argument",
+                    "index": 0
+                  },
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "--version",
+                      "-h",
+                      "-v"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "database.schema_drop",
+                      "resource": {
+                        "kind": "unresolved",
+                        "family": "db"
+                      },
+                      "attributes": {
+                        "object_kind": {
+                          "kind": "constant_string",
+                          "value": "database"
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "boundaries": [
+                {
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "reason": "environment_configuration",
+                  "class": "unmodeled",
+                  "domains": [
+                    "database",
+                    "process"
+                  ],
+                  "detail": "Prisma reads the target database from the Prisma schema and config (prisma.config.ts is project code) and applies the project's migrations, and before Prisma 7 its seed script"
+                }
+              ],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "database",
+                  "process"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            }
+          ],
+          "names": [
+            "migrate"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "subcommands": [
+            {
+              "names": [
+                "push"
+              ],
+              "index": 0,
+              "flags": [
+                {
+                  "names": [
+                    "--force-reset"
+                  ],
+                  "takes_value": false
+                },
+                {
+                  "names": [
+                    "--accept-data-loss"
+                  ],
+                  "takes_value": false
+                },
+                {
+                  "names": [
+                    "--skip-generate"
+                  ],
+                  "takes_value": false
+                }
+              ],
+              "positionals": [],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "argument",
+                    "index": 0
+                  },
+                  "when": {
+                    "flag_present": [
+                      "--force-reset"
+                    ],
+                    "flag_absent": [
+                      "--help",
+                      "--version",
+                      "-h",
+                      "-v"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "database.schema_drop",
+                      "resource": {
+                        "kind": "unresolved",
+                        "family": "db"
+                      },
+                      "attributes": {
+                        "object_kind": {
+                          "kind": "constant_string",
+                          "value": "database"
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                },
+                {
+                  "source": {
+                    "kind": "argument",
+                    "index": 0
+                  },
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "--version",
+                      "-h",
+                      "-v"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "database.schema_write",
+                      "resource": {
+                        "kind": "unresolved",
+                        "family": "db"
+                      },
+                      "attributes": {},
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "boundaries": [
+                {
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "reason": "environment_configuration",
+                  "class": "unmodeled",
+                  "domains": [
+                    "database",
+                    "process"
+                  ],
+                  "detail": "Prisma reads the target database from the Prisma schema and config (prisma.config.ts is project code) and applies the project's migrations"
+                },
+                {
+                  "when": {
+                    "flag_present": [
+                      "--accept-data-loss"
+                    ],
+                    "flag_absent": [
+                      "--force-reset"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "reason": "model_coverage",
+                  "class": "unmodeled",
+                  "domains": [
+                    "database"
+                  ],
+                  "detail": "--accept-data-loss applies schema changes that may drop tables or columns; the schema diff is not observed"
+                }
+              ],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "database",
+                  "process"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            },
+            {
+              "names": [
+                "execute"
+              ],
+              "index": 0,
+              "nested_source": [
+                {
+                  "when": {
+                    "flag_present": [
+                      "--stdin"
+                    ],
+                    "flag_absent": [
+                      "--help",
+                      "--version",
+                      "-h",
+                      "-v"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "language": "sql",
+                  "from": {
+                    "kind": "stdin"
+                  }
+                }
+              ],
+              "flags": [
+                {
+                  "names": [
+                    "--file"
+                  ],
+                  "takes_value": true
+                },
+                {
+                  "names": [
+                    "--stdin"
+                  ],
+                  "takes_value": false
+                },
+                {
+                  "names": [
+                    "--url"
+                  ],
+                  "takes_value": true
+                }
+              ],
+              "positionals": [],
+              "mutually_exclusive": [],
+              "effects": [],
+              "invocations": [],
+              "bindings": [],
+              "boundaries": [
+                {
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "reason": "environment_configuration",
+                  "class": "unmodeled",
+                  "domains": [
+                    "database",
+                    "process"
+                  ],
+                  "detail": "Prisma reads the target database from the Prisma schema and config"
+                },
+                {
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [],
+                    "flag_value_present": [
+                      "--file"
+                    ],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "reason": "unresolved_sql",
+                  "class": "unresolved",
+                  "domains": [
+                    "database"
+                  ],
+                  "detail": "the SQL script file is not read"
+                }
+              ],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "database",
+                  "process"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            }
+          ],
+          "names": [
+            "db"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

@@ -2,13 +2,12 @@ use super::support::{init_repo, request, value};
 use crate::fulfill;
 #[cfg(windows)]
 use nah_proto::ctx::{AbsolutePath, Platform};
-#[cfg(unix)]
-use nah_proto::observation::PathKind;
-use nah_proto::observation::{ObservationFailure, ObservationValue, Observed};
+use nah_proto::observation::ObservationFailure;
+use nah_proto::observation::{ObservationValue, Observed, PathKind};
 use std::fs;
 
 #[test]
-fn multiply_linked_files_fail_observation_closed() {
+fn multiply_linked_files_keep_entry_identity_and_kind() {
     let temp = tempfile::tempdir().expect("tempdir");
     let repo = temp.path().join("repo");
     init_repo(&repo);
@@ -18,22 +17,58 @@ fn multiply_linked_files_fail_observation_closed() {
     std::os::unix::fs::symlink(repo.join("alias"), repo.join("linked-alias"))
         .expect("symlink to hardlink");
 
-    let requested: &[&str] = if cfg!(unix) {
-        &["alias", "linked-alias"]
+    let requested: &[(&str, PathKind, Option<PathKind>)] = if cfg!(unix) {
+        &[
+            ("alias", PathKind::File, None),
+            ("linked-alias", PathKind::Symlink, Some(PathKind::File)),
+        ]
     } else {
-        &["alias"]
+        &[("alias", PathKind::File, None)]
     };
-    for requested in requested {
+    let canonical_repo = repo.canonicalize().expect("canonical repo");
+    for (requested, kind, target_kind) in requested {
         let observation = fulfill(&request(&repo, &[("path", requested)])).expect("observation");
-        assert!(matches!(
-            value(&observation, "path"),
-            ObservationValue::Path {
-                observed: Observed::Error {
-                    error: ObservationFailure::Unavailable
-                }
-            }
-        ));
+        let ObservationValue::Path {
+            observed: Observed::Ok { value: path },
+        } = value(&observation, "path")
+        else {
+            panic!("expected path fact");
+        };
+        assert_eq!(
+            path.resolved().as_str(),
+            canonical_repo.join(requested).to_str().unwrap()
+        );
+        assert_eq!(path.kind(), *kind);
+        assert_eq!(path.realpath(), None);
+        assert_eq!(path.target_kind(), *target_kind);
     }
+}
+
+#[test]
+fn an_unobservable_path_does_not_discard_other_path_facts() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo = temp.path().join("repo");
+    init_repo(&repo);
+
+    let observation = fulfill(&request(
+        &repo,
+        &[("tracked", "tracked"), ("control", "line\n")],
+    ))
+    .expect("observation");
+    assert!(matches!(
+        value(&observation, "tracked"),
+        ObservationValue::Path {
+            observed: Observed::Ok { .. }
+        }
+    ));
+    assert_eq!(
+        value(&observation, "control"),
+        &ObservationValue::Path {
+            observed: Observed::Error {
+                error: ObservationFailure::Unavailable,
+            },
+        }
+    );
 }
 
 #[cfg(unix)]
@@ -107,6 +142,7 @@ fn missing_path_realpath_resolves_existing_symlink_parent_and_kind_uses_lstat() 
         panic!("expected dangling symlink path");
     };
     assert_eq!(dangling.kind(), PathKind::Symlink);
+    assert_eq!(dangling.target_kind(), Some(PathKind::Missing));
     assert_eq!(
         dangling.realpath().unwrap().as_str(),
         canonical_outside.join("new-target").to_str().unwrap()

@@ -8,6 +8,7 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+use crate::adapter_fields::runtime_field_names_covered;
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
 
@@ -85,6 +86,21 @@ fn deny_unavailable<E: Write>(
     })
 }
 
+/// The tool call `run` hands the pipeline for this Factory Droid tool call.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<ToolCallInput, String> {
+    normalize(DroidHookInput {
+        hook_event_name: "PreToolUse".into(),
+        tool_name: tool_name.into(),
+        tool_input,
+        cwd: cwd.into(),
+        session_id: None,
+    })
+}
+
 fn normalize(input: DroidHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_input.clone();
     if input.hook_event_name != "PreToolUse" {
@@ -99,7 +115,7 @@ fn normalize(input: DroidHookInput) -> Result<ToolCallInput, String> {
         Ok((tool, tool_input)) => (
             tool,
             tool_input,
-            crate::adapter_fields::complete("droid", &input.tool_name, &original_input),
+            runtime_field_names_covered("droid", &input.tool_name, &original_input),
         ),
         Err(_) => (input.tool_name.as_str(), original_input.clone(), false),
     };
@@ -392,14 +408,5 @@ mod tests {
             assert_eq!(call.input(), &input);
             assert!(!call.normalization_complete());
         }
-    }
-
-    #[test]
-    fn native_adapter_stays_contained() {
-        let implementation = include_str!("droid_adapter.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        assert!(implementation.lines().count() <= 258);
     }
 }

@@ -1,0 +1,267 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:dfd784af9197e9357dddf30f8fd122b20c0d471d635865177361c698c7125aa5",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/devtools/checksums@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "sha256sum",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/checksums@v1",
+        "path": "../../tests/fixtures/model_tranche/checksums.json",
+        "digest": "blake3:e9ba7740530a691bad6bff70b9b6b0adaab5fe2fcef7e0636f68db8b356454c5"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "checksums-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "checksums-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": [
+          "input_determined_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/checksums@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read"
+    ],
+    "expected_boundaries": [
+      "input_determined_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/checksums@v1",
+      "commands": [
+        "b2sum",
+        "cksum",
+        "md5sum",
+        "sha1sum",
+        "sha256sum",
+        "sha512sum",
+        "shasum"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--check",
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--binary",
+            "-b"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--text",
+            "-t"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--tag"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ignore-missing"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--quiet"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--status"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--algorithm",
+            "-a"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [
+              "-c",
+              "--check"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "input_determined_arguments",
+          "class": "unresolved",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "checked paths are read from checksum file contents"
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "escaped-pattern",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/work/[ab]"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "fs_path",
+          "glob": "/work/\\[ab\\]"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

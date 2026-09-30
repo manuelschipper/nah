@@ -39,6 +39,7 @@ pub struct ExecProtocolVersion(u32);
 
 impl ExecProtocolVersion {
     pub const V1: Self = Self(1);
+    pub const V2: Self = Self(2);
 
     pub fn new(value: u32) -> Result<Self, CtxError> {
         nonzero_version(value).map(Self)

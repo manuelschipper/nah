@@ -1,28 +1,35 @@
 //! Exact decision pipeline shared by live calls and frozen corpus execution.
 
-use std::collections::{BTreeMap, BTreeSet};
-#[cfg(feature = "effinterp")]
-use std::time::Instant;
+use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
 
-use nah_proto::action::{ActionStream, Coverage, EffectKind, SemanticCode};
+use nah_proto::action::Coverage;
 use nah_proto::ctx::Ctx;
 use nah_proto::decision::{DecisionCore, Verdict};
 use nah_proto::extension::{ExtensionConsultation, ValidatedExtensionResponse};
-use nah_proto::observation::{
-    EnvObservation, Observation, ObservationFailure, ObservationQuery, ObservationRequest,
-    ObservationValue, Observed,
-};
+use nah_proto::observation::{Observation, ObservationRequest};
+use nah_proto::runtime_protection::SelfProtectionProjection;
 use nah_proto::tool::ToolCallInput;
 
 use crate::code_input::CodeInput;
 use crate::live_state::LiveState;
 use crate::nap::NapMode;
 
+/// Frozen replays get this much so a corpus decision never depends on the
+/// interactive deadline.
+const REPLAY_EVIDENCE_BUDGET: Duration = Duration::from_secs(60);
+/// Interactive calls get this much total evidence time; expiry is a typed
+/// refusal, never a verdict. An optimised release build finishes a `/`-walking
+/// analysis well inside 100 ms. Unoptimised builds exist only for local tests,
+/// where a wall-clock deadline would make end-to-end verdicts depend on host
+/// load, so they take the replay budget; tests that need the fail-to-delegate
+/// path expire the deadline explicitly.
+const PRODUCTION_EVIDENCE_BUDGET: Duration = if cfg!(debug_assertions) {
+    REPLAY_EVIDENCE_BUDGET
+} else {
+    Duration::from_millis(100)
+};
 const MAX_ENVIRONMENT_ROUNDS: usize = 64;
-const MAX_ENVIRONMENT_NAMES: usize = 256;
-const MAX_ENVIRONMENT_VALUE_BYTES: usize = 1024 * 1024;
-const ENVIRONMENT_LIMIT_REASON: &str = "environment preflight exceeds nah's analysis limits";
-const ENVIRONMENT_OSCILLATION_REASON: &str = "environment changed repeatedly during nah analysis";
 
 /// Analysis identity stays outside the predicate-visible graph.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -42,32 +49,46 @@ fn evidence_fingerprint(value: &impl serde::Serialize) -> String {
     )
 }
 
+fn memo_context(
+    provenance: &EvidenceProvenance,
+    source_identity: impl Into<String>,
+) -> nah_extensions::MemoContext {
+    nah_extensions::MemoContext::new(
+        provenance.producer.clone(),
+        provenance.model.clone(),
+        provenance.limits.clone(),
+        provenance.input_fingerprint.clone(),
+        source_identity,
+    )
+}
+
+/// One pipeline decision with everything it was reduced from: guard evidence,
+/// observation, custom-guard consultations, evaluation failures, and analysis
+/// refusals.
 pub struct DecisionResult {
     evidence_provenance: Option<EvidenceProvenance>,
     guard_evidence:
         Option<Result<nah_proto::effects::GuardEvidence, nah_proto::effects::EvidenceError>>,
     core: DecisionCore,
-    action_stream: ActionStream,
-    #[cfg(feature = "effinterp")]
-    effinterp_action_stream: Option<nah_proto::stream::ActionStream>,
     observation: Option<Observation>,
     warnings: Vec<String>,
     consultations: Vec<ExtensionConsultation>,
     diagnostics: Vec<nah_extensions::ConsultationDiagnostic>,
     failures: Vec<EvaluationFailure>,
     refusals: Vec<AnalysisRefusal>,
-    #[cfg(feature = "effinterp")]
-    effinterp: Option<EffinterpShadow>,
+    effinterp: Option<EffinterpAnalysis>,
 }
 
-#[cfg(feature = "effinterp")]
-pub(crate) struct EffinterpShadow {
-    plan: nah_effinterp::Plan,
-    annotations: Vec<nah_proto::action_v2::EffectAnnotation>,
+pub(crate) struct EffinterpAnalysis {
+    plan: nah_proto::effinterp_proto::Plan,
+    annotations: Vec<nah_proto::effect_annotation::EffectAnnotation>,
+    /// Whole decision pipeline time, not engine time alone; see the accessor.
     engine_time_us: u64,
     gap: bool,
 }
 
+/// A Nah component or custom guard that could not finish evaluating a call,
+/// named by a stable failure code.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EvaluationFailure {
     source: EvaluationFailureSource,
@@ -81,6 +102,8 @@ enum EvaluationFailureSource {
     CustomGuard,
 }
 
+/// Where the pipeline stopped analyzing a call, from an invalid call site to an
+/// engine boundary, with the recovery advice shown to the agent.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AnalysisRefusal {
     component: &'static str,
@@ -138,7 +161,11 @@ impl EvaluationFailure {
 }
 
 impl AnalysisRefusal {
-    fn new(component: &'static str, code: &'static str, recovery: RecoveryAdvice) -> Self {
+    pub(crate) fn new(
+        component: &'static str,
+        code: &'static str,
+        recovery: RecoveryAdvice,
+    ) -> Self {
         Self {
             component,
             code,
@@ -179,7 +206,8 @@ impl DecisionResult {
     pub fn evidence_provenance(&self) -> Option<&EvidenceProvenance> {
         self.evidence_provenance.as_ref()
     }
-    /// Neutral evidence from the same normal analysis; family migration is staged.
+    /// Typed guard evidence the decision was reduced from. Consumers project
+    /// display facts from it.
     pub fn guard_evidence(
         &self,
     ) -> Option<Result<&nah_proto::effects::GuardEvidence, &nah_proto::effects::EvidenceError>>
@@ -188,15 +216,6 @@ impl DecisionResult {
     }
     pub fn core(&self) -> &DecisionCore {
         &self.core
-    }
-
-    pub fn action_stream(&self) -> &ActionStream {
-        &self.action_stream
-    }
-
-    #[cfg(feature = "effinterp")]
-    pub fn effinterp_action_stream(&self) -> Option<&nah_proto::stream::ActionStream> {
-        self.effinterp_action_stream.as_ref()
     }
 
     pub fn observation(&self) -> Option<&Observation> {
@@ -219,8 +238,7 @@ impl DecisionResult {
         &self.refusals
     }
 
-    #[cfg(feature = "effinterp")]
-    pub(crate) fn effinterp(&self) -> Option<&EffinterpShadow> {
+    pub(crate) fn effinterp(&self) -> Option<&EffinterpAnalysis> {
         self.effinterp.as_ref()
     }
 
@@ -254,16 +272,21 @@ impl DecisionResult {
     }
 }
 
-#[cfg(feature = "effinterp")]
-impl EffinterpShadow {
-    pub(crate) fn plan(&self) -> &nah_effinterp::Plan {
+impl EffinterpAnalysis {
+    pub(crate) fn plan(&self) -> &nah_proto::effinterp_proto::Plan {
         &self.plan
     }
 
-    pub(crate) fn annotations(&self) -> &[nah_proto::action_v2::EffectAnnotation] {
+    pub(crate) fn annotations(&self) -> &[nah_proto::effect_annotation::EffectAnnotation] {
         &self.annotations
     }
 
+    /// Decision pipeline elapsed wall time in microseconds, despite the name:
+    /// measured from the start of `decide_with_evidence_budget` until this
+    /// analysis is built, so it covers observation, projection, guard
+    /// evaluation, custom-guard consultation (child processes and memo cache)
+    /// and verdict reduction. Live-state preparation before the pipeline and
+    /// dispatch or audit work after it are excluded.
     pub(crate) const fn engine_time_us(&self) -> u64 {
         self.engine_time_us
     }
@@ -284,8 +307,12 @@ fn failure_recovery(failure: &EvaluationFailure) -> RecoveryAdvice {
     }
 }
 
-/// Run the exact application pipeline with a supplied observation source.
-/// Live CLI calls and frozen corpus execution both enter through this function.
+/// Run the application pipeline with a supplied observation source and no
+/// live state: normal enforcement, an empty self-protection projection, and no
+/// custom-guard consultation. Live hooks enter through
+/// `decide_live_with_self_protection`, which adds the nap posture, runtime
+/// self-protection and custom guards; frozen corpus replay enters through
+/// `decide_replay` and `decide_replay_code`.
 pub fn decide_with<F>(input: &ToolCallInput, ctx: &Ctx, observe: F) -> DecisionResult
 where
     F: FnMut(&ObservationRequest) -> Result<Observation, String>,
@@ -294,12 +321,10 @@ where
         input,
         None,
         ctx,
-        &nah_actions::SelfProtectionProjection::default(),
+        &SelfProtectionProjection::default(),
         nah_policy::EnforcementMode::Normal,
         observe,
-        |_, _| ConsultedExtensions::default(),
-        false,
-        false,
+        |_, _, _| ConsultedExtensions::default(),
     )
 }
 
@@ -317,21 +342,10 @@ where
         input,
         Some(code),
         ctx,
-        &nah_actions::SelfProtectionProjection::default(),
+        &SelfProtectionProjection::default(),
         nah_policy::EnforcementMode::Normal,
         observe,
-        |_, _| ConsultedExtensions::default(),
-        false,
-        false,
-    )
-}
-
-pub(crate) fn decide_live(input: &ToolCallInput, state: &LiveState) -> DecisionResult {
-    decide_live_with_self_protection(
-        input,
-        None,
-        state,
-        &nah_actions::SelfProtectionProjection::default(),
+        |_, _, _| ConsultedExtensions::default(),
     )
 }
 
@@ -339,33 +353,33 @@ pub(crate) fn decide_live_with_self_protection(
     input: &ToolCallInput,
     code: Option<&CodeInput>,
     state: &LiveState,
-    self_protection: &nah_actions::SelfProtectionProjection,
+    self_protection: &SelfProtectionProjection,
 ) -> DecisionResult {
-    let mode = match state.nap.map(|nap| nap.mode()) {
-        None => nah_policy::EnforcementMode::Normal,
+    // A guard nap already removed its guards from the live state, so the
+    // rest of enforcement runs normally.
+    let mode = match state.nap.as_ref().map(|nap| nap.mode()) {
+        None | Some(NapMode::Guards(_)) => nah_policy::EnforcementMode::Normal,
         Some(NapMode::SelfProtection) => nah_policy::EnforcementMode::SelfProtectionPaused,
         Some(NapMode::All) => nah_policy::EnforcementMode::AllPaused,
     };
-    #[cfg(feature = "effinterp")]
-    let effinterp_enabled = state.effinterp_enabled;
-    #[cfg(not(feature = "effinterp"))]
-    let effinterp_enabled = false;
+    let self_protection = self_protection.clone().with_installed_executables(
+        crate::live_state::nah_executable_paths(state.ctx.platform()),
+    );
     let mut result = decide_with_extensions_mode(
         input,
         code,
         &state.ctx,
-        self_protection,
+        &self_protection,
         mode,
         |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-        |observation, action_stream| {
+        |observation, evidence, memo_context| {
             let output = nah_extensions::consult_extensions(
                 &state.extensions,
                 &state.ctx,
                 observation,
-                action_stream,
-                #[cfg(feature = "effinterp")]
-                None,
+                evidence,
                 &state.cache,
+                memo_context,
             );
             ConsultedExtensions {
                 consultations: output.consultations,
@@ -379,21 +393,16 @@ pub(crate) fn decide_live_with_self_protection(
                     .collect(),
             }
         },
-        effinterp_enabled,
-        false,
     );
     if state.extension_state_unavailable && mode != nah_policy::EnforcementMode::AllPaused {
         result.push_failure(EvaluationFailure::nah("custom-guard-state", "unavailable"));
     }
     result.prepend_warnings(state.extensions.warnings());
     let mut state_warnings = state.warnings.clone();
-    if let Some(active) = state.nap {
-        let scope = match active.mode() {
-            NapMode::SelfProtection => "self-protection",
-            NapMode::All => "all enforcement",
-        };
+    if let Some(active) = &state.nap {
         state_warnings.push(format!(
-            "{scope} nap active globally until unix timestamp {}",
+            "{} nap active globally until unix timestamp {}",
+            active.mode().scope(),
             active.expires_at()
         ));
     }
@@ -410,37 +419,150 @@ fn decide_with_extensions<F, U>(
 ) -> DecisionResult
 where
     F: FnMut(&ObservationRequest) -> Result<Observation, String>,
-    U: FnOnce(&Observation, &ActionStream) -> ConsultedExtensions,
+    U: FnOnce(&Observation, &nah_proto::effects::GuardEvidence) -> ConsultedExtensions,
 {
     decide_with_extensions_mode(
         input,
         None,
         ctx,
-        &nah_actions::SelfProtectionProjection::default(),
+        &SelfProtectionProjection::default(),
         nah_policy::EnforcementMode::Normal,
         observe,
-        consult,
-        false,
-        false,
+        move |observation, evidence, _| consult(observation, evidence),
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Consumer validation, then one bounded engine analysis under the production
+/// budget with host-served sources. Every live entry point composes here.
 fn decide_with_extensions_mode<F, U>(
     input: &ToolCallInput,
     code: Option<&CodeInput>,
     ctx: &Ctx,
-    self_protection: &nah_actions::SelfProtectionProjection,
+    self_protection: &SelfProtectionProjection,
     mode: nah_policy::EnforcementMode,
-    mut observe: F,
+    observe: F,
     consult: U,
-    effinterp_enabled: bool,
-    simulate_inline_failure: bool,
 ) -> DecisionResult
 where
     F: FnMut(&ObservationRequest) -> Result<Observation, String>,
-    U: FnOnce(&Observation, &ActionStream) -> ConsultedExtensions,
+    U: FnOnce(
+        &Observation,
+        &nah_proto::effects::GuardEvidence,
+        &nah_extensions::MemoContext,
+    ) -> ConsultedExtensions,
 {
+    decide_bounded(
+        input,
+        code,
+        ctx,
+        self_protection,
+        mode,
+        PRODUCTION_EVIDENCE_BUDGET,
+        None,
+        None,
+        observe,
+        consult,
+    )
+}
+
+fn push_refusal(refusals: &mut Vec<AnalysisRefusal>, refusal: AnalysisRefusal) {
+    if !refusals.contains(&refusal) {
+        refusals.push(refusal);
+    }
+}
+
+fn delegated_with_refusals(warning: String, refusals: Vec<AnalysisRefusal>) -> DecisionResult {
+    let core = DecisionCore::new_with_coverage(Coverage::Partial, Verdict::Delegate, vec![])
+        .expect("an unanalyzed call delegates without attributions");
+    DecisionResult {
+        guard_evidence: None,
+        evidence_provenance: None,
+        core,
+        observation: None,
+        warnings: vec![warning],
+        consultations: vec![],
+        diagnostics: vec![],
+        failures: vec![],
+        refusals,
+        effinterp: None,
+    }
+}
+
+pub(crate) fn failed_delegate(
+    component: &'static str,
+    code: &'static str,
+    warning: &'static str,
+) -> DecisionResult {
+    let mut result = delegated_with_refusals(warning.to_owned(), vec![]);
+    result
+        .failures
+        .push(EvaluationFailure::nah(component, code));
+    result
+}
+
+/// The decision path. Adapter normalization and the call site are consumer
+/// contracts checked before analysis; everything about the command itself is
+/// the engine's to analyze, so no other parser runs first.
+#[allow(clippy::too_many_arguments)]
+fn decide_bounded<F, U>(
+    input: &ToolCallInput,
+    code: Option<&CodeInput>,
+    ctx: &Ctx,
+    self_protection: &SelfProtectionProjection,
+    mode: nah_policy::EnforcementMode,
+    analysis_budget: Duration,
+    sources: Option<&dyn nah_effinterp::SourceProvider>,
+    observations: Option<std::sync::Arc<dyn nah_effinterp::ObservationResolver>>,
+    observe: F,
+    consult: U,
+) -> DecisionResult
+where
+    F: FnMut(&ObservationRequest) -> Result<Observation, String>,
+    U: FnOnce(
+        &Observation,
+        &nah_proto::effects::GuardEvidence,
+        &nah_extensions::MemoContext,
+    ) -> ConsultedExtensions,
+{
+    let mut budget = nah_effinterp::EvidenceBudget::after(analysis_budget);
+    if let Some(observations) = observations {
+        budget = budget.with_observations(observations);
+    }
+    decide_with_evidence_budget(
+        input,
+        code,
+        ctx,
+        self_protection,
+        mode,
+        budget,
+        sources,
+        observe,
+        consult,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn decide_with_evidence_budget<F, U>(
+    input: &ToolCallInput,
+    code: Option<&CodeInput>,
+    ctx: &Ctx,
+    self_protection: &SelfProtectionProjection,
+    mode: nah_policy::EnforcementMode,
+    budget: nah_effinterp::EvidenceBudget,
+    sources: Option<&dyn nah_effinterp::SourceProvider>,
+    mut observe: F,
+    consult: U,
+) -> DecisionResult
+where
+    F: FnMut(&ObservationRequest) -> Result<Observation, String>,
+    U: FnOnce(
+        &Observation,
+        &nah_proto::effects::GuardEvidence,
+        &nah_extensions::MemoContext,
+    ) -> ConsultedExtensions,
+{
+    use nah_effinterp::{SelectedInput, SourceLanguage};
+    let started = Instant::now();
     let mut refusals = Vec::new();
     if !input.normalization_complete() {
         push_refusal(
@@ -452,764 +574,279 @@ where
             ),
         );
     }
-    let call_site = match input.call_site(ctx.platform()) {
-        Ok(call_site) => call_site,
-        Err(_) => {
-            push_refusal(
-                &mut refusals,
-                AnalysisRefusal::new("call-site", "invalid", RecoveryAdvice::OperatorRequired),
-            );
-            return delegated_with_refusals("tool call could not be analyzed".into(), refusals);
-        }
-    };
-    let syntax = if input.tool() == "Bash" {
-        let Some(command) = input
+    if input.call_site(ctx.platform()).is_err() {
+        push_refusal(
+            &mut refusals,
+            AnalysisRefusal::new("call-site", "invalid", RecoveryAdvice::OperatorRequired),
+        );
+        return delegated_with_refusals("tool call could not be analyzed".into(), refusals);
+    }
+    if input.tool() == "Bash"
+        && !input
             .input()
             .as_object()
             .and_then(|object| object.get("command"))
-            .and_then(serde_json::Value::as_str)
-        else {
-            push_refusal(
-                &mut refusals,
-                AnalysisRefusal::new(
-                    "bash-input",
-                    "invalid-command",
-                    RecoveryAdvice::CorrectOrSimplify,
-                ),
-            );
-            return delegated_with_refusals("Bash input could not be analyzed".into(), refusals);
-        };
-        match nah_parse::normalize(command) {
-            Ok(syntax) => {
-                if !syntax.complete() {
-                    push_refusal(
-                        &mut refusals,
-                        AnalysisRefusal::new(
-                            "bash-syntax",
-                            "incomplete",
-                            RecoveryAdvice::CorrectOrSimplify,
-                        ),
-                    );
-                }
-                Some(syntax)
-            }
-            Err(nah_parse::ParseError::ExceedsLimit(limit)) => {
-                push_refusal(
-                    &mut refusals,
-                    AnalysisRefusal::new(
-                        "bash-parser",
-                        limit.code(),
-                        RecoveryAdvice::CorrectOrSimplify,
-                    ),
-                );
-                return delegated_with_refusals(limit.to_string(), refusals);
-            }
-            Err(_) => {
-                return failed_delegate_with_refusals(
-                    "bash-parser",
-                    "failed",
-                    "Bash parser failed",
-                    refusals,
-                );
-            }
-        }
-    } else {
-        None
-    };
-    let analysis_input = match (&syntax, code) {
-        (Some(syntax), _) => nah_actions::AnalysisInput::Bash(syntax, input),
-        (None, Some(CodeInput::Python { source })) if input.tool() == "execute_code" => {
-            nah_actions::AnalysisInput::VisibleCode(
-                nah_actions::VisibleCode::Python { source },
-                input,
-            )
-        }
-        (None, Some(CodeInput::PowerShell { source })) => nah_actions::AnalysisInput::VisibleCode(
-            nah_actions::VisibleCode::PowerShell { source },
-            input,
-        ),
-        (None, Some(CodeInput::Pwsh { source })) => nah_actions::AnalysisInput::VisibleCode(
-            nah_actions::VisibleCode::Pwsh { source },
-            input,
-        ),
-        (None, Some(CodeInput::Cmd { source })) => {
-            nah_actions::AnalysisInput::VisibleCode(nah_actions::VisibleCode::Cmd { source }, input)
-        }
-        (None, Some(CodeInput::OpenClawJavaScript { source, .. }))
-            if input.tool() == "OpenClawCodeModeExec" =>
-        {
-            nah_actions::AnalysisInput::VisibleCode(
-                nah_actions::VisibleCode::OpenClawJavaScript { source },
-                input,
-            )
-        }
-        (None, Some(CodeInput::OpenClawTypeScript { source, .. }))
-            if input.tool() == "OpenClawCodeModeExec" =>
-        {
-            nah_actions::AnalysisInput::VisibleCode(
-                nah_actions::VisibleCode::OpenClawTypeScript { source },
-                input,
-            )
-        }
-        (None, Some(CodeInput::Ipython { source })) if input.tool() == "ipython" => {
-            nah_actions::AnalysisInput::VisibleCode(
-                nah_actions::VisibleCode::Ipython { source },
-                input,
-            )
-        }
-        (None, _) => nah_actions::AnalysisInput::Native(input),
-    };
-    let plan =
-        nah_actions::plan_with_self_protection(analysis_input, ctx, &call_site, self_protection);
-    let (plan, observation) = match observe_stable_environment(
-        analysis_input,
-        ctx,
-        &call_site,
-        self_protection,
-        plan,
-        &mut observe,
-    ) {
-        Ok(stable) => stable,
-        Err(EnvironmentFailure::Unavailable) => {
-            return failed_delegate_with_refusals(
-                "observation",
-                "failed",
-                "observation failed",
-                refusals,
-            );
-        }
-        Err(EnvironmentFailure::Refuse(refusal)) => {
-            push_refusal(
-                &mut refusals,
-                AnalysisRefusal::new("environment", refusal.code(), refusal.recovery()),
-            );
-            return delegated_with_refusals(refusal.reason().to_owned(), refusals);
-        }
-    };
-    #[cfg(feature = "effinterp")]
-    let (mut effinterp_shadow, effinterp_warning) = if effinterp_enabled && input.tool() == "Bash" {
-        match run_effinterp_shadow(input, &call_site, ctx, self_protection, &mut observe) {
-            Ok(shadow) => (Some(shadow), None),
-            Err(error) => (None, Some(error)),
-        }
-    } else {
-        (None, None)
-    };
-    #[cfg(not(feature = "effinterp"))]
-    let effinterp_warning: Option<String> = {
-        let _ = effinterp_enabled;
-        None
-    };
-    refusals.extend(
-        plan.inline_report()
-            .refusals()
-            .iter()
-            .copied()
-            .map(inline_refusal),
-    );
-    let derivation = match nah_proto::ctx::derive_policy_ctx(ctx, &observation) {
-        Ok(derivation) => derivation,
-        Err(_) => {
-            return failed_delegate_with_refusals(
-                "policy-context",
-                "failed",
-                "policy context failed",
-                refusals,
-            );
-        }
-    };
-    let warnings = derivation
-        .unknown_declared_guards()
-        .iter()
-        .map(|name| format!("unknown project guard `{name}`"))
-        .chain(effinterp_warning)
-        .collect::<Vec<_>>();
-    let mut inline_failed = plan.inline_failed();
-    if simulate_inline_failure {
-        inline_failed = true;
-    }
-    let evidence_provenance = Some(EvidenceProvenance {
-        producer: format!("normal/{}", env!("CARGO_PKG_VERSION")),
-        model: None,
-        limits: BTreeMap::new(),
-        input_fingerprint: evidence_fingerprint(&(input, code.map(CodeInput::canonical_input))),
-        observation_fingerprint: evidence_fingerprint(&observation),
-    });
-    let guard_evidence = Some(plan.guard_evidence(&observation));
-    let (action_stream, language_safety_stream) =
-        nah_actions::finalize_with_language_safety_stream(plan, observation.clone());
-    #[cfg(feature = "effinterp")]
-    if let Some(shadow) = &mut effinterp_shadow {
-        shadow.gap = effinterp_gap(&action_stream, &shadow.plan);
-    }
-    if action_stream.effects().iter().any(|effect| {
-        matches!(
-            effect.kind(),
-            EffectKind::SystemState { operation } if operation == &SemanticCode::ANALYSIS_REFUSED
-        )
-    }) {
+            .is_some_and(serde_json::Value::is_string)
+    {
         push_refusal(
             &mut refusals,
             AnalysisRefusal::new(
-                "bash-lowering",
-                "refused",
+                "bash-input",
+                "invalid-command",
+                RecoveryAdvice::CorrectOrSimplify,
+            ),
+        );
+        return delegated_with_refusals("Bash input could not be analyzed".into(), refusals);
+    }
+    let selected = match code {
+        Some(code) => {
+            let (source, language) = match code {
+                CodeInput::Python { source } => (source, SourceLanguage::Python),
+                CodeInput::Ipython { source } => (source, SourceLanguage::Ipython),
+                CodeInput::PowerShell { source } => (source, SourceLanguage::PowerShell),
+                CodeInput::OpenClawJavaScript { source, .. } => {
+                    (source, SourceLanguage::JavaScript)
+                }
+                CodeInput::OpenClawTypeScript { source, .. } => {
+                    (source, SourceLanguage::TypeScript)
+                }
+            };
+            SelectedInput::Source {
+                input,
+                source,
+                language,
+            }
+        }
+        None if input.tool() == "Bash" => SelectedInput::Shell(input),
+        None => SelectedInput::Native(input),
+    };
+    let analysis = match analyze_observed(
+        selected,
+        ctx,
+        &budget,
+        self_protection,
+        sources,
+        &mut observe,
+    ) {
+        Ok(analysis) => analysis,
+        // An observation the host could not answer, or an analysis the engine
+        // could not complete, is an evaluation failure: a fail-closed hook
+        // blocks on it. An input or environment the engine declines is a
+        // refusal the caller can correct.
+        Err(refusal) => {
+            use nah_effinterp::RefusalKind;
+            let mut result = match refusal.kind {
+                RefusalKind::InvalidObservation => {
+                    failed_delegate("observation", "failed", "observation failed")
+                }
+                RefusalKind::AnalysisFailed | RefusalKind::InvalidGraph => {
+                    failed_delegate("effinterp", refusal.code, "effinterp analysis failed")
+                }
+                RefusalKind::DeadlineExceeded => {
+                    push_refusal(
+                        &mut refusals,
+                        AnalysisRefusal::new(
+                            refusal.component,
+                            refusal.code,
+                            RecoveryAdvice::CorrectOrSimplify,
+                        ),
+                    );
+                    delegated_with_refusals(
+                        format!("effinterp analysis unavailable: {}", refusal.code),
+                        std::mem::take(&mut refusals),
+                    )
+                }
+                RefusalKind::UnsupportedInput
+                | RefusalKind::UnsupportedContext
+                | RefusalKind::InvalidInput
+                | RefusalKind::EnvironmentLimit
+                | RefusalKind::EnvironmentDrift => {
+                    push_refusal(
+                        &mut refusals,
+                        AnalysisRefusal::new(
+                            "effinterp",
+                            refusal.code,
+                            if refusal.kind == RefusalKind::EnvironmentDrift {
+                                RecoveryAdvice::RetryOnce
+                            } else {
+                                RecoveryAdvice::CorrectOrSimplify
+                            },
+                        ),
+                    );
+                    delegated_with_refusals(
+                        format!("effinterp analysis unavailable: {}", refusal.code),
+                        std::mem::take(&mut refusals),
+                    )
+                }
+            };
+            result.refusals.splice(0..0, refusals);
+            return result;
+        }
+    };
+    if let Some(refusal) = &analysis.evaluation_refusal {
+        push_refusal(
+            &mut refusals,
+            AnalysisRefusal::new(
+                refusal.component,
+                refusal.code,
                 RecoveryAdvice::CorrectOrSimplify,
             ),
         );
     }
-    if mode == nah_policy::EnforcementMode::AllPaused {
-        let mut failures = Vec::new();
-        if inline_failed {
-            failures.push(EvaluationFailure::nah("inline-analysis", "failed"));
-        }
-        return match decide_policy(
-            &action_stream,
-            guard_evidence.as_ref().expect("normal evidence result"),
-            &language_safety_stream,
-            derivation.policy_ctx(),
-            &[],
-            mode,
-        ) {
-            Ok(core) => DecisionResult {
-                guard_evidence,
-                evidence_provenance,
-                core,
-                action_stream,
-                #[cfg(feature = "effinterp")]
-                effinterp_action_stream: None,
-                observation: Some(observation),
-                warnings,
-                consultations: vec![],
-                diagnostics: vec![],
-                failures,
-                refusals,
-                #[cfg(feature = "effinterp")]
-                effinterp: effinterp_shadow,
-            },
-            Err(()) => {
-                failures.push(EvaluationFailure::nah("shipped-policy", "failed"));
-                #[cfg_attr(not(feature = "effinterp"), allow(unused_mut))]
-                let mut result = failed_with_stream(
-                    action_stream,
-                    observation,
-                    warnings,
-                    vec![],
-                    vec![],
-                    failures,
-                    refusals,
-                );
-                #[cfg(feature = "effinterp")]
-                {
-                    result.effinterp = effinterp_shadow;
-                }
-                result
-            }
-        };
-    }
-    let ConsultedExtensions {
-        consultations,
-        responses,
-        warnings: extension_warnings,
-        diagnostics,
-        mut failures,
-    } = consult(&observation, &action_stream);
-    let mut warnings = warnings;
-    warnings.extend(extension_warnings);
-    if inline_failed {
-        failures.push(EvaluationFailure::nah("inline-analysis", "failed"));
-    }
-    match decide_policy(
-        &action_stream,
-        guard_evidence.as_ref().expect("normal evidence result"),
-        &language_safety_stream,
+    let derivation = match nah_proto::ctx::derive_policy_ctx(ctx, &analysis.observation) {
+        Ok(derivation) => derivation,
+        Err(_) => return failed_delegate("policy-context", "failed", "policy context failed"),
+    };
+    let mut consulted = if mode == nah_policy::EnforcementMode::AllPaused {
+        ConsultedExtensions::default()
+    } else {
+        let source_identity =
+            evidence_fingerprint(&(&analysis.source_observations, &analysis.path_observations));
+        let context = memo_context(&analysis.provenance, source_identity);
+        consult(&analysis.observation, &analysis.evidence, &context)
+    };
+    let coverage = analysis.evidence.coverage();
+    let core = match nah_policy::decide(
+        &analysis.evidence,
+        crate::catalog::shipped_guards(),
+        &analysis.guard_matches,
+        coverage,
         derivation.policy_ctx(),
-        &responses,
+        &consulted.responses,
         mode,
     ) {
-        Ok(core) => DecisionResult {
-            guard_evidence,
-            evidence_provenance,
-            core,
-            action_stream,
-            #[cfg(feature = "effinterp")]
-            effinterp_action_stream: None,
-            observation: Some(observation),
-            warnings,
-            consultations,
-            diagnostics,
-            failures,
-            refusals,
-            #[cfg(feature = "effinterp")]
-            effinterp: effinterp_shadow,
-        },
-        Err(()) => {
-            failures.push(EvaluationFailure::nah("shipped-policy", "failed"));
-            #[cfg_attr(not(feature = "effinterp"), allow(unused_mut))]
-            let mut result = failed_with_stream(
-                action_stream,
-                observation,
-                warnings,
-                consultations,
-                diagnostics,
-                failures,
-                refusals,
-            );
-            #[cfg(feature = "effinterp")]
-            {
-                result.effinterp = effinterp_shadow;
-            }
-            result
+        Ok(core) => core,
+        Err(_) => {
+            consulted
+                .failures
+                .push(EvaluationFailure::nah("shipped-policy", "failed"));
+            DecisionCore::new_with_coverage(coverage, Verdict::Delegate, vec![])
+                .expect("failed policy delegates")
         }
-    }
-}
-
-fn decide_policy(
-    action_stream: &ActionStream,
-    evidence: &Result<nah_proto::effects::GuardEvidence, nah_proto::effects::EvidenceError>,
-    language_safety_stream: &ActionStream,
-    policy_ctx: &nah_proto::ctx::PolicyCtx,
-    responses: &[ValidatedExtensionResponse],
-    mode: nah_policy::EnforcementMode,
-) -> Result<DecisionCore, ()> {
-    let evidence = evidence.as_ref().map_err(|_| ())?;
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        nah_policy::decide_with_mode_and_language_safety_stream(
-            action_stream,
-            evidence,
-            language_safety_stream,
-            policy_ctx,
-            responses,
-            mode,
-        )
-    }))
-    .map_err(|_| ())?
-    .map_err(|_| ())
-}
-
-fn observe_stable_environment<F>(
-    input: nah_actions::AnalysisInput<'_>,
-    ctx: &Ctx,
-    call_site: &nah_proto::tool::CallSite,
-    self_protection: &nah_actions::SelfProtectionProjection,
-    mut plan: nah_actions::AnalysisPlan,
-    observe: &mut F,
-) -> Result<(nah_actions::AnalysisPlan, Observation), EnvironmentFailure>
-where
-    F: FnMut(&ObservationRequest) -> Result<Observation, String>,
-{
-    let mut budget = EnvironmentBudget::default();
-    let mut known = None::<EnvironmentSnapshot>;
-
-    loop {
-        let names = environment_names(plan.observation_request());
-        budget.register_names(&names)?;
-
-        if !names.is_empty() && known.as_ref().is_none_or(|known| !known.covers(&names)) {
-            let request = environment_request(plan.observation_request())
-                .expect("a nonempty environment name set has an environment request");
-            let observation = observe_checked(&request, observe, &mut budget)?;
-            let snapshot = EnvironmentSnapshot::from_observation(&observation)?;
-            budget.register_snapshot(&snapshot)?;
-            plan = nah_actions::replan_with_environment_and_self_protection(
-                input,
-                ctx,
-                call_site,
-                &observation,
-                self_protection,
-            );
-            known = Some(snapshot);
-            continue;
-        }
-
-        let observation = observe_checked(plan.observation_request(), observe, &mut budget)?;
-        let observed = EnvironmentSnapshot::from_observation(&observation)?;
-        budget.register_values(&observed)?;
-        if names.is_empty()
-            || known
-                .as_ref()
-                .is_some_and(|known| known.agrees_with(&observed, &names))
-        {
-            return Ok((plan, observation));
-        }
-
-        budget.register_state(&observed)?;
-        plan = nah_actions::replan_with_environment_and_self_protection(
-            input,
-            ctx,
-            call_site,
-            &observation,
-            self_protection,
-        );
-        known = Some(observed);
-    }
-}
-
-fn environment_request(request: &ObservationRequest) -> Option<ObservationRequest> {
-    let queries = request
-        .queries()
+    };
+    let mut warnings = derivation
+        .unknown_declared_guards()
         .iter()
-        .filter(|query| matches!(query, ObservationQuery::Env { .. }))
-        .cloned()
+        .map(|name| format!("unknown project guard `{name}`"))
         .collect::<Vec<_>>();
-    (!queries.is_empty()).then(|| {
-        ObservationRequest::new(request.version(), request.request_id(), queries)
-            .expect("a plan's environment queries remain a valid environment-only request")
-    })
-}
-
-fn environment_names(request: &ObservationRequest) -> BTreeSet<String> {
-    request
-        .queries()
-        .iter()
-        .filter_map(|query| match query {
-            ObservationQuery::Env { name, .. } => Some(name.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
-fn observe_checked<F>(
-    request: &ObservationRequest,
-    observe: &mut F,
-    budget: &mut EnvironmentBudget,
-) -> Result<Observation, EnvironmentFailure>
-where
-    F: FnMut(&ObservationRequest) -> Result<Observation, String>,
-{
-    budget.register_round()?;
-    let observation = observe(request).map_err(|_| EnvironmentFailure::Unavailable)?;
-    observation
-        .bind(request)
-        .map_err(|_| EnvironmentFailure::Unavailable)?;
-    Ok(observation)
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum EnvironmentDatum {
-    Value(String),
-    Unset,
-    Error(ObservationFailure),
-}
-
-impl EnvironmentDatum {
-    fn value_bytes(&self) -> usize {
-        match self {
-            Self::Value(value) => value.len(),
-            Self::Unset | Self::Error(_) => 0,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct EnvironmentSnapshot {
-    values: BTreeMap<String, EnvironmentDatum>,
-}
-
-impl EnvironmentSnapshot {
-    fn from_observation(observation: &Observation) -> Result<Self, EnvironmentFailure> {
-        let mut values = BTreeMap::new();
-        for fact in observation.facts() {
-            let ObservationQuery::Env { name, .. } = fact.query() else {
-                continue;
-            };
-            let datum = match fact.value() {
-                ObservationValue::Env {
-                    observed:
-                        Observed::Ok {
-                            value: EnvObservation::Value { text },
-                        },
-                } => EnvironmentDatum::Value(text.clone()),
-                ObservationValue::Env {
-                    observed:
-                        Observed::Ok {
-                            value: EnvObservation::Unset,
-                        },
-                } => EnvironmentDatum::Unset,
-                ObservationValue::Env {
-                    observed: Observed::Error { error },
-                } => EnvironmentDatum::Error(*error),
-                _ => {
-                    return Err(EnvironmentFailure::Unavailable);
-                }
-            };
-            if values
-                .insert(name.clone(), datum.clone())
-                .is_some_and(|previous| previous != datum)
-            {
-                return Err(EnvironmentFailure::Unavailable);
-            }
-        }
-        Ok(Self { values })
-    }
-
-    fn covers(&self, names: &BTreeSet<String>) -> bool {
-        names.iter().all(|name| self.values.contains_key(name))
-    }
-
-    fn agrees_with(&self, observed: &Self, names: &BTreeSet<String>) -> bool {
-        names
-            .iter()
-            .all(|name| self.values.get(name) == observed.values.get(name))
-    }
-}
-
-#[derive(Default)]
-struct EnvironmentBudget {
-    rounds: usize,
-    names: BTreeSet<String>,
-    values: BTreeSet<(String, EnvironmentDatum)>,
-    value_bytes: usize,
-    states: BTreeSet<EnvironmentSnapshot>,
-}
-
-impl EnvironmentBudget {
-    fn register_round(&mut self) -> Result<(), EnvironmentFailure> {
-        if self.rounds == MAX_ENVIRONMENT_ROUNDS {
-            return Err(EnvironmentFailure::Refuse(EnvironmentRefusal::RoundLimit));
-        }
-        self.rounds += 1;
-        Ok(())
-    }
-
-    fn register_names(&mut self, names: &BTreeSet<String>) -> Result<(), EnvironmentFailure> {
-        self.names.extend(names.iter().cloned());
-        if self.names.len() > MAX_ENVIRONMENT_NAMES {
-            Err(EnvironmentFailure::Refuse(EnvironmentRefusal::NameLimit))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn register_values(
-        &mut self,
-        snapshot: &EnvironmentSnapshot,
-    ) -> Result<(), EnvironmentFailure> {
-        let additional = snapshot
-            .values
-            .iter()
-            .filter(|(name, value)| !self.values.contains(&(name.to_string(), (*value).clone())))
-            .map(|(_, value)| value.value_bytes())
-            .sum::<usize>();
-        if self.value_bytes.saturating_add(additional) > MAX_ENVIRONMENT_VALUE_BYTES {
-            return Err(EnvironmentFailure::Refuse(EnvironmentRefusal::ValueLimit));
-        }
-        self.value_bytes += additional;
-        self.values.extend(
-            snapshot
-                .values
-                .iter()
-                .map(|(name, value)| (name.clone(), value.clone())),
+    warnings.extend(consulted.warnings);
+    if analysis.evaluation_refusal.is_some() {
+        warnings.push("effinterp evaluation stopped: deadline-exceeded".into());
+    } else if coverage == Coverage::Partial {
+        warnings.push(
+            "effinterp analysis is incomplete; only established effects were evaluated".into(),
         );
-        Ok(())
     }
-
-    fn register_state(&mut self, snapshot: &EnvironmentSnapshot) -> Result<(), EnvironmentFailure> {
-        if self.states.insert(snapshot.clone()) {
-            Ok(())
-        } else {
-            Err(EnvironmentFailure::Refuse(EnvironmentRefusal::Oscillation))
-        }
-    }
-
-    fn register_snapshot(
-        &mut self,
-        snapshot: &EnvironmentSnapshot,
-    ) -> Result<(), EnvironmentFailure> {
-        self.register_values(snapshot)?;
-        self.register_state(snapshot)
-    }
-}
-
-enum EnvironmentFailure {
-    Unavailable,
-    Refuse(EnvironmentRefusal),
-}
-
-#[derive(Clone, Copy)]
-enum EnvironmentRefusal {
-    RoundLimit,
-    NameLimit,
-    ValueLimit,
-    Oscillation,
-}
-
-impl EnvironmentRefusal {
-    const fn code(self) -> &'static str {
-        match self {
-            Self::RoundLimit => "round-limit",
-            Self::NameLimit => "name-limit",
-            Self::ValueLimit => "value-limit",
-            Self::Oscillation => "oscillation",
-        }
-    }
-
-    const fn reason(self) -> &'static str {
-        match self {
-            Self::RoundLimit | Self::NameLimit | Self::ValueLimit => ENVIRONMENT_LIMIT_REASON,
-            Self::Oscillation => ENVIRONMENT_OSCILLATION_REASON,
-        }
-    }
-
-    const fn recovery(self) -> RecoveryAdvice {
-        match self {
-            Self::Oscillation => RecoveryAdvice::RetryOnce,
-            Self::RoundLimit | Self::NameLimit | Self::ValueLimit => {
-                RecoveryAdvice::CorrectOrSimplify
-            }
-        }
+    let audit = EffinterpAnalysis {
+        plan: analysis.plan,
+        annotations: analysis.annotations,
+        engine_time_us: started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+        gap: coverage == Coverage::Partial,
+    };
+    DecisionResult {
+        evidence_provenance: Some(analysis.provenance),
+        guard_evidence: Some(Ok(analysis.evidence)),
+        core,
+        observation: Some(analysis.observation),
+        warnings,
+        consultations: consulted.consultations,
+        diagnostics: consulted.diagnostics,
+        failures: consulted.failures,
+        refusals,
+        effinterp: Some(audit),
     }
 }
 
-fn inline_refusal(refusal: nah_inline::InlineRefusal) -> AnalysisRefusal {
-    AnalysisRefusal::new(
-        "inline-analysis",
-        refusal.code(),
-        RecoveryAdvice::CorrectOrSimplify,
+#[cfg(test)]
+pub(crate) fn decide_with_expired_budget(
+    input: &ToolCallInput,
+    ctx: &Ctx,
+    mode: nah_policy::EnforcementMode,
+) -> DecisionResult {
+    let budget = nah_effinterp::EvidenceBudget::after(Duration::from_secs(30));
+    budget.expire();
+    decide_with_evidence_budget(
+        input,
+        None,
+        ctx,
+        &SelfProtectionProjection::default(),
+        mode,
+        budget,
+        None,
+        |_| panic!("an expired budget must not request observations"),
+        |_, _, _| ConsultedExtensions::default(),
     )
 }
 
-fn push_refusal(refusals: &mut Vec<AnalysisRefusal>, refusal: AnalysisRefusal) {
-    if !refusals.contains(&refusal) {
-        refusals.push(refusal);
-    }
-}
-
-fn delegated_with_refusals(warning: String, refusals: Vec<AnalysisRefusal>) -> DecisionResult {
-    let stream = ActionStream::new(Coverage::Partial, vec![], vec![])
-        .expect("empty partial stream is the pre-analysis delegate contract");
-    let core = DecisionCore::new(&stream, Verdict::Delegate, vec![])
-        .expect("empty partial stream delegates");
-    DecisionResult {
-        guard_evidence: None,
-        evidence_provenance: None,
-        core,
-        action_stream: stream,
-        #[cfg(feature = "effinterp")]
-        effinterp_action_stream: None,
-        observation: None,
-        warnings: vec![warning],
-        consultations: vec![],
-        diagnostics: vec![],
-        failures: vec![],
-        refusals,
-        #[cfg(feature = "effinterp")]
-        effinterp: None,
-    }
-}
-
-pub(crate) fn failed_delegate(
-    component: &'static str,
-    code: &'static str,
-    warning: &'static str,
-) -> DecisionResult {
-    failed_delegate_with_refusals(component, code, warning, vec![])
-}
-
-fn failed_delegate_with_refusals(
-    component: &'static str,
-    code: &'static str,
-    warning: &'static str,
-    refusals: Vec<AnalysisRefusal>,
-) -> DecisionResult {
-    let mut result = delegated_with_refusals(warning.to_owned(), refusals);
-    result
-        .failures
-        .push(EvaluationFailure::nah(component, code));
-    result
-}
-
-fn failed_with_stream(
-    action_stream: ActionStream,
-    observation: Observation,
-    mut warnings: Vec<String>,
-    consultations: Vec<ExtensionConsultation>,
-    diagnostics: Vec<nah_extensions::ConsultationDiagnostic>,
-    failures: Vec<EvaluationFailure>,
-    refusals: Vec<AnalysisRefusal>,
-) -> DecisionResult {
-    warnings.push("policy evaluation failed".into());
-    let core = DecisionCore::new(&action_stream, Verdict::Delegate, vec![])
-        .expect("a policy failure delegates without attributions");
-    DecisionResult {
-        guard_evidence: None,
-        evidence_provenance: None,
-        core,
-        action_stream,
-        #[cfg(feature = "effinterp")]
-        effinterp_action_stream: None,
-        observation: Some(observation),
-        warnings,
-        consultations,
-        diagnostics,
-        failures,
-        refusals,
-        #[cfg(feature = "effinterp")]
-        effinterp: None,
-    }
-}
-
-#[cfg(feature = "effinterp")]
-fn run_effinterp_shadow<F>(
+/// Replay the production path from one frozen world: the caller answers the
+/// engine's source and path requests as well as host observations, supplies
+/// the enforcement posture a live nap would, and the replay budget replaces
+/// the interactive deadline.
+pub fn decide_replay<F>(
     input: &ToolCallInput,
-    call_site: &nah_proto::tool::CallSite,
     ctx: &Ctx,
-    self_protection: &nah_actions::SelfProtectionProjection,
-    observe: &mut F,
-) -> Result<EffinterpShadow, String>
+    mode: nah_policy::EnforcementMode,
+    sources: &dyn nah_effinterp::SourceProvider,
+    observations: std::sync::Arc<dyn nah_effinterp::ObservationResolver>,
+    observe: F,
+) -> DecisionResult
 where
     F: FnMut(&ObservationRequest) -> Result<Observation, String>,
 {
-    let command = input
-        .input()
-        .as_object()
-        .and_then(|input| input.get("command"))
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "effinterp shadow input is invalid".to_owned())?;
-    let started = Instant::now();
-    let plan = nah_effinterp::analyze_shell(command, call_site.requested_cwd().as_str())?;
-    let engine_time_us = started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-    let request = nah_effinterp::request(&plan, call_site);
-    let observation = observe(&request).map_err(|_| "effinterp shadow observation failed")?;
-    observation
-        .bind(&request)
-        .map_err(|_| "effinterp shadow observation mismatch")?;
-    let annotations =
-        nah_effinterp::annotate(&plan, &observation, ctx, self_protection.protected_paths());
-    Ok(EffinterpShadow {
-        plan,
-        annotations,
-        engine_time_us,
-        gap: false,
-    })
+    decide_bounded(
+        input,
+        None,
+        ctx,
+        &SelfProtectionProjection::default(),
+        mode,
+        REPLAY_EVIDENCE_BUDGET,
+        Some(sources),
+        Some(observations),
+        observe,
+        |_, _, _| ConsultedExtensions::default(),
+    )
 }
 
-#[cfg(feature = "effinterp")]
-fn effinterp_gap(action_stream: &ActionStream, plan: &nah_effinterp::Plan) -> bool {
-    use nah_effinterp::CoverageLevel;
-
-    let old = action_stream
-        .effects()
-        .iter()
-        .map(|effect| match effect.kind() {
-            EffectKind::Invocation { .. } => "process",
-            EffectKind::Filesystem { .. } | EffectKind::FilesystemUnresolved { .. } => "filesystem",
-            EffectKind::Git { .. } => "git",
-            EffectKind::Network { .. } => "network",
-            EffectKind::SystemState { .. } => "environment",
-        })
-        .collect::<BTreeSet<_>>();
-    let interpreted = plan
-        .effects
-        .iter()
-        .map(|effect| effect.operation.domain())
-        .collect::<BTreeSet<_>>();
-    old != interpreted
-        || !plan.boundaries.is_empty()
-        || plan
-            .coverage
-            .0
-            .values()
-            .any(|coverage| coverage.level != CoverageLevel::Full || !coverage.gaps.is_empty())
+/// Replay a runtime code tool call from one frozen world, as `decide_replay`
+/// does: the source in `language` (`python`, `ipython`, `powershell`,
+/// `javascript` or `typescript`) takes the code route its hook takes. Fails
+/// only on an unknown language or an input that is not a tool call.
+#[allow(clippy::too_many_arguments)]
+pub fn decide_replay_code<F>(
+    language: &str,
+    source: &str,
+    cwd: &str,
+    ctx: &Ctx,
+    mode: nah_policy::EnforcementMode,
+    sources: &dyn nah_effinterp::SourceProvider,
+    observations: std::sync::Arc<dyn nah_effinterp::ObservationResolver>,
+    observe: F,
+) -> Result<DecisionResult, String>
+where
+    F: FnMut(&ObservationRequest) -> Result<Observation, String>,
+{
+    let (tool, code) = CodeInput::for_replay(language, source.to_owned())
+        .ok_or_else(|| format!("unknown code language `{language}`"))?;
+    let input = ToolCallInput::new(
+        nah_proto::ctx::SchemaVersion::V1,
+        tool,
+        code.canonical_input(),
+        cwd,
+        None,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(decide_bounded(
+        &input,
+        Some(&code),
+        ctx,
+        &SelfProtectionProjection::default(),
+        mode,
+        REPLAY_EVIDENCE_BUDGET,
+        Some(sources),
+        Some(observations),
+        observe,
+        |_, _, _| ConsultedExtensions::default(),
+    ))
 }
 
 #[cfg(all(test, unix))]
@@ -1218,57 +855,191 @@ mod availability_tests;
 mod environment_tests;
 #[cfg(all(test, unix))]
 mod performance_tests;
+#[cfg(all(test, unix))]
+mod source_evidence_tests;
 
-/// UNDOCUMENTED-EFFINTERP: non-enforcing qualification seam. It has no custom guard,
+/// Non-enforcing evidence seam for the pipeline tests. It has no custom guard,
 /// record append, resolver, daemon, or operator-switch side effects.
-#[cfg(feature = "effinterp")]
-pub fn analyze_optional_with<F>(
+#[cfg(test)]
+fn analyze_with<F>(
     input: nah_effinterp::SelectedInput<'_>,
     ctx: &Ctx,
+    budget: &nah_effinterp::EvidenceBudget,
     mut observe: F,
-) -> Result<OptionalEvidenceAnalysis, nah_effinterp::AdapterRefusal>
+) -> Result<EvidenceAnalysis, nah_effinterp::AdapterRefusal>
 where
     F: FnMut(&ObservationRequest) -> Result<Observation, String>,
 {
-    let mut environment = BTreeMap::new();
-    for _ in 0..MAX_ENVIRONMENT_ROUNDS {
-        let plan = nah_effinterp::plan_evidence(input, ctx, environment)?;
-        let observation = observe(plan.request()).map_err(|_| nah_effinterp::AdapterRefusal {
-            kind: nah_effinterp::RefusalKind::InvalidObservation,
-            root_tool: input.input().tool().to_owned(),
-            code: "observation-failed",
-        })?;
-        environment = nah_effinterp::observed_environment(&plan, &observation)?;
-        if &environment == plan.environment() {
-            let (producer, model, limits) = plan.analysis_identity();
+    analyze_observed(
+        input,
+        ctx,
+        budget,
+        &SelfProtectionProjection::default(),
+        None,
+        &mut observe,
+    )
+}
+
+fn analyze_observed<F>(
+    input: nah_effinterp::SelectedInput<'_>,
+    ctx: &Ctx,
+    budget: &nah_effinterp::EvidenceBudget,
+    self_protection: &SelfProtectionProjection,
+    sources: Option<&dyn nah_effinterp::SourceProvider>,
+    observe: &mut F,
+) -> Result<EvidenceAnalysis, nah_effinterp::AdapterRefusal>
+where
+    F: FnMut(&ObservationRequest) -> Result<Observation, String>,
+{
+    let observation_failed = |_| nah_effinterp::AdapterRefusal {
+        kind: nah_effinterp::RefusalKind::InvalidObservation,
+        root_tool: input.input().tool().to_owned(),
+        component: "observation",
+        code: "observation-failed",
+    };
+    let deadline = |component| {
+        budget
+            .deadline_exceeded()
+            .then(|| nah_effinterp::AdapterRefusal {
+                kind: nah_effinterp::RefusalKind::DeadlineExceeded,
+                root_tool: input.input().tool().to_owned(),
+                component,
+                code: "deadline-exceeded",
+            })
+    };
+    let mut host = nah_effinterp::ObservedHost::default();
+    for round in 0..MAX_ENVIRONMENT_ROUNDS {
+        let plan = if round == 0 {
+            nah_effinterp::plan_evidence(input, ctx, host, &budget.first_round(), sources)?
+        } else {
+            nah_effinterp::plan_evidence(input, ctx, host, budget, sources)?
+        };
+        // A walk the deadline stopped still yields the effects it established.
+        // Once the observed host binds the plan they are evaluated like any
+        // other, and the expiry becomes the evaluation refusal.
+        let walk_expired = plan
+            .deadline_exceeded()
+            .then(|| nah_effinterp::AdapterRefusal {
+                kind: nah_effinterp::RefusalKind::DeadlineExceeded,
+                root_tool: input.input().tool().to_owned(),
+                component: "effinterp-engine",
+                code: "deadline-exceeded",
+            });
+        // Bind the environment from its own queries first. A round whose host
+        // still changes only re-plans, so it never pays for the full request's
+        // path observations and descendant walks.
+        let environment = match plan.environment_request() {
+            Some(request) => {
+                let observation = observe(&request).map_err(observation_failed)?;
+                nah_effinterp::observed_environment(&plan, &observation)?
+            }
+            None => nah_effinterp::ObservedHost::default(),
+        };
+        // Once the observed host binds this plan, an expired deadline stops
+        // re-planning but never evaluation: structural protection and the
+        // shipped guards still read the effects the engine established, and
+        // the expiry becomes an evaluation refusal on the evidence.
+        let expired = deadline("observation");
+        if &environment != plan.host() {
+            if let Some(refusal) = expired.or_else(|| deadline("environment-binding")) {
+                return Err(refusal);
+            }
+            host = environment;
+            continue;
+        }
+        let observation = plan
+            .observe_with(ctx.platform(), &mut *observe)
+            .map_err(observation_failed)?;
+        let expired = expired.or_else(|| deadline("observation"));
+        // Derive the host again from the full observation, so a value that
+        // changed since the environment observation re-plans as before.
+        host = nah_effinterp::observed_host(&plan, &observation)?;
+        if &host != plan.host() {
+            if let Some(refusal) = expired.or_else(|| deadline("environment-binding")) {
+                return Err(refusal);
+            }
+        } else {
+            let expired = walk_expired.or(expired).or_else(|| deadline("annotation"));
+            let (model, limits) = plan.analysis_identity();
             let provenance = EvidenceProvenance {
-                producer: producer.to_owned(),
+                producer: nah_effinterp::producer_identity().to_owned(),
                 model: Some(model.to_owned()),
                 limits: limits.clone(),
                 input_fingerprint: plan.input_fingerprint(),
-                observation_fingerprint: evidence_fingerprint(&observation),
+                observation_fingerprint: observation.fingerprint().to_owned(),
             };
-            return nah_effinterp::finalize_evidence(plan, &observation, ctx, &[]).map(
-                |evidence| OptionalEvidenceAnalysis {
-                    evidence,
-                    observation,
-                    provenance,
+            let source_observations = plan.source_observations().to_vec();
+            let path_observations = plan.path_observations().to_vec();
+            // Project the plan, evaluate the shipped guards over it, then
+            // complete the evidence with the gaps those guards named.
+            let projection = nah_effinterp::project(
+                &plan,
+                &observation,
+                ctx,
+                self_protection,
+                &nah_effinterp::ShippedGuardPolicy {
+                    gap_owners: shipped_gap_owners(),
                 },
-            );
+            )?;
+            let guard_matches = crate::catalog::shipped_guards()
+                .evaluate(
+                    projection.plan(),
+                    &projection.labels(),
+                    &projection.host_facts(),
+                )
+                .map_err(|_| nah_effinterp::AdapterRefusal {
+                    kind: nah_effinterp::RefusalKind::InvalidGraph,
+                    root_tool: input.input().tool().to_owned(),
+                    component: "effinterp",
+                    code: "evidence-graph",
+                })?;
+            let plan_snapshot = projection.plan().clone();
+            let (mut evidence, annotations) = projection.complete(&guard_matches)?;
+            let evaluation_refusal = expired.or_else(|| deadline("evidence-finalization"));
+            if let Some(refusal) = &evaluation_refusal {
+                evidence.refuse_evaluation(refusal.component, refusal.code);
+            }
+            return Ok(EvidenceAnalysis {
+                evidence,
+                guard_matches,
+                observation,
+                provenance,
+                source_observations,
+                path_observations,
+                plan: plan_snapshot,
+                annotations,
+                evaluation_refusal,
+            });
         }
     }
     Err(nah_effinterp::AdapterRefusal {
         kind: nah_effinterp::RefusalKind::EnvironmentDrift,
         root_tool: input.input().tool().to_owned(),
+        component: "environment-binding",
         code: "environment-rounds",
     })
 }
 
-/// UNDOCUMENTED-EFFINTERP: qualification output, never a policy verdict.
-#[cfg(feature = "effinterp")]
+/// The shipped guards' gap owners, the policy data the bridge's projection
+/// reads.
+fn shipped_gap_owners() -> &'static [nah_effinterp::GapOwner] {
+    crate::catalog::shipped_guards().gap_owners()
+}
+
+/// Evidence output, never a policy verdict.
 #[derive(Debug)]
-pub struct OptionalEvidenceAnalysis {
+struct EvidenceAnalysis {
     pub evidence: nah_proto::effects::GuardEvidence,
+    /// The shipped guard matches evaluated over `evidence`'s plan; the reducer
+    /// reads them beside the evidence.
+    pub guard_matches: nah_proto::guard_host::ShippedGuardMatches,
     pub observation: Observation,
     pub provenance: EvidenceProvenance,
+    /// Every script and import the engine demanded, with the identity of exactly
+    /// the bytes it was given. Raw source is never retained here.
+    pub source_observations: Vec<nah_effinterp::SourceObservation>,
+    pub path_observations: Vec<nah_proto::effinterp_proto::ProvenanceKind>,
+    evaluation_refusal: Option<nah_effinterp::AdapterRefusal>,
+    plan: nah_proto::effinterp_proto::Plan,
+    annotations: Vec<nah_proto::effect_annotation::EffectAnnotation>,
 }

@@ -1,0 +1,588 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:9f03d2a1230ee6cc427868adca38cbe94cef5ed0d87cf5909e2000487032caf9",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/cloud/wrangler@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "wrangler",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/cloud/wrangler@v1",
+        "path": "../../tests/fixtures/model_tranche/wrangler.json",
+        "digest": "blake3:c3402adca04322ba6be00fb10ced42821755f7037fbb7d71b58ee4168bf927bb"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "wrangler-d1-execute-app---command-DROP_TABLE_t-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "wrangler",
+            "d1",
+            "execute",
+            "app",
+            "--command",
+            "DROP TABLE t"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "wrangler-d1-execute-app---preview---command-DROP_TABLE_t-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "wrangler",
+            "d1",
+            "execute",
+            "app",
+            "--preview",
+            "--command",
+            "DROP TABLE t"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "wrangler-d1-execute-app---remote---command-DROP_TABLE_t---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "wrangler",
+            "d1",
+            "execute",
+            "app",
+            "--remote",
+            "--command",
+            "DROP TABLE t",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "wrangler-d1-execute-app---remote---local---command-DROP_TABLE_t-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "wrangler",
+            "d1",
+            "execute",
+            "app",
+            "--remote",
+            "--local",
+            "--command",
+            "DROP TABLE t"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "wrangler-d1-execute-app---remote=false---command-DROP_TABLE_t-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "wrangler",
+            "d1",
+            "execute",
+            "app",
+            "--remote=false",
+            "--command",
+            "DROP TABLE t"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "wrangler-deploy-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "wrangler",
+            "deploy"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "wrangler-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "wrangler-not-the-command",
+            "d1",
+            "delete",
+            "app"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/cloud/wrangler@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "cloud.resource.delete",
+      "database.schema_drop"
+    ],
+    "expected_boundaries": [
+      "unresolved_sql"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/cloud/wrangler@v1",
+      "commands": [
+        "wrangler"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--version",
+            "-v"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--config",
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--env",
+            "-e"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--cwd"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--env-file"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--profile"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--skip-confirmation",
+            "--yes",
+            "-y"
+          ],
+          "takes_value": false,
+          "boolean": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "database",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "subcommands": [
+            {
+              "names": [
+                "delete"
+              ],
+              "index": 0,
+              "flags": [],
+              "positionals": [
+                {
+                  "name": "database",
+                  "index": 0,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
+                }
+              ],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "positional",
+                    "name": "database"
+                  },
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "--version",
+                      "-h",
+                      "-v"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "cloud.resource.delete",
+                      "resource": {
+                        "kind": "cloud",
+                        "scope": {
+                          "kind": "unsupported",
+                          "identity": {
+                            "partition": {
+                              "state": "unknown"
+                            },
+                            "account": {
+                              "state": "unknown"
+                            },
+                            "project": {
+                              "state": "unknown"
+                            },
+                            "subscription": {
+                              "state": "unknown"
+                            },
+                            "region": {
+                              "state": "unknown"
+                            },
+                            "zone": {
+                              "state": "unknown"
+                            },
+                            "storage_account": {
+                              "state": "unknown"
+                            },
+                            "resource_group": {
+                              "state": "unknown"
+                            },
+                            "cluster": {
+                              "state": "unknown"
+                            },
+                            "namespace": {
+                              "state": "unknown"
+                            }
+                          },
+                          "access": []
+                        },
+                        "provider": {
+                          "kind": "literal",
+                          "value": "cloudflare"
+                        },
+                        "service": {
+                          "kind": "literal",
+                          "value": "d1"
+                        },
+                        "resource_kind": {
+                          "kind": "literal",
+                          "value": "database"
+                        },
+                        "id": {
+                          "kind": "current"
+                        }
+                      },
+                      "attributes": {},
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "cloud",
+                  "process"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            },
+            {
+              "names": [
+                "execute"
+              ],
+              "index": 0,
+              "nested_source": [
+                {
+                  "when": {
+                    "literal_values": [
+                      {
+                        "source": {
+                          "kind": "flag_values",
+                          "flags": [
+                            "--persist-to"
+                          ]
+                        },
+                        "shape": {
+                          "kind": "nonempty"
+                        },
+                        "allow_missing": false,
+                        "matches": false
+                      }
+                    ],
+                    "flag_present": [
+                      "--remote"
+                    ],
+                    "flag_absent": [
+                      "--help",
+                      "--local",
+                      "--version",
+                      "-h",
+                      "-v"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "language": "sql",
+                  "from": {
+                    "kind": "flag_values",
+                    "flags": [
+                      "--command"
+                    ]
+                  }
+                }
+              ],
+              "flags": [
+                {
+                  "names": [
+                    "--command"
+                  ],
+                  "takes_value": true
+                },
+                {
+                  "names": [
+                    "--file"
+                  ],
+                  "takes_value": true
+                },
+                {
+                  "names": [
+                    "--local"
+                  ],
+                  "takes_value": false,
+                  "boolean": true
+                },
+                {
+                  "names": [
+                    "--remote"
+                  ],
+                  "takes_value": false,
+                  "boolean": true
+                },
+                {
+                  "names": [
+                    "--preview"
+                  ],
+                  "takes_value": false,
+                  "boolean": true
+                },
+                {
+                  "names": [
+                    "--persist-to"
+                  ],
+                  "takes_value": true
+                },
+                {
+                  "names": [
+                    "--json"
+                  ],
+                  "takes_value": false,
+                  "boolean": true
+                }
+              ],
+              "positionals": [
+                {
+                  "name": "database",
+                  "index": 0,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
+                }
+              ],
+              "mutually_exclusive": [],
+              "effects": [],
+              "invocations": [],
+              "bindings": [],
+              "boundaries": [
+                {
+                  "when": {
+                    "flag_present": [
+                      "--remote"
+                    ],
+                    "flag_absent": [
+                      "--local"
+                    ],
+                    "flag_value_present": [
+                      "--file"
+                    ],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "reason": "unresolved_sql",
+                  "class": "unresolved",
+                  "domains": [
+                    "database"
+                  ],
+                  "detail": "the SQL file is not read"
+                },
+                {
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--remote"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "reason": "environment_configuration",
+                  "class": "unmodeled",
+                  "domains": [
+                    "database",
+                    "process"
+                  ],
+                  "detail": "without --remote the SQL runs against the local Miniflare D1 state (the default since Wrangler 3.33), and --preview requires --remote"
+                }
+              ],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "database",
+                  "process"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            }
+          ],
+          "names": [
+            "d1"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

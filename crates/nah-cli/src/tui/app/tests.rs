@@ -1,4 +1,5 @@
 use super::*;
+use crate::records::DecisionLogView;
 
 #[test]
 fn shipped_state_diagnostics_use_the_footer_warning_surface() {

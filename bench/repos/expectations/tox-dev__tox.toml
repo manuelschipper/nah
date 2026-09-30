@@ -1,0 +1,67 @@
+# Ground-truth expectations for tox-dev/tox (holdout-dev corpus).
+# Pinned SHA: 2a02926ca50bd4b1b440ac1dda2409c4c7e4fdd4.
+# Real entry: src/tox/run.py (`scripts.tox = "tox.run:run"`, pyproject.toml:79;
+#   src/tox/__main__.py also calls run()). run -> main -> setup_state ->
+#   get_options; commands then dispatch via state._options.cmd_handlers[...]
+#   backed by pluggy hooks (the plugin-system shape).
+# Derived from:
+#   src/tox/config/cli/parser.py (os.environ.get("NO_COLOR") / ("FORCE_COLOR") /
+#     ("TTY_COMPATIBLE") / ("TERM") while deciding color output,
+#     parser.py:556-562; os.environ.get("PYTHONHASHSEED"), parser.py:302),
+#   src/tox/config/cli/ini.py (user-level config: os.environ.get(
+#     "TOX_USER_CONFIG_FILE"), ini.py:24/28, and self.config_file.open(),
+#     ini.py:45),
+#   src/tox/plugin/manager.py (_load_external_plugins reads
+#     os.environ.get("TOX_DISABLED_EXTERNAL_PLUGINS"), manager.py:95; reached
+#     from the module-level MANAGER = Plugin() constructor, manager.py:141),
+#   src/tox/config/source/ini.py (tox.ini read_text, ini.py:37),
+#   src/tox/config/source/toml_pyproject.py (pyproject.toml path.open("rb"),
+#     toml_pyproject.py:94),
+#   src/tox/execute/local_sub_process/__init__.py (Popen of every test command,
+#     __init__.py:220),
+#   src/tox/provision.py (provision re-exec `python -m tox` via tox_env.execute,
+#     provision.py:170/174),
+#   src/tox/tox_env/python/pip/req/file.py (urlopen of remote requirements
+#     files, file.py:305).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the config/CLI env reads and config-file reads: they run
+# in setup_state before any command dispatch. Config-source choice is
+# discovery-dependent, hence modality=may on the per-format reads. Everything
+# an environment does (Popen of commands, venv creation, pip installs, the
+# urlopen above) sits behind the cmd_handlers dict + pluggy hook wall — see
+# known_hard.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=filesystem.read
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=NO_COLOR origin=src/tox/config/cli/parser.py realm=host
+op=environment.read res=FORCE_COLOR origin=src/tox/config/cli/parser.py realm=host
+op=environment.read res=TOX_USER_CONFIG_FILE origin=src/tox/config/cli/ini.py realm=host
+op=environment.read res=TOX_DISABLED_EXTERNAL_PLUGINS origin=src/tox/plugin/manager.py realm=host
+op=filesystem.read origin=src/tox/config/cli/ini.py realm=host modality=may
+op=filesystem.read origin=src/tox/config/source/ini.py realm=host modality=may
+op=filesystem.read origin=src/tox/config/source/toml_pyproject.py realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]
+# Everything past setup_state dispatches through cmd_handlers + pluggy hooks:
+# the Popen of test commands, .tox env dir writes, the provision re-exec, and
+# the remote-requirements urlopen.
+op=process.exec origin=src/tox/execute/local_sub_process
+op=filesystem.write
+op=network. origin=src/tox/tox_env/python/pip/req/file.py

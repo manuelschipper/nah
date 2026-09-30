@@ -1,0 +1,160 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:6d92efb6d8f1557a8021b4a15c628b6482b5bfb7939c44d9f1fd29c48e13788d",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/containers/skopeo@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "skopeo",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/containers/skopeo@v1",
+        "path": "../../tests/fixtures/model_tranche/skopeo.json",
+        "digest": "blake3:971de24ae4bbce00c47d926c349ceb5f97a1d0a5ef90ce50c8956ccf787723f9"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "skopeo-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "skopeo-not-the-command",
+            "delete",
+            "docker://example/app:old"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "container.remove"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/containers/skopeo@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "container.remove"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/containers/skopeo@v1",
+      "commands": [
+        "skopeo"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "container",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "delete"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "name",
+              "index": 0,
+              "variadic": true,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "name"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "container.remove",
+                  "resource": {
+                    "kind": "container",
+                    "runtime": {
+                      "kind": "literal",
+                      "value": "skopeo"
+                    },
+                    "name": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "container",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": false
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

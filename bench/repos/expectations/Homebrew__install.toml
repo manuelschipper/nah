@@ -1,0 +1,58 @@
+# Ground-truth expectations for Homebrew/install (holdout-dev corpus).
+# Pinned SHA: cced90146ea6d3057c03a636b668fef177415eb3.
+# Real entry: install.sh (single shell-heavy installer script; uninstall.sh is a
+#   second surface, not asserted here).
+# Derived from install.sh:
+#   env reads: CI/INTERACTIVE (install.sh:23-33), NONINTERACTIVE (:116-127),
+#     HOMEBREW_BREW_GIT_REMOTE/HOMEBREW_CORE_GIT_REMOTE (:198-199), HOME (:167/182),
+#     HOMEBREW_NO_INSTALL_FROM_API (:1000), ADD_PATHS_D (:1024), SHELL (tail),
+#   process execs: execute_sudo runs "/usr/bin/sudo" (:295-307); the permission
+#     and directory setup runs "/bin/mkdir" (MKDIR, :193) at :808/:820/:826/:1006,
+#     "/bin/chmod" (CHMOD, :192) at :784-812, chown (CHOWN, :171/:186) at
+#     :796/:814/:822, `ln -sf` for the brew symlink (:995), touch (:850), and
+#     macOS `/usr/sbin/softwareupdate -i` for the CLT (:863),
+#   network: the install itself is `git fetch --force origin` from
+#     https://github.com/Homebrew/brew (USABLE_GIT, :970-971 and :1015 for
+#     homebrew-core), then `git checkout` (:988) and a final
+#     `"${HOMEBREW_PREFIX}/bin/brew" update --force --quiet` (:1035),
+#   filesystem (via sudo'd tee): `echo ... | execute_sudo tee /etc/paths.d/homebrew`
+#     (:1027).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. The installer's whole job is env-gated mkdir/chown/chmod,
+# a git fetch of the brew repo, and the paths.d write. git lives in USABLE_GIT
+# (resolved via find_tool), so the git exec resource is symbolic, and the
+# network effect is carried by that git subprocess rather than a direct socket.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=process.exec
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=NONINTERACTIVE origin=install.sh realm=host
+op=environment.read res=HOMEBREW_BREW_GIT_REMOTE origin=install.sh realm=host
+op=environment.read res=HOME origin=install.sh realm=host
+op=process.exec res=sudo origin=install.sh realm=host modality=may
+op=process.exec res=mkdir origin=install.sh realm=host modality=may
+op=process.exec res=chmod origin=install.sh realm=host modality=may
+op=process.exec res=ln origin=install.sh realm=host modality=may
+op=process.exec res=tee origin=install.sh realm=host modality=may
+op=process.exec res=softwareupdate origin=install.sh realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]
+# The network fetch of Homebrew/brew happens through the symbolically-resolved
+# $USABLE_GIT subprocess (find_tool), not a direct download command.
+op=network.

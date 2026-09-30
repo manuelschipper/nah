@@ -1,0 +1,246 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:58893e26c01cf81be2c7b3aa5ccc60f5c405d20a0ed48312a20fd6b471511196",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/database/typeorm@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "typeorm",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/database/typeorm@v1",
+        "path": "../../tests/fixtures/model_tranche/typeorm.json",
+        "digest": "blake3:4484208c7a299970933c097212171c4c0cd377abcda8004a2bfd65f15fc7a357"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "typeorm-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "typeorm-not-the-command",
+            "schema:drop"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      },
+      {
+        "name": "typeorm-schema:drop---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "typeorm",
+            "schema:drop",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "typeorm-schema:log-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "typeorm",
+            "schema:log"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/database/typeorm@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "database.schema_drop"
+    ],
+    "expected_boundaries": [
+      "environment_configuration"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/database/typeorm@v1",
+      "commands": [
+        "typeorm",
+        "typeorm-ts-node-commonjs",
+        "typeorm-ts-node-esm"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--dataSource",
+            "-d"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--connection",
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--config",
+            "-f"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "database",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "schema:drop"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database_objects"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "the data source module is project code and selects the target database"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

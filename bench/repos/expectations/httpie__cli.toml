@@ -1,0 +1,33 @@
+# Ground-truth expectations for httpie/cli.
+# Derived from: httpie/__main__.py -> httpie.core.main -> program ->
+#   collect_messages (httpie/client.py: requests_session.send issues the HTTP
+#   request; the whole product is an HTTP client).
+# Authored 2026-08-18 by reading product source, NOT EI output.
+# Confidence: HIGH for network. HTTPie's sole purpose is issuing HTTP requests.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 1
+
+# v1 regression floor (domain-level).
+[should_find]
+op=network.
+
+# Fact-level assertions: the request is sent from client.py — the product
+# callback path (core.program -> client.collect_messages), not incidental
+# network use elsewhere. The endpoint is user input, hence symbolic.
+[facts]
+op=network.request origin=httpie/client.py realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=git.
+# HTTPie never deletes local files.
+op=filesystem.delete
+
+[known_hard]
+# --download writes the response body to a file; --output/request-from-file read.
+op=filesystem.write

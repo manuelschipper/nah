@@ -14,7 +14,10 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::activation::ActivationDatabase;
+use crate::user_state::nah_home_path;
 
+/// A discovered custom-guard bundle directory, its `run` entry point, and the
+/// activation projection its hashed files produce.
 #[derive(Clone, Debug)]
 pub struct ExtensionBundle {
     directory: PathBuf,
@@ -43,6 +46,8 @@ impl ExtensionBundle {
     }
 }
 
+/// The custom guards allowed to run, with a warning for each activation left
+/// inactive.
 #[derive(Clone, Debug)]
 pub struct ActiveExtensionCatalog {
     extensions: Vec<ExtensionBundle>,
@@ -71,6 +76,17 @@ impl ActiveExtensionCatalog {
 
     pub fn warnings(&self) -> &[String] {
         &self.warnings
+    }
+
+    /// Drops every extension with one of `names`, in any scope, so a guard
+    /// nap skips exactly those guards.
+    pub fn without_guards(mut self, names: &[String]) -> Self {
+        self.extensions.retain(|extension| {
+            !names
+                .iter()
+                .any(|name| name == extension.projection.identity().name())
+        });
+        self
     }
 }
 
@@ -156,6 +172,8 @@ pub fn discover_bundles(
     Ok((bundles, warnings))
 }
 
+/// Keeps each activated bundle whose bytes still match its activation; a project
+/// guard also needs its root trusted. Every other activation becomes a warning.
 pub fn load_active_extensions(
     home: &AbsolutePath,
     platform: Platform,
@@ -256,7 +274,7 @@ fn load_bundle(
     let manifest_bytes = read_regular_file(&manifest_path)?;
     let manifest: Manifest =
         toml::from_slice(&manifest_bytes).map_err(|_| BundleError::InvalidManifest)?;
-    if manifest.protocol != "exec/v1" {
+    if manifest.protocol != "exec/v2" {
         return Err(BundleError::UnsupportedProtocol);
     }
     let _ = manifest.provenance;
@@ -286,7 +304,7 @@ fn load_bundle(
     let projection = ActivationProjection::new(
         identity,
         bundle_hash,
-        ExecProtocolVersion::V1,
+        ExecProtocolVersion::V2,
         manifest.match_programs,
     )
     .map_err(|_| BundleError::InvalidManifest)?;
@@ -404,16 +422,10 @@ fn hash_bundle(files: &[CoveredFile]) -> Result<ContentHash, BundleError> {
     ContentHash::new(format!("{:x}", hash.finalize())).map_err(|_| BundleError::InvalidManifest)
 }
 
-pub fn guard_directory_path(home: &AbsolutePath, platform: Platform) -> PathBuf {
-    let separator = if platform == Platform::Windows {
-        '\\'
-    } else {
-        '/'
-    };
-    PathBuf::from(format!(
-        "{}{separator}.nah{separator}{GUARDS}",
-        home.as_str().trim_end_matches(['/', '\\'])
-    ))
+/// `<home>/.nah/guards`, the user custom-guard directory, spelled for the target
+/// platform.
+pub(crate) fn guard_directory_path(home: &AbsolutePath, platform: Platform) -> PathBuf {
+    nah_home_path(home, platform, &[GUARDS])
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -462,7 +474,7 @@ mod tests {
         fs::create_dir(&directory).unwrap();
         fs::write(
             directory.join("policy.toml"),
-            "name = \"tool\"\nmatch = [\"tool\"]\nprotocol = \"exec/v1\"\nprovenance = \"user\"\n",
+            "name = \"tool\"\nmatch = [\"tool\"]\nprotocol = \"exec/v2\"\nprovenance = \"user\"\n",
         )
         .unwrap();
         fs::write(directory.join(UNIX_ENTRYPOINT), "#!/bin/sh\nexit 0\n").unwrap();

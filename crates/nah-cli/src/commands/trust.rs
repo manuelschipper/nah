@@ -86,9 +86,13 @@ pub(crate) fn trusted_projects() -> Result<Vec<TrustedProject>, String> {
         &nah_extensions::activation_database_path(&home, platform),
     )
     .map_err(|error| error.to_string())?;
-    let (bundles, _) =
-        nah_extensions::discover_bundles(&home, platform, &trust, &crate::catalog::shipped_names())
-            .map_err(|error| error.to_string())?;
+    let (bundles, _) = nah_extensions::discover_bundles(
+        &home,
+        platform,
+        &trust,
+        &crate::catalog::reserved_guard_names(),
+    )
+    .map_err(|error| error.to_string())?;
     Ok(trust
         .trusted_roots()
         .iter()

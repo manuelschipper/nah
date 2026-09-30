@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_paths::reject_hook_path_symlink;
+use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
+use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 pub(crate) fn mutate_copilot_hook(
     install: bool,
@@ -150,7 +153,7 @@ fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, Strin
     } else {
         format!(
             "{} hook copilot run{}",
-            shell_quote(executable),
+            quote_posix_shell_word(executable),
             policy.command_suffix()
         )
     };
@@ -167,7 +170,7 @@ fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, Strin
 }
 
 fn load(path: &Path) -> Result<Value, String> {
-    reject_symlink(path, "copilot-hook-symlink-unsupported")?;
+    reject_hook_path_symlink(path, "copilot-hook-symlink-unsupported")?;
     let file = File::open(path).map_err(|_| "copilot-hook-read-failed")?;
     serde_json::from_reader(file).map_err(|_| "invalid-copilot-hook".into())
 }
@@ -211,9 +214,9 @@ fn lock(paths: &CopilotHookPaths) -> Result<File, String> {
         .lock
         .parent()
         .ok_or_else(|| "invalid-copilot-hook-lock-path".to_owned())?;
-    reject_symlink(parent, "copilot-hook-lock-failed")?;
+    reject_hook_path_symlink(parent, "copilot-hook-lock-failed")?;
     std::fs::create_dir_all(parent).map_err(|_| "copilot-hook-lock-failed")?;
-    reject_symlink(&paths.lock, "copilot-hook-lock-failed")?;
+    reject_hook_path_symlink(&paths.lock, "copilot-hook-lock-failed")?;
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
@@ -224,27 +227,28 @@ fn lock(paths: &CopilotHookPaths) -> Result<File, String> {
     let file = options
         .open(&paths.lock)
         .map_err(|_| "copilot-hook-lock-failed")?;
-    protect_private(&file)?;
+    restrict_file_to_owner(&file).map_err(|_| "copilot-hook-permissions-failed".to_owned())?;
     file.lock().map_err(|_| "copilot-hook-lock-failed")?;
     Ok(file)
 }
 
 fn reject_symlinks(paths: &CopilotHookPaths) -> Result<(), String> {
     for directory in &paths.directories {
-        reject_symlink(directory, "copilot-hook-symlink-unsupported")?;
+        reject_hook_path_symlink(directory, "copilot-hook-symlink-unsupported")?;
     }
-    reject_symlink(&paths.hook, "copilot-hook-symlink-unsupported")
+    reject_hook_path_symlink(&paths.hook, "copilot-hook-symlink-unsupported")
 }
 
 fn save(path: &Path, config: &Value) -> Result<(), String> {
-    reject_symlink(path, "copilot-hook-symlink-unsupported")?;
+    reject_hook_path_symlink(path, "copilot-hook-symlink-unsupported")?;
     let parent = path
         .parent()
         .ok_or_else(|| "invalid-copilot-hook-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "copilot-hook-write-failed")?;
     let mut temporary =
         tempfile::NamedTempFile::new_in(parent).map_err(|_| "copilot-hook-write-failed")?;
-    protect_private(temporary.as_file())?;
+    restrict_file_to_owner(temporary.as_file())
+        .map_err(|_| "copilot-hook-permissions-failed".to_owned())?;
     serde_json::to_writer_pretty(&mut temporary, config)
         .map_err(|_| "copilot-hook-write-failed")?;
     temporary
@@ -257,42 +261,5 @@ fn save(path: &Path, config: &Value) -> Result<(), String> {
     temporary
         .persist(path)
         .map_err(|_| "copilot-hook-write-failed")?;
-    sync_parent(parent)
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-fn reject_symlink(path: &Path, error: &'static str) -> Result<(), String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(error.into()),
-        Ok(_) => Ok(()),
-        Err(found) if found.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(error.into()),
-    }
-}
-
-#[cfg(unix)]
-fn protect_private(file: &File) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| "copilot-hook-permissions-failed".into())
-}
-
-#[cfg(not(unix))]
-fn protect_private(_file: &File) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), String> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| "copilot-hook-sync-failed".into())
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), String> {
-    Ok(())
+    sync_parent_directory(parent).map_err(|_| "copilot-hook-sync-failed".to_owned())
 }

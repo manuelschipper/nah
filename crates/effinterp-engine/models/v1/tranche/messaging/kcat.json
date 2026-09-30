@@ -1,0 +1,183 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:e5ac4f0340a6ca55a525620509077a84f3e50d9081c431e9b2c9803b345ab781",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/messaging/kcat@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "kcat",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/messaging/kcat@v1",
+        "path": "../../tests/fixtures/model_tranche/kcat.json",
+        "digest": "blake3:6bd22fb91f4ed1edaaba12759a216868e62da4f824e0ed7dc5ace781c2a85ee7"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "kcat-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "kcat-not-the-command",
+            "-P",
+            "-t",
+            "events"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "messaging.publish"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/messaging/kcat@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "messaging.publish"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/messaging/kcat@v1",
+      "commands": [
+        "kcat"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-P"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-t"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-t"
+            ]
+          },
+          "when": {
+            "flag_present": [
+              "-P"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "messaging.publish",
+              "resource": {
+                "kind": "messaging",
+                "scope": {
+                  "kind": "kafka_topic",
+                  "identity": {
+                    "partition": {
+                      "state": "not_applicable"
+                    },
+                    "account": {
+                      "state": "not_applicable"
+                    },
+                    "project": {
+                      "state": "not_applicable"
+                    },
+                    "subscription": {
+                      "state": "not_applicable"
+                    },
+                    "region": {
+                      "state": "not_applicable"
+                    },
+                    "zone": {
+                      "state": "not_applicable"
+                    },
+                    "storage_account": {
+                      "state": "not_applicable"
+                    },
+                    "resource_group": {
+                      "state": "not_applicable"
+                    },
+                    "cluster": {
+                      "state": "unknown"
+                    },
+                    "namespace": {
+                      "state": "not_applicable"
+                    }
+                  },
+                  "access": []
+                },
+                "system": {
+                  "kind": "literal",
+                  "value": "kafka"
+                },
+                "name": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "messaging",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

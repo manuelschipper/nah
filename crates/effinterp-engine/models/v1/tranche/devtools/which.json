@@ -1,0 +1,181 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:57db6e1ec4d6dab91c992157af06e583d7fd790484c8b0e4f183cab2b8624a46",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/devtools/which@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "which",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/which@v1",
+        "path": "../../tests/fixtures/model_tranche/which.json",
+        "digest": "blake3:c238a9cb793a086e1d7c2ce89ed010db86ea311dc4735a68b5ff7f66071a3a8b"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "which-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "which-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "environment.read"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/which@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "environment.read"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/which@v1",
+      "commands": [
+        "whereis",
+        "which"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--all",
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-b"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-m"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-u"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-B"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-M"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-S"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "names",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "environment.read",
+              "resource": {
+                "kind": "environment_variable",
+                "name": {
+                  "kind": "literal",
+                  "value": "PATH"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

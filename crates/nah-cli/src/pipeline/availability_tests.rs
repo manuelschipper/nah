@@ -9,7 +9,7 @@ use serde_json::json;
 
 use super::{
     ConsultedExtensions, EvaluationFailure, EvaluationFailureSource, RecoveryAdvice, decide_with,
-    decide_with_extensions, decide_with_extensions_mode, failure_recovery,
+    decide_with_extensions, failure_recovery,
 };
 use crate::catalog::all_shipped_guard_states_enabled;
 
@@ -21,7 +21,10 @@ fn selected_extension_failure_delegates_with_typed_failure() {
     let result = decide_with_extensions(
         &input,
         &ctx,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        |request| {
+            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
+                .map_err(|error| error.to_string())
+        },
         |_, _| ConsultedExtensions {
             failures: vec![custom_failure("broken", "timeout")],
             ..ConsultedExtensions::default()
@@ -56,7 +59,10 @@ fn shipped_block_survives_a_custom_guard_failure() {
     let result = decide_with_extensions(
         &input,
         &ctx,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        |request| {
+            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
+                .map_err(|error| error.to_string())
+        },
         |_, _| ConsultedExtensions {
             failures: vec![custom_failure("broken", "crash")],
             ..ConsultedExtensions::default()
@@ -74,7 +80,7 @@ fn custom_block_survives_another_custom_guard_failure() {
     let activation = ActivationProjection::new(
         GuardIdentity::user("blocking").unwrap(),
         ContentHash::new("a".repeat(64)).unwrap(),
-        ExecProtocolVersion::V1,
+        ExecProtocolVersion::V2,
         vec!["unknown-tool".into()],
     )
     .unwrap();
@@ -98,12 +104,14 @@ fn custom_block_survives_another_custom_guard_failure() {
     let result = decide_with_extensions(
         &input,
         &ctx,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-        |_, stream| {
+        |request| {
+            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
+                .map_err(|error| error.to_string())
+        },
+        |_, _| {
             let response = validate_response(
                 &ctx,
                 &activation,
-                stream,
                 ExtensionResponse {
                     block: Some(true),
                     abstain: None,
@@ -132,7 +140,10 @@ fn healthy_abstention_path_remains_available_to_delegate() {
     let result = decide_with_extensions(
         &input,
         &ctx,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        |request| {
+            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
+                .map_err(|error| error.to_string())
+        },
         |_, _| ConsultedExtensions::default(),
     );
 
@@ -151,83 +162,6 @@ fn observation_failure_delegates_with_typed_failure() {
     assert_eq!(result.failures()[0].component(), "observation");
     assert_eq!(result.failures()[0].code(), "failed");
     assert!(result.observation().is_none());
-}
-
-#[test]
-fn inline_analyzer_failure_during_all_nap_delegates_with_typed_failure() {
-    let temp = tempfile::tempdir().unwrap();
-    let (ctx, _) = context_and_input(temp.path());
-    let input = ToolCallInput::new(
-        SchemaVersion::V1,
-        "Bash",
-        json!({"command": r#"python3 -c "print('inline')""#}),
-        temp.path().to_str().unwrap(),
-        None,
-    )
-    .unwrap();
-
-    let result = decide_with_extensions_mode(
-        &input,
-        None,
-        &ctx,
-        &nah_actions::SelfProtectionProjection::default(),
-        nah_policy::EnforcementMode::AllPaused,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-        |_, _| panic!("all-nap calls must not consult extensions"),
-        false,
-        true,
-    );
-
-    assert_eq!(result.core().verdict(), Verdict::Delegate);
-    assert_eq!(
-        result.failures(),
-        [EvaluationFailure::nah("inline-analysis", "failed")]
-    );
-}
-
-#[test]
-fn shipped_effect_block_survives_an_inline_analyzer_failure() {
-    let temp = tempfile::tempdir().unwrap();
-    let home = AbsolutePath::new(Platform::Linux, temp.path().to_str().unwrap()).unwrap();
-    let ctx = Ctx::new(
-        Platform::Linux,
-        home.clone(),
-        all_shipped_guard_states_enabled(),
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
-    )
-    .unwrap();
-    let input = ToolCallInput::new(
-        SchemaVersion::V1,
-        "Bash",
-        json!({"command": "rm -rf /etc; python3 -c 'print(1)'"}),
-        home.as_str(),
-        None,
-    )
-    .unwrap();
-
-    let result = decide_with_extensions_mode(
-        &input,
-        None,
-        &ctx,
-        &nah_actions::SelfProtectionProjection::default(),
-        nah_policy::EnforcementMode::Normal,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-        |_, _| ConsultedExtensions::default(),
-        false,
-        true,
-    );
-
-    assert_eq!(
-        result.core().verdict(),
-        Verdict::Block,
-        "{:#?}",
-        result.action_stream()
-    );
-    assert_eq!(
-        result.failures(),
-        [EvaluationFailure::nah("inline-analysis", "failed")]
-    );
 }
 
 #[test]
@@ -268,7 +202,7 @@ fn policy_reducer_failure_delegates_with_typed_failure() {
     let activation = ActivationProjection::new(
         GuardIdentity::user("duplicate").unwrap(),
         ContentHash::new("a".repeat(64)).unwrap(),
-        ExecProtocolVersion::V1,
+        ExecProtocolVersion::V2,
         vec!["unknown-tool".into()],
     )
     .unwrap();
@@ -292,12 +226,14 @@ fn policy_reducer_failure_delegates_with_typed_failure() {
     let result = decide_with_extensions(
         &input,
         &ctx,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-        |_, stream| {
+        |request| {
+            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
+                .map_err(|error| error.to_string())
+        },
+        |_, _| {
             let response = validate_response(
                 &ctx,
                 &activation,
-                stream,
                 ExtensionResponse {
                     block: Some(true),
                     abstain: None,

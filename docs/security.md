@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 46 guards span seven classes; 29 default on.
+- 47 guards span seven classes; 29 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence
@@ -19,7 +19,7 @@ protected-state changes outside maintenance.
   bypass launches.
 - When space allows, the 8 MiB redacted log prioritizes up to 200 recent blocks
   on compaction. `nah test --json`/custom guards may expose unredacted
-  modeled input and inline code.
+  modeled input.
 - Credential and network-flow guards block modeled access to dangerous sinks.
   `secrets-store-read` defaults on; its evidence feeds `secrets-exfil`
   even when disabled.
@@ -41,7 +41,7 @@ protected-state changes outside maintenance.
 - `infra-k8s-delete` defaults off and blocks static namespace deletion,
   reviewed cluster-resource deletion, and bulk reviewed namespaced-resource
   deletion through `kubectl`. Named application resources and client/server
-  dry runs delegate; manifest, kustomize, stdin, raw, dynamic, and unknown-kind
+  dry runs delegate; manifest, kustomize, stdin, dynamic, and unknown-kind
   selections are partial and do not reach the guard.
 - `storage-backup-destroy` is on for whole Borg repos or all Restic/Velero backups.
 - `storage-recursive-delete` is off: deletion/sync is routine; argv hides purpose.
@@ -103,13 +103,13 @@ arbitrary executables, and scripted editors without a proven classified write.
 ## Operator maintenance
 
 `nah nap` pauses self-protection user-wide for 10 minutes; guards keep running.
-`nah nap --all` pauses all non-permanent enforcement and does not run custom
-guards. `nah wake` ends either nap.
+`nah nap all` pauses all non-permanent enforcement and does not run custom
+guards. `nah wake` ends any nap.
 
 Starting or extending a nap needs an operator terminal. Invalid or expired
 authenticated state fails awake; direct mutation of its state, key, or lock
 always blocks. Proven removal, rename, or recursive mutation of the home `.nah`
-container also stays protected during either nap; an agent doing that maintenance
+container also stays protected during any nap; an agent doing that maintenance
 requires operator action. Whole-home/root operations retain their existing tiers.
 A nap is user-global, and its changes persist.
 

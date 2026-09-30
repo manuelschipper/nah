@@ -1,0 +1,64 @@
+# Ground-truth expectations for charmbracelet/glow (holdout-hidden corpus).
+# Pinned SHA: e3970c813d93da1ea84edfca90c289d9afb82242.
+# Real entry: main.go (package main; cobra rootCmd with RunE: execute,
+#   main.go:63, Execute()d from func main, main.go:380 — the cobra
+#   command-tree shape).
+# Derived from:
+#   main.go (package init() calls tryLoadConfigFromDefaultPlaces, main.go:388,
+#     which reads XDG_CONFIG_HOME, :437, and GLOW_CONFIG_HOME, :441, at import
+#     time; sourceFromArg http.Get of an http(s) URL arg, :94; os.Open while
+#     walking a directory for a readme, :119, and of the file arg, :141;
+#     pager mode reads PAGER, :317, and exec.Command's the pager, :326),
+#   log.go (setupLog runs first in main(): MkdirAll of the cache dir, log.go:28,
+#     then os.OpenFile(glow.log, O_WRONLY|O_CREATE|O_APPEND), log.go:32 — an
+#     unconditional log-file write, the http-server crash-log lesson),
+#   github.go (github readme: http.Get of the API URL, github.go:28, and of
+#     the download URL, :46; gitlab.go mirrors it at gitlab.go:30/:50),
+#   config_cmd.go (glow config: ensureConfigFile os.Create + WriteString of
+#     the default config, config_cmd.go:75/:81),
+#   ui/ (TUI mode: os.ReadFile in ui/ui.go:168 and ui/stash.go:847; editor
+#     launch via the charmbracelet/x/editor dependency, ui/editor.go:14-18).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the log-file write (straight-line in main) and the
+# import-time env reads. The read/network/pager facts depend on the argument
+# form (file vs URL vs stdin), hence modality=may. TUI-loop effects sit behind
+# the bubbletea update dispatch — see known_hard. No delete exists anywhere in
+# product code.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.write
+op=environment.read
+
+# Fact-level assertions.
+[facts]
+op=filesystem.write res=glow.log origin=log.go realm=host
+op=environment.read res=XDG_CONFIG_HOME origin=main.go realm=host
+op=environment.read res=GLOW_CONFIG_HOME origin=main.go realm=host
+op=filesystem.read origin=main.go realm=host modality=may
+op=network. origin=main.go realm=host modality=may
+op=network. origin=github.go realm=host modality=may
+op=environment.read res=PAGER origin=main.go realm=host modality=may
+op=process.exec origin=main.go realm=host modality=may
+op=filesystem.write origin=config_cmd.go realm=host modality=may
+
+[forbidden]
+# glow renders markdown; it never deletes files and touches no database,
+# cloud service, message broker, or git plumbing.
+op=filesystem.delete
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]
+# TUI-mode effects run inside the bubbletea event-loop dispatch, and the
+# editor launch happens in the charmbracelet/x/editor dependency.
+op=filesystem.read origin=ui/ui.go
+op=filesystem.read origin=ui/stash.go

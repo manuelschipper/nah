@@ -1,0 +1,188 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:65b3afe690137c87e562dca1eda163ef87926fe9f85c5f30a678faca44db7b9c",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/messaging/nsq-pub@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "nsq_pub",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/messaging/nsq-pub@v1",
+        "path": "../../tests/fixtures/model_tranche/nsq-pub.json",
+        "digest": "blake3:c7501e13c491ac77c46c61d2a1276ef373c9cc1270ab28f7c7504b07d00252e7"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "nsq_pub-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "nsq_pub-not-the-command",
+            "localhost:4150",
+            "events",
+            "hello"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "messaging.publish"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/messaging/nsq-pub@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "messaging.publish"
+    ],
+    "expected_boundaries": [
+      "missing_required_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/messaging/nsq-pub@v1",
+      "commands": [
+        "nsq_pub"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [
+        {
+          "name": "endpoint",
+          "index": 0,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        },
+        {
+          "name": "topic",
+          "index": 1,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        },
+        {
+          "name": "message",
+          "index": 2,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "topic"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "messaging.publish",
+              "resource": {
+                "kind": "messaging",
+                "scope": {
+                  "kind": "unsupported",
+                  "identity": {
+                    "partition": {
+                      "state": "unknown"
+                    },
+                    "account": {
+                      "state": "unknown"
+                    },
+                    "project": {
+                      "state": "unknown"
+                    },
+                    "subscription": {
+                      "state": "unknown"
+                    },
+                    "region": {
+                      "state": "unknown"
+                    },
+                    "zone": {
+                      "state": "unknown"
+                    },
+                    "storage_account": {
+                      "state": "unknown"
+                    },
+                    "resource_group": {
+                      "state": "unknown"
+                    },
+                    "cluster": {
+                      "state": "unknown"
+                    },
+                    "namespace": {
+                      "state": "unknown"
+                    }
+                  },
+                  "access": []
+                },
+                "system": {
+                  "kind": "literal",
+                  "value": "nsq"
+                },
+                "name": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "messaging",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

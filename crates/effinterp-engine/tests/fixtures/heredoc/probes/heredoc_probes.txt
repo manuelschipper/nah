@@ -1,0 +1,36 @@
+### hd-trailing-newline
+cat <<EOF
+hello
+EOF
+
+### hd-then-more
+cat <<EOF
+hello
+EOF
+rm -f x
+### hd-space
+cat << EOF
+hello
+EOF
+### hd-bash-body
+bash <<EOF
+rm -rf /tmp/x
+EOF
+### hd-inline-terminator-eof-at-end
+cat <<EOF
+hello
+EOF
+### hd-tabs
+cat <<-EOF
+	hello
+	EOF
+### hd-pipe
+cat <<EOF | sh
+rm -f x
+EOF
+### hd-two
+cat <<A; cat <<B
+a
+A
+b
+B

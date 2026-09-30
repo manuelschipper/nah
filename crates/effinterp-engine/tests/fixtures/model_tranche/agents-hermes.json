@@ -1,0 +1,972 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "hermes"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "one_of(join($HERMES_HOME, /.env), join($HERMES_HOME, /auth.json), join($HERMES_HOME, /config.yaml), join($HOME, /.hermes/.env), join($HOME, /.hermes/auth.json), join($HOME, /.hermes/config.yaml))"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.connect"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "openrouter.ai"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "environment"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "environment.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "env:OPENROUTER_API_KEY"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "agent session executes model-selected actions"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "container",
+                    "database",
+                    "environment",
+                    "filesystem",
+                    "git",
+                    "messaging",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unmodeled_dynamic"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "cloud",
+            "container",
+            "database",
+            "environment",
+            "filesystem",
+            "git",
+            "messaging",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "container": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "database": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "messaging": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "hermes",
+          "config",
+          "set",
+          "model",
+          "test"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "one_of(join($HERMES_HOME, /.env), join($HERMES_HOME, /config.yaml), join($HOME, /.hermes/.env), join($HOME, /.hermes/config.yaml))"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "hermes",
+          "chat",
+          "-q",
+          "fix it"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "one_of(join($HERMES_HOME, /.env), join($HERMES_HOME, /auth.json), join($HERMES_HOME, /config.yaml), join($HOME, /.hermes/.env), join($HOME, /.hermes/auth.json), join($HOME, /.hermes/config.yaml))"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.connect"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "openrouter.ai"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "agent session executes model-selected actions"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "container",
+                    "database",
+                    "environment",
+                    "filesystem",
+                    "git",
+                    "messaging",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unmodeled_dynamic"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "cloud",
+            "container",
+            "database",
+            "environment",
+            "filesystem",
+            "git",
+            "messaging",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "container": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "database": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "messaging": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "hermes",
+          "--version"
+        ],
+        "cwd": "/work"
+      },
+      "forbidden_effects": [
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "filesystem"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "filesystem.read"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        },
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "filesystem"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "filesystem.write"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        },
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "network"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "network.connect"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        }
+      ],
+      "coverage": {
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "hermes",
+          "hooks",
+          "rm",
+          "nah hook hermes run"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join(<filesystem:?>, /shell-hooks-allowlist.json)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join(<filesystem:?>, /shell-hooks-allowlist.json)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "hermes",
+          "hooks",
+          "revoke",
+          "xnah hook hermes runx"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join(<filesystem:?>, /shell-hooks-allowlist.json)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join(<filesystem:?>, /shell-hooks-allowlist.json)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "hermes",
+          "config",
+          "unset",
+          "hooks.pre_tool_call.0"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join(<filesystem:?>, /config.yaml)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join(<filesystem:?>, /config.yaml)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "hermes",
+          "config",
+          "unset",
+          "hooks.pre_tool_callback"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join(<filesystem:?>, /config.yaml)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join(<filesystem:?>, /config.yaml)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "hermes",
+          "--safe-mode"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "agent session executes model-selected actions"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "container",
+                    "database",
+                    "environment",
+                    "filesystem",
+                    "git",
+                    "messaging",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unmodeled_dynamic"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "cloud",
+            "container",
+            "database",
+            "environment",
+            "filesystem",
+            "git",
+            "messaging",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "container": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "database": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "messaging": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    }
+  ]
+}

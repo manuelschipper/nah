@@ -1,0 +1,423 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:187ab878141c82942c042190f65b69d5db9810488261b2a2a02431f4719390a9",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/package-build-vcs/mix@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      },
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/package-build-vcs/mix@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "mix",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/package-build-vcs/mix@v1",
+        "path": "../../tests/fixtures/model_tranche/mix.json",
+        "digest": "blake3:3b98f618c2768f628ec1f90e356e6841e4a8b8721a866984550dda9faa92f6db"
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/package-build-vcs/mix@v1-mix_ecto",
+        "path": "../../tests/fixtures/model_tranche/mix_ecto.json",
+        "digest": "blake3:a59bef941ce8b76d9fb7008b4940f0e76557db6bb20cbc17f483f561177d1052"
+      },
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/package-build-vcs/mix@v1-mix_ecto_reset",
+        "path": "../../tests/fixtures/model_tranche/mix_ecto_reset.json",
+        "digest": "blake3:57832d86fbf3c5f1f2dd75a96ccf79ba7513c2b263a9af6c9704e70cf2916612"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "mix-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "mix-not-the-command",
+            "deps.get"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write",
+          "network.download"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/package-build-vcs/mix@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.write",
+      "network.download"
+    ],
+    "expected_boundaries": [
+      "package_scripts",
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/package-build-vcs/mix@v1",
+      "commands": [
+        "mix"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "deps.get"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "literal",
+                        "value": "deps"
+                      }
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "ecto.drop"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-r",
+                "--repo"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--no-compile"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--no-deps-check"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--force-drop"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-f",
+                "--force"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-q",
+                "--quiet"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "mix.exs and the repo configuration are project code; they select the target database and can alias the task"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "ecto.reset"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-r",
+                "--repo"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--no-compile"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--no-deps-check"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--force-drop"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-f",
+                "--force"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-q",
+                "--quiet"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "ecto.reset is an alias in mix.exs, which is project code and is not read; Phoenix generates it as ecto.drop followed by ecto.setup, and mix.exs and the repo configuration select the target database"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

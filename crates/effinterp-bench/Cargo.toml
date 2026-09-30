@@ -1,0 +1,43 @@
+[package]
+name = "effinterp-bench"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+default-run = "effinterp-bench"
+build = "build.rs"
+
+[[bin]]
+name = "effinterp-bench"
+path = "src/main.rs"
+
+[dependencies]
+effinterp-testkit = { path = "../effinterp-testkit" }
+effinterp-engine = { path = "../effinterp-engine" }
+effinterp-proto = { path = "../effinterp-proto" }
+effinterp-repo = { path = "../effinterp-repo" }
+effinterp-trace = { path = "../effinterp-trace" }
+effinterp-matcher = { path = "../effinterp-matcher" }
+nah-corpus-schema = { path = "../nah-corpus-schema" }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+clap = { version = "4", features = ["derive"] }
+blake3 = "1"
+sha2 = "0.10"
+libc = "0.2"
+tempfile = "3"
+toml = "1"
+
+oxc_allocator = "0.116.0"
+oxc_ast = "0.116.0"
+oxc_ast_visit = "0.116.0"
+oxc_parser = "0.116.0"
+oxc_span = "0.116.0"
+syn = { version = "2", features = ["full", "visit"] }
+
+[dev-dependencies]
+nah-policy = { path = "../nah-policy" }
+
+[build-dependencies]
+blake3 = "1"

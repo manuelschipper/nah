@@ -1,0 +1,37 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "subtree-inclusive",
+  "request": {
+    "mode": "contains",
+    "scope": {
+      "realm": null,
+      "set": {
+        "kind": "fs_subtree",
+        "root": "/work"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "fs_path",
+          "path": "/work"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": []
+    }
+  }
+}

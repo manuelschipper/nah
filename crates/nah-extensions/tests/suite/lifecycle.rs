@@ -6,7 +6,6 @@ use crate::support;
 use std::os::unix::fs::PermissionsExt;
 
 use nah_extensions::{consult_extensions, create_project_guard, create_user_guard};
-use nah_proto::action::{ActionStream, Coverage, EffectKind, InvocationInput};
 use nah_proto::ctx::Platform;
 
 use support::{Fixture, absolute, finish};
@@ -25,36 +24,19 @@ fn generated_template_is_executable_and_answers() {
             != 0
     );
     let fixture = finish(temp, home, directory.join("run"), "example");
-    // The fixture stream is a bare `example`, which the template leaves alone.
+    // The fixture evidence's call is a bare `example`, which the template leaves alone.
     let output = fixture.consult();
     assert!(output.warnings.is_empty(), "{:?}", output.warnings);
     assert_eq!(output.responses.len(), 1);
     assert!(output.responses[0].is_abstain());
 
-    let blocked_shape = ActionStream::new(
-        Coverage::Full,
-        vec![vec![
-            EffectKind::opaque_with_input(
-                "example",
-                InvocationInput::shell(
-                    "example",
-                    vec!["example".into(), "destroy".into(), "--all".into()],
-                    Some(vec!["example".into(), "destroy".into(), "--all".into()]),
-                ),
-            )
-            .unwrap(),
-        ]],
-        vec![],
-    )
-    .unwrap();
     let output = consult_extensions(
         &fixture.catalog,
         &fixture.ctx,
         &fixture.observation,
-        &blocked_shape,
-        #[cfg(feature = "effinterp")]
-        None,
+        &support::call_evidence(&[(&["example", "destroy", "--all"], None)]),
         &fixture.cache,
+        &crate::support::memo_context(),
     );
     assert!(output.warnings.is_empty(), "{:?}", output.warnings);
     assert_eq!(output.responses.len(), 1);
@@ -64,39 +46,25 @@ fn generated_template_is_executable_and_answers() {
 #[test]
 fn extensions_are_not_spawned_without_an_exact_program_match() {
     let fixture = Fixture::shell("gated", "touch spawned\nexit 0");
-    let different_stream = ActionStream::new(
-        Coverage::Full,
-        vec![vec![EffectKind::known("other", "read-only").unwrap()]],
-        vec![],
-    )
-    .unwrap();
     let output = consult_extensions(
         &fixture.catalog,
         &fixture.ctx,
         &fixture.observation,
-        &different_stream,
-        #[cfg(feature = "effinterp")]
-        None,
+        &support::call_evidence(&[(&["other"], None)]),
         &fixture.cache,
+        &crate::support::memo_context(),
     );
     assert!(output.consultations.is_empty());
     assert!(!fixture.run.parent().unwrap().join("spawned").exists());
 
-    let path_spoof = ActionStream::new(
-        Coverage::Full,
-        vec![vec![EffectKind::known("./gated", "read-only").unwrap()]],
-        vec![],
-    )
-    .unwrap();
     assert!(
         consult_extensions(
             &fixture.catalog,
             &fixture.ctx,
             &fixture.observation,
-            &path_spoof,
-            #[cfg(feature = "effinterp")]
-            None,
+            &support::call_evidence(&[(&["./gated"], None)]),
             &fixture.cache,
+            &crate::support::memo_context(),
         )
         .consultations
         .is_empty()

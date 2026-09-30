@@ -1,0 +1,127 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:267fafcedce8245891addbd0d6c0621c70c735f76074c8e73567d6075a71e575",
+  "provenance": {
+    "author": "llm_drafted",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/developer_commands_sources.json#p18b/devtools/s6-setuidgid@v2",
+        "digest": "blake3:1e67f4063405c6fa5b9f31c33aba5b36cc7d075892ad0b1f7195f46269b1670a"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "s6-setuidgid",
+        "requirement": "reviewed-exact-surface@2026-09-16"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/s6-setuidgid@v2",
+        "path": "../../tests/fixtures/model_tranche/s6-setuidgid.json",
+        "digest": "blake3:3c69629784066957f8db09b8183b901c250c47c2eba9eae731cef6759a2826a0"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "s6-setuidgid-near-name",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "s6-setuidgid-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write",
+          "network.listen"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [],
+    "expected_facts": [
+      "filesystem.write"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "options_before_operand": 1,
+      "id": "p18b/devtools/s6-setuidgid@v2",
+      "commands": [
+        "s6-setuidgid"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [
+        {
+          "name": "user",
+          "index": 0,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        },
+        {
+          "name": "command",
+          "index": 1,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        },
+        {
+          "name": "arguments",
+          "index": 2,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [
+            {
+              "kind": "positional",
+              "name": "command"
+            }
+          ],
+          "argv_tail": "arguments"
+        }
+      ],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

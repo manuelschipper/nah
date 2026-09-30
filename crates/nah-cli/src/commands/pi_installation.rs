@@ -8,7 +8,9 @@ use nah_proto::ctx::AbsolutePath;
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_paths::reject_hook_path_symlink;
 use super::{RuntimeHookStatus, RuntimeMutation};
+use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 const MARKER: &str = "// Managed by nah.";
 
@@ -114,11 +116,12 @@ fn uninstall_extension(home: &AbsolutePath) -> Result<PathBuf, String> {
         Ok(bytes) if owned(&bytes) => {
             std::fs::remove_file(&paths.extension).map_err(|_| "pi-extension-remove-failed")?;
             if let Some(parent) = paths.extension.parent() {
-                sync_parent(parent)?;
+                sync_parent_directory(parent).map_err(|_| "pi-extension-sync-failed".to_owned())?;
                 match std::fs::remove_dir(parent) {
                     Ok(()) => {
                         if let Some(extensions) = parent.parent() {
-                            sync_parent(extensions)?;
+                            sync_parent_directory(extensions)
+                                .map_err(|_| "pi-extension-sync-failed".to_owned())?;
                         }
                     }
                     Err(error)
@@ -165,7 +168,7 @@ fn lock(paths: &PiHookPaths) -> Result<File, String> {
         .parent()
         .ok_or_else(|| "invalid-pi-hook-lock-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "pi-hook-lock-failed")?;
-    reject_symlink(&paths.lock, "pi-hook-lock-failed")?;
+    reject_hook_path_symlink(&paths.lock, "pi-hook-lock-failed")?;
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
@@ -176,35 +179,27 @@ fn lock(paths: &PiHookPaths) -> Result<File, String> {
     let file = options
         .open(&paths.lock)
         .map_err(|_| "pi-hook-lock-failed")?;
-    protect_private(&file, "pi-hook-permissions-failed")?;
+    restrict_file_to_owner(&file).map_err(|_| "pi-hook-permissions-failed".to_owned())?;
     file.lock().map_err(|_| "pi-hook-lock-failed")?;
     Ok(file)
 }
 
 fn reject_symlinks(paths: &PiHookPaths) -> Result<(), String> {
     for directory in &paths.checked_directories {
-        reject_symlink(directory, "pi-extension-symlink-unsupported")?;
+        reject_hook_path_symlink(directory, "pi-extension-symlink-unsupported")?;
     }
-    reject_symlink(&paths.extension, "pi-extension-symlink-unsupported")
-}
-
-fn reject_symlink(path: &Path, error: &str) -> Result<(), String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(error.into()),
-        Ok(_) => Ok(()),
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(error.into()),
-    }
+    reject_hook_path_symlink(&paths.extension, "pi-extension-symlink-unsupported")
 }
 
 fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    reject_symlink(path, "pi-extension-symlink-unsupported")?;
+    reject_hook_path_symlink(path, "pi-extension-symlink-unsupported")?;
     let parent = path
         .parent()
         .ok_or_else(|| "invalid-pi-extension-path".to_owned())?;
     let mut temporary =
         tempfile::NamedTempFile::new_in(parent).map_err(|_| "pi-extension-write-failed")?;
-    protect_private(temporary.as_file(), "pi-extension-permissions-failed")?;
+    restrict_file_to_owner(temporary.as_file())
+        .map_err(|_| "pi-extension-permissions-failed".to_owned())?;
     temporary
         .write_all(bytes)
         .map_err(|_| "pi-extension-write-failed")?;
@@ -215,7 +210,7 @@ fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
     temporary
         .persist(path)
         .map_err(|_| "pi-extension-write-failed")?;
-    sync_parent(parent)
+    sync_parent_directory(parent).map_err(|_| "pi-extension-sync-failed".to_owned())
 }
 
 fn extension(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
@@ -328,28 +323,4 @@ module.exports = function nahPiExtension(pi) {{
 fn owned(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bytes);
     text.starts_with(MARKER) && text.contains(r#"["hook", "pi", "run""#)
-}
-
-#[cfg(unix)]
-fn protect_private(file: &File, error: &str) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| error.into())
-}
-
-#[cfg(not(unix))]
-fn protect_private(_file: &File, _error: &str) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), String> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| "pi-extension-sync-failed".into())
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), String> {
-    Ok(())
 }

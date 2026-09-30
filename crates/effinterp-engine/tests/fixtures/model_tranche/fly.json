@@ -1,0 +1,106 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "fly",
+          "mpg",
+          "destroy",
+          "abc123",
+          "--yes"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:mpg/cluster/abc123"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "flyctl",
+          "mpg",
+          "rm",
+          "abc123"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:mpg/cluster/abc123"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    }
+  ]
+}

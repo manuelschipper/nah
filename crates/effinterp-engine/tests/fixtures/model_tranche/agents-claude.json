@@ -1,0 +1,658 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "claude"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "one_of(/work/.claude/settings.json, /work/.mcp.json, join($CLAUDE_CONFIG_DIR, /.credentials.json), join($CLAUDE_CONFIG_DIR, /settings.json), join($HOME, /.claude.json), join($HOME, /.claude/.credentials.json), join($HOME, /.claude/settings.json))"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "environment"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "environment.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "env:ANTHROPIC_API_KEY"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.connect"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "agent session executes model-selected actions"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "container",
+                    "database",
+                    "environment",
+                    "filesystem",
+                    "git",
+                    "messaging",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unmodeled_dynamic"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "cloud",
+            "container",
+            "database",
+            "environment",
+            "filesystem",
+            "git",
+            "messaging",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "container": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "database": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "messaging": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "claude",
+          "config",
+          "set",
+          "-g",
+          "theme",
+          "dark"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "one_of(join($CLAUDE_CONFIG_DIR, /settings.json), join($HOME, /.claude/settings.json))"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "claude",
+          "mcp",
+          "add",
+          "--scope",
+          "project",
+          "server",
+          "command"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/.mcp.json"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "claude",
+          "mcp",
+          "add",
+          "--scope",
+          "user",
+          "server",
+          "command"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join($HOME, /.claude.json)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "claude",
+          "mcp",
+          "add",
+          "server",
+          "command"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join($HOME, /.claude.json)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "claude",
+          "--version"
+        ],
+        "cwd": "/work"
+      },
+      "forbidden_effects": [
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "filesystem"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "filesystem.read"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        },
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "filesystem"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "filesystem.write"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        },
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "network"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "network.connect"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        }
+      ],
+      "coverage": {
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "claude",
+          "--safe-mode"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "agent session executes model-selected actions"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "container",
+                    "database",
+                    "environment",
+                    "filesystem",
+                    "git",
+                    "messaging",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unmodeled_dynamic"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "cloud",
+            "container",
+            "database",
+            "environment",
+            "filesystem",
+            "git",
+            "messaging",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "container": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "database": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "messaging": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "claude",
+          "--safe-mode",
+          "--help"
+        ],
+        "cwd": "/work"
+      },
+      "forbidden_effects": [
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "filesystem"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "filesystem.read"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        },
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "filesystem"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "filesystem.write"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        },
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "network"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "network.connect"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        }
+      ],
+      "coverage": {
+        "process": {
+          "level": "full"
+        }
+      }
+    }
+  ]
+}

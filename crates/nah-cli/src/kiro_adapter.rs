@@ -8,6 +8,7 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+use crate::adapter_fields::runtime_field_names_covered;
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
 
@@ -101,6 +102,22 @@ fn read_input<R: Read>(stdin: &mut R) -> Result<Value, String> {
     serde_json::from_slice(&bytes).map_err(|error| error.to_string())
 }
 
+/// The tool call `run` hands the pipeline for this Kiro tool call.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<ToolCallInput, String> {
+    normalize(KiroHookInput {
+        hook_event_name: "PreToolUse".into(),
+        tool_name: tool_name.into(),
+        tool_input,
+        cwd: cwd.into(),
+        session_id: None,
+    })
+    .map(|request| request.expect("a PreToolUse event always yields a tool call"))
+}
+
 fn normalize(input: KiroHookInput) -> Result<Option<ToolCallInput>, String> {
     if !matches!(input.hook_event_name.as_str(), "PreToolUse" | "preToolUse") {
         return Ok(None);
@@ -130,7 +147,7 @@ fn lower<'a>(
         "shell" | "execute_bash" | "execute_cmd" => (
             "Bash",
             json!({"command": non_empty(required_object(object)?, "command")?}),
-            crate::adapter_fields::complete("kiro", tool_name, original_input),
+            runtime_field_names_covered("kiro", tool_name, original_input),
         ),
         "read_file" => {
             let object = required_object(object)?;

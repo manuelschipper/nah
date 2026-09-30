@@ -1,0 +1,72 @@
+{
+  "consultations": [],
+  "decision": {
+    "coverage": "full",
+    "policy_attributions": [],
+    "reason": "no guard blocked this call",
+    "verdict": "delegate"
+  },
+  "exec_request": {
+    "evidence": {
+      "calls": [
+        {
+          "arguments": "Unknown",
+          "coverage": "full",
+          "cwd": {
+            "Known": "<project>"
+          },
+          "id": 0,
+          "identity": {
+            "Known": "Bash"
+          },
+          "kind": "Shell",
+          "parent": null,
+          "payload_group": {
+            "Known": 0
+          },
+          "visibility_ordinal": {
+            "Known": 0
+          }
+        }
+      ],
+      "complete": true,
+      "conditions": [],
+      "coverage": "full",
+      "facts": [],
+      "gaps": [],
+      "occurrences": [
+        {
+          "call": 0,
+          "condition": null,
+          "fact": null,
+          "id": 0,
+          "port": "Code",
+          "resource": null
+        }
+      ],
+      "relations": [],
+      "resources": []
+    },
+    "observation": {
+      "cwd": {
+        "status": "ok",
+        "value": "<project>"
+      },
+      "roots": {
+        "status": "ok",
+        "value": [
+          {
+            "kind": "project",
+            "path": "<project>"
+          }
+        ]
+      }
+    },
+    "v": 2
+  },
+  "failures": [],
+  "plan": "<plan>",
+  "producer": "<producer>",
+  "schema": "nah/test/v2",
+  "v": 2
+}

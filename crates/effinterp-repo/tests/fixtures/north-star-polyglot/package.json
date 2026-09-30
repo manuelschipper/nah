@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "northstar": "./src/launcher.ts"
+  }
+}

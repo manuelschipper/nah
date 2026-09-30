@@ -1,0 +1,374 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "neon",
+          "projects",
+          "delete",
+          "p1"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:postgres/project/p1"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "neonctl",
+          "branches",
+          "delete",
+          "dev"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:postgres/branch/dev"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "neon",
+          "branch",
+          "delete",
+          "dev"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:postgres/branch/dev"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "neon",
+          "project",
+          "delete",
+          "p1"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:postgres/project/p1"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "neon",
+          "db",
+          "delete",
+          "app"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:postgres/database/app"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "neon",
+          "branches",
+          "reset",
+          "dev",
+          "--parent",
+          "--preserve-under-name",
+          "dev-old"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "database"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "overwrite"
+                      }
+                    },
+                    {
+                      "name": "preserve_under_name",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "database.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<db:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "database": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "neon",
+          "databases",
+          "delete",
+          "app",
+          "--branch",
+          "main"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:postgres/database/app"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    }
+  ]
+}

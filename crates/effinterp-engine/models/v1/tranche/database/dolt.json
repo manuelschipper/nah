@@ -1,0 +1,1354 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:9b5b87e801e0323986500a0a2052ee5d8592050ec7982f78fe6eaacbf8336bfb",
+  "provenance": {
+    "author": "llm_drafted",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/developer_commands_sources.json#p18b/database/dolt@v2",
+        "digest": "blake3:1e67f4063405c6fa5b9f31c33aba5b36cc7d075892ad0b1f7195f46269b1670a"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "dolt",
+        "requirement": "reviewed-exact-surface@2026-09-16"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/database/dolt@v2",
+        "path": "../../tests/fixtures/model_tranche/dolt.json",
+        "digest": "blake3:9d141ac2a34c89c2d6388317fdbc7407592064d2b24a195b3044b3fb91461836"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "dolt-near-name",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "dolt-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write",
+          "network.listen"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "dolt-read-only-mode",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "dolt",
+            "sql",
+            "-q",
+            "SELECT * FROM issues"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/database/dolt@v2-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "database.schema_drop",
+      "filesystem.write",
+      "network.connect",
+      "network.download",
+      "network.listen",
+      "network.upload"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/database/dolt@v2",
+      "commands": [
+        "dolt"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "database",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "config"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--global"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--local"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--add"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--unset"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--get"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--list"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "files",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_all_present": [
+                  "--global",
+                  "--add"
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--get",
+                  "--list"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ".dolt"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_all_present": [
+                  "--global",
+                  "--unset"
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--get",
+                  "--list"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ".dolt"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--add",
+                  "--unset"
+                ],
+                "flag_absent": [
+                  "--global",
+                  "--get",
+                  "--list"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": ".dolt"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_all_present": [
+                  "--global"
+                ],
+                "flag_present": [
+                  "--get",
+                  "--list"
+                ],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ".dolt"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--get",
+                  "--list"
+                ],
+                "flag_absent": [
+                  "--global"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": ".dolt"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "names": [
+            "sql"
+          ],
+          "index": 0,
+          "nested_source": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "language": "sql",
+              "from": {
+                "kind": "flag_values",
+                "flags": [
+                  "-q",
+                  "--query"
+                ]
+              }
+            }
+          ],
+          "flags": [
+            {
+              "names": [
+                "-q",
+                "--query"
+              ],
+              "takes_value": true
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "names": [
+            "sql-server"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-H",
+                "--host"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-P",
+                "--port"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-u",
+                "--user"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--config"
+              ],
+              "takes_value": true
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--config"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "-H",
+                  "--host",
+                  "-P",
+                  "--port"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "localhost"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "3306"
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--config"
+                ],
+                "flag_value_present": [
+                  "-P",
+                  "--port"
+                ],
+                "flag_value_absent": [
+                  "-H",
+                  "--host"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "localhost"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "-P",
+                            "--port"
+                          ]
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "-H",
+                  "--host"
+                ],
+                "flag_absent": [
+                  "--config"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "-P",
+                  "--port"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "-H",
+                            "--host"
+                          ]
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "3306"
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "-H",
+                  "--host"
+                ],
+                "flag_absent": [
+                  "--config"
+                ],
+                "flag_value_present": [
+                  "-P",
+                  "--port"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "-H",
+                            "--host"
+                          ]
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "-P",
+                            "--port"
+                          ]
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--config"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "names": [
+            "sql-client"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-h",
+                "--host"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-P",
+                "--port"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-u",
+                "--user"
+              ],
+              "takes_value": true
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "-h",
+                  "--host",
+                  "-P",
+                  "--port"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "localhost"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "3306"
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [
+                  "-P",
+                  "--port"
+                ],
+                "flag_value_absent": [
+                  "-h",
+                  "--host"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "localhost"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "-P",
+                            "--port"
+                          ]
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "-h",
+                  "--host"
+                ],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "-P",
+                  "--port"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "-h",
+                            "--host"
+                          ]
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "3306"
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "-h",
+                  "--host"
+                ],
+                "flag_absent": [],
+                "flag_value_present": [
+                  "-P",
+                  "--port"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "-h",
+                            "--host"
+                          ]
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "-P",
+                            "--port"
+                          ]
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "names": [
+            "add",
+            "commit",
+            "init",
+            "merge"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-A"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-a"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--allow-empty"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-f"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--force"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "-m",
+                "--message"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--author"
+              ],
+              "takes_value": true
+            }
+          ],
+          "positionals": [
+            {
+              "name": "files",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "cwd"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "names": [
+            "version"
+          ],
+          "index": 0,
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "names": [
+            "push"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-f"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--force"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--all"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--branch",
+                "-b"
+              ],
+              "takes_value": true
+            }
+          ],
+          "positionals": [
+            {
+              "name": "files",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.upload",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "names": [
+            "pull",
+            "fetch"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-f"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--force"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--all"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--branch",
+                "-b"
+              ],
+              "takes_value": true
+            }
+          ],
+          "positionals": [
+            {
+              "name": "files",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "cwd"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "names": [
+            "clone"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-f"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--force"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--all"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--branch",
+                "-b"
+              ],
+              "takes_value": true
+            }
+          ],
+          "positionals": [
+            {
+              "name": "files",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

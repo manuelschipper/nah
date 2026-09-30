@@ -1,0 +1,104 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:867605520899e5ccac3670578288f5336ddb097038242f56c922b6b0996a0b3c",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "https://symfony.com/doc/7.3/components/console.html",
+        "digest": "blake3:c6e658f75968ebd2e443c25f3cba85bb3206d8c10f35ce32718a8cba3a84dd94"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "symfony-console",
+        "requirement": "exact-application-contract@symfony-console-7.3"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "cat",
+        "path": "../../tests/fixtures/model_equivalence/cat.json",
+        "digest": "blake3:848b018b112776f4637789cf50f06dc6b1a2e51eed25822ae889a18122154327"
+      },
+      {
+        "kind": "registry",
+        "name": "symfony-console-lifecycle",
+        "expected_entries": [
+          "symfony-console"
+        ]
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "near-symfony-name-does-not-emit-effects",
+        "subject": {
+          "kind": "source",
+          "language": "php",
+          "source": "<?php $symfonyConsoleApplication = true;"
+        },
+        "absent_operations": [
+          "filesystem.delete"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "missing-symfony-lifecycle-is-detected",
+        "mutation": "drop_first_lifecycle"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "lifecycle",
+      "id": "symfony-console",
+      "lang": "php",
+      "signatures": [
+        {
+          "target": {
+            "kind": "method",
+            "name": "getDefaultCommands",
+            "receiver_type": "Symfony\\Component\\Console\\Application"
+          },
+          "role": "registers",
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [],
+          "hooks": [
+            "execute"
+          ]
+        },
+        {
+          "target": {
+            "kind": "method",
+            "name": "run",
+            "receiver_type": "Symfony\\Component\\Console\\Application"
+          },
+          "role": "dispatches",
+          "max_args": 2,
+          "evidence": "typed_receiver",
+          "fields": [],
+          "params": [],
+          "hooks": []
+        }
+      ]
+    }
+  ]
+}

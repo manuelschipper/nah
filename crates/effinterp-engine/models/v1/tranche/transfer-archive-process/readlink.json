@@ -1,0 +1,183 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:6b43bf1f06de101d46dd0c017919c18dc63248ae9e641b2cd413ea34db22ad4d",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/readlink@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "readlink",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/readlink@v1",
+        "path": "../../tests/fixtures/model_tranche/readlink.json",
+        "digest": "blake3:ec1c612360428f397d687a8fd71639e20eb45503c1520b511113506e955e322a"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "readlink-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "readlink-not-the-command",
+            "-f",
+            "/work/link"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.metadata"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/transfer-archive-process/readlink@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.metadata"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/readlink@v1",
+      "commands": [
+        "readlink"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--canonicalize",
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--canonicalize-existing",
+            "-e"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--canonicalize-missing",
+            "-m"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-newline",
+            "-n"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.metadata",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [
+              "-f"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.metadata",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

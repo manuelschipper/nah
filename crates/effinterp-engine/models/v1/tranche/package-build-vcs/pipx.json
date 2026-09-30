@@ -1,0 +1,552 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:cd87c2306a1b86dafa48ba356648207d216347a8c9fef6ea5309c9b436ce95cc",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/package-build-vcs/pipx@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "pipx",
+        "requirement": "reviewed-exact-surface@2026-09-01"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/package-build-vcs/pipx@v1",
+        "path": "../../tests/fixtures/model_tranche/pipx.json",
+        "digest": "blake3:f6a5e1a319ab887d483175522d629dd25c8e96a736e81b72df3795a540dddd14"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "pipx-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pipx-not-the-command",
+            "run",
+            "black"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write",
+          "network.download"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      },
+      {
+        "name": "pipx-unsupported-form-does-not-emit-promoted-facts",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pipx",
+            "list"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write",
+          "network.download"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/package-build-vcs/pipx@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.write",
+      "network.download"
+    ],
+    "expected_boundaries": [
+      "package_scripts"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/package-build-vcs/pipx@v1",
+      "commands": [
+        "pipx"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "run"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--spec"
+              ],
+              "takes_value": true
+            }
+          ],
+          "positionals": [
+            {
+              "name": "application",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "application"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "literal",
+                        "value": "python-environment"
+                      }
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "application"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "application"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "http://"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "include_suffixes": [
+                ".py"
+              ],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "literal",
+                      "value": "python3"
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "argument"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "application"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "application"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "https://"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "include_suffixes": [
+                ".py"
+              ],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "literal",
+                      "value": "python3"
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "argument"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "application"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "http://"
+                    },
+                    "allow_missing": true,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "application"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "https://"
+                    },
+                    "allow_missing": true,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "argv": [
+                {
+                  "kind": "literal",
+                  "value": "python3"
+                }
+              ],
+              "argv_tail": "application",
+              "include_suffixes": [
+                ".py"
+              ]
+            },
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "application"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "http://"
+                    },
+                    "allow_missing": true,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "application"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "https://"
+                    },
+                    "allow_missing": true,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "argv": [],
+              "argv_tail": "application",
+              "exclude_suffixes": [
+                ".py"
+              ]
+            }
+          ],
+          "bindings": [
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "application"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "http://"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "from": {
+                "kind": "effect",
+                "operation": "network.download",
+                "selection": "last"
+              },
+              "to": {
+                "kind": "effect",
+                "operation": "process.code_execution",
+                "selection": "all"
+              }
+            },
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "application"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "https://"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "from": {
+                "kind": "effect",
+                "operation": "network.download",
+                "selection": "last"
+              },
+              "to": {
+                "kind": "effect",
+                "operation": "process.code_execution",
+                "selection": "all"
+              }
+            }
+          ],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            },
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "application"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "http://"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "dynamic_source",
+              "class": "unresolved",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            },
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "application"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "https://"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "dynamic_source",
+              "class": "unresolved",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

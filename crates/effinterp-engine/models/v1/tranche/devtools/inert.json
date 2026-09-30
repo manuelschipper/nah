@@ -1,0 +1,719 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:ddd3bbeb53526d9793117556942dbaed5ee6e496be636914685b82caab141c77",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/devtools/inert@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "id",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/inert@v1",
+        "path": "../../tests/fixtures/model_tranche/inert.json",
+        "digest": "blake3:270dde78e1c7ad965e549845d9e2614ef0184224da6e68dea10aea3390fe6241"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "inert-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "inert-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [],
+    "expected_facts": [],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/inert/arch@v1",
+      "commands": [
+        "arch"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/inert/free@v1",
+      "commands": [
+        "free"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "-b"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-k"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-m"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-g"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-c"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/inert/hostname@v1",
+      "commands": [
+        "hostname"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-s"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/inert/id@v1",
+      "commands": [
+        "id"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "--groups",
+            "-G"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--group",
+            "-g"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--user",
+            "-u"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--name",
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--real",
+            "-r"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "user",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/inert/lsof@v1",
+      "commands": [
+        "lsof"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-i"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-P"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-p"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-t"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-u"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/inert/netstat@v1",
+      "commands": [
+        "netstat"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-l"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-p"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-r"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-t"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-u"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/inert/nproc@v1",
+      "commands": [
+        "nproc"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "--all"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ignore"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/inert/seq@v1",
+      "commands": [
+        "seq"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "--format",
+            "-f"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--separator",
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--equal-width",
+            "-w"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "first",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "increment",
+          "index": 1,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "last",
+          "index": 2,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/inert/ss@v1",
+      "commands": [
+        "ss"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-l"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-p"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-t"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-u"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-x"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/inert/uptime@v1",
+      "commands": [
+        "uptime"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "--pretty",
+            "-p"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--since",
+            "-s"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/inert/whoami@v1",
+      "commands": [
+        "whoami"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

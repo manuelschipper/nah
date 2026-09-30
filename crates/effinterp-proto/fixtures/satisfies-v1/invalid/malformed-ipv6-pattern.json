@@ -1,0 +1,55 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "malformed-ipv6-pattern",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "network_endpoint",
+        "host": "a.example",
+        "scheme": "https",
+        "port": 443,
+        "path": "/api/x?raw=%2F"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "network_endpoint",
+          "host_glob": "[fe80::not-an-address]",
+          "scheme": {
+            "kind": "exact",
+            "value": "https"
+          },
+          "port": {
+            "kind": "exact",
+            "value": 443
+          },
+          "path_prefix": "/api"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

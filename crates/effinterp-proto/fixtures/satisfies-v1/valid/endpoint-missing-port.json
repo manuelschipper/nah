@@ -1,0 +1,49 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "endpoint-missing-port",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "network_endpoint",
+        "host": "a.example",
+        "scheme": "https"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "network_endpoint",
+          "host_glob": "a.example",
+          "scheme": {
+            "kind": "exact",
+            "value": "https"
+          },
+          "port": {
+            "kind": "exact",
+            "value": 443
+          },
+          "path_prefix": null
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "indeterminate",
+    "reason": {
+      "kind": "underqualified_fields"
+    }
+  }
+}

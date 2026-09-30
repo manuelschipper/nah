@@ -1,0 +1,722 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:ec1cede863feb96118295b6aed4f67186a42a26b29aeb6f4f100b580f103f50c",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/terragrunt_sources.json",
+        "digest": "blake3:d5a60ec16374b371bfa665a63c51740c5b79ee3527eac76450e73a75428ca041"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "terragrunt",
+        "requirement": "reviewed-command-surface@2026-09-21"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "infrastructure/terragrunt@v1",
+        "path": "../../tests/fixtures/model_tranche/terragrunt.json",
+        "digest": "blake3:314977020034f5ce1507f7943471ea873d68ef510f7c50744dbdb419ce8a5c81"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "terragrunt-does-not-certify-configured-destruction",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "terragrunt",
+            "apply",
+            "-destroy"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": [
+          "unmodeled_command"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "terragrunt-drop-delegation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "process.exec"
+    ],
+    "expected_boundaries": [
+      "provider_io"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "infrastructure/terragrunt@v1",
+      "commands": [
+        "terragrunt"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "filesystem",
+          "network",
+          "process",
+          "environment"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "plan"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--help",
+                "-h"
+              ],
+              "takes_value": false,
+              "boolean": true
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "process.exec",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "process"
+                  },
+                  "attributes": {
+                    "delegated_command": {
+                      "kind": "constant_string",
+                      "value": "plan"
+                    },
+                    "wrapper": {
+                      "kind": "constant_string",
+                      "value": "terragrunt"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "provider_io",
+              "class": "unresolved",
+              "scope": "environment",
+              "domains": [
+                "cloud",
+                "filesystem",
+                "network",
+                "process",
+                "environment"
+              ],
+              "detail": "Terragrunt delegates to a configured Terraform/OpenTofu binary; configuration, extra_arguments, hooks and unit selection are unresolved"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "filesystem",
+              "network",
+              "process",
+              "environment"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "apply"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--help",
+                "-h"
+              ],
+              "takes_value": false,
+              "boolean": true
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "process.exec",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "process"
+                  },
+                  "attributes": {
+                    "delegated_command": {
+                      "kind": "constant_string",
+                      "value": "apply"
+                    },
+                    "wrapper": {
+                      "kind": "constant_string",
+                      "value": "terragrunt"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "provider_io",
+              "class": "unresolved",
+              "scope": "environment",
+              "domains": [
+                "cloud",
+                "filesystem",
+                "network",
+                "process",
+                "environment"
+              ],
+              "detail": "Terragrunt delegates to a configured Terraform/OpenTofu binary; configuration, extra_arguments, hooks and unit selection are unresolved"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "filesystem",
+              "network",
+              "process",
+              "environment"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "destroy"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--help",
+                "-h"
+              ],
+              "takes_value": false,
+              "boolean": true
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "process.exec",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "process"
+                  },
+                  "attributes": {
+                    "delegated_command": {
+                      "kind": "constant_string",
+                      "value": "destroy"
+                    },
+                    "wrapper": {
+                      "kind": "constant_string",
+                      "value": "terragrunt"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "provider_io",
+              "class": "unresolved",
+              "scope": "environment",
+              "domains": [
+                "cloud",
+                "filesystem",
+                "network",
+                "process",
+                "environment"
+              ],
+              "detail": "Terragrunt delegates to a configured Terraform/OpenTofu binary; configuration, extra_arguments, hooks and unit selection are unresolved"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "filesystem",
+              "network",
+              "process",
+              "environment"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "subcommands": [
+            {
+              "names": [
+                "plan"
+              ],
+              "index": 0,
+              "flags": [
+                {
+                  "names": [
+                    "--help",
+                    "-h"
+                  ],
+                  "takes_value": false,
+                  "boolean": true
+                }
+              ],
+              "positionals": [],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "argument",
+                    "index": 0
+                  },
+                  "when": {
+                    "unknown_flags_present": false,
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "-h"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "max_operands": 0,
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "process.exec",
+                      "resource": {
+                        "kind": "unresolved",
+                        "family": "process"
+                      },
+                      "attributes": {
+                        "delegated_command": {
+                          "kind": "constant_string",
+                          "value": "plan"
+                        },
+                        "wrapper": {
+                          "kind": "constant_string",
+                          "value": "terragrunt"
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "boundaries": [
+                {
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "-h"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "reason": "provider_io",
+                  "class": "unresolved",
+                  "scope": "environment",
+                  "domains": [
+                    "cloud",
+                    "filesystem",
+                    "network",
+                    "process",
+                    "environment"
+                  ],
+                  "detail": "Terragrunt delegates to a configured Terraform/OpenTofu binary; configuration, extra_arguments, hooks and unit selection are unresolved"
+                }
+              ],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "cloud",
+                  "filesystem",
+                  "network",
+                  "process",
+                  "environment"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            },
+            {
+              "names": [
+                "apply"
+              ],
+              "index": 0,
+              "flags": [
+                {
+                  "names": [
+                    "--help",
+                    "-h"
+                  ],
+                  "takes_value": false,
+                  "boolean": true
+                }
+              ],
+              "positionals": [],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "argument",
+                    "index": 0
+                  },
+                  "when": {
+                    "unknown_flags_present": false,
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "-h"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "max_operands": 0,
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "process.exec",
+                      "resource": {
+                        "kind": "unresolved",
+                        "family": "process"
+                      },
+                      "attributes": {
+                        "delegated_command": {
+                          "kind": "constant_string",
+                          "value": "apply"
+                        },
+                        "wrapper": {
+                          "kind": "constant_string",
+                          "value": "terragrunt"
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "boundaries": [
+                {
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "-h"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "reason": "provider_io",
+                  "class": "unresolved",
+                  "scope": "environment",
+                  "domains": [
+                    "cloud",
+                    "filesystem",
+                    "network",
+                    "process",
+                    "environment"
+                  ],
+                  "detail": "Terragrunt delegates to a configured Terraform/OpenTofu binary; configuration, extra_arguments, hooks and unit selection are unresolved"
+                }
+              ],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "cloud",
+                  "filesystem",
+                  "network",
+                  "process",
+                  "environment"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            },
+            {
+              "names": [
+                "destroy"
+              ],
+              "index": 0,
+              "flags": [
+                {
+                  "names": [
+                    "--help",
+                    "-h"
+                  ],
+                  "takes_value": false,
+                  "boolean": true
+                }
+              ],
+              "positionals": [],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "argument",
+                    "index": 0
+                  },
+                  "when": {
+                    "unknown_flags_present": false,
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "-h"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "max_operands": 0,
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "process.exec",
+                      "resource": {
+                        "kind": "unresolved",
+                        "family": "process"
+                      },
+                      "attributes": {
+                        "delegated_command": {
+                          "kind": "constant_string",
+                          "value": "destroy"
+                        },
+                        "wrapper": {
+                          "kind": "constant_string",
+                          "value": "terragrunt"
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "boundaries": [
+                {
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "-h"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "reason": "provider_io",
+                  "class": "unresolved",
+                  "scope": "environment",
+                  "domains": [
+                    "cloud",
+                    "filesystem",
+                    "network",
+                    "process",
+                    "environment"
+                  ],
+                  "detail": "Terragrunt delegates to a configured Terraform/OpenTofu binary; configuration, extra_arguments, hooks and unit selection are unresolved"
+                }
+              ],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "cloud",
+                  "filesystem",
+                  "network",
+                  "process",
+                  "environment"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            }
+          ],
+          "names": [
+            "run"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "filesystem",
+              "network",
+              "process",
+              "environment"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

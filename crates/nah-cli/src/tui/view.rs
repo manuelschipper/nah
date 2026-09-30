@@ -44,7 +44,7 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
     render_tabs(frame, app, areas[0]);
     // A banner exists only while a nap does, and takes its row from the body,
     // so the tab bar and footer keep their sizes at the minimum height.
-    let body_area = match app.nap {
+    let body_area = match &app.nap {
         Some(nap) => {
             let rows = Layout::default()
                 .direction(Direction::Vertical)
@@ -131,12 +131,12 @@ fn render_too_small(frame: &mut Frame<'_>, app: &App) {
 
 /// A paused installation is the one thing worth interrupting every screen for,
 /// so the banner takes a full inverted row. The colour separates the two kinds
-/// as plainly as the text does, since `--all` pauses far more.
-fn render_nap(frame: &mut Frame<'_>, nap: NapStatus, area: Rect) {
+/// as plainly as the text does, since `all` pauses far more.
+fn render_nap(frame: &mut Frame<'_>, nap: &NapStatus, area: Rect) {
     let style = Style::new()
         .fg(Color::Black)
         .bg(match nap.mode {
-            NapMode::SelfProtection => Color::Yellow,
+            NapMode::SelfProtection | NapMode::Guards(_) => Color::Yellow,
             NapMode::All => Color::Red,
         })
         .add_modifier(Modifier::BOLD);
@@ -1150,13 +1150,18 @@ fn confirmation_lines(confirmation: &Confirmation) -> Vec<Line<'static>> {
             ),
             Line::from("y wake  n cancel"),
             Line::from(""),
-            Line::from(format!(
-                "{} resumes immediately, for every session.",
-                match mode {
-                    NapMode::SelfProtection => "Self-protection",
-                    NapMode::All => "All paused enforcement",
+            Line::from(match mode {
+                NapMode::SelfProtection => {
+                    "Self-protection resumes immediately, for every session.".to_owned()
                 }
-            )),
+                NapMode::All => {
+                    "All paused enforcement resumes immediately, for every session.".to_owned()
+                }
+                NapMode::Guards(_) => format!(
+                    "Enforcement of the napped {} resumes immediately, for every session.",
+                    mode.scope()
+                ),
+            }),
         ],
         Confirmation::DiscardChanges { count } => vec![
             Line::styled(

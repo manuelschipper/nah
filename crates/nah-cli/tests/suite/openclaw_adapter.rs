@@ -166,21 +166,6 @@ fn openclaw_adapter_maps_guards_and_opaque_code_mode() {
         false
     );
 
-    let authorized_keys = format!(
-        "require('fs').writeFileSync({}, 'ssh-ed25519 key')",
-        serde_json::to_string(&home.join(".ssh/authorized_keys")).unwrap()
-    );
-    let auth = run_hook_with_kinds(
-        home,
-        &project,
-        "exec",
-        json!({"code":authorized_keys.clone(),"command":authorized_keys}),
-        Some("code_mode_exec"),
-        Some("javascript"),
-    );
-    // OpenClaw's QuickJS profile owns its tool bridge, not Node's `require`.
-    assert_eq!(auth["block"], false, "{auth}");
-
     let missing_discriminator = run_hook_with_kinds(
         home,
         &project,

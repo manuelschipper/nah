@@ -7,7 +7,13 @@ use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
-pub(crate) fn observe_path(cwd: &AbsolutePath, requested: &str) -> Observed<PathObservation> {
+/// Observe one entry and its followed identity without reading bytes or listing directories.
+pub fn observe_path(cwd: &AbsolutePath, requested: &str) -> Observed<PathObservation> {
+    if requested.chars().any(char::is_control) {
+        return Observed::Error {
+            error: ObservationFailure::Unavailable,
+        };
+    }
     let requested = Path::new(requested);
     let resolved = if requested.is_absolute() {
         requested.to_path_buf()
@@ -41,23 +47,23 @@ pub(crate) fn observe_path(cwd: &AbsolutePath, requested: &str) -> Observed<Path
                             };
                         }
                     };
-                    if target_metadata.file_type().is_file() {
+                    let target_kind =
+                        (kind == PathKind::Symlink).then(|| path_kind(&target_metadata));
+                    let multiply_linked = if target_metadata.file_type().is_file() {
                         match has_multiple_links(&path, &target_metadata) {
-                            Ok(false) => {}
-                            Ok(true) => {
-                                return Observed::Error {
-                                    error: ObservationFailure::Unavailable,
-                                };
-                            }
+                            Ok(value) => value,
                             Err(error) => return Observed::Error { error },
                         }
-                    }
-                    match absolute_from_path(&path) {
-                        Ok(path) => (
-                            Some(path),
-                            (kind == PathKind::Symlink).then(|| path_kind(&target_metadata)),
-                        ),
-                        Err(error) => return Observed::Error { error },
+                    } else {
+                        false
+                    };
+                    if multiply_linked {
+                        (None, target_kind)
+                    } else {
+                        match absolute_from_path(&path) {
+                            Ok(path) => (Some(path), target_kind),
+                            Err(error) => return Observed::Error { error },
+                        }
                     }
                 }
                 Err(error)
@@ -71,8 +77,10 @@ pub(crate) fn observe_path(cwd: &AbsolutePath, requested: &str) -> Observed<Path
                             .map(|parent| parent.join(target)),
                         Err(error) => Err(map_io_error(&error)),
                     };
+                    // The link's target is absent, which a traversal through
+                    // the link meets as ENOENT.
                     match target.and_then(|target| missing_realpath(&target)) {
-                        Ok(path) => (Some(path), None),
+                        Ok(path) => (Some(path), Some(PathKind::Missing)),
                         Err(error) => return Observed::Error { error },
                     }
                 }
@@ -101,6 +109,25 @@ pub(crate) fn observe_path(cwd: &AbsolutePath, requested: &str) -> Observed<Path
             error: map_io_error(&error),
         },
     }
+}
+
+/// Whether a command search may execute what `path` names, following links:
+/// a regular file with an execute permission bit. `None` means the host could
+/// not say; Windows selects executables by extension, not by this bit.
+pub fn observe_executable(path: &str) -> Option<bool> {
+    let metadata = fs::metadata(path).ok()?;
+    executable_file(&metadata)
+}
+
+#[cfg(unix)]
+fn executable_file(metadata: &fs::Metadata) -> Option<bool> {
+    use std::os::unix::fs::PermissionsExt;
+    Some(metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn executable_file(_metadata: &fs::Metadata) -> Option<bool> {
+    None
 }
 
 fn entry_path(path: &Path) -> Result<AbsolutePath, ObservationFailure> {

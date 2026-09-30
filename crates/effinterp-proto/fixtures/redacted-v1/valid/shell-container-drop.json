@@ -1,0 +1,3891 @@
+{
+  "expected": {
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 32768,
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_go_nodes": 20000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
+        "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
+        "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
+        "max_source_bytes": 4194304,
+        "max_value_cardinality": 64,
+        "max_value_depth": 24
+      },
+      "model_set": "builtin:blake3:412be1ea11cd035818957cfd02473da220c52267e7d6cd33761a51369229c197"
+    },
+    "causality": {
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:057d6dbbf10f4229735860c57bd9a024240b0bb8910b2e51ea2e4b58ee8a1018",
+            "modality": "must-on-success",
+            "order": 0,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:a1dc05c5f9618eb6b7e47dc58195d2a97f392936125e81720d22a1cbf3a5bea9"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:0f2eff25b6b78c7cb30e8f9db2cbaa33c12439a3f17ceab12490ecace5328cea",
+            "modality": "may",
+            "order": 1,
+            "provenance": [
+              0,
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:27868f079f8af034002520ac88780538ef9c9cb491d1c0e642a4362412b9afc9"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:1a58453f5ff177b213ca9df6f469e076d4c68f831b02518aec934c88903f09ad",
+            "modality": "must-on-success",
+            "order": 2,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:e507ac71d767b14068df053683656ddb4f54e30a3f9898f45c4f29317aee4153"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:1eaac8063d698cbf4c784688cbf701b02d34e7f39e4179fefd4ef8d19de0efd6",
+            "modality": "may",
+            "order": 3,
+            "provenance": [
+              5,
+              6,
+              9
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:61940729e00df8f52f5e7de06c9eed5980534565014955fd823de7cac0a8048e"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:1eaac8063d698cbf4c784688cbf701b02d34e7f39e4179fefd4ef8d19de0efd6",
+            "modality": "may",
+            "order": 4,
+            "provenance": [
+              0,
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:833dbbf6e319470b3531428d72f11a4e00da36087fdce4c7df1d6764949940f6"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:1eaac8063d698cbf4c784688cbf701b02d34e7f39e4179fefd4ef8d19de0efd6",
+            "modality": "may",
+            "order": 5,
+            "provenance": [
+              13,
+              14
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:afd23071b5f4ad4524e8103e96b0431d5afccd051473fa6b6df046ff658aa58c"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:2421f0b199f069518c688d195442f8c14641ab6855f609461fd421db30410a02",
+            "modality": "must-on-success",
+            "order": 6,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:6cc60f75fd566c66d1b21520357ded5e9fc9c11066aec23ff28ca0ffe53514c1"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:2c729a50b4255da1626c2d522c13c1cb2e9cb7c891eed8576bba1def151d0986",
+            "modality": "must-on-success",
+            "order": 7,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:35a57d7a4ff1d9f1ab535a45bc201853de74e5be53e6c4444e6c3ea289614e35",
+            "modality": "may",
+            "order": 8,
+            "provenance": [
+              13,
+              14
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:27868f079f8af034002520ac88780538ef9c9cb491d1c0e642a4362412b9afc9"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:3cab16f057b86c14b5d6b7fad1cefff4fc58b4149072731d210818ce890751cb",
+            "modality": "may",
+            "order": 9,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:3ff2d9065708f16a25095d92e846726463462747cc9d779eb410d41d18f85fa3",
+            "modality": "must-on-success",
+            "order": 10,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:77abb64db7d8d0e71635d99c9d1bdc35c166a8d4fc48d82bf034d8caf76d69e9"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:479fd5c19775754af7bd4155bb2426cc60c1f923f95d8da7a587c15b930d72f5",
+            "modality": "must-on-success",
+            "order": 11,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76",
+            "modality": "may",
+            "order": 12,
+            "provenance": [
+              5,
+              9
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:3cab16f057b86c14b5d6b7fad1cefff4fc58b4149072731d210818ce890751cb"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76",
+            "modality": "may",
+            "order": 13,
+            "provenance": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:a33bd93f8a2fb72db7ad9aab357257cd74ec6f05a8c080fdb4e2c8eac4dcb3b0"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76",
+            "modality": "must-on-success",
+            "order": 14,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:4e94f36a25a794717f89f33376595d14dd3ff0583c391627fa6c85e8a3557ea0",
+            "modality": "may",
+            "order": 15,
+            "provenance": [
+              5,
+              6,
+              9
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:68322d3c3883ea379c48b9e5359984c27a148b2f7780d1603d85395afb544feb"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:57f9b914684e7b4fa89aac6898f367eb17005f9e335e5330491bfe0f93df1e66",
+            "modality": "must-on-success",
+            "order": 16,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:2c729a50b4255da1626c2d522c13c1cb2e9cb7c891eed8576bba1def151d0986"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:5a4d4d1a1cbd6fffc30bc678c26ee42d73d50bf31c0db443082700e9b897dd21",
+            "modality": "may",
+            "order": 17,
+            "provenance": [
+              0,
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:68322d3c3883ea379c48b9e5359984c27a148b2f7780d1603d85395afb544feb"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:6800326f45c32321b79111b4c4dd77194ef800b59c91d2fc34e359c56b8d0dc6",
+            "modality": "may",
+            "order": 18,
+            "provenance": [
+              13,
+              14
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:68322d3c3883ea379c48b9e5359984c27a148b2f7780d1603d85395afb544feb"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:6cc60f75fd566c66d1b21520357ded5e9fc9c11066aec23ff28ca0ffe53514c1",
+            "modality": "must-on-success",
+            "order": 19,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:7568a66d120dfea8f0d2c9b119b82d48043b7ec4cfd6ab0ccf14d4b820da65c5",
+            "modality": "must-on-success",
+            "order": 20,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:77abb64db7d8d0e71635d99c9d1bdc35c166a8d4fc48d82bf034d8caf76d69e9",
+            "modality": "must-on-success",
+            "order": 21,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:808a02028b70581cd94355156e883fc7c133b186866484a48caf1be19598e25b",
+            "modality": "must-on-success",
+            "order": 22,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:dba01405a7ce654db2afa5d880be232f92ea25153546d27ea5d066a105f0f5da"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:8e7191a6d3dd47047f99e0bc1004bccfbeae8a8a9c1c2ad3eb4a6b94d90b1892",
+            "modality": "must-on-success",
+            "order": 23,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:ddcde688a3a576f973fb2ef4b7a115fb29515ffa59373bc71988de24f8777306"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:94e7e263409eee2d070cc1e47f168d1af53d6187fd174569d8471c58e7b0f9b6",
+            "modality": "must-on-success",
+            "order": 24,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:c6bf1d7b7cd0ba68f30c556330d92f2a7ad953d2159886737620815b8bb62926"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:a1dc05c5f9618eb6b7e47dc58195d2a97f392936125e81720d22a1cbf3a5bea9",
+            "modality": "must-on-success",
+            "order": 25,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:a44a9b9b245fec9acbf325ba4f1cf0dbff7609621c7a7e4b907bc88bbd323746",
+            "modality": "may",
+            "order": 26,
+            "provenance": [
+              5,
+              6,
+              9
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:27868f079f8af034002520ac88780538ef9c9cb491d1c0e642a4362412b9afc9"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:a6c3c4b25687607f44979bdbd050297d7806deeaefc94d2bf1317eab06c7ab06",
+            "modality": "may",
+            "order": 27,
+            "provenance": [
+              16,
+              17
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:5bf5bfa35cd8c3cff1f3acbecbb6d02d53450a741c62193d789054a838fdc2a5"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:a75e3b1d5a8e2b9de6ff217d7dd469438a1b058ab61770e11fadc8aeff177856",
+            "modality": "may",
+            "order": 28,
+            "provenance": [
+              16,
+              17
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:5bf5bfa35cd8c3cff1f3acbecbb6d02d53450a741c62193d789054a838fdc2a5"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:b6f6e6c21a62973a77bfe9d937050794bfa5ff4571dd6bae301edc87cc139c02",
+            "modality": "must-on-success",
+            "order": 29,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:7568a66d120dfea8f0d2c9b119b82d48043b7ec4cfd6ab0ccf14d4b820da65c5"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:c6bf1d7b7cd0ba68f30c556330d92f2a7ad953d2159886737620815b8bb62926",
+            "modality": "must-on-success",
+            "order": 30,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:dba01405a7ce654db2afa5d880be232f92ea25153546d27ea5d066a105f0f5da",
+            "modality": "must-on-success",
+            "order": 31,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:ddcde688a3a576f973fb2ef4b7a115fb29515ffa59373bc71988de24f8777306",
+            "modality": "must-on-success",
+            "order": 32,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:e507ac71d767b14068df053683656ddb4f54e30a3f9898f45c4f29317aee4153",
+            "modality": "must-on-success",
+            "order": 33,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7",
+            "modality": "may",
+            "order": 34,
+            "provenance": [
+              11,
+              12,
+              13
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:5601bded3a5e31ae7e405e9f3a0b3f295486f8dfc0af9e5f4a7d35b998b3f874"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7",
+            "modality": "must-on-success",
+            "order": 35,
+            "provenance": [
+              14,
+              13
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:a75e3b1d5a8e2b9de6ff217d7dd469438a1b058ab61770e11fadc8aeff177856"
+          }
+        ],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:479fd5c19775754af7bd4155bb2426cc60c1f923f95d8da7a587c15b930d72f5",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 1,
+            "port": "code",
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:2421f0b199f069518c688d195442f8c14641ab6855f609461fd421db30410a02",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 2,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "digest": "blake3:2e25326e74d815f4",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:6cc60f75fd566c66d1b21520357ded5e9fc9c11066aec23ff28ca0ffe53514c1",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 3,
+            "port": {
+              "arg": 0
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:3ff2d9065708f16a25095d92e846726463462747cc9d779eb410d41d18f85fa3",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 4,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "digest": "blake3:97e2f73a0ddb0750",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:77abb64db7d8d0e71635d99c9d1bdc35c166a8d4fc48d82bf034d8caf76d69e9",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 5,
+            "port": {
+              "arg": 1
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:1a58453f5ff177b213ca9df6f469e076d4c68f831b02518aec934c88903f09ad",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 6,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "digest": "blake3:923593ba871e6202",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:e507ac71d767b14068df053683656ddb4f54e30a3f9898f45c4f29317aee4153",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 7,
+            "port": {
+              "arg": 2
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:b6f6e6c21a62973a77bfe9d937050794bfa5ff4571dd6bae301edc87cc139c02",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 8,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "digest": "blake3:e5fcb5818d12ec5d",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:7568a66d120dfea8f0d2c9b119b82d48043b7ec4cfd6ab0ccf14d4b820da65c5",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 9,
+            "port": {
+              "arg": 3
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:057d6dbbf10f4229735860c57bd9a024240b0bb8910b2e51ea2e4b58ee8a1018",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 10,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "digest": "blake3:1d8bf37eeb12a61d",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:a1dc05c5f9618eb6b7e47dc58195d2a97f392936125e81720d22a1cbf3a5bea9",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 11,
+            "port": {
+              "arg": 4
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:94e7e263409eee2d070cc1e47f168d1af53d6187fd174569d8471c58e7b0f9b6",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 12,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "digest": "blake3:94d4250dd2c50d01",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:c6bf1d7b7cd0ba68f30c556330d92f2a7ad953d2159886737620815b8bb62926",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 13,
+            "port": {
+              "arg": 5
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 14,
+            "port": "code",
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:808a02028b70581cd94355156e883fc7c133b186866484a48caf1be19598e25b",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 15,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "value": {
+              "digest": "blake3:e5fcb5818d12ec5d",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:dba01405a7ce654db2afa5d880be232f92ea25153546d27ea5d066a105f0f5da",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 16,
+            "port": {
+              "arg": 0
+            },
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:57f9b914684e7b4fa89aac6898f367eb17005f9e335e5330491bfe0f93df1e66",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 17,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "value": {
+              "digest": "blake3:1d8bf37eeb12a61d",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:2c729a50b4255da1626c2d522c13c1cb2e9cb7c891eed8576bba1def151d0986",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 18,
+            "port": {
+              "arg": 1
+            },
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:8e7191a6d3dd47047f99e0bc1004bccfbeae8a8a9c1c2ad3eb4a6b94d90b1892",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 19,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "value": {
+              "digest": "blake3:94d4250dd2c50d01",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:ddcde688a3a576f973fb2ef4b7a115fb29515ffa59373bc71988de24f8777306",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 20,
+            "port": {
+              "arg": 2
+            },
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:a75e3b1d5a8e2b9de6ff217d7dd469438a1b058ab61770e11fadc8aeff177856",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 21,
+            "port": "code",
+            "provenance": [
+              14,
+              13
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:1eaac8063d698cbf4c784688cbf701b02d34e7f39e4179fefd4ef8d19de0efd6",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 22,
+            "port": "stdin"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:68322d3c3883ea379c48b9e5359984c27a148b2f7780d1603d85395afb544feb",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 23,
+            "port": "stdout"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:27868f079f8af034002520ac88780538ef9c9cb491d1c0e642a4362412b9afc9",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 24,
+            "port": "stderr"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:833dbbf6e319470b3531428d72f11a4e00da36087fdce4c7df1d6764949940f6",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 25,
+            "port": "stdin",
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:5a4d4d1a1cbd6fffc30bc678c26ee42d73d50bf31c0db443082700e9b897dd21",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 26,
+            "port": "stdout",
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:0f2eff25b6b78c7cb30e8f9db2cbaa33c12439a3f17ceab12490ecace5328cea",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 27,
+            "port": "stderr",
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:61940729e00df8f52f5e7de06c9eed5980534565014955fd823de7cac0a8048e",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 28,
+            "port": "stdin",
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:4e94f36a25a794717f89f33376595d14dd3ff0583c391627fa6c85e8a3557ea0",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 29,
+            "port": "stdout",
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:a44a9b9b245fec9acbf325ba4f1cf0dbff7609621c7a7e4b907bc88bbd323746",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 30,
+            "port": "stderr",
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:afd23071b5f4ad4524e8103e96b0431d5afccd051473fa6b6df046ff658aa58c",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 31,
+            "port": "stdin",
+            "provenance": [
+              14,
+              13
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:6800326f45c32321b79111b4c4dd77194ef800b59c91d2fc34e359c56b8d0dc6",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 32,
+            "port": "stdout",
+            "provenance": [
+              14,
+              13
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:35a57d7a4ff1d9f1ab535a45bc201853de74e5be53e6c4444e6c3ea289614e35",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 33,
+            "port": "stderr",
+            "provenance": [
+              14,
+              13
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:a33bd93f8a2fb72db7ad9aab357257cd74ec6f05a8c080fdb4e2c8eac4dcb3b0",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "process.exec",
+            "order": 34,
+            "provenance": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "argv": [
+                  {
+                    "digest": "blake3:97e2f73a0ddb0750",
+                    "expr": "literal"
+                  },
+                  {
+                    "digest": "blake3:923593ba871e6202",
+                    "expr": "literal"
+                  },
+                  {
+                    "digest": "blake3:e5fcb5818d12ec5d",
+                    "expr": "literal"
+                  },
+                  {
+                    "digest": "blake3:1d8bf37eeb12a61d",
+                    "expr": "literal"
+                  },
+                  {
+                    "digest": "blake3:94d4250dd2c50d01",
+                    "expr": "literal"
+                  }
+                ],
+                "cwd": {
+                  "expr": "concrete",
+                  "identity": {
+                    "digest": "blake3:51adc52efe5df1b6",
+                    "family": "fs_path"
+                  }
+                },
+                "executable": "docker",
+                "family": "process"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:3cab16f057b86c14b5d6b7fad1cefff4fc58b4149072731d210818ce890751cb",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "container.exec",
+            "order": 35,
+            "provenance": [
+              5,
+              9
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "container",
+                "name": "blake3:923593ba871e6202",
+                "runtime": "docker"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:5601bded3a5e31ae7e405e9f3a0b3f295486f8dfc0af9e5f4a7d35b998b3f874",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "process.exec",
+            "order": 36,
+            "provenance": [
+              11,
+              12,
+              13
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "argv": [
+                  {
+                    "digest": "blake3:1d8bf37eeb12a61d",
+                    "expr": "literal"
+                  },
+                  {
+                    "digest": "blake3:94d4250dd2c50d01",
+                    "expr": "literal"
+                  }
+                ],
+                "executable": "psql",
+                "family": "process"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:5bf5bfa35cd8c3cff1f3acbecbb6d02d53450a741c62193d789054a838fdc2a5",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "database.schema_drop",
+            "order": 37,
+            "provenance": [
+              16,
+              17
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "database_table",
+                "table": "blake3:ff956042f37706d3"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:a6c3c4b25687607f44979bdbd050297d7806deeaefc94d2bf1317eab06c7ab06",
+            "kind": "port",
+            "modality": "may",
+            "order": 38,
+            "port": "sql_input",
+            "provenance": [
+              16,
+              17
+            ],
+            "realm": {
+              "realm": "container",
+              "runtime": "docker"
+            }
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "container": {
+        "level": "full"
+      },
+      "database": {
+        "level": "full"
+      },
+      "filesystem": {
+        "level": "full"
+      },
+      "process": {
+        "level": "full"
+      }
+    },
+    "effects": [
+      {
+        "execution": 1,
+        "id": "effect:blake3:35f51f05cf04a710cd330afe38f9bcc75e481fe0199e4971e053b1c6dec92277",
+        "modality": "may",
+        "operation": "process.exec",
+        "provenance": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "argv": [
+              {
+                "digest": "blake3:97e2f73a0ddb0750",
+                "expr": "literal"
+              },
+              {
+                "digest": "blake3:923593ba871e6202",
+                "expr": "literal"
+              },
+              {
+                "digest": "blake3:e5fcb5818d12ec5d",
+                "expr": "literal"
+              },
+              {
+                "digest": "blake3:1d8bf37eeb12a61d",
+                "expr": "literal"
+              },
+              {
+                "digest": "blake3:94d4250dd2c50d01",
+                "expr": "literal"
+              }
+            ],
+            "cwd": {
+              "expr": "concrete",
+              "identity": {
+                "digest": "blake3:51adc52efe5df1b6",
+                "family": "fs_path"
+              }
+            },
+            "executable": "docker",
+            "family": "process"
+          }
+        }
+      },
+      {
+        "execution": 1,
+        "id": "effect:blake3:3cf765b3270331b4da935bd2c5d806f3330e3e79cb100c520941b78b90a7c683",
+        "modality": "may",
+        "operation": "container.exec",
+        "provenance": [
+          5,
+          9
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "container",
+            "name": "blake3:923593ba871e6202",
+            "runtime": "docker"
+          }
+        }
+      },
+      {
+        "execution": 2,
+        "id": "effect:blake3:334685fa925f2ed3fa92c0de6b64df931ffedd291873d90c0965da7c9ee334da",
+        "modality": "may",
+        "operation": "process.exec",
+        "provenance": [
+          11,
+          12,
+          13
+        ],
+        "realm": {
+          "realm": "container",
+          "runtime": "docker"
+        },
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "argv": [
+              {
+                "digest": "blake3:1d8bf37eeb12a61d",
+                "expr": "literal"
+              },
+              {
+                "digest": "blake3:94d4250dd2c50d01",
+                "expr": "literal"
+              }
+            ],
+            "executable": "psql",
+            "family": "process"
+          }
+        }
+      },
+      {
+        "execution": 3,
+        "id": "effect:blake3:08577d8219d9062c6786210b456e9eef4f1a041d8659889dad910d80b485966c",
+        "modality": "may",
+        "operation": "database.schema_drop",
+        "provenance": [
+          16,
+          17
+        ],
+        "realm": {
+          "realm": "container",
+          "runtime": "docker"
+        },
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "database_table",
+            "table": "blake3:ff956042f37706d3"
+          }
+        }
+      }
+    ],
+    "execution_graph": {
+      "edges": [
+        {
+          "evidence": [
+            1,
+            0
+          ],
+          "from": 0,
+          "kind": "launch",
+          "to": 1
+        },
+        {
+          "evidence": [
+            9,
+            6,
+            5
+          ],
+          "from": 1,
+          "kind": "container_realm",
+          "to": 2
+        },
+        {
+          "evidence": [
+            14,
+            13
+          ],
+          "from": 2,
+          "kind": "database_client",
+          "to": 3
+        }
+      ],
+      "entry": 0,
+      "nodes": [
+        {
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "digest": "blake3:51adc52efe5df1b6",
+              "family": "fs_path"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "digest": "blake3:464e665fa8f25d014735fdbc1991c3fd53186032bf2a8ebc66c06104f27b4fbf",
+            "kind": "shell"
+          }
+        },
+        {
+          "argv": [
+            {
+              "digest": "blake3:2e25326e74d815f4",
+              "expr": "literal"
+            },
+            {
+              "digest": "blake3:97e2f73a0ddb0750",
+              "expr": "literal"
+            },
+            {
+              "digest": "blake3:923593ba871e6202",
+              "expr": "literal"
+            },
+            {
+              "digest": "blake3:e5fcb5818d12ec5d",
+              "expr": "literal"
+            },
+            {
+              "digest": "blake3:1d8bf37eeb12a61d",
+              "expr": "literal"
+            },
+            {
+              "digest": "blake3:94d4250dd2c50d01",
+              "expr": "literal"
+            }
+          ],
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "digest": "blake3:51adc52efe5df1b6",
+              "family": "fs_path"
+            }
+          },
+          "environment": {
+            "HOME": {
+              "digest": "blake3:6fb62d0711fd91e1",
+              "expr": "literal"
+            }
+          },
+          "evidence": [
+            1,
+            0
+          ],
+          "realm": {
+            "realm": "host"
+          },
+          "source_span": {
+            "end": 40,
+            "start": 0
+          },
+          "streams": {
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            },
+            "stdin": {
+              "node": 0,
+              "stream": "stdin"
+            },
+            "stdout": {
+              "node": 0,
+              "stream": "stdout"
+            }
+          },
+          "subject": {
+            "digest": "blake3:9d890a5df27183466b38f937fb014f32d48f70d80082e8dd198ca5c212c4ef39",
+            "kind": "exec"
+          }
+        },
+        {
+          "argv": [
+            {
+              "digest": "blake3:e5fcb5818d12ec5d",
+              "expr": "literal"
+            },
+            {
+              "digest": "blake3:1d8bf37eeb12a61d",
+              "expr": "literal"
+            },
+            {
+              "digest": "blake3:94d4250dd2c50d01",
+              "expr": "literal"
+            }
+          ],
+          "assurance": "exact",
+          "evidence": [
+            9,
+            6,
+            5
+          ],
+          "realm": {
+            "realm": "container",
+            "runtime": "docker"
+          },
+          "source_span": {
+            "end": 40,
+            "start": 0
+          },
+          "streams": {
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            },
+            "stdin": {
+              "node": 0,
+              "stream": "stdin"
+            },
+            "stdout": {
+              "node": 0,
+              "stream": "stdout"
+            }
+          },
+          "subject": {
+            "digest": "blake3:02efda5143c197e76ba17a83b65188fc0ec714043799909ae81be2b687139298",
+            "kind": "exec"
+          }
+        },
+        {
+          "assurance": "exact",
+          "evidence": [
+            14,
+            13
+          ],
+          "realm": {
+            "realm": "container",
+            "runtime": "docker"
+          },
+          "source_span": {
+            "end": 40,
+            "start": 0
+          },
+          "streams": {
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            },
+            "stdin": {
+              "node": 0,
+              "stream": "stdin"
+            },
+            "stdout": {
+              "node": 0,
+              "stream": "stdout"
+            }
+          },
+          "subject": {
+            "digest": "blake3:42f6cde47cf76bcac791b5259e585c026d5462fd2701e0e4c7d2a6e3d5a4c3c1",
+            "kind": "sql"
+          }
+        }
+      ]
+    },
+    "provenance": [
+      {
+        "kind": "host_context",
+        "name": "HOME"
+      },
+      {
+        "end": 40,
+        "kind": "source_span",
+        "start": 0
+      },
+      {
+        "antecedents": [
+          1
+        ],
+        "kind": "execution",
+        "node": 1
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 0,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 1,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 2,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 3,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 4,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 5,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          3
+        ],
+        "kind": "model_application",
+        "model": "docker/cli@v6"
+      },
+      {
+        "antecedents": [
+          9,
+          6,
+          5
+        ],
+        "kind": "execution",
+        "node": 2
+      },
+      {
+        "antecedents": [
+          10
+        ],
+        "index": 0,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          10
+        ],
+        "index": 1,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          10
+        ],
+        "index": 2,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          11
+        ],
+        "kind": "model_application",
+        "model": "postgres/psql@v0"
+      },
+      {
+        "antecedents": [
+          14,
+          13
+        ],
+        "kind": "execution",
+        "node": 3
+      },
+      {
+        "antecedents": [
+          15
+        ],
+        "end": 16,
+        "kind": "source_span",
+        "start": 0
+      },
+      {
+        "antecedents": [
+          16
+        ],
+        "kind": "model_application",
+        "model": "sql/dml@v0"
+      }
+    ],
+    "schema": "effinterp/plan-redacted/v1",
+    "subject": {
+      "digest": "blake3:464e665fa8f25d014735fdbc1991c3fd53186032bf2a8ebc66c06104f27b4fbf",
+      "kind": "shell"
+    }
+  },
+  "plan": {
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 32768,
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_go_nodes": 20000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
+        "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
+        "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
+        "max_source_bytes": 4194304,
+        "max_value_cardinality": 64,
+        "max_value_depth": 24
+      },
+      "model_set": "builtin:blake3:412be1ea11cd035818957cfd02473da220c52267e7d6cd33761a51369229c197"
+    },
+    "causality": {
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:057d6dbbf10f4229735860c57bd9a024240b0bb8910b2e51ea2e4b58ee8a1018",
+            "modality": "must-on-success",
+            "order": 0,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:a1dc05c5f9618eb6b7e47dc58195d2a97f392936125e81720d22a1cbf3a5bea9"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:0f2eff25b6b78c7cb30e8f9db2cbaa33c12439a3f17ceab12490ecace5328cea",
+            "modality": "may",
+            "order": 1,
+            "provenance": [
+              0,
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:27868f079f8af034002520ac88780538ef9c9cb491d1c0e642a4362412b9afc9"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:1a58453f5ff177b213ca9df6f469e076d4c68f831b02518aec934c88903f09ad",
+            "modality": "must-on-success",
+            "order": 2,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:e507ac71d767b14068df053683656ddb4f54e30a3f9898f45c4f29317aee4153"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:1eaac8063d698cbf4c784688cbf701b02d34e7f39e4179fefd4ef8d19de0efd6",
+            "modality": "may",
+            "order": 3,
+            "provenance": [
+              5,
+              6,
+              9
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:61940729e00df8f52f5e7de06c9eed5980534565014955fd823de7cac0a8048e"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:1eaac8063d698cbf4c784688cbf701b02d34e7f39e4179fefd4ef8d19de0efd6",
+            "modality": "may",
+            "order": 4,
+            "provenance": [
+              0,
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:833dbbf6e319470b3531428d72f11a4e00da36087fdce4c7df1d6764949940f6"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:1eaac8063d698cbf4c784688cbf701b02d34e7f39e4179fefd4ef8d19de0efd6",
+            "modality": "may",
+            "order": 5,
+            "provenance": [
+              13,
+              14
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:afd23071b5f4ad4524e8103e96b0431d5afccd051473fa6b6df046ff658aa58c"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:2421f0b199f069518c688d195442f8c14641ab6855f609461fd421db30410a02",
+            "modality": "must-on-success",
+            "order": 6,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:6cc60f75fd566c66d1b21520357ded5e9fc9c11066aec23ff28ca0ffe53514c1"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:2c729a50b4255da1626c2d522c13c1cb2e9cb7c891eed8576bba1def151d0986",
+            "modality": "must-on-success",
+            "order": 7,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:35a57d7a4ff1d9f1ab535a45bc201853de74e5be53e6c4444e6c3ea289614e35",
+            "modality": "may",
+            "order": 8,
+            "provenance": [
+              13,
+              14
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:27868f079f8af034002520ac88780538ef9c9cb491d1c0e642a4362412b9afc9"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:3cab16f057b86c14b5d6b7fad1cefff4fc58b4149072731d210818ce890751cb",
+            "modality": "may",
+            "order": 9,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:3ff2d9065708f16a25095d92e846726463462747cc9d779eb410d41d18f85fa3",
+            "modality": "must-on-success",
+            "order": 10,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:77abb64db7d8d0e71635d99c9d1bdc35c166a8d4fc48d82bf034d8caf76d69e9"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:479fd5c19775754af7bd4155bb2426cc60c1f923f95d8da7a587c15b930d72f5",
+            "modality": "must-on-success",
+            "order": 11,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76",
+            "modality": "may",
+            "order": 12,
+            "provenance": [
+              5,
+              9
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:3cab16f057b86c14b5d6b7fad1cefff4fc58b4149072731d210818ce890751cb"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76",
+            "modality": "may",
+            "order": 13,
+            "provenance": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:a33bd93f8a2fb72db7ad9aab357257cd74ec6f05a8c080fdb4e2c8eac4dcb3b0"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76",
+            "modality": "must-on-success",
+            "order": 14,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:4e94f36a25a794717f89f33376595d14dd3ff0583c391627fa6c85e8a3557ea0",
+            "modality": "may",
+            "order": 15,
+            "provenance": [
+              5,
+              6,
+              9
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:68322d3c3883ea379c48b9e5359984c27a148b2f7780d1603d85395afb544feb"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:57f9b914684e7b4fa89aac6898f367eb17005f9e335e5330491bfe0f93df1e66",
+            "modality": "must-on-success",
+            "order": 16,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:2c729a50b4255da1626c2d522c13c1cb2e9cb7c891eed8576bba1def151d0986"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:5a4d4d1a1cbd6fffc30bc678c26ee42d73d50bf31c0db443082700e9b897dd21",
+            "modality": "may",
+            "order": 17,
+            "provenance": [
+              0,
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:68322d3c3883ea379c48b9e5359984c27a148b2f7780d1603d85395afb544feb"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:6800326f45c32321b79111b4c4dd77194ef800b59c91d2fc34e359c56b8d0dc6",
+            "modality": "may",
+            "order": 18,
+            "provenance": [
+              13,
+              14
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:68322d3c3883ea379c48b9e5359984c27a148b2f7780d1603d85395afb544feb"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:6cc60f75fd566c66d1b21520357ded5e9fc9c11066aec23ff28ca0ffe53514c1",
+            "modality": "must-on-success",
+            "order": 19,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:7568a66d120dfea8f0d2c9b119b82d48043b7ec4cfd6ab0ccf14d4b820da65c5",
+            "modality": "must-on-success",
+            "order": 20,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:77abb64db7d8d0e71635d99c9d1bdc35c166a8d4fc48d82bf034d8caf76d69e9",
+            "modality": "must-on-success",
+            "order": 21,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:808a02028b70581cd94355156e883fc7c133b186866484a48caf1be19598e25b",
+            "modality": "must-on-success",
+            "order": 22,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:dba01405a7ce654db2afa5d880be232f92ea25153546d27ea5d066a105f0f5da"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:8e7191a6d3dd47047f99e0bc1004bccfbeae8a8a9c1c2ad3eb4a6b94d90b1892",
+            "modality": "must-on-success",
+            "order": 23,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:ddcde688a3a576f973fb2ef4b7a115fb29515ffa59373bc71988de24f8777306"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:94e7e263409eee2d070cc1e47f168d1af53d6187fd174569d8471c58e7b0f9b6",
+            "modality": "must-on-success",
+            "order": 24,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:c6bf1d7b7cd0ba68f30c556330d92f2a7ad953d2159886737620815b8bb62926"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:a1dc05c5f9618eb6b7e47dc58195d2a97f392936125e81720d22a1cbf3a5bea9",
+            "modality": "must-on-success",
+            "order": 25,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:a44a9b9b245fec9acbf325ba4f1cf0dbff7609621c7a7e4b907bc88bbd323746",
+            "modality": "may",
+            "order": 26,
+            "provenance": [
+              5,
+              6,
+              9
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:27868f079f8af034002520ac88780538ef9c9cb491d1c0e642a4362412b9afc9"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:a6c3c4b25687607f44979bdbd050297d7806deeaefc94d2bf1317eab06c7ab06",
+            "modality": "may",
+            "order": 27,
+            "provenance": [
+              16,
+              17
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:5bf5bfa35cd8c3cff1f3acbecbb6d02d53450a741c62193d789054a838fdc2a5"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:a75e3b1d5a8e2b9de6ff217d7dd469438a1b058ab61770e11fadc8aeff177856",
+            "modality": "may",
+            "order": 28,
+            "provenance": [
+              16,
+              17
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:5bf5bfa35cd8c3cff1f3acbecbb6d02d53450a741c62193d789054a838fdc2a5"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:b6f6e6c21a62973a77bfe9d937050794bfa5ff4571dd6bae301edc87cc139c02",
+            "modality": "must-on-success",
+            "order": 29,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:7568a66d120dfea8f0d2c9b119b82d48043b7ec4cfd6ab0ccf14d4b820da65c5"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:c6bf1d7b7cd0ba68f30c556330d92f2a7ad953d2159886737620815b8bb62926",
+            "modality": "must-on-success",
+            "order": 30,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:dba01405a7ce654db2afa5d880be232f92ea25153546d27ea5d066a105f0f5da",
+            "modality": "must-on-success",
+            "order": 31,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:ddcde688a3a576f973fb2ef4b7a115fb29515ffa59373bc71988de24f8777306",
+            "modality": "must-on-success",
+            "order": 32,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:e507ac71d767b14068df053683656ddb4f54e30a3f9898f45c4f29317aee4153",
+            "modality": "must-on-success",
+            "order": 33,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7",
+            "modality": "may",
+            "order": 34,
+            "provenance": [
+              11,
+              12,
+              13
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:5601bded3a5e31ae7e405e9f3a0b3f295486f8dfc0af9e5f4a7d35b998b3f874"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7",
+            "modality": "must-on-success",
+            "order": 35,
+            "provenance": [
+              14,
+              13
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:a75e3b1d5a8e2b9de6ff217d7dd469438a1b058ab61770e11fadc8aeff177856"
+          }
+        ],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:479fd5c19775754af7bd4155bb2426cc60c1f923f95d8da7a587c15b930d72f5",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:4a818fab88e682e10984ec82c2ea61c23db93f48452a92a3549efdc7ad3bdb76",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 1,
+            "port": "code",
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:2421f0b199f069518c688d195442f8c14641ab6855f609461fd421db30410a02",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 2,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:6cc60f75fd566c66d1b21520357ded5e9fc9c11066aec23ff28ca0ffe53514c1",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 3,
+            "port": {
+              "arg": 0
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:3ff2d9065708f16a25095d92e846726463462747cc9d779eb410d41d18f85fa3",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 4,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "exec"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:77abb64db7d8d0e71635d99c9d1bdc35c166a8d4fc48d82bf034d8caf76d69e9",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 5,
+            "port": {
+              "arg": 1
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:1a58453f5ff177b213ca9df6f469e076d4c68f831b02518aec934c88903f09ad",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 6,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "c"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:e507ac71d767b14068df053683656ddb4f54e30a3f9898f45c4f29317aee4153",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 7,
+            "port": {
+              "arg": 2
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:b6f6e6c21a62973a77bfe9d937050794bfa5ff4571dd6bae301edc87cc139c02",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 8,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "psql"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:7568a66d120dfea8f0d2c9b119b82d48043b7ec4cfd6ab0ccf14d4b820da65c5",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 9,
+            "port": {
+              "arg": 3
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:057d6dbbf10f4229735860c57bd9a024240b0bb8910b2e51ea2e4b58ee8a1018",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 10,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "-c"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:a1dc05c5f9618eb6b7e47dc58195d2a97f392936125e81720d22a1cbf3a5bea9",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 11,
+            "port": {
+              "arg": 4
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:94e7e263409eee2d070cc1e47f168d1af53d6187fd174569d8471c58e7b0f9b6",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 12,
+            "provenance": [
+              1,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "DROP TABLE users"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:c6bf1d7b7cd0ba68f30c556330d92f2a7ad953d2159886737620815b8bb62926",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 13,
+            "port": {
+              "arg": 5
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:fba9456541e1e58e9e9db6488583bdfb3ec7c0f1b0e76d4470ca45ca55ab8cf7",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 14,
+            "port": "code",
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:808a02028b70581cd94355156e883fc7c133b186866484a48caf1be19598e25b",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 15,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "value": {
+              "expr": "literal",
+              "value": "psql"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:dba01405a7ce654db2afa5d880be232f92ea25153546d27ea5d066a105f0f5da",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 16,
+            "port": {
+              "arg": 0
+            },
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:57f9b914684e7b4fa89aac6898f367eb17005f9e335e5330491bfe0f93df1e66",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 17,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "value": {
+              "expr": "literal",
+              "value": "-c"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:2c729a50b4255da1626c2d522c13c1cb2e9cb7c891eed8576bba1def151d0986",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 18,
+            "port": {
+              "arg": 1
+            },
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:8e7191a6d3dd47047f99e0bc1004bccfbeae8a8a9c1c2ad3eb4a6b94d90b1892",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 19,
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "value": {
+              "expr": "literal",
+              "value": "DROP TABLE users"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:ddcde688a3a576f973fb2ef4b7a115fb29515ffa59373bc71988de24f8777306",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 20,
+            "port": {
+              "arg": 2
+            },
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:a75e3b1d5a8e2b9de6ff217d7dd469438a1b058ab61770e11fadc8aeff177856",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 21,
+            "port": "code",
+            "provenance": [
+              14,
+              13
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:1eaac8063d698cbf4c784688cbf701b02d34e7f39e4179fefd4ef8d19de0efd6",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 22,
+            "port": "stdin"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:68322d3c3883ea379c48b9e5359984c27a148b2f7780d1603d85395afb544feb",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 23,
+            "port": "stdout"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:27868f079f8af034002520ac88780538ef9c9cb491d1c0e642a4362412b9afc9",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 24,
+            "port": "stderr"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:833dbbf6e319470b3531428d72f11a4e00da36087fdce4c7df1d6764949940f6",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 25,
+            "port": "stdin",
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:5a4d4d1a1cbd6fffc30bc678c26ee42d73d50bf31c0db443082700e9b897dd21",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 26,
+            "port": "stdout",
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:0f2eff25b6b78c7cb30e8f9db2cbaa33c12439a3f17ceab12490ecace5328cea",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 27,
+            "port": "stderr",
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:61940729e00df8f52f5e7de06c9eed5980534565014955fd823de7cac0a8048e",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 28,
+            "port": "stdin",
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:4e94f36a25a794717f89f33376595d14dd3ff0583c391627fa6c85e8a3557ea0",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 29,
+            "port": "stdout",
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:a44a9b9b245fec9acbf325ba4f1cf0dbff7609621c7a7e4b907bc88bbd323746",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 30,
+            "port": "stderr",
+            "provenance": [
+              9,
+              6,
+              5
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:afd23071b5f4ad4524e8103e96b0431d5afccd051473fa6b6df046ff658aa58c",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 31,
+            "port": "stdin",
+            "provenance": [
+              14,
+              13
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:6800326f45c32321b79111b4c4dd77194ef800b59c91d2fc34e359c56b8d0dc6",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 32,
+            "port": "stdout",
+            "provenance": [
+              14,
+              13
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:35a57d7a4ff1d9f1ab535a45bc201853de74e5be53e6c4444e6c3ea289614e35",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 33,
+            "port": "stderr",
+            "provenance": [
+              14,
+              13
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:a33bd93f8a2fb72db7ad9aab357257cd74ec6f05a8c080fdb4e2c8eac4dcb3b0",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "process.exec",
+            "order": 34,
+            "provenance": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "argv": [
+                  {
+                    "expr": "literal",
+                    "value": "exec"
+                  },
+                  {
+                    "expr": "literal",
+                    "value": "c"
+                  },
+                  {
+                    "expr": "literal",
+                    "value": "psql"
+                  },
+                  {
+                    "expr": "literal",
+                    "value": "-c"
+                  },
+                  {
+                    "expr": "literal",
+                    "value": "DROP TABLE users"
+                  }
+                ],
+                "cwd": {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "/workspace/project"
+                  }
+                },
+                "executable": "docker",
+                "family": "process"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:3cab16f057b86c14b5d6b7fad1cefff4fc58b4149072731d210818ce890751cb",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "container.exec",
+            "order": 35,
+            "provenance": [
+              5,
+              9
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "container",
+                "name": "c",
+                "runtime": "docker"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:5601bded3a5e31ae7e405e9f3a0b3f295486f8dfc0af9e5f4a7d35b998b3f874",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "process.exec",
+            "order": 36,
+            "provenance": [
+              11,
+              12,
+              13
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "argv": [
+                  {
+                    "expr": "literal",
+                    "value": "-c"
+                  },
+                  {
+                    "expr": "literal",
+                    "value": "DROP TABLE users"
+                  }
+                ],
+                "executable": "psql",
+                "family": "process"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:5bf5bfa35cd8c3cff1f3acbecbb6d02d53450a741c62193d789054a838fdc2a5",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "database.schema_drop",
+            "order": 37,
+            "provenance": [
+              16,
+              17
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "database_table",
+                "table": "users"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 3,
+            "id": "occurrence:blake3:a6c3c4b25687607f44979bdbd050297d7806deeaefc94d2bf1317eab06c7ab06",
+            "kind": "port",
+            "modality": "may",
+            "order": 38,
+            "port": "sql_input",
+            "provenance": [
+              16,
+              17
+            ],
+            "realm": {
+              "name": "c",
+              "realm": "container",
+              "runtime": "docker"
+            }
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "container": {
+        "level": "full"
+      },
+      "database": {
+        "level": "full"
+      },
+      "filesystem": {
+        "level": "full"
+      },
+      "process": {
+        "level": "full"
+      }
+    },
+    "effects": [
+      {
+        "execution": 1,
+        "id": "effect:blake3:35f51f05cf04a710cd330afe38f9bcc75e481fe0199e4971e053b1c6dec92277",
+        "modality": "may",
+        "operation": "process.exec",
+        "provenance": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "argv": [
+              {
+                "expr": "literal",
+                "value": "exec"
+              },
+              {
+                "expr": "literal",
+                "value": "c"
+              },
+              {
+                "expr": "literal",
+                "value": "psql"
+              },
+              {
+                "expr": "literal",
+                "value": "-c"
+              },
+              {
+                "expr": "literal",
+                "value": "DROP TABLE users"
+              }
+            ],
+            "cwd": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/workspace/project"
+              }
+            },
+            "executable": "docker",
+            "family": "process"
+          }
+        }
+      },
+      {
+        "execution": 1,
+        "id": "effect:blake3:3cf765b3270331b4da935bd2c5d806f3330e3e79cb100c520941b78b90a7c683",
+        "modality": "may",
+        "operation": "container.exec",
+        "provenance": [
+          5,
+          9
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "container",
+            "name": "c",
+            "runtime": "docker"
+          }
+        }
+      },
+      {
+        "execution": 2,
+        "id": "effect:blake3:334685fa925f2ed3fa92c0de6b64df931ffedd291873d90c0965da7c9ee334da",
+        "modality": "may",
+        "operation": "process.exec",
+        "provenance": [
+          11,
+          12,
+          13
+        ],
+        "realm": {
+          "name": "c",
+          "realm": "container",
+          "runtime": "docker"
+        },
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "argv": [
+              {
+                "expr": "literal",
+                "value": "-c"
+              },
+              {
+                "expr": "literal",
+                "value": "DROP TABLE users"
+              }
+            ],
+            "executable": "psql",
+            "family": "process"
+          }
+        }
+      },
+      {
+        "execution": 3,
+        "id": "effect:blake3:08577d8219d9062c6786210b456e9eef4f1a041d8659889dad910d80b485966c",
+        "modality": "may",
+        "operation": "database.schema_drop",
+        "provenance": [
+          16,
+          17
+        ],
+        "realm": {
+          "name": "c",
+          "realm": "container",
+          "runtime": "docker"
+        },
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "database_table",
+            "table": "users"
+          }
+        }
+      }
+    ],
+    "execution_graph": {
+      "edges": [
+        {
+          "evidence": [
+            1,
+            0
+          ],
+          "from": 0,
+          "kind": "launch",
+          "to": 1
+        },
+        {
+          "evidence": [
+            9,
+            6,
+            5
+          ],
+          "from": 1,
+          "kind": "container_realm",
+          "to": 2
+        },
+        {
+          "evidence": [
+            14,
+            13
+          ],
+          "from": 2,
+          "kind": "database_client",
+          "to": 3
+        }
+      ],
+      "entry": 0,
+      "nodes": [
+        {
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/workspace/project"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "context": {
+              "env": {
+                "HOME": "/home/test"
+              }
+            },
+            "cwd": "/workspace/project",
+            "kind": "shell",
+            "source": "docker exec c psql -c 'DROP TABLE users'"
+          }
+        },
+        {
+          "argv": [
+            {
+              "expr": "literal",
+              "value": "docker"
+            },
+            {
+              "expr": "literal",
+              "value": "exec"
+            },
+            {
+              "expr": "literal",
+              "value": "c"
+            },
+            {
+              "expr": "literal",
+              "value": "psql"
+            },
+            {
+              "expr": "literal",
+              "value": "-c"
+            },
+            {
+              "expr": "literal",
+              "value": "DROP TABLE users"
+            }
+          ],
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/workspace/project"
+            }
+          },
+          "environment": {
+            "HOME": {
+              "expr": "literal",
+              "value": "/home/test"
+            }
+          },
+          "evidence": [
+            1,
+            0
+          ],
+          "realm": {
+            "realm": "host"
+          },
+          "source_span": {
+            "end": 40,
+            "start": 0
+          },
+          "streams": {
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            },
+            "stdin": {
+              "node": 0,
+              "stream": "stdin"
+            },
+            "stdout": {
+              "node": 0,
+              "stream": "stdout"
+            }
+          },
+          "subject": {
+            "argv": [
+              "docker",
+              "exec",
+              "c",
+              "psql",
+              "-c",
+              "DROP TABLE users"
+            ],
+            "cwd": "/workspace/project",
+            "kind": "exec"
+          }
+        },
+        {
+          "argv": [
+            {
+              "expr": "literal",
+              "value": "psql"
+            },
+            {
+              "expr": "literal",
+              "value": "-c"
+            },
+            {
+              "expr": "literal",
+              "value": "DROP TABLE users"
+            }
+          ],
+          "assurance": "exact",
+          "evidence": [
+            9,
+            6,
+            5
+          ],
+          "realm": {
+            "name": "c",
+            "realm": "container",
+            "runtime": "docker"
+          },
+          "source_span": {
+            "end": 40,
+            "start": 0
+          },
+          "streams": {
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            },
+            "stdin": {
+              "node": 0,
+              "stream": "stdin"
+            },
+            "stdout": {
+              "node": 0,
+              "stream": "stdout"
+            }
+          },
+          "subject": {
+            "argv": [
+              "psql",
+              "-c",
+              "DROP TABLE users"
+            ],
+            "kind": "exec"
+          }
+        },
+        {
+          "assurance": "exact",
+          "evidence": [
+            14,
+            13
+          ],
+          "realm": {
+            "name": "c",
+            "realm": "container",
+            "runtime": "docker"
+          },
+          "source_span": {
+            "end": 40,
+            "start": 0
+          },
+          "streams": {
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            },
+            "stdin": {
+              "node": 0,
+              "stream": "stdin"
+            },
+            "stdout": {
+              "node": 0,
+              "stream": "stdout"
+            }
+          },
+          "subject": {
+            "dialect": "postgres",
+            "kind": "sql",
+            "source": "DROP TABLE users"
+          }
+        }
+      ]
+    },
+    "provenance": [
+      {
+        "kind": "host_context",
+        "name": "HOME"
+      },
+      {
+        "end": 40,
+        "kind": "source_span",
+        "start": 0
+      },
+      {
+        "antecedents": [
+          1
+        ],
+        "kind": "execution",
+        "node": 1
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 0,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 1,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 2,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 3,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 4,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "index": 5,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          3
+        ],
+        "kind": "model_application",
+        "model": "docker/cli@v6"
+      },
+      {
+        "antecedents": [
+          9,
+          6,
+          5
+        ],
+        "kind": "execution",
+        "node": 2
+      },
+      {
+        "antecedents": [
+          10
+        ],
+        "index": 0,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          10
+        ],
+        "index": 1,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          10
+        ],
+        "index": 2,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          11
+        ],
+        "kind": "model_application",
+        "model": "postgres/psql@v0"
+      },
+      {
+        "antecedents": [
+          14,
+          13
+        ],
+        "kind": "execution",
+        "node": 3
+      },
+      {
+        "antecedents": [
+          15
+        ],
+        "end": 16,
+        "kind": "source_span",
+        "start": 0
+      },
+      {
+        "antecedents": [
+          16
+        ],
+        "kind": "model_application",
+        "model": "sql/dml@v0"
+      }
+    ],
+    "schema": "effinterp/plan/v1",
+    "subject": {
+      "context": {
+        "env": {
+          "HOME": "/home/test"
+        }
+      },
+      "cwd": "/workspace/project",
+      "kind": "shell",
+      "source": "docker exec c psql -c 'DROP TABLE users'"
+    }
+  },
+  "schema": "effinterp/redacted-case/v1"
+}

@@ -1,0 +1,52 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "endpoint-text-join",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "network_endpoint",
+        "host": "example.test",
+        "scheme": "https",
+        "port": 8443,
+        "path": "/a?x=%2F"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "join",
+        "parts": [
+          {
+            "expr": "literal",
+            "value": "https://"
+          },
+          {
+            "expr": "literal",
+            "value": "example.test"
+          },
+          {
+            "expr": "literal",
+            "value": ":8443/a?x=%2F"
+          }
+        ]
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": []
+    }
+  }
+}

@@ -1,0 +1,703 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:f4f2a8aafa8ef5ad5729ca8c02836893743081f39a331afcb5807847586d4f7c",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "https://raw.githubusercontent.com/supabase-community/supabase-mcp/6c411e221ae2a44a9b2e905d04ea80d132edf9d2/packages/mcp-server-supabase/package.json",
+        "digest": "blake3:e68912eb53e57e1c14f1a82de203555eba0f300ee70dcdbcb4f13d7d9d2de739"
+      },
+      {
+        "uri": "https://raw.githubusercontent.com/supabase-community/supabase-mcp/6c411e221ae2a44a9b2e905d04ea80d132edf9d2/packages/mcp-server-supabase/src/cli.ts",
+        "digest": "blake3:7624ba80896ed83e57fbc055ec478c79dac8725b8e0bdc3100ba331d805d3886"
+      },
+      {
+        "uri": "https://raw.githubusercontent.com/supabase-community/supabase-mcp/6c411e221ae2a44a9b2e905d04ea80d132edf9d2/packages/mcp-server-supabase/src/server.ts",
+        "digest": "blake3:39d4f452a89c2c951a5dee6bf669e83b8541030ec250a8c4ab3267d0b943338d"
+      },
+      {
+        "uri": "https://raw.githubusercontent.com/supabase-community/supabase-mcp/6c411e221ae2a44a9b2e905d04ea80d132edf9d2/packages/mcp-server-supabase/src/tools/account-tools.ts",
+        "digest": "blake3:4c9afcf9d293b4f0ca18281a4621c68ea14ac6bd16d29c7ccb78bf2ed1e57827"
+      },
+      {
+        "uri": "https://raw.githubusercontent.com/supabase-community/supabase-mcp/6c411e221ae2a44a9b2e905d04ea80d132edf9d2/packages/mcp-server-supabase/src/tools/branching-tools.ts",
+        "digest": "blake3:20c8089e5f26191a6593fe7e9de008d1024344604b8517fec25f9e10a469b00a"
+      },
+      {
+        "uri": "https://raw.githubusercontent.com/supabase-community/supabase-mcp/6c411e221ae2a44a9b2e905d04ea80d132edf9d2/packages/mcp-server-supabase/src/tools/database-operation-tools.ts",
+        "digest": "blake3:3865da93aeab55773f78473689ce54431224c4d26449195dee4491f8164fe005"
+      },
+      {
+        "uri": "https://raw.githubusercontent.com/supabase-community/supabase-mcp/6c411e221ae2a44a9b2e905d04ea80d132edf9d2/packages/mcp-server-supabase/src/transports/local-http-entry.ts",
+        "digest": "blake3:fdf97eb6c92ee9e8356f040fe85240984e1cd19a137a18af6298b8ff5fe8b1d0"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "@supabase/mcp-server-supabase",
+        "requirement": "reviewed-exact-surface@0.13.0"
+      },
+      {
+        "target": "https://mcp.supabase.com/mcp",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "mcp/supabase@v1",
+        "path": "../../tests/fixtures/mcp/supabase.json",
+        "digest": "blake3:e2f599b69a7b512c79d2ba0ef0697b14b8aa2cb592502236eb0fe5b112fb6078"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "lookalike-package-execute-sql-stays-opaque",
+        "subject": {
+          "kind": "tool_call",
+          "tool": "mcp.call",
+          "args": {
+            "server": {
+              "kind": "known",
+              "transport": {
+                "kind": "stdio",
+                "source": {
+                  "kind": "npm",
+                  "spec": "@evil/mcp-server-supabase"
+                }
+              }
+            },
+            "tool": "execute_sql",
+            "arguments": {
+              "query": "DROP TABLE users"
+            }
+          },
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "npm-alias-under-supabase-name-is-not-read-only-supabase",
+        "subject": {
+          "kind": "tool_call",
+          "tool": "mcp.call",
+          "args": {
+            "server": {
+              "kind": "known",
+              "transport": {
+                "kind": "stdio",
+                "source": {
+                  "kind": "npm",
+                  "spec": "@supabase/mcp-server-supabase@npm:evil-server"
+                },
+                "args": [
+                  "--read-only"
+                ]
+              }
+            },
+            "tool": "execute_sql",
+            "arguments": {
+              "query": "DROP TABLE users"
+            }
+          },
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.read",
+          "database.schema_drop"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "pause-project-does-not-delete",
+        "subject": {
+          "kind": "tool_call",
+          "tool": "mcp.call",
+          "args": {
+            "server": {
+              "kind": "known",
+              "transport": {
+                "kind": "http",
+                "host": "mcp.supabase.com",
+                "path": "/mcp"
+              }
+            },
+            "tool": "pause_project",
+            "arguments": {
+              "project_id": "abc"
+            }
+          },
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete",
+          "database.schema_drop",
+          "database.truncate",
+          "database.write"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "read-only-http-delete-branch-does-not-delete",
+        "subject": {
+          "kind": "tool_call",
+          "tool": "mcp.call",
+          "args": {
+            "server": {
+              "kind": "known",
+              "transport": {
+                "kind": "http",
+                "host": "mcp.supabase.com",
+                "path": "/mcp",
+                "query": "project_ref=abc&read_only=true"
+              }
+            },
+            "tool": "delete_branch",
+            "arguments": {
+              "branch_id": "br_1"
+            }
+          },
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "read-only-stdio-execute-sql-drop-does-not-drop",
+        "subject": {
+          "kind": "tool_call",
+          "tool": "mcp.call",
+          "args": {
+            "server": {
+              "kind": "known",
+              "transport": {
+                "kind": "stdio",
+                "source": {
+                  "kind": "npm",
+                  "spec": "@supabase/mcp-server-supabase@latest"
+                },
+                "args": [
+                  "--read-only",
+                  "--project-ref=abc"
+                ]
+              }
+            },
+            "tool": "execute_sql",
+            "arguments": {
+              "project_id": "abc",
+              "query": "DROP TABLE users"
+            }
+          },
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "change-first-operation",
+        "mutation": "change_first_operation"
+      },
+      {
+        "name": "drop-first-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "cloud.resource.delete",
+      "cloud.resource.stop",
+      "database.read",
+      "database.schema_drop",
+      "database.truncate"
+    ],
+    "expected_boundaries": [
+      "unrecoverable_source",
+      "unresolved_sql",
+      "unsupported_tool"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "mcp_tool",
+      "id": "mcp/supabase/apply_migration@v1",
+      "servers": [
+        {
+          "kind": "npm_package",
+          "name": "@supabase/mcp-server-supabase"
+        },
+        {
+          "kind": "http",
+          "host": "mcp.supabase.com",
+          "path_prefix": "/mcp"
+        }
+      ],
+      "read_only": [
+        {
+          "kind": "stdio_flag",
+          "flag": "--read-only"
+        },
+        {
+          "kind": "http_query",
+          "name": "read_only",
+          "value": "true"
+        }
+      ],
+      "tool": "apply_migration",
+      "nested_sql": [
+        {
+          "when": {
+            "server_read_only": false
+          },
+          "argument": "$.query",
+          "dialect": "postgres"
+        }
+      ],
+      "no_effect_when": [
+        {
+          "server_read_only": true
+        }
+      ]
+    },
+    {
+      "kind": "mcp_tool",
+      "id": "mcp/supabase/delete_branch@v1",
+      "servers": [
+        {
+          "kind": "npm_package",
+          "name": "@supabase/mcp-server-supabase"
+        },
+        {
+          "kind": "http",
+          "host": "mcp.supabase.com",
+          "path_prefix": "/mcp"
+        }
+      ],
+      "read_only": [
+        {
+          "kind": "stdio_flag",
+          "flag": "--read-only"
+        },
+        {
+          "kind": "http_query",
+          "name": "read_only",
+          "value": "true"
+        }
+      ],
+      "tool": "delete_branch",
+      "effects": [
+        {
+          "argument": "$.branch_id",
+          "when": {
+            "server_read_only": false
+          },
+          "emit": [
+            {
+              "operation": "cloud.resource.delete",
+              "resource": {
+                "kind": "cloud",
+                "scope": {
+                  "kind": "unsupported",
+                  "identity": {
+                    "partition": {
+                      "state": "unknown"
+                    },
+                    "account": {
+                      "state": "unknown"
+                    },
+                    "project": {
+                      "state": "unknown"
+                    },
+                    "subscription": {
+                      "state": "unknown"
+                    },
+                    "region": {
+                      "state": "unknown"
+                    },
+                    "zone": {
+                      "state": "unknown"
+                    },
+                    "storage_account": {
+                      "state": "unknown"
+                    },
+                    "resource_group": {
+                      "state": "unknown"
+                    },
+                    "cluster": {
+                      "state": "unknown"
+                    },
+                    "namespace": {
+                      "state": "unknown"
+                    }
+                  },
+                  "access": []
+                },
+                "provider": {
+                  "kind": "literal",
+                  "value": "supabase"
+                },
+                "service": {
+                  "kind": "literal",
+                  "value": "branches"
+                },
+                "resource_kind": {
+                  "kind": "literal",
+                  "value": "branch"
+                },
+                "id": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "no_effect_when": [
+        {
+          "server_read_only": true
+        }
+      ]
+    },
+    {
+      "kind": "mcp_tool",
+      "id": "mcp/supabase/execute_sql@v1",
+      "servers": [
+        {
+          "kind": "npm_package",
+          "name": "@supabase/mcp-server-supabase"
+        },
+        {
+          "kind": "http",
+          "host": "mcp.supabase.com",
+          "path_prefix": "/mcp"
+        }
+      ],
+      "read_only": [
+        {
+          "kind": "stdio_flag",
+          "flag": "--read-only"
+        },
+        {
+          "kind": "http_query",
+          "name": "read_only",
+          "value": "true"
+        }
+      ],
+      "tool": "execute_sql",
+      "effects": [
+        {
+          "when": {
+            "server_read_only": true,
+            "arguments": [
+              {
+                "argument": "$.query",
+                "shape": "empty",
+                "matches": false
+              }
+            ]
+          },
+          "emit": [
+            {
+              "operation": "database.read",
+              "resource": {
+                "kind": "unresolved",
+                "family": "db"
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "nested_sql": [
+        {
+          "when": {
+            "server_read_only": false
+          },
+          "argument": "$.query",
+          "dialect": "postgres"
+        }
+      ],
+      "no_effect_when": [
+        {
+          "server_read_only": true,
+          "arguments": [
+            {
+              "argument": "$.query",
+              "shape": "empty",
+              "matches": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "mcp_tool",
+      "id": "mcp/supabase/merge_branch@v1",
+      "servers": [
+        {
+          "kind": "npm_package",
+          "name": "@supabase/mcp-server-supabase"
+        },
+        {
+          "kind": "http",
+          "host": "mcp.supabase.com",
+          "path_prefix": "/mcp"
+        }
+      ],
+      "read_only": [
+        {
+          "kind": "stdio_flag",
+          "flag": "--read-only"
+        },
+        {
+          "kind": "http_query",
+          "name": "read_only",
+          "value": "true"
+        }
+      ],
+      "tool": "merge_branch",
+      "boundaries": [
+        {
+          "when": {
+            "server_read_only": false
+          },
+          "reason": "unresolved_sql",
+          "class": "unresolved",
+          "domains": [
+            "cloud",
+            "database"
+          ],
+          "detail": "merge_branch applies the branch's migrations and edge functions to production; the call does not carry them"
+        }
+      ],
+      "no_effect_when": [
+        {
+          "server_read_only": true
+        }
+      ]
+    },
+    {
+      "kind": "mcp_tool",
+      "id": "mcp/supabase/pause_project@v1",
+      "servers": [
+        {
+          "kind": "npm_package",
+          "name": "@supabase/mcp-server-supabase"
+        },
+        {
+          "kind": "http",
+          "host": "mcp.supabase.com",
+          "path_prefix": "/mcp"
+        }
+      ],
+      "read_only": [
+        {
+          "kind": "stdio_flag",
+          "flag": "--read-only"
+        },
+        {
+          "kind": "http_query",
+          "name": "read_only",
+          "value": "true"
+        }
+      ],
+      "tool": "pause_project",
+      "effects": [
+        {
+          "argument": "$.project_id",
+          "when": {
+            "server_read_only": false
+          },
+          "emit": [
+            {
+              "operation": "cloud.resource.stop",
+              "resource": {
+                "kind": "cloud",
+                "scope": {
+                  "kind": "unsupported",
+                  "identity": {
+                    "partition": {
+                      "state": "unknown"
+                    },
+                    "account": {
+                      "state": "unknown"
+                    },
+                    "project": {
+                      "state": "unknown"
+                    },
+                    "subscription": {
+                      "state": "unknown"
+                    },
+                    "region": {
+                      "state": "unknown"
+                    },
+                    "zone": {
+                      "state": "unknown"
+                    },
+                    "storage_account": {
+                      "state": "unknown"
+                    },
+                    "resource_group": {
+                      "state": "unknown"
+                    },
+                    "cluster": {
+                      "state": "unknown"
+                    },
+                    "namespace": {
+                      "state": "unknown"
+                    }
+                  },
+                  "access": []
+                },
+                "provider": {
+                  "kind": "literal",
+                  "value": "supabase"
+                },
+                "service": {
+                  "kind": "literal",
+                  "value": "projects"
+                },
+                "resource_kind": {
+                  "kind": "literal",
+                  "value": "project"
+                },
+                "id": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "no_effect_when": [
+        {
+          "server_read_only": true
+        }
+      ]
+    },
+    {
+      "kind": "mcp_tool",
+      "id": "mcp/supabase/rebase_branch@v1",
+      "servers": [
+        {
+          "kind": "npm_package",
+          "name": "@supabase/mcp-server-supabase"
+        },
+        {
+          "kind": "http",
+          "host": "mcp.supabase.com",
+          "path_prefix": "/mcp"
+        }
+      ],
+      "read_only": [
+        {
+          "kind": "stdio_flag",
+          "flag": "--read-only"
+        },
+        {
+          "kind": "http_query",
+          "name": "read_only",
+          "value": "true"
+        }
+      ],
+      "tool": "rebase_branch",
+      "boundaries": [
+        {
+          "when": {
+            "server_read_only": false
+          },
+          "reason": "unresolved_sql",
+          "class": "unresolved",
+          "domains": [
+            "database"
+          ],
+          "detail": "rebase_branch runs production's newer migrations on the branch; the call does not carry them"
+        }
+      ],
+      "no_effect_when": [
+        {
+          "server_read_only": true
+        }
+      ]
+    },
+    {
+      "kind": "mcp_tool",
+      "id": "mcp/supabase/reset_branch@v1",
+      "servers": [
+        {
+          "kind": "npm_package",
+          "name": "@supabase/mcp-server-supabase"
+        },
+        {
+          "kind": "http",
+          "host": "mcp.supabase.com",
+          "path_prefix": "/mcp"
+        }
+      ],
+      "read_only": [
+        {
+          "kind": "stdio_flag",
+          "flag": "--read-only"
+        },
+        {
+          "kind": "http_query",
+          "name": "read_only",
+          "value": "true"
+        }
+      ],
+      "tool": "reset_branch",
+      "effects": [
+        {
+          "argument": "$.branch_id",
+          "when": {
+            "server_read_only": false
+          },
+          "emit": [
+            {
+              "operation": "database.schema_drop",
+              "resource": {
+                "kind": "unresolved",
+                "family": "db"
+              },
+              "attributes": {
+                "object_kind": {
+                  "kind": "constant_string",
+                  "value": "database"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "no_effect_when": [
+        {
+          "server_read_only": true
+        }
+      ]
+    }
+  ]
+}

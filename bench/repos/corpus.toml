@@ -1,0 +1,1476 @@
+# effinterp bench, Plane B: 100 pinned public repositories (see bench design brief).
+#
+# era rule (verbatim): post-ai = created 2024-01 or later, OR the repo is an
+# agent runtime / agent tooling (coding agents, MCP servers, agent skills,
+# harnesses) regardless of date; pre-ai = everything else (the classic set is
+# created <= 2022).
+#
+# Sets: v1, holdout and semantic-depth rows keep the SHAs, splits and
+# expectation files of their retired source manifests (the v1 stress corpus,
+# the holdout manifest, the semantic-depth manifest). composer/composer,
+# junegunn/fzf and sharkdp/bat appear in both holdout and semantic-depth; the
+# holdout row and its expectation file are kept.
+# field-trial-1 rows (the 2026-08-31 repository report, no SHAs recorded)
+# and every set = "new" row were pinned with `git ls-remote <url> HEAD` on
+# 2026-09-10. field-trial-3/4 SHAs come from their field-trial records.
+#
+# Hidden split for set = "new": per language, sort the new names, shuffle with
+# Python random.Random(20260910), mark the first round(n/3) hidden. Hidden
+# rows are never analyzed until a declared evaluation. The holdout set's own
+# hidden split was opened on 2026-08-19 (stress runs p12-p16, phase
+# post-hidden/tuned), so every holdout row is dev here.
+#
+# created, license and primary language come from the GitHub repos API on
+# 2026-09-10. vendorable = license in {MIT, Apache-2.0, BSD-2/3, ISC,
+# PostgreSQL, CC0, Unlicense, MPL-2.0}.
+
+corpus = "bench"
+version = 1
+pinned = "2026-09-10"
+
+[[repo]]
+name = "cli/cli"
+url = "https://github.com/cli/cli"
+sha = "0eeec0b92edbe70199f9768522f831d3534f41ad"
+language = "go"
+shapes = ["cli", "cobra-command-tree", "network-client"]
+era = "pre-ai"
+created = "2019-10"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "v1"
+expectations = "bench/repos/expectations/cli__cli.toml"
+real_entries = ["cmd/gh/main.go"]
+
+[[repo]]
+name = "ansible/ansible"
+url = "https://github.com/ansible/ansible"
+sha = "9cf16a4aca7898481c257f1e17ad28d0b67b1f85"
+language = "python"
+shapes = ["cli", "console-script", "plugin-system", "subprocess"]
+era = "pre-ai"
+created = "2012-03"
+license = "GPL-3.0"
+vendorable = false
+split = "dev"
+set = "v1"
+expectations = "bench/repos/expectations/ansible__ansible.toml"
+real_entries = ["lib/ansible/cli/playbook.py", "lib/ansible/__main__.py"]
+
+[[repo]]
+name = "nvm-sh/nvm"
+url = "https://github.com/nvm-sh/nvm"
+sha = "65ded65d46c16481dbbe8e93f8ba9e6b35f20740"
+language = "shell"
+shapes = ["env-manager", "single-script", "curl-download"]
+era = "pre-ai"
+created = "2010-04"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "v1"
+expectations = "bench/repos/expectations/nvm-sh__nvm.toml"
+real_entries = ["nvm.sh"]
+
+[[repo]]
+name = "httpie/cli"
+url = "https://github.com/httpie/cli"
+sha = "5b604c37c6c67e18e7c3e9aee6c88a8c22b98345"
+language = "python"
+shapes = ["cli", "console-script", "network-client"]
+era = "pre-ai"
+created = "2012-02"
+license = "BSD-3-Clause"
+vendorable = true
+split = "dev"
+set = "v1"
+expectations = "bench/repos/expectations/httpie__cli.toml"
+real_entries = ["httpie/__main__.py"]
+
+[[repo]]
+name = "psf/black"
+url = "https://github.com/psf/black"
+sha = "40d4160f1fe1f42bbd2e7ea683294ba857df4e63"
+language = "python"
+shapes = ["cli", "click-command-tree", "src-layout", "formatter"]
+era = "pre-ai"
+created = "2018-03"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "v1"
+expectations = "bench/repos/expectations/psf__black.toml"
+real_entries = ["src/black/__init__.py"]
+
+[[repo]]
+name = "wp-cli/wp-cli"
+url = "https://github.com/wp-cli/wp-cli"
+sha = "6f7facf268e64e89b359c08196524f18353cb552"
+language = "php"
+shapes = ["cli", "composer-app", "registered-commands"]
+era = "pre-ai"
+created = "2011-09"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "v1"
+expectations = "bench/repos/expectations/wp-cli__wp-cli.toml"
+real_entries = ["php/wp-cli.php", "bin/wp"]
+
+[[repo]]
+name = "BurntSushi/ripgrep"
+url = "https://github.com/BurntSushi/ripgrep"
+sha = "3fce3b5bb0236da2df6d99672afb8a719642eca7"
+language = "rust"
+shapes = ["cli", "workspace", "multi-crate"]
+era = "pre-ai"
+created = "2016-03"
+license = "Unlicense"
+vendorable = true
+split = "dev"
+set = "v1"
+expectations = "bench/repos/expectations/BurntSushi__ripgrep.toml"
+real_entries = ["crates/core/main.rs"]
+
+[[repo]]
+name = "pypa/pipx"
+url = "https://github.com/pypa/pipx"
+sha = "ef49480ec2c11b1b9e68499c3dec34b4840b750c"
+language = "python"
+shapes = ["python", "src-layout", "console-script", "subprocess"]
+era = "pre-ai"
+created = "2018-10"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/pypa__pipx.toml"
+real_entries = ["src/pipx/main.py"]
+
+[[repo]]
+name = "cookiecutter/cookiecutter"
+url = "https://github.com/cookiecutter/cookiecutter"
+sha = "c88fbe921c97c58b65f1883ba90a0ab53cc91b34"
+language = "python"
+shapes = ["python", "console-script", "template-generator", "subprocess", "network"]
+era = "pre-ai"
+created = "2013-07"
+license = "BSD-3-Clause"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/cookiecutter__cookiecutter.toml"
+real_entries = ["cookiecutter/cli.py", "cookiecutter/__main__.py"]
+
+[[repo]]
+name = "tox-dev/tox"
+url = "https://github.com/tox-dev/tox"
+sha = "2a02926ca50bd4b1b440ac1dda2409c4c7e4fdd4"
+language = "python"
+shapes = ["python", "src-layout", "plugin-system"]
+era = "pre-ai"
+created = "2016-09"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/tox-dev__tox.toml"
+real_entries = ["src/tox/run.py", "src/tox/__main__.py"]
+
+[[repo]]
+name = "python-websockets/websockets"
+url = "https://github.com/python-websockets/websockets"
+sha = "caf5e15d7528e78e7709c96ea78a779a0da25847"
+language = "python"
+shapes = ["python", "src-layout", "async-client"]
+era = "pre-ai"
+created = "2013-03"
+license = "BSD-3-Clause"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/python-websockets__websockets.toml"
+real_entries = ["src/websockets/cli.py"]
+
+[[repo]]
+name = "python-poetry/poetry"
+url = "https://github.com/python-poetry/poetry"
+sha = "92b74dcfe348d0e01e14d40d6c1fa47a4ee04a54"
+language = "python"
+shapes = ["python", "src-layout", "plugin-system", "console-script"]
+era = "pre-ai"
+created = "2018-02"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/python-poetry__poetry.toml"
+real_entries = ["src/poetry/console/application.py", "src/poetry/__main__.py"]
+
+[[repo]]
+name = "open-telemetry/opentelemetry-python"
+url = "https://github.com/open-telemetry/opentelemetry-python"
+sha = "c49f6f456406e3b2fe4dd993a007abe5bb5b3eb1"
+language = "python"
+shapes = ["python", "monorepo", "multi-package"]
+era = "pre-ai"
+created = "2019-05"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "none"
+
+[[repo]]
+name = "mikefarah/yq"
+url = "https://github.com/mikefarah/yq"
+sha = "7862131c9c13c977e4ede55b5f6c44e5f8ac7268"
+language = "go"
+shapes = ["go", "cobra-command-tree", "multi-package"]
+era = "pre-ai"
+created = "2015-09"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/mikefarah__yq.toml"
+real_entries = ["yq.go"]
+
+[[repo]]
+name = "fullstorydev/grpcurl"
+url = "https://github.com/fullstorydev/grpcurl"
+sha = "4bb0f337c70d5e220f98b27432539a998badd7ef"
+language = "go"
+shapes = ["go", "generated-code", "network-client", "multi-package"]
+era = "pre-ai"
+created = "2017-11"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/fullstorydev__grpcurl.toml"
+real_entries = ["cmd/grpcurl/grpcurl.go"]
+
+[[repo]]
+name = "junegunn/fzf"
+url = "https://github.com/junegunn/fzf"
+sha = "15f64c492a08f0840b81540c7d1de35737448086"
+language = "go"
+shapes = ["go", "multi-package", "mixed-language-shell", "tui"]
+era = "pre-ai"
+created = "2013-10"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/junegunn__fzf.toml"
+real_entries = ["main.go"]
+
+[[repo]]
+name = "restic/restic"
+url = "https://github.com/restic/restic"
+sha = "a80be1478a4c537f8396e0db2b05120aa78f11e0"
+language = "go"
+shapes = ["go", "interface-dispatch", "cobra-command-tree", "multi-package"]
+era = "pre-ai"
+created = "2014-04"
+license = "BSD-2-Clause"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/restic__restic.toml"
+real_entries = ["cmd/restic/main.go"]
+
+[[repo]]
+name = "charmbracelet/glow"
+url = "https://github.com/charmbracelet/glow"
+sha = "e3970c813d93da1ea84edfca90c289d9afb82242"
+language = "go"
+shapes = ["go", "cobra-command-tree", "network-client", "tui"]
+era = "pre-ai"
+created = "2019-11"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/charmbracelet__glow.toml"
+real_entries = ["main.go"]
+
+[[repo]]
+name = "sharkdp/bat"
+url = "https://github.com/sharkdp/bat"
+sha = "b671e53c2cd0177beb357cf6cb997ee4215c7155"
+language = "rust"
+shapes = ["rust", "build-script", "bin-plus-lib"]
+era = "pre-ai"
+created = "2018-04"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/sharkdp__bat.toml"
+real_entries = ["src/bin/bat/main.rs"]
+
+[[repo]]
+name = "casey/just"
+url = "https://github.com/casey/just"
+sha = "7c9dbbc3b5f48139f68e25da6c1047cb176ad839"
+language = "rust"
+shapes = ["rust", "command-runner", "process-exec"]
+era = "pre-ai"
+created = "2016-06"
+license = "CC0-1.0"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/casey__just.toml"
+real_entries = ["src/main.rs"]
+
+[[repo]]
+name = "orhun/git-cliff"
+url = "https://github.com/orhun/git-cliff"
+sha = "becfee64c5ed5774cee0038d43486fbb33bcd89a"
+language = "rust"
+shapes = ["rust", "workspace", "multi-crate"]
+era = "pre-ai"
+created = "2021-05"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/orhun__git-cliff.toml"
+real_entries = ["git-cliff/src/main.rs"]
+
+[[repo]]
+name = "uutils/coreutils"
+url = "https://github.com/uutils/coreutils"
+sha = "1a3674039f9997c1f7102d2a3d8d12580da0801c"
+language = "rust"
+shapes = ["rust", "workspace", "multiple-binaries", "macros"]
+era = "pre-ai"
+created = "2013-08"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/uutils__coreutils.toml"
+real_entries = ["src/bin/coreutils.rs", "src/uu/cat/src/main.rs", "src/uu/ls/src/main.rs", "src/uu/rm/src/main.rs", "src/uu/cp/src/main.rs", "src/uu/env/src/main.rs"]
+
+[[repo]]
+name = "eza-community/eza"
+url = "https://github.com/eza-community/eza"
+sha = "471bfbc7b03cbac8c738e8d9050edb06ee79132a"
+language = "rust"
+shapes = ["rust", "trait-heavy"]
+era = "pre-ai"
+created = "2023-07"
+license = "EUPL-1.2"
+vendorable = false
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/eza-community__eza.toml"
+real_entries = ["src/main.rs"]
+
+[[repo]]
+name = "composer/composer"
+url = "https://github.com/composer/composer"
+sha = "6987fe5a4daa888cedf098fc217cd2a04063175b"
+language = "php"
+shapes = ["php", "composer-app", "nested-includes", "symfony-console"]
+era = "pre-ai"
+created = "2011-06"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/composer__composer.toml"
+real_entries = ["bin/composer"]
+
+[[repo]]
+name = "PHPCSStandards/PHP_CodeSniffer"
+url = "https://github.com/PHPCSStandards/PHP_CodeSniffer"
+sha = "f38c7d16fc94c71aed2bee1c224beb33de4b8b32"
+language = "php"
+shapes = ["php", "autoload-include-chain", "cli"]
+era = "pre-ai"
+created = "2023-11"
+license = "BSD-3-Clause"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/PHPCSStandards__PHP_CodeSniffer.toml"
+real_entries = ["bin/phpcs", "bin/phpcbf"]
+
+[[repo]]
+name = "rbenv/rbenv"
+url = "https://github.com/rbenv/rbenv"
+sha = "07e9b1e297a5977298c6aadc9971ae0e9eb7f0dc"
+language = "shell"
+shapes = ["shell", "env-manager", "exec-dispatch", "plugin-hooks"]
+era = "pre-ai"
+created = "2011-08"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/rbenv__rbenv.toml"
+real_entries = ["libexec/rbenv"]
+
+[[repo]]
+name = "Homebrew/install"
+url = "https://github.com/Homebrew/install"
+sha = "cced90146ea6d3057c03a636b668fef177415eb3"
+language = "shell"
+shapes = ["shell", "installer", "sudo", "network-via-git"]
+era = "pre-ai"
+created = "2014-08"
+license = "BSD-2-Clause"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/Homebrew__install.toml"
+real_entries = ["install.sh"]
+
+[[repo]]
+name = "sdkman/sdkman-cli"
+url = "https://github.com/sdkman/sdkman-cli"
+sha = "f02e5de113ea46a95e5e2fd795eabe6f2b7d4095"
+language = "shell"
+shapes = ["shell", "env-manager", "curl-download"]
+era = "pre-ai"
+created = "2012-08"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/sdkman__sdkman-cli.toml"
+real_entries = ["src/main/bash/sdkman-init.sh"]
+
+[[repo]]
+name = "ohmyzsh/ohmyzsh"
+url = "https://github.com/ohmyzsh/ohmyzsh"
+sha = "97e11051e2f8053b1d694788d1cb4b0dbb1e2365"
+language = "shell"
+shapes = ["shell", "installer", "plugin-system"]
+era = "pre-ai"
+created = "2009-08"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/ohmyzsh__ohmyzsh.toml"
+real_entries = ["tools/install.sh"]
+
+[[repo]]
+name = "google/zx"
+url = "https://github.com/google/zx"
+sha = "65fc542d88baac578967e22bea28cb610976578c"
+language = "js"
+shapes = ["js-ts", "esm", "process-exec-wrapper"]
+era = "pre-ai"
+created = "2021-05"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/google__zx.toml"
+real_entries = ["src/cli.ts"]
+
+[[repo]]
+name = "http-party/http-server"
+url = "https://github.com/http-party/http-server"
+sha = "0d3b7bb5b6e8a59fd450ae2dca65870009cfcd8b"
+language = "js"
+shapes = ["js", "commonjs", "callbacks", "network-server"]
+era = "pre-ai"
+created = "2011-06"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/http-party__http-server.toml"
+real_entries = ["bin/http-server"]
+
+[[repo]]
+name = "antfu-collective/ni"
+url = "https://github.com/antfu-collective/ni"
+sha = "33c16cd18fba6ccaf40751de173a67409a06d95a"
+language = "js"
+shapes = ["js-ts", "esm", "process-exec"]
+era = "pre-ai"
+created = "2020-11"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/antfu-collective__ni.toml"
+real_entries = ["src/commands/ni.ts", "src/commands/nr.ts", "src/commands/nun.ts"]
+
+[[repo]]
+name = "changesets/changesets"
+url = "https://github.com/changesets/changesets"
+sha = "d0386b69c8a8bd14a702e7636ab01c1e83b1914e"
+language = "js"
+shapes = ["js-ts", "monorepo", "workspaces", "cli"]
+era = "pre-ai"
+created = "2019-03"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/changesets__changesets.toml"
+real_entries = ["packages/cli/bin.js", "packages/cli/src/index.ts"]
+
+[[repo]]
+name = "release-it/release-it"
+url = "https://github.com/release-it/release-it"
+sha = "aa8752d30063af01f50935fb7575411911e7edbb"
+language = "js"
+shapes = ["js", "esm", "plugin-system", "cli"]
+era = "pre-ai"
+created = "2014-01"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/release-it__release-it.toml"
+real_entries = ["bin/release-it.js"]
+
+[[repo]]
+name = "asdf-vm/asdf"
+url = "https://github.com/asdf-vm/asdf"
+sha = "f87a31efc67c041af49f0d3c566840e4f30a12cb"
+language = "go"
+shapes = ["go", "mixed-language-shell", "env-manager", "plugin-system"]
+era = "pre-ai"
+created = "2014-11"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/asdf-vm__asdf.toml"
+real_entries = ["cmd/asdf/main.go"]
+
+[[repo]]
+name = "google/google-java-format"
+url = "https://github.com/google/google-java-format"
+sha = "b291d957157c737ee6ac9574c1ea9c8c0ec077c2"
+language = "java"
+shapes = ["java", "maven-multi-module", "main-class", "cli"]
+era = "pre-ai"
+created = "2015-05"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/google__google-java-format.toml"
+real_entries = ["core/src/main/java/com/google/googlejavaformat/java/Main.java"]
+
+[[repo]]
+name = "apache/maven-wrapper"
+url = "https://github.com/apache/maven-wrapper"
+sha = "fa9728c30469fdf2d410acda8323f932d66ba288"
+language = "java"
+shapes = ["java", "maven-multi-module", "network-download", "mixed-language-shell"]
+era = "pre-ai"
+created = "2021-12"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/apache__maven-wrapper.toml"
+real_entries = ["maven-wrapper/src/main/java/org/apache/maven/wrapper/MavenWrapperMain.java"]
+
+[[repo]]
+name = "jbangdev/jbang"
+url = "https://github.com/jbangdev/jbang"
+sha = "ab1c0da5a7d3f4654a8c5dfdca9b550b9d08c1ee"
+language = "java"
+shapes = ["java", "picocli-command-tree", "subprocess", "network-client"]
+era = "pre-ai"
+created = "2019-12"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/jbangdev__jbang.toml"
+real_entries = ["src/main/java/dev/jbang/Main.java"]
+
+[[repo]]
+name = "checkstyle/checkstyle"
+url = "https://github.com/checkstyle/checkstyle"
+sha = "8481f1b739cb9367f13a8e78a991547d9f286f3f"
+language = "java"
+shapes = ["java", "main-class", "cli", "reflection-dispatch"]
+era = "pre-ai"
+created = "2013-08"
+license = "LGPL-2.1"
+vendorable = false
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/checkstyle__checkstyle.toml"
+real_entries = ["src/main/java/com/puppycrawl/tools/checkstyle/Main.java"]
+
+[[repo]]
+name = "athityakumar/colorls"
+url = "https://github.com/athityakumar/colorls"
+sha = "ec2fbcd36f6b7fa56c72b13e52c235eba277bad0"
+language = "ruby"
+shapes = ["ruby", "cli-gem", "git-subprocess"]
+era = "pre-ai"
+created = "2017-06"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/athityakumar__colorls.toml"
+real_entries = ["exe/colorls"]
+
+[[repo]]
+name = "tmuxinator/tmuxinator"
+url = "https://github.com/tmuxinator/tmuxinator"
+sha = "6d021f7befee0278155d16444bb8323008299997"
+language = "ruby"
+shapes = ["ruby", "cli-gem", "thor-command-tree", "process-exec", "yaml-config"]
+era = "pre-ai"
+created = "2010-12"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/tmuxinator__tmuxinator.toml"
+real_entries = ["bin/tmuxinator"]
+
+[[repo]]
+name = "jordansissel/fpm"
+url = "https://github.com/jordansissel/fpm"
+sha = "ab96ee192112cec3afaf68e21f4a3aa14ca6d467"
+language = "ruby"
+shapes = ["ruby", "cli-gem", "packaging", "subprocess"]
+era = "pre-ai"
+created = "2011-01"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/jordansissel__fpm.toml"
+real_entries = ["bin/fpm"]
+
+[[repo]]
+name = "ddollar/foreman"
+url = "https://github.com/ddollar/foreman"
+sha = "f65ddba83932bd4670e014389d6e27ea1e20b469"
+language = "ruby"
+shapes = ["ruby", "cli-gem", "thor-command-tree", "process-manager"]
+era = "pre-ai"
+created = "2010-05"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "holdout"
+expectations = "bench/repos/expectations/ddollar__foreman.toml"
+real_entries = ["bin/foreman"]
+
+[[repo]]
+name = "prettier/prettier"
+url = "https://github.com/prettier/prettier"
+sha = "0bc958e734b00907e2bae2bae45c664ad8a1a2f7"
+language = "js"
+shapes = ["javascript", "dynamic-import-wrapper", "formatter"]
+era = "pre-ai"
+created = "2016-11"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "semantic-depth"
+expectations = "bench/repos/expectations/prettier__prettier.toml"
+real_entries = ["bin/prettier.cjs"]
+
+[[repo]]
+name = "yt-dlp/yt-dlp"
+url = "https://github.com/yt-dlp/yt-dlp"
+sha = "94eba4c156af080e87caf10cf8ffbea03bd17407"
+language = "python"
+shapes = ["python", "package-entrypoint", "network-client", "subprocess"]
+era = "pre-ai"
+created = "2020-10"
+license = "Unlicense"
+vendorable = true
+split = "dev"
+set = "semantic-depth"
+expectations = "bench/repos/expectations/yt-dlp__yt-dlp.toml"
+real_entries = ["yt_dlp/__main__.py"]
+
+[[repo]]
+name = "expressjs/express"
+url = "https://github.com/expressjs/express"
+sha = "bed501c695a61886399ee622875f3be933c716d8"
+language = "js"
+shapes = ["library", "web-framework", "commonjs"]
+era = "pre-ai"
+created = "2009-06"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+name = "sindresorhus/execa"
+url = "https://github.com/sindresorhus/execa"
+sha = "8017b279e19347efaf2587711c2d57dbd4330740"
+language = "js"
+shapes = ["library", "process-exec-wrapper", "esm"]
+era = "pre-ai"
+created = "2015-12"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+# GitHub redirect: earendil-works/pi
+name = "badlogic/pi-mono"
+url = "https://github.com/badlogic/pi-mono"
+sha = "bbb61e34aaf231639fdaaad1adbd757947034eac"
+language = "js"
+shapes = ["agent-runtime", "monorepo", "workspaces", "tool-calls"]
+era = "post-ai"
+created = "2025-08"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+# GitHub redirect: fastapi/full-stack-fastapi-template
+name = "tiangolo/full-stack-fastapi-template"
+url = "https://github.com/tiangolo/full-stack-fastapi-template"
+sha = "cb740b656d7a0a6c5e12c7bf8e50343ec94ee9c7"
+language = "python"
+shapes = ["web-app", "fastapi-routes", "docker-compose", "ci"]
+era = "pre-ai"
+created = "2019-02"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+name = "pypa/pip"
+url = "https://github.com/pypa/pip"
+sha = "2b28a816d043826f2ba10ff1d22ec3d94d2ed7c5"
+language = "python"
+shapes = ["cli", "console-script", "vendored-deps", "src-layout"]
+era = "pre-ai"
+created = "2011-03"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+name = "Textualize/rich"
+url = "https://github.com/Textualize/rich"
+sha = "9d8f9a372cc5916fd4781fec207ced7ddac2f08f"
+language = "python"
+shapes = ["library", "main-demos"]
+era = "pre-ai"
+created = "2019-11"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+name = "gohugoio/hugo"
+url = "https://github.com/gohugoio/hugo"
+sha = "881c0ec70d746d3a86b29c9104aa56ac51040ee9"
+language = "go"
+shapes = ["cli", "cobra-command-tree", "site-generator"]
+era = "pre-ai"
+created = "2013-07"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+name = "sinatra/sinatra"
+url = "https://github.com/sinatra/sinatra"
+sha = "cb22afd7902b566b6eaba6c4ea89739494a65d12"
+language = "ruby"
+shapes = ["web-framework", "dsl-routes", "library"]
+era = "pre-ai"
+created = "2009-01"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+name = "ruby/rake"
+url = "https://github.com/ruby/rake"
+sha = "8b4e8eb0da4bed60e3721167766a5c46ce7df32c"
+language = "ruby"
+shapes = ["cli", "task-runner", "dsl"]
+era = "pre-ai"
+created = "2014-05"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+name = "redmine/redmine"
+url = "https://github.com/redmine/redmine"
+sha = "167e487ee0ac6e61289ae9e5e371720c661eef52"
+language = "ruby"
+shapes = ["web-app", "rails-routes", "monolith"]
+era = "pre-ai"
+created = "2012-11"
+license = "GPL-2.0"
+vendorable = false
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+name = "laravel/laravel"
+url = "https://github.com/laravel/laravel"
+sha = "aa0cf127fc365a56ee016867144ddffabc2290ae"
+language = "php"
+shapes = ["web-app", "laravel-routes", "artisan"]
+era = "pre-ai"
+created = "2011-06"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+name = "spring-projects/spring-petclinic"
+url = "https://github.com/spring-projects/spring-petclinic"
+sha = "818c4136ea971c21674525f9053de0d9c7ad8cfe"
+language = "java"
+shapes = ["web-app", "spring-routes", "maven"]
+era = "pre-ai"
+created = "2013-01"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+name = "astral-sh/uv"
+url = "https://github.com/astral-sh/uv"
+sha = "cf6882498168c9c975898cbe1335f52e995227d6"
+language = "rust"
+shapes = ["cli", "clap-command-tree", "workspace", "ci-heavy"]
+era = "pre-ai"
+created = "2023-10"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "field-trial-1"
+expectations = "none"
+
+[[repo]]
+# GitHub redirect: gastownhall/beads
+name = "steveyegge/beads"
+url = "https://github.com/steveyegge/beads"
+sha = "3ecbf5bc9f5168a63fc9253ee1966adfa7e99ff4"
+language = "go"
+shapes = ["agent-tooling", "cli", "cobra-command-tree", "git-subprocess"]
+era = "post-ai"
+created = "2025-10"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "field-trial-3"
+expectations = "none"
+
+[[repo]]
+name = "NousResearch/hermes-agent"
+url = "https://github.com/NousResearch/hermes-agent"
+sha = "003af7f85ce2ebe24b38556d735a0d7678a4a8dd"
+language = "python"
+shapes = ["agent-runtime", "cli", "tool-calls", "installer-script"]
+era = "post-ai"
+created = "2025-07"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "field-trial-3"
+expectations = "none"
+
+[[repo]]
+name = "Unitech/pm2"
+url = "https://github.com/Unitech/pm2"
+sha = "cd6b1b4c592117212d7349d6932288613f336c15"
+language = "js"
+shapes = ["cli", "process-manager", "commonjs", "shell-tests"]
+era = "pre-ai"
+created = "2013-05"
+license = "AGPL-3.0"
+vendorable = false
+split = "dev"
+set = "field-trial-4"
+expectations = "none"
+
+[[repo]]
+name = "Homebrew/brew"
+url = "https://github.com/Homebrew/brew"
+sha = "05f17bafd849202efca55544c3312aae31a8fd23"
+language = "ruby"
+shapes = ["cli", "package-manager", "mixed-language-shell", "ci-heavy"]
+era = "pre-ai"
+created = "2016-03"
+license = "BSD-2-Clause"
+vendorable = true
+split = "dev"
+set = "field-trial-4"
+expectations = "none"
+
+[[repo]]
+name = "OpenHands/OpenHands"
+url = "https://github.com/OpenHands/OpenHands"
+sha = "bb4ec4420e475dfa71cc2a7cd494d4938b15ca54"
+language = "python"
+shapes = ["agent-runtime", "fastapi-routes", "docker-compose", "monorepo"]
+era = "post-ai"
+created = "2024-03"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "SWE-agent/mini-swe-agent"
+url = "https://github.com/SWE-agent/mini-swe-agent"
+sha = "04d809ceab9df28f9adaed044884180159172930"
+language = "python"
+shapes = ["agent-runtime", "typer-command-tree", "subprocess"]
+era = "post-ai"
+created = "2025-06"
+license = "MIT"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "Aider-AI/aider"
+url = "https://github.com/Aider-AI/aider"
+sha = "5dc9490bb35f9729ef2c95d00a19ccd30c26339c"
+language = "python"
+shapes = ["agent-runtime", "cli", "git-subprocess"]
+era = "post-ai"
+created = "2023-05"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "browser-use/browser-use"
+url = "https://github.com/browser-use/browser-use"
+sha = "50f205533fe10ba35b553d2a3689c77b87bd5d0a"
+language = "python"
+shapes = ["agent-tooling", "library", "async-client"]
+era = "post-ai"
+created = "2024-10"
+license = "MIT"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "PrefectHQ/fastmcp"
+url = "https://github.com/PrefectHQ/fastmcp"
+sha = "0796584bb12606721011ac60a4522cafe4f5d497"
+language = "python"
+shapes = ["mcp-server", "library", "cli"]
+era = "post-ai"
+created = "2024-11"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "karpathy/nanochat"
+url = "https://github.com/karpathy/nanochat"
+sha = "92d63d4e8bb4df75c3b71618f31ddde2378b2bcd"
+language = "python"
+shapes = ["ml-tooling", "training-scripts", "shell-scripts"]
+era = "post-ai"
+created = "2025-10"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "huggingface/smolagents"
+url = "https://github.com/huggingface/smolagents"
+sha = "30bb1161095dbae2271e6bc3cc4c219cc3897a57"
+language = "python"
+shapes = ["agent-runtime", "library", "cli"]
+era = "post-ai"
+created = "2024-12"
+license = "Apache-2.0"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "pydantic/pydantic-ai"
+url = "https://github.com/pydantic/pydantic-ai"
+sha = "a2f32722d9a95fb3c50d8191bb73e046f15396ad"
+language = "python"
+shapes = ["agent-runtime", "library", "uv-workspace", "monorepo"]
+era = "post-ai"
+created = "2024-06"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "anomalyco/opencode"
+url = "https://github.com/anomalyco/opencode"
+sha = "b3f1a96c6dd7adeb28b36dd11add1998fc84d67b"
+language = "js"
+shapes = ["agent-runtime", "monorepo", "workspaces", "tool-calls"]
+era = "post-ai"
+created = "2025-04"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "cline/cline"
+url = "https://github.com/cline/cline"
+sha = "fc3273bbe0e106cdb9c0194b1a96b6536a74d9ad"
+language = "js"
+shapes = ["agent-runtime", "vscode-extension", "tool-calls"]
+era = "post-ai"
+created = "2024-07"
+license = "Apache-2.0"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "Kilo-Org/kilocode"
+url = "https://github.com/Kilo-Org/kilocode"
+sha = "115bc09628777df521f0b33c4107eef683fb6192"
+language = "js"
+shapes = ["agent-runtime", "vscode-extension", "monorepo"]
+era = "post-ai"
+created = "2025-03"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "google-gemini/gemini-cli"
+url = "https://github.com/google-gemini/gemini-cli"
+sha = "ed2ac40df67a319bf348bd7e3d10494696b31b38"
+language = "js"
+shapes = ["agent-runtime", "cli", "monorepo", "tool-calls"]
+era = "post-ai"
+created = "2025-04"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "QwenLM/qwen-code"
+url = "https://github.com/QwenLM/qwen-code"
+sha = "424e40cc1faf1b10277c6b0cd53c8d8fff83add7"
+language = "js"
+shapes = ["agent-runtime", "cli", "monorepo"]
+era = "post-ai"
+created = "2025-06"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "continuedev/continue"
+url = "https://github.com/continuedev/continue"
+sha = "5522c6f44ca0ac3528b37244818fbfa39b5af470"
+language = "js"
+shapes = ["agent-runtime", "vscode-extension", "monorepo"]
+era = "post-ai"
+created = "2023-05"
+license = "Apache-2.0"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "modelcontextprotocol/servers"
+url = "https://github.com/modelcontextprotocol/servers"
+sha = "d73f99efbfd40c3aa1b61e88728b3d49fb52608f"
+language = "js"
+shapes = ["mcp-server", "monorepo", "multi-language"]
+era = "post-ai"
+created = "2024-11"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "aaif-goose/goose"
+url = "https://github.com/aaif-goose/goose"
+sha = "bea9954b9378d5129c5b2ba8ae8d663d034b6c52"
+language = "rust"
+shapes = ["agent-runtime", "workspace", "tool-calls", "mcp-client"]
+era = "post-ai"
+created = "2024-08"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "openai/codex"
+url = "https://github.com/openai/codex"
+sha = "ee93abb690291b19fcabb14255437f5cc5493bdc"
+language = "rust"
+shapes = ["agent-runtime", "clap-command-tree", "workspace", "sandbox-exec"]
+era = "post-ai"
+created = "2025-04"
+license = "Apache-2.0"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "BloopAI/vibe-kanban"
+url = "https://github.com/BloopAI/vibe-kanban"
+sha = "4deb7eca8f381f7cbc1f9d15515a9ab8f8009053"
+language = "rust"
+shapes = ["agent-tooling", "web-app", "axum-routes", "workspace"]
+era = "post-ai"
+created = "2025-06"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "rust-lang/cargo"
+url = "https://github.com/rust-lang/cargo"
+sha = "e7506208ff1b7f01062e410c419f95628dfdb31b"
+language = "rust"
+shapes = ["cli", "clap-command-tree", "workspace", "process-exec"]
+era = "pre-ai"
+created = "2014-03"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "charmbracelet/crush"
+url = "https://github.com/charmbracelet/crush"
+sha = "bb33cee2d32780cb5afa31fc3aa815302b9f7443"
+language = "go"
+shapes = ["agent-runtime", "tui", "cobra-command-tree", "tool-calls"]
+era = "post-ai"
+created = "2025-05"
+license = "FSL-1.1-MIT"
+vendorable = false
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "mark3labs/mcp-go"
+url = "https://github.com/mark3labs/mcp-go"
+sha = "51930cffc30e4708c60e9763a23ad0ed6ad06387"
+language = "go"
+shapes = ["mcp-server", "library", "network-server"]
+era = "post-ai"
+created = "2024-11"
+license = "MIT"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "github/github-mcp-server"
+url = "https://github.com/github/github-mcp-server"
+sha = "7d13a7ad6f2a17f351a6d77ce280c85ae1821f4d"
+language = "go"
+shapes = ["mcp-server", "cobra-command-tree", "network-client"]
+era = "post-ai"
+created = "2025-03"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "modelcontextprotocol/java-sdk"
+url = "https://github.com/modelcontextprotocol/java-sdk"
+sha = "4186ca13d1fe5ecca9b891c35e95863df6762d9f"
+language = "java"
+shapes = ["mcp-server", "library", "maven-multi-module"]
+era = "post-ai"
+created = "2025-01"
+license = "MIT"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "spring-projects/spring-ai"
+url = "https://github.com/spring-projects/spring-ai"
+sha = "7374b63fcb6fd0e1950e70c9e04192a6826f2f2a"
+language = "java"
+shapes = ["agent-runtime", "library", "maven-multi-module", "spring"]
+era = "post-ai"
+created = "2023-06"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "langchain4j/langchain4j"
+url = "https://github.com/langchain4j/langchain4j"
+sha = "cf2c754f92e6cee17f8229dddb9704b362b2194d"
+language = "java"
+shapes = ["agent-runtime", "library", "maven-multi-module"]
+era = "post-ai"
+created = "2023-06"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "apache/maven"
+url = "https://github.com/apache/maven"
+sha = "40c59633cbb9c2bc4c915440f7198bad5cb60faf"
+language = "java"
+shapes = ["cli", "build-tool", "maven-multi-module", "plugin-system"]
+era = "pre-ai"
+created = "2009-05"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "junit-team/junit-framework"
+url = "https://github.com/junit-team/junit-framework"
+sha = "4a9ff0f552ffd1755d3ce423a8e3ac12153a672f"
+language = "java"
+shapes = ["library", "gradle-multi-module", "reflection-dispatch"]
+era = "pre-ai"
+created = "2015-01"
+license = "EPL-2.0"
+vendorable = false
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "laravel/boost"
+url = "https://github.com/laravel/boost"
+sha = "d3bfc8e5a2e79b9c6256fc6cda26e9fcb74fe726"
+language = "php"
+shapes = ["mcp-server", "laravel-package", "artisan-commands"]
+era = "post-ai"
+created = "2025-07"
+license = "MIT"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "prism-php/prism"
+url = "https://github.com/prism-php/prism"
+sha = "5d6cc65b80b19cf3f22744703ac0c727b68cdca8"
+language = "php"
+shapes = ["agent-tooling", "library", "laravel-package", "network-client"]
+era = "post-ai"
+created = "2024-02"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "symfony/console"
+url = "https://github.com/symfony/console"
+sha = "757a736f585d40052a1a62f91a3795849fcf18a0"
+language = "php"
+shapes = ["library", "symfony-console", "registered-commands"]
+era = "pre-ai"
+created = "2011-02"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "sebastianbergmann/phpunit"
+url = "https://github.com/sebastianbergmann/phpunit"
+sha = "a20d90fcf5c0736558cd25fb9b67080ff0366ce0"
+language = "php"
+shapes = ["cli", "test-runner", "composer-app"]
+era = "pre-ai"
+created = "2009-12"
+license = "BSD-3-Clause"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "drush-ops/drush"
+url = "https://github.com/drush-ops/drush"
+sha = "8efed5f07543011b3026701861b86756e8ec0308"
+language = "php"
+shapes = ["cli", "symfony-console", "composer-app", "site-commands"]
+era = "pre-ai"
+created = "2012-01"
+license = "GPL-2.0-or-later"
+vendorable = false
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "modelcontextprotocol/ruby-sdk"
+url = "https://github.com/modelcontextprotocol/ruby-sdk"
+sha = "91ee5a21235769e6eefd2cfe9c27237054e7345b"
+language = "ruby"
+shapes = ["mcp-server", "library", "gem"]
+era = "post-ai"
+created = "2025-02"
+license = "MIT"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "Shopify/roast"
+url = "https://github.com/Shopify/roast"
+sha = "0cd5406ea02ac8f64b8b7a697270fd4d84a57b2c"
+language = "ruby"
+shapes = ["agent-tooling", "cli-gem", "thor-command-tree", "yaml-config"]
+era = "post-ai"
+created = "2025-04"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "obra/superpowers"
+url = "https://github.com/obra/superpowers"
+sha = "b36e0829c6d0140e93cfef2ca599b1b07d4a7797"
+language = "shell"
+shapes = ["agent-skills", "hook-scripts", "markdown-heavy"]
+era = "post-ai"
+created = "2025-10"
+license = "MIT"
+vendorable = true
+split = "hidden"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "pyenv/pyenv"
+url = "https://github.com/pyenv/pyenv"
+sha = "ef4905cd81b711045b464f3f9ee79f5599d5ecb9"
+language = "shell"
+shapes = ["env-manager", "exec-dispatch", "plugin-hooks"]
+era = "pre-ai"
+created = "2012-08"
+license = "MIT"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "acmesh-official/acme.sh"
+url = "https://github.com/acmesh-official/acme.sh"
+sha = "181425b3c8373ca23c0664948b97edf5ed84e9c5"
+language = "shell"
+shapes = ["single-script", "curl-download", "cron"]
+era = "pre-ai"
+created = "2015-12"
+license = "GPL-3.0"
+vendorable = false
+split = "dev"
+set = "new"
+expectations = "none"
+
+[[repo]]
+name = "docker/docker-install"
+url = "https://github.com/docker/docker-install"
+sha = "2b32480025b223ebfddae9a3a8bef09027680f53"
+language = "shell"
+shapes = ["installer", "sudo", "package-manager-detect"]
+era = "pre-ai"
+created = "2017-06"
+license = "Apache-2.0"
+vendorable = true
+split = "dev"
+set = "new"
+expectations = "none"

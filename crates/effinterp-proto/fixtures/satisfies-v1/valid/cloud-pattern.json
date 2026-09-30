@@ -1,0 +1,94 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "cloud-pattern",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "cloud_resource",
+        "scope": {
+          "kind": "aws_regional",
+          "identity": {
+            "partition": {
+              "state": "unknown"
+            },
+            "account": {
+              "state": "unknown"
+            },
+            "project": {
+              "state": "not_applicable"
+            },
+            "subscription": {
+              "state": "not_applicable"
+            },
+            "region": {
+              "state": "unknown"
+            },
+            "zone": {
+              "state": "not_applicable"
+            },
+            "storage_account": {
+              "state": "not_applicable"
+            },
+            "resource_group": {
+              "state": "not_applicable"
+            },
+            "cluster": {
+              "state": "not_applicable"
+            },
+            "namespace": {
+              "state": "not_applicable"
+            }
+          },
+          "access": []
+        },
+        "provider": "aws",
+        "service": "ec2",
+        "kind": "instance",
+        "id": "i-123"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "cloud_resource",
+          "provider": {
+            "kind": "exact",
+            "value": "aws"
+          },
+          "service": {
+            "kind": "exact",
+            "value": "ec2"
+          },
+          "kind": {
+            "kind": "exact",
+            "value": "instance"
+          },
+          "id_glob": "i-*"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

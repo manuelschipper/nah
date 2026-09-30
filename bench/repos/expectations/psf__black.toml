@@ -1,0 +1,36 @@
+# Ground-truth expectations for psf/black.
+# Derived from: src/black/__init__.py (format_file_in_place opens `src` "rb" to
+#   read and reopens it "w" to write the reformatted source) and
+#   src/black/files.py (pyproject.toml / .gitignore discovery opens files "rb").
+# Authored 2026-08-18 by reading product source, NOT EI output.
+# Confidence: HIGH. Black is a file formatter; read+write of source files is its
+# core behavior and is on a static call path from `main`.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 1
+
+# v1 regression floor (domain-level).
+[should_find]
+op=filesystem.read
+op=filesystem.write
+
+# Fact-level assertions. `<src>` is the analyzer's symbolic rendering of the
+# `src` parameter: the read and the write must target the SAME input source
+# path, both originating in format_file_in_place.
+[facts]
+op=filesystem.read res=<src> origin=src/black/__init__.py realm=host modality=may
+op=filesystem.write res=<src> origin=src/black/__init__.py realm=host modality=may
+op=filesystem.read origin=src/black/files.py realm=host
+
+[forbidden]
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+# Black reformats in place; it never deletes files.
+op=filesystem.delete
+
+[known_hard]

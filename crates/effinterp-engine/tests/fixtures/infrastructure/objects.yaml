@@ -1,0 +1,13 @@
+# Reviewed 2026-09-09 against the kubectl apply/delete generated references.
+# https://kubernetes.io/docs/reference/kubectl/generated/kubectl_apply/
+# https://kubernetes.io/docs/reference/kubectl/generated/kubectl_delete/
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: prod

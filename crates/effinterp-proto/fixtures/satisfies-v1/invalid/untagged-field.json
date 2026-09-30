@@ -1,0 +1,52 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "untagged-field",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "network_endpoint",
+        "host": "a.example",
+        "scheme": "https",
+        "port": 443,
+        "path": "/api/x?raw=%2F"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "network_endpoint",
+          "host_glob": "*.example",
+          "scheme": "https",
+          "port": {
+            "kind": "exact",
+            "value": 443
+          },
+          "path_prefix": "/api"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

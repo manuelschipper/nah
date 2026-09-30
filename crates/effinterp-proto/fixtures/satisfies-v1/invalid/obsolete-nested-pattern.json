@@ -1,0 +1,56 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "obsolete-nested-pattern",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "process",
+        "executable": "cat",
+        "argv": [
+          {
+            "expr": "literal",
+            "value": "/work/x.rs"
+          }
+        ]
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "process",
+          "executable": "cat",
+          "argv": [
+            {
+              "expr": "pattern",
+              "family": "filesystem",
+              "pattern": "*"
+            }
+          ]
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

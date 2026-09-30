@@ -1,0 +1,55 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "windows-bound-glob",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "C:/work/a.rs"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "fs_path",
+          "glob": "*.rs"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "windows",
+      "cwd": {
+        "value": "c:\\work",
+        "source": {
+          "kind": "declared"
+        }
+      },
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        },
+        {
+          "kind": "binding",
+          "name": "cwd",
+          "source": {
+            "kind": "declared"
+          }
+        }
+      ]
+    }
+  }
+}

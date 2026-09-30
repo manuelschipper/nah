@@ -2,5 +2,8 @@ verdict: delegate
 coverage: full
 reason: no guard blocked this call
 policy: none
-effects:
-- e0 {"kind":"invocation","invocation":{"kind":"known","program":"echo","operation":"local-utility","input":{"kind":"shell","words":["echo","hello"],"argv":["echo","hello"]},"cwd":"<project>"}}
+producer: effinterp/blake3:<identity>
+engine:
+  subject: shell "echo hello" (cwd <project>)
+  effects:
+  coverage: filesystem=full process=full dataflow=full

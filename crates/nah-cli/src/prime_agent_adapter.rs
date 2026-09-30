@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
+    adapter_fields::runtime_field_names_covered,
     code_input::{CodeInput, CodeIntake},
     hook_adapter,
     runtime::{FailurePolicy, Runtime},
@@ -83,6 +84,23 @@ fn unavailable(
     )
 }
 
+/// The tool call `run` hands the pipeline for this Prime Agent tool call.
+/// Without the builtin tool's provenance every call is opaque, as the hook
+/// treats it; `--source ipython` dry-runs the builtin ipython tool.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<(ToolCallInput, Option<CodeInput>), String> {
+    normalize(PrimeAgentHookInput {
+        tool_name: tool_name.into(),
+        tool_input,
+        cwd: cwd.into(),
+        tool_source: None,
+        tool_path: None,
+    })
+}
+
 fn normalize(input: PrimeAgentHookInput) -> Result<(ToolCallInput, Option<CodeInput>), String> {
     let builtin_ipython = input.tool_name == "ipython"
         && input.tool_source.as_deref() == Some("builtin")
@@ -104,7 +122,7 @@ fn normalize(input: PrimeAgentHookInput) -> Result<(ToolCallInput, Option<CodeIn
             CodeIntake::Code(code) => (
                 code.canonical_input(),
                 Some(code),
-                crate::adapter_fields::complete("prime-agent", &input.tool_name, &original_input),
+                runtime_field_names_covered("prime-agent", &input.tool_name, &original_input),
             ),
             CodeIntake::NotCode | CodeIntake::Invalid => (original_input.clone(), None, false),
         };

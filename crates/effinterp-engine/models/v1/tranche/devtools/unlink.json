@@ -1,0 +1,173 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:495217b188d14e504329125b88ab6da8d818714d9f17fa6d388a4a4a2363399a",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/command_frequency_sources.json",
+        "digest": "blake3:0c0eaf84695d55145b42382ae8afa009bf99cc4fc705ef495a28ac24d8ce1ee7"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "unlink",
+        "requirement": "reviewed-exact-surface@2026-09-20"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/unlink@v1",
+        "path": "../../tests/fixtures/model_tranche/unlink.json",
+        "digest": "blake3:04624ba19b889f828437951ba37257f4d10ca29fd324d95978100307081fc91e"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "unlink-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "unlink-not-the-command",
+            "file"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.delete"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/unlink@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.delete"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/unlink@v1",
+      "commands": [
+        "unlink"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            ""
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "directory": {
+                  "kind": "constant_bool",
+                  "value": false
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": false
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "information",
+          "when": {
+            "flag_present": [
+              "--help",
+              "--version"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    }
+  ]
+}

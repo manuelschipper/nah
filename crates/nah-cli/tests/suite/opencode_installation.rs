@@ -43,7 +43,7 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
     let source = String::from_utf8(first_bytes.clone()).unwrap();
     assert!(source.starts_with("// Managed by nah."));
     assert!(source.contains(r#"["hook", "opencode", "run"]"#));
-    assert!(source.contains(r#""tool.execute.before""#));
+    assert!(source.contains(r#"ctx.tool.hook("execute.before""#));
     assert!(source.contains(env!("CARGO_BIN_EXE_nah")));
     assert!(!source.contains("@opencode-ai/plugin"));
 
@@ -58,17 +58,17 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
                 &project,
                 &plugin,
                 "read",
-                json!({"filePath":"src/lib.rs"})
+                json!({"path":"src/lib.rs"})
             ),
             Value::Null
         );
-        let blocked = run_plugin(home, &project, &plugin, "read", json!({"filePath":".env"}));
+        let blocked = run_plugin(home, &project, &plugin, "read", json!({"path":".env"}));
         assert!(blocked["error"].as_str().unwrap().starts_with("nah - "));
         let workdir = run_plugin(
             home,
             &project,
             &plugin,
-            "bash",
+            "shell",
             json!({"command":"cat .env","workdir":"nested"}),
         );
         assert!(workdir["error"].as_str().unwrap().starts_with("nah - "));
@@ -116,12 +116,18 @@ fn run_plugin(
     const HARNESS: &str = r#"
 import { pathToFileURL } from "node:url";
 const mod = await import(pathToFileURL(process.argv[1]).href);
-const hooks = await mod.NahPlugin({ directory: process.argv[2] });
+let hook;
+await mod.default.setup({
+  tool: { hook: async (name, handler) => { if (name === "execute.before") hook = handler; } },
+  session: { get: async () => ({ location: { directory: process.argv[2] } }) },
+});
 try {
-  await hooks["tool.execute.before"](
-    { tool: process.argv[3], sessionID: "subagent-session", callID: "call-1" },
-    { args: JSON.parse(process.argv[4]) },
-  );
+  await hook({
+    tool: process.argv[3],
+    sessionID: "subagent-session",
+    id: "call-1",
+    input: JSON.parse(process.argv[4]),
+  });
   process.stdout.write("null");
 } catch (error) {
   process.stdout.write(JSON.stringify({ error: error.message }));
@@ -226,7 +232,7 @@ fn plugin_delegates_when_the_adapter_is_unavailable() {
                 &project,
                 &plugin,
                 "read",
-                json!({"filePath":"src/lib.rs"})
+                json!({"path":"src/lib.rs"})
             ),
             Value::Null,
             "{name}"

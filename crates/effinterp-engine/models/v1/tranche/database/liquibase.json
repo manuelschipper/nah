@@ -1,0 +1,362 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:176dbb7a9e0abf62cca318f45c7c3e5b48a611554aafdf793d7757034dd2120f",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/database/liquibase@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "liquibase",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/database/liquibase@v1",
+        "path": "../../tests/fixtures/model_tranche/liquibase.json",
+        "digest": "blake3:ba10a3ad37e0da8fef3898b3c7fa73f8291925bbd87ea28144dce5982cd33380"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "liquibase-drop-all---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "liquibase",
+            "drop-all",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "liquibase-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "liquibase-not-the-command",
+            "drop-all"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      },
+      {
+        "name": "liquibase-update-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "liquibase",
+            "update"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/database/liquibase@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "database.schema_drop"
+    ],
+    "expected_boundaries": [
+      "environment_configuration"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/database/liquibase@v1",
+      "commands": [
+        "liquibase"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--version",
+            "-v"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--force"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--require-force"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--url"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--username"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--password"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--changelog-file"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--changeLogFile"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--defaults-file"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--defaultsFile"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--schemas"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--default-schema-name"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--defaultSchemaName"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--default-catalog-name"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--defaultCatalogName"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--log-level"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--logLevel"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--search-path"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--searchPath"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--driver"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--driver-properties-file"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--classpath"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--catalog-and-schemas"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "database",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "drop-all",
+            "dropAll"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h",
+                  "-v"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database_objects"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "liquibase.properties and LIQUIBASE_* variables select the target database"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

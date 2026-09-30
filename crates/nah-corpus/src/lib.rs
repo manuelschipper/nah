@@ -12,13 +12,11 @@ mod case;
 mod fixtures;
 mod runner;
 
-pub use case::{
-    CaseInput, CorpusCase, CorpusSummary, Expectation, ExpectedCoverage, ExpectedVerdict,
-    load_cases, load_summary,
-};
+pub use case::{CorpusSummary, load_cases, load_summary};
 pub use fixtures::{ContextFixture, FixtureRegistry, ObservationFixture, load_fixtures};
-pub use runner::{Reconciliation, reconcile};
+pub use runner::{Reconciliation, expected_fail_ids, reconcile};
 
+/// The repository's `corpus/` directory, canonicalized.
 pub fn corpus_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../corpus")

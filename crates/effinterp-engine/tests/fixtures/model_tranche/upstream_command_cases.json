@@ -1,0 +1,1428 @@
+{
+  "schema": "effinterp/test/upstream-command-cases/v1",
+  "repositories": {
+    "beads": {
+      "url": "https://github.com/steveyegge/beads",
+      "commit": "3ecbf5bc9f5168a63fc9253ee1966adfa7e99ff4",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2025 Beads Contributors"
+    },
+    "hermes": {
+      "url": "https://github.com/NousResearch/hermes-agent",
+      "commit": "003af7f85ce2ebe24b38556d735a0d7678a4a8dd",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2025 Nous Research"
+    }
+  },
+  "cases": [
+    {
+      "name": "jq-exit-status-named-argument",
+      "family": "jq",
+      "origin": {
+        "kind": "upstream",
+        "repository": "beads",
+        "path": "scripts/migration-test/lib/snapshot.sh",
+        "lines": [
+          223,
+          223
+        ],
+        "excerpt": "    if ! echo \"$blocked_json\" | jq -e --arg id \"$dependent_id\" 'any(.[]?; .id == $id)' >/dev/null 2>&1; then\n",
+        "adaptation": "The enclosing `if ! ...; then` is reduced to its condition pipeline."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "echo \"$blocked_json\" | jq -e --arg id \"$dependent_id\" 'any(.[]?; .id == $id)' >/dev/null 2>&1\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/transfer-archive-process/jq@v1",
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand",
+        "reviewed_command_surface"
+      ],
+      "model_inert": true
+    },
+    {
+      "name": "jq-json-argument-multiline-filter",
+      "family": "jq",
+      "origin": {
+        "kind": "upstream",
+        "repository": "beads",
+        "path": "scripts/migration-test/lib/snapshot.sh",
+        "lines": [
+          43,
+          44
+        ],
+        "excerpt": "            items=$(echo \"$items\" | jq --argjson arr \"$show_json\" \\\n                'if ($arr | type) == \"array\" then . + $arr else . + [$arr] end' 2>/dev/null) || true\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "items=$(echo \"$items\" | jq --argjson arr \"$show_json\" \\\n    'if ($arr | type) == \"array\" then . + $arr else . + [$arr] end' 2>/dev/null) || true\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/transfer-archive-process/jq@v1",
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand",
+        "reviewed_command_surface",
+        "parse_error"
+      ],
+      "model_inert": true
+    },
+    {
+      "name": "jq-null-input-compact-arguments",
+      "family": "jq",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": ".github/workflows/contributor-check.yml",
+        "lines": [
+          82,
+          85
+        ],
+        "excerpt": "            REVIEW_STATUS=$(jq -nc \\\n              --arg detail \"$DETAIL\" \\\n              --arg how_to_fix \"$HOW_TO_FIX\" \\\n              '[{\"source\":\"contributor attribution\",\"results\":[{\"kind\":\"action_required\",\"title\":\"Unmapped contributor email(s)\",\"summary\":\"New contributor email(s) are not in AUTHOR_MAP.\",\"detail\":$detail,\"how_to_fix\":$how_to_fix}]}]')\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "REVIEW_STATUS=$(jq -nc \\\n  --arg detail \"$DETAIL\" \\\n  --arg how_to_fix \"$HOW_TO_FIX\" \\\n  '[{\"source\":\"contributor attribution\",\"results\":[{\"kind\":\"action_required\",\"title\":\"Unmapped contributor email(s)\",\"summary\":\"New contributor email(s) are not in AUTHOR_MAP.\",\"detail\":$detail,\"how_to_fix\":$how_to_fix}]}]')\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/transfer-archive-process/jq@v1",
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand",
+        "reviewed_command_surface",
+        "parse_error"
+      ],
+      "model_inert": true
+    },
+    {
+      "name": "gh-repo-view-json-query",
+      "family": "gh",
+      "origin": {
+        "kind": "upstream",
+        "repository": "beads",
+        "path": "scripts/pr-preflight.sh",
+        "lines": [
+          61,
+          61
+        ],
+        "excerpt": "  gh repo view --json nameWithOwner --jq .nameWithOwner\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "gh repo view --json nameWithOwner --jq .nameWithOwner\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/devtools/gh@v1",
+      "effects": [
+        {
+          "operation": "network.request"
+        }
+      ],
+      "absent_boundaries": [
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "gh-pr-view-json-query",
+      "family": "gh",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": ".github/workflows/review-labels.yml",
+        "lines": [
+          71,
+          71
+        ],
+        "excerpt": "          LABELS=$(gh pr view \"$PR\" --repo \"$REPO\" --json labels --jq '.labels[].name' || true)\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "LABELS=$(gh pr view \"$PR\" --repo \"$REPO\" --json labels --jq '.labels[].name' || true)\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/devtools/gh@v1",
+      "effects": [
+        {
+          "operation": "network.request"
+        }
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "gh-api-paginate",
+      "family": "gh",
+      "origin": {
+        "kind": "upstream",
+        "repository": "beads",
+        "path": "scripts/docs-autofix-push.sh",
+        "lines": [
+          94,
+          94
+        ],
+        "excerpt": "PULLS_JSON=\"$(gh api --paginate \"repos/$BASE_REPO/pulls?state=open&per_page=100\")\"\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "PULLS_JSON=\"$(gh api --paginate \"repos/$BASE_REPO/pulls?state=open&per_page=100\")\"\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/devtools/gh@v1",
+      "effects": [
+        {
+          "operation": "network.request"
+        }
+      ],
+      "boundaries": [
+        "unrecognized_arguments"
+      ],
+      "absent_boundaries": [
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "gh-release-upload-asset",
+      "family": "gh",
+      "origin": {
+        "kind": "upstream",
+        "repository": "beads",
+        "path": ".github/workflows/release.yml",
+        "lines": [
+          299,
+          299
+        ],
+        "excerpt": "          gh release upload \"v${version}\" /tmp/checksums/checksums.txt --clobber\n",
+        "adaptation": "The GitHub Actions `run:` block line is analyzed as shell."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "gh release upload \"v${version}\" /tmp/checksums/checksums.txt --clobber\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/devtools/gh@v1",
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": "fs:/tmp/checksums/checksums.txt"
+        },
+        {
+          "operation": "network.upload"
+        }
+      ],
+      "boundaries": [],
+      "absent_boundaries": [
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "gh-run-download-directory",
+      "family": "gh",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": ".github/workflows/deploy-site.yml",
+        "lines": [
+          131,
+          133
+        ],
+        "excerpt": "            tmpdir=\"$(mktemp -d)\"\n            echo \"Downloading skills-index artifact from run $SKILLS_INDEX_RUN_ID\"\n            if gh run download \"$SKILLS_INDEX_RUN_ID\" --name skills-index --dir \"$tmpdir\"; then\n",
+        "adaptation": "The GitHub Actions `run:` block lines are analyzed as shell; the enclosing `if ...; then` is reduced to its condition command."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "tmpdir=\"$(mktemp -d)\"\necho \"Downloading skills-index artifact from run $SKILLS_INDEX_RUN_ID\"\ngh run download \"$SKILLS_INDEX_RUN_ID\" --name skills-index --dir \"$tmpdir\"\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/devtools/gh@v1",
+      "effects": [
+        {
+          "operation": "filesystem.write"
+        },
+        {
+          "operation": "network.download"
+        }
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "uv-sync-all-groups-locked",
+      "family": "uv",
+      "origin": {
+        "kind": "upstream",
+        "repository": "beads",
+        "path": "scripts/ci/package-mcp.sh",
+        "lines": [
+          40,
+          40
+        ],
+        "excerpt": "    uv sync --all-groups --locked\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv sync --all-groups --locked\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/package-build-vcs/uv@v1",
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": "fs:/work/uv.lock"
+        },
+        {
+          "operation": "filesystem.write",
+          "resource": "fs:/work/.venv"
+        }
+      ],
+      "boundaries": [
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "uv-build",
+      "family": "uv",
+      "origin": {
+        "kind": "upstream",
+        "repository": "beads",
+        "path": "scripts/ci/package-mcp.sh",
+        "lines": [
+          61,
+          61
+        ],
+        "excerpt": "    uv build\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv build\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/package-build-vcs/uv@v1",
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": "fs:/work/pyproject.toml"
+        },
+        {
+          "operation": "filesystem.write",
+          "resource": "fs:/work/dist"
+        }
+      ],
+      "boundaries": [
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "uv-tool-run-package-code",
+      "family": "uv",
+      "origin": {
+        "kind": "upstream",
+        "repository": "beads",
+        "path": ".github/workflows/test-pypi.yml",
+        "lines": [
+          33,
+          34
+        ],
+        "excerpt": "          cd integrations/beads-mcp\n          uv tool run twine upload --repository testpypi dist/*\n",
+        "adaptation": "The GitHub Actions `run:` block body is analyzed as shell."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "cd integrations/beads-mcp\nuv tool run twine upload --repository testpypi dist/*\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/package-build-vcs/uv@v1",
+      "effects": [
+        {
+          "operation": "network.download"
+        },
+        {
+          "operation": "artifact.publish_request"
+        }
+      ],
+      "boundaries": [
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command"
+      ]
+    },
+    {
+      "name": "uv-python-install",
+      "family": "uv",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": ".github/workflows/tests.yml",
+        "lines": [
+          93,
+          93
+        ],
+        "excerpt": "        run: uv python install 3.11\n",
+        "adaptation": "The GitHub Actions `run:` value is analyzed as shell."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv python install 3.11\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/package-build-vcs/uv@v1",
+      "effects": [
+        {
+          "operation": "network.download"
+        },
+        {
+          "operation": "filesystem.write"
+        }
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "uv-sync-frozen-no-install-project",
+      "family": "uv",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "Dockerfile",
+        "lines": [
+          264,
+          264
+        ],
+        "excerpt": "RUN uv sync --frozen --no-install-project --extra all --extra messaging --extra otlp --extra anthropic --extra bedrock --extra azure-identity --extra hindsight --extra matrix\n",
+        "adaptation": "The Dockerfile `RUN` instruction body is analyzed as shell."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv sync --frozen --no-install-project --extra all --extra messaging --extra otlp --extra anthropic --extra bedrock --extra azure-identity --extra hindsight --extra matrix\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/package-build-vcs/uv@v1",
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": "fs:/work/uv.lock"
+        },
+        {
+          "operation": "filesystem.write",
+          "resource": "fs:/work/.venv"
+        }
+      ],
+      "boundaries": [
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "uv-pip-install-editable-no-deps",
+      "family": "uv",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "Dockerfile",
+        "lines": [
+          289,
+          289
+        ],
+        "excerpt": "RUN uv pip install --no-cache-dir --no-deps -e \".\"\n",
+        "adaptation": "The Dockerfile `RUN` instruction body is analyzed as shell."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv pip install --no-cache-dir --no-deps -e \".\"\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/package-build-vcs/uv@v1",
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": "fs:/work"
+        },
+        {
+          "operation": "network.download"
+        }
+      ],
+      "boundaries": [
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "uv-pip-install-editable-extras-dynamic-executable",
+      "family": "uv",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "setup-hermes.sh",
+        "lines": [
+          231,
+          233
+        ],
+        "excerpt": "        $UV_CMD pip install -e \".[all]\" \\\n            || $UV_CMD pip install -e \"$_SAFE_SPEC\" \\\n            || $UV_CMD pip install -e \".\"\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "$UV_CMD pip install -e \".[all]\" \\\n    || $UV_CMD pip install -e \"$_SAFE_SPEC\" \\\n    || $UV_CMD pip install -e \".\"\n",
+        "cwd": "/work"
+      },
+      "boundaries": [
+        "unresolved_command",
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "name": "npx-yes-dynamic-package",
+      "family": "npx",
+      "origin": {
+        "kind": "upstream",
+        "repository": "beads",
+        "path": "mint.sh",
+        "lines": [
+          43,
+          43
+        ],
+        "excerpt": "  exec npx --yes \"mint@$MINT_VERSION\" \"${args[@]}\"\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "exec npx --yes \"mint@$MINT_VERSION\" \"${args[@]}\"\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/package-build-vcs/npx@v1",
+      "effects": [
+        {
+          "operation": "network.download"
+        }
+      ],
+      "boundaries": [
+        "package_scripts",
+        "unresolved_command"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "name": "npx-yes-package-command",
+      "family": "npx",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "optional-skills/creative/hyperframes/scripts/setup.sh",
+        "lines": [
+          111,
+          111
+        ],
+        "excerpt": "if ! npx --yes puppeteer browsers install chrome-headless-shell >/dev/null 2>&1; then\n",
+        "adaptation": "The enclosing `if ! ...; then` is reduced to its condition command."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "npx --yes puppeteer browsers install chrome-headless-shell >/dev/null 2>&1\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/package-build-vcs/npx@v1",
+      "effects": [
+        {
+          "operation": "network.download"
+        }
+      ],
+      "boundaries": [
+        "package_scripts",
+        "unmodeled_command"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "name": "npx-package-script-behind-unmodeled-wrapper",
+      "family": "npx",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "apps/desktop/package.json",
+        "lines": [
+          63,
+          63
+        ],
+        "excerpt": "    \"test:e2e:visual\": \"npm run build && WLR_BACKENDS=headless WLR_NO_HARDWARE_CURSORS=1 cage -- npx playwright test e2e/ --reporter=list\",\n",
+        "adaptation": "The `test:e2e:visual` package.json script string is analyzed as shell."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "npm run build && WLR_BACKENDS=headless WLR_NO_HARDWARE_CURSORS=1 cage -- npx playwright test e2e/ --reporter=list\n",
+        "cwd": "/work"
+      },
+      "absent_operations": [
+        "network.download"
+      ],
+      "boundaries": [
+        "unmodeled_command",
+        "unresolved_package_script"
+      ]
+    },
+    {
+      "name": "mktemp-directory-template-smoke-test",
+      "family": "mktemp",
+      "origin": {
+        "kind": "upstream",
+        "repository": "beads",
+        "path": "scripts/upgrade-smoke-test.sh",
+        "lines": [
+          199,
+          199
+        ],
+        "excerpt": "    dir=$(mktemp -d -t bd-upgrade-XXXXXX)\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "dir=$(mktemp -d -t bd-upgrade-XXXXXX)\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/devtools/mktemp@v1",
+      "effects": [
+        {
+          "operation": "filesystem.create"
+        }
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "mktemp-directory-template-sandbox",
+      "family": "mktemp",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "scripts/dev-sandbox.sh",
+        "lines": [
+          158,
+          158
+        ],
+        "excerpt": "  SANDBOX_ROOT=\"$(mktemp -d -t hermes-sandbox.XXXXXX)\"\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "SANDBOX_ROOT=\"$(mktemp -d -t hermes-sandbox.XXXXXX)\"\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/devtools/mktemp@v1",
+      "effects": [
+        {
+          "operation": "filesystem.create"
+        }
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "cat-captures-stdin",
+      "family": "cat",
+      "origin": {
+        "kind": "upstream",
+        "repository": "beads",
+        "path": ".githooks/pre-push",
+        "lines": [
+          16,
+          16
+        ],
+        "excerpt": "push_refs=\"$(cat)\"\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "push_refs=\"$(cat)\"\n",
+        "cwd": "/work"
+      },
+      "model": "coreutils/cat@v1",
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand",
+        "reviewed_command_surface"
+      ],
+      "model_inert": true
+    },
+    {
+      "name": "cat-heredoc-usage",
+      "family": "cat",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "scripts/dev-sandbox.sh",
+        "lines": [
+          33,
+          58
+        ],
+        "excerpt": "  cat <<'EOF'\nUsage: dev-sandbox.sh [--persistent] [--from DIR] [--] <command...>\n\nRun a Hermes instance in an isolated sandbox.\n\nOptions:\n  --persistent    Keep the sandbox dir across restarts (under the worktree\n                  git root, in .hermes-sandbox/). Without this flag the\n                  sandbox is a temp dir that is removed on exit.\n  --from DIR      Copy DIR into the sandbox HERMES_HOME as the starting\n                  point (config, sessions, skills, etc.).\n                  Ignored if the sandbox HERMES_HOME already has content\n                  (e.g. reusing a --persistent sandbox) to avoid clobbering.\n  --delete        Delete the existing persistent sandbox in .hermes-sandbox.\n  -h, --help      Show this help message.\n\nEnvironment:\n  HERMES_DEV_SANDBOX_NAME  Override the app name (default: HermesSandbox)\n  HERMES_DEV_SANDBOX_DIR   Override the persistent dir name (default: .hermes-sandbox)\n\nExamples:\n  dev-sandbox.sh hermes desktop\n  dev-sandbox.sh --persistent hermes desktop\n  dev-sandbox.sh --from ~/.hermes hermes desktop\n  dev-sandbox.sh -- npm run dev\nEOF\n"
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "cat <<'EOF'\nUsage: dev-sandbox.sh [--persistent] [--from DIR] [--] <command...>\n\nRun a Hermes instance in an isolated sandbox.\n\nOptions:\n  --persistent    Keep the sandbox dir across restarts (under the worktree\n                  git root, in .hermes-sandbox/). Without this flag the\n                  sandbox is a temp dir that is removed on exit.\n  --from DIR      Copy DIR into the sandbox HERMES_HOME as the starting\n                  point (config, sessions, skills, etc.).\n                  Ignored if the sandbox HERMES_HOME already has content\n                  (e.g. reusing a --persistent sandbox) to avoid clobbering.\n  --delete        Delete the existing persistent sandbox in .hermes-sandbox.\n  -h, --help      Show this help message.\n\nEnvironment:\n  HERMES_DEV_SANDBOX_NAME  Override the app name (default: HermesSandbox)\n  HERMES_DEV_SANDBOX_DIR   Override the persistent dir name (default: .hermes-sandbox)\n\nExamples:\n  dev-sandbox.sh hermes desktop\n  dev-sandbox.sh --persistent hermes desktop\n  dev-sandbox.sh --from ~/.hermes hermes desktop\n  dev-sandbox.sh -- npm run dev\nEOF\n",
+        "cwd": "/work"
+      },
+      "model": "coreutils/cat@v1",
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand",
+        "reviewed_command_surface",
+        "parse_error"
+      ],
+      "model_inert": true
+    },
+    {
+      "name": "curl-retry-delay-output",
+      "family": "curl",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": ".github/workflows/skills-index-freshness.yml",
+        "lines": [
+          33,
+          33
+        ],
+        "excerpt": "          if ! curl -fsSL --retry 3 --retry-delay 10 -o /tmp/skills-index.json \"$URL\"; then\n",
+        "adaptation": "The enclosing `if ! ...; then` is reduced to its condition command."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "curl -fsSL --retry 3 --retry-delay 10 -o /tmp/skills-index.json \"$URL\"\n",
+        "cwd": "/work"
+      },
+      "model": "net/curl@v0",
+      "effects": [
+        {
+          "operation": "filesystem.write",
+          "resource": "fs:/tmp/skills-index.json"
+        },
+        {
+          "operation": "network.download"
+        }
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "id-user-operand",
+      "family": "id",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "docker/main-wrapper.sh",
+        "lines": [
+          41,
+          41
+        ],
+        "excerpt": "if [ \"$cur_uid\" != 0 ] && [ \"$cur_uid\" != \"$(id -u hermes)\" ]; then\n",
+        "adaptation": "The enclosing `if ...; then` is reduced to its test commands."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "[ \"$cur_uid\" != 0 ] && [ \"$cur_uid\" != \"$(id -u hermes)\" ]\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/devtools/inert/id@v1",
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ],
+      "model_inert": true
+    },
+    {
+      "name": "launchctl-unload-plist",
+      "family": "launchctl",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "scripts/hermes-gateway",
+        "lines": [
+          248,
+          248
+        ],
+        "excerpt": "    subprocess.run([\"launchctl\", \"unload\", str(plist_path)], check=False)\n",
+        "adaptation": "The subprocess call is analyzed as Python with a plist path built like get_launchd_plist_path."
+      },
+      "subject": {
+        "kind": "source",
+        "language": "python",
+        "source": "import subprocess\nfrom pathlib import Path\nplist_path = Path.home() / \"Library\" / \"LaunchAgents\" / \"ai.hermes.gateway.plist\"\nsubprocess.run([\"launchctl\", \"unload\", str(plist_path)], check=False)\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/transfer-archive-process/launchctl@v1",
+      "effects": [
+        {
+          "operation": "filesystem.read"
+        },
+        {
+          "operation": "system.service_disable"
+        }
+      ],
+      "boundaries": [
+        "unmodeled_dynamic"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "launchctl-list-and-start",
+      "family": "launchctl",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "scripts/hermes-gateway",
+        "lines": [
+          259,
+          263
+        ],
+        "excerpt": "    subprocess.run([\"launchctl\", \"list\", \"ai.hermes.gateway\"])\n\ndef launchd_start():\n    \"\"\"Start the launchd service.\"\"\"\n    subprocess.run([\"launchctl\", \"start\", \"ai.hermes.gateway\"], check=True)\n",
+        "adaptation": "The two subprocess calls are analyzed as Python without their enclosing functions."
+      },
+      "subject": {
+        "kind": "source",
+        "language": "python",
+        "source": "import subprocess\nsubprocess.run([\"launchctl\", \"list\", \"ai.hermes.gateway\"])\nsubprocess.run([\"launchctl\", \"start\", \"ai.hermes.gateway\"], check=True)\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/transfer-archive-process/launchctl@v1",
+      "effects": [
+        {
+          "operation": "system.service_start"
+        }
+      ],
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "jq-file-options-with-symbolic-filter",
+      "family": "jq",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "Reads from -f, --rawfile and --slurpfile stay declared under the inert root, including a symbolic filter file."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "jq --rawfile notes notes.txt --slurpfile rows rows.json -f \"$FILTER\" input.json\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/transfer-archive-process/jq@v1",
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": "fs:/work/notes.txt"
+        },
+        {
+          "operation": "filesystem.read",
+          "resource": "fs:/work/rows.json"
+        },
+        {
+          "operation": "filesystem.read",
+          "resource": "$FILTER"
+        },
+        {
+          "operation": "filesystem.read",
+          "resource": "fs:/work/input.json"
+        }
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand",
+        "reviewed_command_surface"
+      ]
+    },
+    {
+      "name": "jq-unknown-option",
+      "family": "jq",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "An unreviewed jq option keeps its boundary and invents no read."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "jq --stream-errors .x input.json\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/transfer-archive-process/jq@v1",
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "name": "gh-api-symbolic-input",
+      "family": "gh",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "A symbolic gh api --input file stays attributed to its variable with its uncertainty."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "gh api repos/o/r/issues --input \"$BODY\"\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/devtools/gh@v1",
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": "$BODY"
+        },
+        {
+          "operation": "network.upload"
+        }
+      ],
+      "boundaries": [
+        "unrecognized_arguments"
+      ],
+      "absent_boundaries": [
+        "unmodeled_command",
+        "unmodeled_subcommand"
+      ]
+    },
+    {
+      "name": "uv-tool-run-dynamic-command",
+      "family": "uv",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "A dynamic uv tool run target keeps package-code and unresolved-command uncertainty."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv tool run \"$TOOL\" --version\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/package-build-vcs/uv@v1",
+      "boundaries": [
+        "package_scripts",
+        "unresolved_command"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "name": "launchctl-unreviewed-subcommand",
+      "family": "launchctl",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "An unreviewed launchctl subcommand is reported instead of treated as inert."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "launchctl asuser 501 true\n",
+        "cwd": "/work"
+      },
+      "model": "p18b/transfer-archive-process/launchctl@v1",
+      "boundaries": [
+        "unrecognized_arguments"
+      ],
+      "model_inert": true
+    },
+    {
+      "family": "launchctl",
+      "model": "p18b/transfer-archive-process/launchctl@v1",
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand",
+        "missing_required_arguments"
+      ],
+      "effects": [
+        {
+          "operation": "system.service_disable"
+        }
+      ],
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "name": "launchctl-bootout-service-target",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "hermes_cli/gateway.py",
+        "lines": [
+          4204,
+          4208
+        ],
+        "excerpt": "    subprocess.run(\n        [\"launchctl\", \"bootout\", target],\n        check=False,\n        timeout=90,\n    )\n",
+        "adaptation": "The subprocess call is analyzed outside its function; target remains dynamic."
+      },
+      "subject": {
+        "kind": "source",
+        "language": "python",
+        "source": "import subprocess\nsubprocess.run(\n    [\"launchctl\", \"bootout\", target],\n    check=False,\n    timeout=90,\n)\n",
+        "cwd": "/work"
+      },
+      "boundaries": [
+        "unmodeled_dynamic"
+      ]
+    },
+    {
+      "family": "launchctl",
+      "model": "p18b/transfer-archive-process/launchctl@v1",
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand",
+        "missing_required_arguments"
+      ],
+      "effects": [
+        {
+          "operation": "system.service_disable"
+        }
+      ],
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "name": "launchctl-bootout-service-shell",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "Distinguish service-target removal from plist-based removal without inventing a file read."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "launchctl bootout gui/501/com.x\n",
+        "cwd": "/work"
+      }
+    },
+    {
+      "family": "launchctl",
+      "model": "p18b/transfer-archive-process/launchctl@v1",
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "unmodeled_command",
+        "unmodeled_subcommand",
+        "missing_required_arguments"
+      ],
+      "effects": [
+        {
+          "operation": "system.service_disable"
+        },
+        {
+          "operation": "filesystem.read",
+          "resource": "fs:/work/p.plist"
+        }
+      ],
+      "absent_operations": [],
+      "name": "launchctl-bootout-plist-shell",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "Distinguish service-target removal from plist-based removal without inventing a file read."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "launchctl bootout gui/501 p.plist\n",
+        "cwd": "/work"
+      }
+    },
+    {
+      "name": "launchctl-bootout-missing-target",
+      "family": "launchctl",
+      "model": "p18b/transfer-archive-process/launchctl@v1",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "Missing bootout target must keep an argument boundary and emit no service or file effect."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "launchctl bootout\n",
+        "cwd": "/work"
+      },
+      "boundaries": [
+        "missing_required_arguments"
+      ],
+      "absent_operations": [
+        "system.service_disable",
+        "filesystem.read"
+      ]
+    },
+    {
+      "family": "launchctl",
+      "model": "p18b/transfer-archive-process/launchctl@v1",
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments",
+        "missing_required_arguments",
+        "reviewed_command_surface"
+      ],
+      "name": "launchctl-kickstart-kill-hermes",
+      "origin": {
+        "kind": "upstream",
+        "repository": "hermes",
+        "path": "hermes_cli/gateway.py",
+        "lines": [
+          4466,
+          4466
+        ],
+        "excerpt": "        subprocess.run([\"launchctl\", \"kickstart\", \"-k\", target], check=True, timeout=90)\n",
+        "adaptation": "The subprocess call is analyzed outside its function; target remains dynamic."
+      },
+      "subject": {
+        "kind": "source",
+        "language": "python",
+        "source": "import subprocess\nsubprocess.run([\"launchctl\", \"kickstart\", \"-k\", target], check=True, timeout=90)\n",
+        "cwd": "/work"
+      },
+      "effects": [
+        {
+          "operation": "system.service_stop"
+        },
+        {
+          "operation": "system.service_start"
+        }
+      ],
+      "boundaries": [
+        "unmodeled_dynamic"
+      ]
+    },
+    {
+      "name": "launchctl-kickstart-kill",
+      "family": "launchctl",
+      "model": "p18b/transfer-archive-process/launchctl@v1",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "Only -k with a service target stops the existing service."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "launchctl kickstart -k gui/501/com.x\n",
+        "cwd": "/work"
+      },
+      "effects": [
+        {
+          "operation": "system.service_stop"
+        },
+        {
+          "operation": "system.service_start"
+        }
+      ],
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "boundaries": [],
+      "absent_boundaries": [
+        "reviewed_command_surface"
+      ]
+    },
+    {
+      "name": "launchctl-kickstart-plain",
+      "family": "launchctl",
+      "model": "p18b/transfer-archive-process/launchctl@v1",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "Only -k with a service target stops the existing service."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "launchctl kickstart gui/501/com.x\n",
+        "cwd": "/work"
+      },
+      "effects": [
+        {
+          "operation": "system.service_start"
+        }
+      ],
+      "absent_operations": [
+        "filesystem.read",
+        "system.service_stop"
+      ],
+      "boundaries": [],
+      "absent_boundaries": [
+        "reviewed_command_surface"
+      ]
+    },
+    {
+      "name": "launchctl-kickstart-missing",
+      "family": "launchctl",
+      "model": "p18b/transfer-archive-process/launchctl@v1",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "Only -k with a service target stops the existing service."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "launchctl kickstart -k\n",
+        "cwd": "/work"
+      },
+      "effects": [],
+      "absent_operations": [
+        "filesystem.read",
+        "system.service_stop",
+        "system.service_start"
+      ],
+      "boundaries": [
+        "missing_required_arguments"
+      ],
+      "absent_boundaries": [
+        "reviewed_command_surface"
+      ]
+    },
+    {
+      "name": "uv-requirement-https",
+      "family": "uv",
+      "model": "p18b/package-build-vcs/uv@v1",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "URL and VCS requirement sources must not become local filesystem reads."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv pip install -r https://x.io/req.txt\n",
+        "cwd": "/work"
+      },
+      "effects": [
+        {
+          "operation": "network.download"
+        },
+        {
+          "operation": "filesystem.write"
+        }
+      ],
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "boundaries": [
+        "unsupported_source",
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "name": "uv-requirement-vcs",
+      "family": "uv",
+      "model": "p18b/package-build-vcs/uv@v1",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "URL and VCS requirement sources must not become local filesystem reads."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv pip install -e git+https://github.com/o/r.git#egg=r\n",
+        "cwd": "/work"
+      },
+      "effects": [
+        {
+          "operation": "network.download"
+        },
+        {
+          "operation": "filesystem.write"
+        }
+      ],
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "boundaries": [
+        "unsupported_source",
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "name": "uv-requirement-file-url",
+      "family": "uv",
+      "model": "p18b/package-build-vcs/uv@v1",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "URL and VCS requirement sources must not become local filesystem reads."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv pip install -e 'file:///x/y[a]'\n",
+        "cwd": "/work"
+      },
+      "effects": [
+        {
+          "operation": "network.download"
+        },
+        {
+          "operation": "filesystem.write"
+        }
+      ],
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "boundaries": [
+        "unsupported_source",
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "name": "uv-requirement-attached",
+      "family": "uv",
+      "model": "p18b/package-build-vcs/uv@v1",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "URL and VCS requirement sources must not become local filesystem reads."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv pip install --requirements=https://x.io/req.txt\n",
+        "cwd": "/work"
+      },
+      "effects": [
+        {
+          "operation": "network.download"
+        },
+        {
+          "operation": "filesystem.write"
+        }
+      ],
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "boundaries": [
+        "unsupported_source",
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "name": "uv-requirement-dynamic-url",
+      "family": "uv",
+      "model": "p18b/package-build-vcs/uv@v1",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "URL and VCS requirement sources must not become local filesystem reads."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv pip install -r \"https://$HOST/requirements.txt\"\n",
+        "cwd": "/work"
+      },
+      "effects": [
+        {
+          "operation": "network.download"
+        },
+        {
+          "operation": "filesystem.write"
+        }
+      ],
+      "absent_operations": [
+        "filesystem.read"
+      ],
+      "boundaries": [
+        "unsupported_source",
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "name": "uv-local-requirement-paths",
+      "family": "uv",
+      "model": "p18b/package-build-vcs/uv@v1",
+      "origin": {
+        "kind": "synthetic",
+        "purpose": "Editable extras are removed but requirement filenames are preserved."
+      },
+      "subject": {
+        "kind": "shell",
+        "source": "uv pip install -e '.[dev]' -r 'requirements[dev]'\n",
+        "cwd": "/work"
+      },
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": "fs:/work"
+        },
+        {
+          "operation": "filesystem.read",
+          "resource": "fs:/work/requirements[dev]"
+        }
+      ],
+      "boundaries": [
+        "package_scripts"
+      ],
+      "absent_boundaries": [
+        "unsupported_source",
+        "unrecognized_arguments"
+      ]
+    }
+  ]
+}

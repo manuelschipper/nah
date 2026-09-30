@@ -4,24 +4,21 @@ use serde_json::{Map, Value, json};
 
 use nah_proto::tool::ToolCallInput;
 
+/// Source code a runtime tool call carries, tagged with its language.
+///
+/// Unsupported: pwsh and cmd code input. No runtime adapter produces them; only
+/// Copilot's Windows `powershell` tool maps to a shell dialect.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum CodeInput {
     Python {
         source: String,
     },
+    /// A Prime Agent `ipython` tool cell. Despite the tool's name, the
+    /// runtime compiles it as plain Python in its REPL kernel, not IPython.
     Ipython {
         source: String,
     },
-    #[allow(dead_code)]
     PowerShell {
-        source: String,
-    },
-    #[allow(dead_code)]
-    Pwsh {
-        source: String,
-    },
-    #[allow(dead_code)]
-    Cmd {
         source: String,
     },
     OpenClawJavaScript {
@@ -35,13 +32,37 @@ pub(crate) enum CodeInput {
 }
 
 impl CodeInput {
+    /// The code input a replayed `language` tag names, with the tool name its
+    /// runtime hook reports: Hermes `execute_code`, Prime Agent `ipython`,
+    /// Copilot `powershell`, and OpenClaw code mode.
+    pub(crate) fn for_replay(language: &str, source: String) -> Option<(&'static str, Self)> {
+        Some(match language {
+            "python" => ("execute_code", Self::Python { source }),
+            "ipython" => ("ipython", Self::Ipython { source }),
+            "powershell" => ("powershell", Self::PowerShell { source }),
+            "javascript" => (
+                "OpenClawCodeModeExec",
+                Self::OpenClawJavaScript {
+                    source,
+                    restart_safe: None,
+                },
+            ),
+            "typescript" => (
+                "OpenClawCodeModeExec",
+                Self::OpenClawTypeScript {
+                    source,
+                    restart_safe: None,
+                },
+            ),
+            _ => return None,
+        })
+    }
+
     pub(crate) fn canonical_input(&self) -> Value {
         let (language, source, restart_safe) = match self {
             Self::Python { source } => ("python", source, None),
             Self::Ipython { source } => ("ipython", source, None),
             Self::PowerShell { source } => ("powershell", source, None),
-            Self::Pwsh { source } => ("pwsh", source, None),
-            Self::Cmd { source } => ("cmd", source, None),
             Self::OpenClawJavaScript {
                 source,
                 restart_safe,
@@ -142,7 +163,10 @@ pub(crate) fn openclaw(
     };
     if tool != "exec"
         || tool_kind != Some("code_mode_exec")
-        || !only_fields(object, &["code", "command", "language", "restartSafe"])
+        || !only_fields(
+            object,
+            &["code", "command", "language", "restartSafe", "title"],
+        )
         || object
             .get("restartSafe")
             .is_some_and(|value| !value.is_boolean())
@@ -219,6 +243,24 @@ mod tests {
                 restart_safe: None,
             })
         );
+        // OpenClaw 2026.9.6 Code Mode cells carry a model-written `title`
+        assert_eq!(
+            openclaw(
+                "exec",
+                Some("code_mode_exec"),
+                Some("javascript"),
+                &json!({
+                    "title":"Run one cell",
+                    "code":"return 1",
+                    "restartSafe":false,
+                    "command":"return 1"
+                }),
+            ),
+            CodeIntake::Code(CodeInput::OpenClawJavaScript {
+                source: "return 1".into(),
+                restart_safe: Some(false),
+            })
+        );
         assert_eq!(
             openclaw(
                 "exec",
@@ -236,38 +278,6 @@ mod tests {
                 restart_safe: Some(true),
             })
         );
-    }
-
-    #[test]
-    fn windows_shell_dialects_have_distinct_canonical_tags() {
-        for (input, language, source) in [
-            (
-                CodeInput::PowerShell {
-                    source: "Write-Output ok".into(),
-                },
-                "powershell",
-                "Write-Output ok",
-            ),
-            (
-                CodeInput::Pwsh {
-                    source: "Write-Output ok".into(),
-                },
-                "pwsh",
-                "Write-Output ok",
-            ),
-            (
-                CodeInput::Cmd {
-                    source: "echo ok".into(),
-                },
-                "cmd",
-                "echo ok",
-            ),
-        ] {
-            assert_eq!(
-                input.canonical_input(),
-                json!({"code":source,"language":language})
-            );
-        }
     }
 
     #[test]

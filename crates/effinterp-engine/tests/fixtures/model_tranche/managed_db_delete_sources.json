@@ -1,0 +1,32 @@
+[
+  {
+    "id": "p18b/cloud/fly@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://github.com/superfly/flyctl/blob/a29728d8dbfe18713ffa307be2324c79d95c2256/internal/command/mpg/destroy.go",
+      "https://github.com/superfly/flyctl/blob/a29728d8dbfe18713ffa307be2324c79d95c2256/internal/command/mpg/mpg.go",
+      "https://github.com/superfly/flyctl/blob/a29728d8dbfe18713ffa307be2324c79d95c2256/internal/command/postgres/postgres.go"
+    ],
+    "reviewed_surface": "fly mpg destroy CLUSTER_ID (aliases delete, remove, rm; exactly one operand; -y/--yes skips the confirmation) permanently destroys a Managed Postgres cluster and all its data. The unmanaged `fly postgres` (`fly pg`) group registers no destroy command, so `fly postgres destroy` is rejected as an unknown command. -h/--help exits without acting."
+  },
+  {
+    "id": "p18b/cloud/heroku@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://devcenter.heroku.com/articles/managing-add-ons",
+      "https://devcenter.heroku.com/articles/heroku-cli-commands",
+      "https://github.com/heroku/cli/blob/b34172cddf3406ebe1722db9286d15ea739ee726/src/commands/addons/destroy.ts",
+      "https://github.com/heroku/cli/blob/b34172cddf3406ebe1722db9286d15ea739ee726/src/commands/pg/backups/delete.ts"
+    ],
+    "reviewed_surface": "addons:destroy ADDON... (hidden alias addons:remove) permanently destroys each named add-on; destroying a heroku-postgresql or heroku-redis add-on (named by its service, optionally with a :plan) deletes its database. Other add-on names stay unmodeled. pg:backups:delete BACKUP_ID deletes that Heroku Postgres backup, a recovery copy of the database."
+  },
+  {
+    "id": "p18b/cloud/supabase@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://supabase.com/docs/reference/cli/supabase-projects-delete",
+      "https://supabase.com/docs/reference/cli/supabase-branches-delete"
+    ],
+    "reviewed_surface": "Without a ref operand, projects delete and branches delete ask which project or branch to delete, and delete it."
+  }
+]

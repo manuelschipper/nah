@@ -1,0 +1,269 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "mktemp",
+          "-d",
+          "job.XXXXXX"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "TMPDIR": "/tmp"
+          }
+        }
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "directory",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.create"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join($TMPDIR, /, filesystem:job.*)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "mktemp",
+          "-p",
+          "/safe",
+          "job.XXXXXX"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "no model for command \"mktemp\""
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "filesystem",
+                    "process",
+                    "environment",
+                    "network",
+                    "database",
+                    "container",
+                    "git",
+                    "cloud",
+                    "messaging",
+                    "system",
+                    "credential",
+                    "dataflow"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "mktemp",
+          "-t",
+          "job.XXXXXX"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.create"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "join($TMPDIR, /, filesystem:job.*)"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    }
+  ]
+}

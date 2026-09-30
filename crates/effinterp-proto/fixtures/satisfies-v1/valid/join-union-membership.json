@@ -1,0 +1,59 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "join-union-membership",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/work/b"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "join",
+        "parts": [
+          {
+            "expr": "literal",
+            "value": "/work/"
+          },
+          {
+            "expr": "union",
+            "alternatives": [
+              {
+                "expr": "literal",
+                "value": "a"
+              },
+              {
+                "expr": "literal",
+                "value": "b"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "alternative",
+          "index": 1
+        }
+      ]
+    }
+  }
+}

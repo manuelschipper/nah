@@ -1,4 +1,5 @@
-//! Shared mutation of the PreToolUse group inside runtime hook JSON.
+//! Shared mutation of the PreToolUse group inside runtime hook JSON, and the
+//! quoted executable check that identifies Nah-owned hook handlers.
 
 use serde_json::{Map, Value, json};
 
@@ -121,6 +122,21 @@ pub(super) fn remove(
         root.remove("hooks");
     }
     Ok(changed)
+}
+
+/// Whether a runtime hook command's executable word is a quoted path to Nah.
+///
+/// Installers use this ownership check to find Nah's handlers when removing or
+/// replacing hooks; each runtime keeps its own command-tail grammar. Matching is
+/// case-insensitive and accepts only a single-quoted `/nah` or a double-quoted
+/// `/nah`, `/nah.exe` or `\nah.exe` path; bare or unquoted words are not Nah's.
+pub(super) fn is_quoted_nah_hook_executable(executable: &str) -> bool {
+    let executable = executable.to_ascii_lowercase();
+    (executable.starts_with('\'') && executable.ends_with("/nah'"))
+        || (executable.starts_with('"')
+            && (executable.ends_with("/nah\"")
+                || executable.ends_with("\\nah.exe\"")
+                || executable.ends_with("/nah.exe\"")))
 }
 
 fn matching_handler_count(

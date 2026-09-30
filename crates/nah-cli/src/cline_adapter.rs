@@ -9,6 +9,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
+    adapter_fields::runtime_field_names_covered,
+    commands::quote_posix_shell_word,
     hook_adapter, live_state,
     runtime::{FailurePolicy, Runtime},
 };
@@ -105,6 +107,28 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
     0
 }
 
+/// The tool call `run` hands the pipeline for this Cline tool call.
+/// `cwd` is also the one workspace root; like the hook, the call runs in the
+/// current directory.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<ToolCallInput, String> {
+    normalize_for_platform(
+        ClineHookInput {
+            hook_name: "PreToolUse".into(),
+            task_id: "nah-test".into(),
+            workspace_roots: vec![cwd.into()],
+            pre_tool_use: PreToolUse {
+                tool_name: tool_name.into(),
+                parameters: tool_input,
+            },
+        },
+        live_state::host_platform(),
+    )
+}
+
 #[cfg(test)]
 fn normalize(input: ClineHookInput) -> Result<ToolCallInput, String> {
     normalize_for_platform(input, live_state::host_platform())
@@ -160,11 +184,7 @@ fn normalize_for_platform(
         Ok((tool, tool_input)) => (
             tool,
             tool_input,
-            crate::adapter_fields::complete(
-                "cline",
-                &input.pre_tool_use.tool_name,
-                &original_input,
-            ),
+            runtime_field_names_covered("cline", &input.pre_tool_use.tool_name, &original_input),
         ),
         Err(_) => (
             input.pre_tool_use.tool_name.as_str(),
@@ -384,7 +404,7 @@ fn command(value: &Value) -> Result<String, String> {
                     .as_str()
                     .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
                 command.push(' ');
-                command.push_str(&shell_quote(argument));
+                command.push_str(&quote_posix_shell_word(argument));
                 Ok(command)
             })
         }
@@ -411,10 +431,6 @@ fn read_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
             _ => Err("invalid-cline-tool-input".into()),
         })
         .collect()
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn delegated(evaluation_failed: bool) -> Value {

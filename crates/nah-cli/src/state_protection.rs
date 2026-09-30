@@ -5,6 +5,24 @@ use std::path::PathBuf;
 
 use nah_proto::ctx::{AbsolutePath, Platform};
 
+/// `<home>/.nah/<file_name>`, spelled with the target platform's separator
+/// rather than the host's.
+pub(crate) fn nah_state_file_path(
+    home: &AbsolutePath,
+    platform: Platform,
+    file_name: &str,
+) -> PathBuf {
+    let separator = if platform == Platform::Windows {
+        '\\'
+    } else {
+        '/'
+    };
+    PathBuf::from(format!(
+        "{}{separator}.nah{separator}{file_name}",
+        home.as_str().trim_end_matches(['/', '\\'])
+    ))
+}
+
 pub(crate) fn ensure_nah_state_directory(
     home: &AbsolutePath,
     _platform: Platform,

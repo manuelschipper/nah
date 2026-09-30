@@ -8,6 +8,8 @@ use nah_proto::ctx::{AbsolutePath, GuardIdentity, Platform};
 
 use crate::bundle::guard_directory_path;
 
+/// Writes a starter user custom guard under `<home>/.nah/guards`; it stays
+/// inactive until a human activates it.
 pub fn create_user_guard(
     home: &AbsolutePath,
     platform: Platform,
@@ -22,6 +24,8 @@ pub fn create_user_guard(
     )
 }
 
+/// Writes a starter project custom guard under `<root>/.nah/guards`; it stays
+/// inactive until the root is trusted and the guard activated.
 pub fn create_project_guard(
     root: &AbsolutePath,
     platform: Platform,
@@ -54,7 +58,7 @@ fn create_guard_in(
         Err(_) => return Err(TemplateError::Io),
     }
     let manifest = format!(
-        "name = \"{name}\"\nmatch = [\"{name}\"]\nprotocol = \"exec/v1\"\nprovenance = \"{provenance}\"\n{}",
+        "name = \"{name}\"\nmatch = [\"{name}\"]\nprotocol = \"exec/v2\"\nprovenance = \"{provenance}\"\n{}",
         if platform == Platform::Windows {
             "data = [\"run.py\"]\n"
         } else {
@@ -73,14 +77,13 @@ import json
 import sys
 
 request = json.load(sys.stdin)
-effects = request["action_stream"]["effects"]
 response = {{"abstain": True}}
-for effect in effects:
-    invocation = effect["kind"].get("invocation")
-    if not invocation or invocation.get("program") != {name:?}:
+for call in request["evidence"]["calls"]:
+    identity = call["identity"]
+    if not isinstance(identity, dict) or identity.get("Known") != {name:?}:
         continue
-    input = invocation.get("input", {{}})
-    argv = input.get("argv") if input.get("kind") == "shell" else None
+    arguments = call["arguments"]
+    argv = arguments.get("Known") if isinstance(arguments, dict) else None
     {outcome}
 print(json.dumps(response))
 "#

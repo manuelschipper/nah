@@ -1,0 +1,167 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:45ec79be317560d8fc046d280fe975d7029a209cab2067ff3228a10a5b8bc0d1",
+  "provenance": {
+    "author": "migrated_handwritten",
+    "sources": [
+      {
+        "uri": "git:57902bb2e2c326a6604c436409ba667798527a22:crates/effinterp-engine/src/models/pyexec.rs",
+        "digest": "blake3:2894128d44fefb56aff52a87d5410ac88f3dda32e6874026cd18bd61f7f42d68"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "python-launcher",
+        "requirement": "argv-surface@57902bb2"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "registry",
+        "name": "python-launcher",
+        "expected_entries": [
+          "python/python@v0"
+        ]
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "python-help-does-not-run-script",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "python",
+            "--help",
+            "ignored.py"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [],
+    "expected_facts": [],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "python/python@v0",
+      "commands": [
+        "py",
+        "pypy",
+        "pypy2",
+        "pypy3",
+        "python",
+        "python2",
+        "python3"
+      ],
+      "launcher": {
+        "frontend": "python",
+        "options": [
+          {
+            "names": [
+              "-c"
+            ],
+            "class": "inline_source",
+            "attachment": "clustered_tail"
+          },
+          {
+            "names": [
+              "-m"
+            ],
+            "class": "module_selector",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "-W",
+              "-X",
+              "--check-hash-based-pycs",
+              "-Q"
+            ],
+            "class": "value",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--"
+            ],
+            "class": "end_of_options",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-h",
+              "-?",
+              "--help",
+              "--help-env",
+              "--help-xoptions",
+              "--help-all",
+              "-V",
+              "-VV",
+              "--version"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-b",
+              "-B",
+              "-d",
+              "-E",
+              "-i",
+              "-I",
+              "-O",
+              "-P",
+              "-q",
+              "-s",
+              "-S",
+              "-u",
+              "-v",
+              "-x"
+            ],
+            "class": "inert",
+            "attachment": "clustered_tail"
+          },
+          {
+            "names": [
+              "-"
+            ],
+            "class": "unreviewed",
+            "attachment": "attached"
+          }
+        ],
+        "operands": [
+          "script",
+          "stdin_program",
+          "program_arguments"
+        ]
+      },
+      "fragments": [],
+      "inert": true,
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

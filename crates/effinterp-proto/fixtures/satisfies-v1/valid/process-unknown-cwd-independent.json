@@ -1,0 +1,47 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "process-unknown-cwd-independent",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "process",
+        "executable": "python",
+        "cwd": {
+          "expr": "parameter",
+          "name": "cwd"
+        }
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "process",
+          "executable": {
+            "kind": "exact",
+            "value": "python"
+          },
+          "argv_prefix": []
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": []
+    }
+  }
+}

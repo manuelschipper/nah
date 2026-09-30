@@ -1,0 +1,357 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:38f01cde3c90145b3632d1cdb61667e62285b0a10d91f4ccc395a7fc77cfee0d",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/gtar@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "gtar",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/gtar@v1",
+        "path": "../../tests/fixtures/model_tranche/gtar.json",
+        "digest": "blake3:da2379dc49fb78e5e57417de0d0f7a6a674a76ecbf7f2277289ec11d4f59d5e8"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "gtar-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "gtar-not-the-command",
+            "-cf",
+            "/tmp/archive.tar",
+            "src"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/transfer-archive-process/gtar@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/gtar@v1",
+      "commands": [
+        "gtar"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--file",
+            "-f"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--directory",
+            "-C"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--create",
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--extract",
+            "-x"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--gzip",
+            "-z"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--bzip2",
+            "-j"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--xz",
+            "-J"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--strip-components"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [
+        {
+          "flags": [
+            "-c",
+            "--create",
+            "-x",
+            "--extract"
+          ]
+        }
+      ],
+      "effects": [
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-f",
+              "--file"
+            ]
+          },
+          "when": {
+            "flag_present": [
+              "-c",
+              "--create"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [
+              "-c",
+              "--create"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-f",
+              "--file"
+            ]
+          },
+          "when": {
+            "flag_present": [
+              "-x",
+              "--extract"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-C",
+              "--directory"
+            ]
+          },
+          "when": {
+            "flag_present": [
+              "-x",
+              "--extract"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "join",
+                    "parts": [
+                      {
+                        "kind": "current"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "*"
+                      }
+                    ],
+                    "separator": "/"
+                  }
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-f",
+              "--file"
+            ]
+          },
+          "when": {
+            "flag_present": [
+              "-x",
+              "--extract"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-C",
+              "--directory"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "join",
+                    "parts": [
+                      {
+                        "kind": "cwd"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "*"
+                      }
+                    ],
+                    "separator": "/"
+                  }
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "container-pattern",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "container",
+        "runtime": "docker",
+        "name": "web-1"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "container",
+          "runtime": {
+            "kind": "exact",
+            "value": "docker"
+          },
+          "name_glob": "web-*",
+          "image_glob": null
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

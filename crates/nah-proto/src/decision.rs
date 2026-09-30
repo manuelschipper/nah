@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 
-use crate::action::{ActionStream, Coverage};
+use crate::action::Coverage;
 use crate::ctx::ActivationProjection;
 use serde::{Deserialize, Serialize};
 
@@ -98,13 +98,6 @@ pub struct DecisionCore {
 }
 
 impl DecisionCore {
-    pub fn structural_block(
-        action_stream: &ActionStream,
-        reason: &str,
-    ) -> Result<Self, DecisionError> {
-        Self::structural_block_with_coverage(action_stream.coverage(), reason)
-    }
-
     pub fn structural_block_with_coverage(
         coverage: Coverage,
         reason: &str,
@@ -115,14 +108,6 @@ impl DecisionCore {
             policy_attributions: vec![],
             coverage,
         })
-    }
-
-    pub fn new(
-        action_stream: &ActionStream,
-        verdict: Verdict,
-        contributions: Vec<GuardContribution>,
-    ) -> Result<Self, DecisionError> {
-        Self::new_with_coverage(action_stream.coverage(), verdict, contributions)
     }
 
     pub fn new_with_coverage(

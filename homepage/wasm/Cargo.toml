@@ -25,3 +25,8 @@ opt-level = "z"
 lto = true
 strip = true
 codegen-units = 1
+
+# standalone roots do not inherit the workspace patch; the engine's Go frontend
+# must resolve to the same vendored parser fork here
+[patch.crates-io]
+gosyn = { path = "../../third_party/gosyn" }

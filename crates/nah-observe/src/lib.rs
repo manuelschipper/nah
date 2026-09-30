@@ -6,16 +6,26 @@
 
 //! Tool-world observation I/O between planning and finalization.
 //! Fulfils an ObservationRequest into exactly bound cwd, root, environment,
-//! path, and project shipped-guard facts. Extension execution, caches, general
+//! user-home, path, and project shipped-guard facts, and answers the engine's
+//! directory listings. Extension execution, caches, general
 //! configuration, and logging belong elsewhere.
 
 mod descendants;
 mod io_paths;
+mod listing;
 mod path_facts;
 mod project_guards;
 mod roots;
+mod source_files;
+mod user_homes;
 
 pub use io_paths::normalize_windows_observed_path;
+pub use listing::observe_listing;
+pub use source_files::{
+    CARGO_INSTALL_REGISTRY, ObservedSourceFile, SourceFileUnavailable,
+    native_extension_candidates_absent, observe_source_directory, observe_source_file,
+};
+
 use io_paths::{has_reparse_ancestor, observed_path};
 use nah_proto::ctx::{AbsolutePath, SchemaVersion};
 use nah_proto::observation::{
@@ -23,22 +33,34 @@ use nah_proto::observation::{
     ObservationQuery, ObservationRequest, ObservationValue, Observed, PathObservation,
     SymlinkTraversal,
 };
-use path_facts::observe_path;
+pub use path_facts::{observe_executable, observe_path};
 use project_guards::observe_project_guards;
 use roots::discover_roots;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
+use user_homes::observe_user_home;
 
-#[cfg(not(feature = "test-support"))]
+/// Shipped git timeout: how long observation waits for each git subprocess.
 const GIT_TIMEOUT: Duration = Duration::from_millis(500);
-#[cfg(feature = "test-support")]
-const GIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Test git timeout for in-process observation tests, which run git under
+/// parallel test load. The `nah` binary always uses the shipped git timeout.
+pub const TEST_GIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Fulfil every fact named by `request` against its authoritative requested cwd.
 pub fn fulfill(request: &ObservationRequest) -> Result<Observation, BindingError> {
-    fulfill_with_git(request, Path::new("git"), GIT_TIMEOUT)
+    fulfill_with_git_timeout(request, GIT_TIMEOUT)
+}
+
+/// Fulfil `request` like [`fulfill`], waiting at most `git_timeout` for each
+/// git subprocess instead of the shipped git timeout.
+pub fn fulfill_with_git_timeout(
+    request: &ObservationRequest,
+    git_timeout: Duration,
+) -> Result<Observation, BindingError> {
+    fulfill_with_git(request, Path::new("git"), git_timeout)
 }
 
 pub(crate) fn fulfill_with_git(
@@ -46,14 +68,19 @@ pub(crate) fn fulfill_with_git(
     git: &Path,
     timeout: Duration,
 ) -> Result<Observation, BindingError> {
-    fulfill_with_git_and_budget(request, git, timeout, descendants::Budget::default())
+    fulfill_with_git_and_budget(
+        request,
+        git,
+        timeout,
+        descendants::DescendantBudget::default(),
+    )
 }
 
 fn fulfill_with_git_and_budget(
     request: &ObservationRequest,
     git: &Path,
     timeout: Duration,
-    mut descendant_budget: descendants::Budget,
+    mut descendant_budget: descendants::DescendantBudget,
 ) -> Result<Observation, BindingError> {
     if request
         .queries()
@@ -103,6 +130,9 @@ fn fulfill_with_git_and_budget(
                 ObservationQuery::Env { name, .. } => ObservationValue::Env {
                     observed: observe_env(name),
                 },
+                ObservationQuery::UserHome { name, .. } => ObservationValue::UserHome {
+                    observed: observe_user_home(name),
+                },
                 ObservationQuery::Path {
                     requested,
                     inspect_descendants,
@@ -124,7 +154,7 @@ fn fulfill_with_git_and_budget(
                                 } else {
                                     let observed = match observe_path(value, requested) {
                                         Observed::Ok { value } => {
-                                            let descendants = descendants::observe(
+                                            let descendants = descendants::observe_descendants(
                                                 &value,
                                                 *symlink_traversal,
                                                 &mut descendant_budget,
@@ -157,7 +187,7 @@ fn fulfill_with_git_and_budget(
 #[cfg(test)]
 pub(crate) fn fulfill_with_descendant_budget(
     request: &ObservationRequest,
-    budget: descendants::Budget,
+    budget: descendants::DescendantBudget,
 ) -> Result<Observation, BindingError> {
     fulfill_with_git_and_budget(request, Path::new("git"), GIT_TIMEOUT, budget)
 }

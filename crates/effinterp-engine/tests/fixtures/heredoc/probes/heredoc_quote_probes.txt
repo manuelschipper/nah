@@ -1,0 +1,39 @@
+### hd-body-apostrophe
+cat <<EOF
+I can't do this
+EOF
+rm -rf /tmp/x
+### hd-body-dquote
+cat <<EOF
+say "hi
+EOF
+rm -rf /tmp/x
+### hd-body-backtick
+cat <<EOF
+run `foo
+EOF
+rm -rf /tmp/x
+### hd-body-dollar-brace
+cat <<EOF
+${FMT_BLUE}hello${FMT_RESET}
+EOF
+rm -rf /tmp/x
+### hd-body-apostrophe-quoted-term
+cat <<'EOF'
+I can't do this
+EOF
+rm -rf /tmp/x
+### hd-body-paren
+cat <<EOF
+if (x) {
+EOF
+rm -rf /tmp/x
+### hd-fn-body-apostrophe-then-fn
+f() {
+cat <<EOF
+we're here
+EOF
+apt-get install -y docker
+}
+f
+rm -rf /tmp/x

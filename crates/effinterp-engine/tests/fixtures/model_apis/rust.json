@@ -1,0 +1,114 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "source",
+        "language": "rust",
+        "source": "fn main(){ std::fs::read_to_string(\"/tmp/f\").unwrap(); }"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/tmp/f"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "git": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "source",
+        "language": "rust",
+        "source": "fn main(){ let _ = \"std::fs::read_to_string(x)\"; std::fs::read(\"/tmp/a\"); }",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/tmp/a"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "git": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    }
+  ]
+}

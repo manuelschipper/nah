@@ -1,0 +1,329 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gem",
+          "install",
+          "rails"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "filesystem:/work/gem-home"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "package_scripts"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gem",
+          "list"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unrecognized operands: list"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gem",
+          "owner",
+          "rack",
+          "--add",
+          "alice"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "artifact"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "action",
+                      "test": {
+                        "equals": "add"
+                      }
+                    },
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "package",
+                      "test": {
+                        "equals": "rack"
+                      }
+                    },
+                    {
+                      "name": "package_manager",
+                      "test": {
+                        "equals": "gem"
+                      }
+                    },
+                    {
+                      "name": "principal",
+                      "test": {
+                        "equals": "alice"
+                      }
+                    },
+                    {
+                      "name": "scope",
+                      "test": {
+                        "equals": "whole"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "artifact.owner_change"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<artifact:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "registry ownership target configuration and authentication are unresolved"
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "filesystem",
+                    "network"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    }
+  ]
+}

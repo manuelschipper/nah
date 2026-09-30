@@ -1,0 +1,123 @@
+{
+  "schema": "effinterp/repo-query/v1",
+  "snapshot_id": "blake3:2277f1952ac40fe7a7693bcd70906d45a0995cd4e6f713f962edffc5aabaca4f",
+  "identity": {
+    "analyzer": {
+      "name": "effinterp-fixture",
+      "version": "fixture-analyzer@1",
+      "build_digest": "blake3:45e62c443d22a3246930607f61ebe383873b6f1c039c70fd7fe8cc38fd3a813a"
+    },
+    "configuration_digest": "blake3:4dedbabfb3c13291cffbd869171cbf04b13df9b38e089349d9a6a1c55e470bc6",
+    "model_set_digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "dependencies": [
+      {
+        "key": "analyzer",
+        "kind": "analyzer",
+        "digest": "blake3:45e62c443d22a3246930607f61ebe383873b6f1c039c70fd7fe8cc38fd3a813a"
+      },
+      {
+        "key": "limit:analysis.max_effects",
+        "kind": "limit",
+        "digest": "blake3:c827da883b6cc26801e16589789e5099917440b5b52caa63b5248a7dd49128f9"
+      },
+      {
+        "key": "model-set",
+        "kind": "model_set",
+        "digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "key": "source:src/main.rs",
+        "kind": "source_module",
+        "digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ]
+  },
+  "subjects": [
+    {
+      "entrypoint": "src/main.rs",
+      "source_path": "src/main.rs",
+      "subject": {
+        "kind": "source",
+        "language": "rust",
+        "source": "src/main.rs"
+      },
+      "subject_digest": "blake3:70b078aa0e1cd638227c07ac26beb723fca13c7846ecb00534f1e5155bff89de"
+    }
+  ],
+  "status": {
+    "kind": "complete"
+  },
+  "coverage": {
+    "domains": {
+      "filesystem": {
+        "level": "full"
+      }
+    },
+    "causality": null
+  },
+  "boundaries": [],
+  "provenance": {
+    "nodes": [
+      {
+        "id": "occurrence:blake3:68600bcc0d62a6681ad38da03bb48ebf7d51e63c5dcabcd2e18cd533fa30429a",
+        "occurrence": {
+          "input_digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+          "origin": "src/main.rs",
+          "span": {
+            "start": 0,
+            "end": 5
+          },
+          "semantic_kind": "source_span",
+          "local_ordinal": 0
+        },
+        "evidence": {
+          "kind": "source",
+          "evidence": {
+            "kind": "span",
+            "start": 0,
+            "end": 5
+          }
+        }
+      }
+    ],
+    "edges": []
+  },
+  "payload_kind": "effects",
+  "payload": {
+    "boundaries": [],
+    "coverage": {
+      "filesystem": {
+        "level": "full"
+      }
+    },
+    "effects": [
+      {
+        "attributes": {},
+        "condition": null,
+        "entrypoint": "src/main.rs",
+        "fact_id": "fact:blake3:f40852bd0f3ad2e7e51e0f5d2f117f15e6c5a58de36bd99d72accce223dbe86a",
+        "modality": "may",
+        "operation": "filesystem.read",
+        "origin": {
+          "execution_node": null,
+          "source_file": "src/main.rs"
+        },
+        "provenance_roots": null,
+        "realm": {
+          "realm": "host"
+        },
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "config.toml"
+          }
+        },
+        "occurrences": 1,
+        "exemplar_paths": []
+      }
+    ],
+    "entrypoint": "src/main.rs"
+  },
+  "content_hash": "blake3:9ac8ddb4b8cd6614182cc9814d642cd7eda2eb85e1e230417c174ca60d895258"
+}

@@ -32,7 +32,8 @@ Blocks return Antigravity's native `deny` response with nah-branded feedback.
 For calls nah does not block, it returns Antigravity's native `ask` decision.
 
 Antigravity does not provide a delegate decision for `PreToolUse`: its hook
-API requires `allow`, `deny`, `ask`, or `force_ask`. nah uses `ask` rather
+API requires `allow`, `deny`, `ask`, `force_ask`, or
+`deny_unless_prior_grant`. nah uses `ask` rather
 than `allow` because nah only blocks or returns control to the runtime; it
 must not auto-approve a call. Antigravity's normal approval flow and its
 Always Allow cache can then approve the request. Tools outside the matcher do

@@ -1,0 +1,176 @@
+[
+  {
+    "id": "selfprot/agents/amp@v1",
+    "primary_documentation": [
+      "https://ampcode.com/docs/customize/plugins"
+    ],
+    "reviewed_surface": "amp plugins add/remove accept --target system or workspace. System plugins live below the Amp configuration directory; workspace plugins live below .amp/plugins.",
+    "positive_argv": [
+      [
+        "amp",
+        "plugins",
+        "remove",
+        "nah.ts",
+        "--target",
+        "system"
+      ]
+    ]
+  },
+  {
+    "id": "selfprot/agents/claude@v1",
+    "primary_documentation": [
+      "https://code.claude.com/docs/en/cli-reference"
+    ],
+    "reviewed_surface": "The installed Claude CLI documents --safe-mode as disabling all customizations. Help remains inert when combined with the flag.",
+    "positive_argv": [
+      [
+        "claude",
+        "--safe-mode"
+      ],
+      [
+        "claude",
+        "--safe-mode",
+        "--help"
+      ]
+    ]
+  },
+  {
+    "id": "selfprot/agents/droid@v1",
+    "primary_documentation": [
+      "https://docs.factory.ai/droid-cli/settings",
+      "https://docs.factory.ai/droid-cli/cli-reference"
+    ],
+    "reviewed_surface": "--settings reads an overlay file. plugin remove/uninstall removes a plugin registration from user ~/.factory/settings.json by default or project .factory/settings.json with --scope project.",
+    "positive_argv": [
+      [
+        "droid",
+        "--settings",
+        "/tmp/settings.json"
+      ],
+      [
+        "droid",
+        "plugin",
+        "remove",
+        "nah"
+      ]
+    ]
+  },
+  {
+    "id": "selfprot/agents/hermes@v1",
+    "primary_documentation": [
+      "https://github.com/NousResearch/hermes-agent/blob/main/website/docs/reference/cli-commands.md",
+      "https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/subcommands/hooks.py",
+      "https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/agent/shell_hooks.py"
+    ],
+    "reviewed_surface": "--safe-mode disables user configuration and hooks. config unset removes lower-case dotted keys from config.yaml. hooks revoke/remove/rm reads and rewrites shell-hooks-allowlist.json.",
+    "positive_argv": [
+      [
+        "hermes",
+        "hooks",
+        "rm",
+        "nah"
+      ],
+      [
+        "hermes",
+        "config",
+        "unset",
+        "hooks.enabled"
+      ],
+      [
+        "hermes",
+        "--safe-mode"
+      ]
+    ]
+  },
+  {
+    "id": "selfprot/agents/pi@v1",
+    "primary_documentation": [
+      "https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent"
+    ],
+    "reviewed_surface": "--no-extensions disables extension discovery while retaining the ordinary agent session boundary.",
+    "positive_argv": [
+      [
+        "pi",
+        "--no-extensions"
+      ]
+    ]
+  },
+  {
+    "id": "selfprot/agents/agy@v1",
+    "primary_documentation": [
+      "https://codelabs.developers.google.com/sdd-agy-cli"
+    ],
+    "reviewed_surface": "agy plugin install accepts a local directory or Git repository and installs to a selected plugin scope. plugin list reads installed plugin registries.",
+    "positive_argv": [
+      [
+        "agy",
+        "plugin",
+        "install",
+        "/tmp/unsafe"
+      ],
+      [
+        "agy",
+        "plugin",
+        "list"
+      ]
+    ]
+  },
+  {
+    "id": "selfprot/agents/copilot@v1",
+    "primary_documentation": [
+      "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference"
+    ],
+    "reviewed_surface": "copilot plugin install/add accepts local paths, GitHub repositories, Git URLs, and marketplace plugin names and writes the installed plugin registry below ~/.copilot/installed-plugins.",
+    "positive_argv": [
+      [
+        "copilot",
+        "plugin",
+        "install",
+        "/tmp/unsafe"
+      ]
+    ]
+  },
+  {
+    "id": "selfprot/agents/opencode@v1",
+    "primary_documentation": [
+      "https://opencode.ai/docs/cli/"
+    ],
+    "reviewed_surface": "--pure starts an agent session without custom plugins. Help and version remain inert.",
+    "positive_argv": [
+      [
+        "opencode",
+        "--pure"
+      ]
+    ]
+  },
+  {
+    "id": "selfprot/agents/openclaw@v1",
+    "primary_documentation": [
+      "https://docs.openclaw.ai/cli/config",
+      "https://docs.openclaw.ai/plugins"
+    ],
+    "reviewed_surface": "openclaw config set <path> <value> rewrites OPENCLAW_CONFIG_PATH or ~/.openclaw/openclaw.json; plugins.enabled false disables all plugins.",
+    "positive_argv": [
+      [
+        "openclaw",
+        "config",
+        "set",
+        "plugins.enabled",
+        "false"
+      ]
+    ]
+  },
+  {
+    "id": "selfprot/devtools/printf@v1",
+    "primary_documentation": [
+      "https://pubs.opengroup.org/onlinepubs/9799919799/utilities/printf.html"
+    ],
+    "reviewed_surface": "printf formats its arguments to standard output and has no modeled external resource effect beyond process execution.",
+    "positive_argv": [
+      [
+        "printf",
+        "safe"
+      ]
+    ]
+  }
+]

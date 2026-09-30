@@ -1,0 +1,3401 @@
+{
+  "baseline": "stress_test_runs/RUN_p16_blind_v2_observed.json",
+  "models": [
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/npx@v1",
+      "name": "npx",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "npx",
+      "source": "reviewed exact command surface: [--yes|-y] [--package PACKAGE] COMMAND",
+      "surface": "[--yes|-y] [--package PACKAGE] COMMAND",
+      "positive_argv": [
+        "npx",
+        "eslint"
+      ],
+      "negative_argv": [
+        "npx",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/pipx@v1",
+      "name": "pipx",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "pipx",
+      "source": "reviewed exact command surface: run [--spec SPEC] APP [ARGS...]",
+      "surface": "run [--spec SPEC] APP [ARGS...]",
+      "positive_argv": [
+        "pipx",
+        "run",
+        "black"
+      ],
+      "negative_argv": [
+        "pipx",
+        "list"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/deno@v1",
+      "name": "deno",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "deno",
+      "source": "reviewed exact command surface: install PACKAGE; registry resolution depends on the package specifier and configuration",
+      "surface": "install PACKAGE",
+      "positive_argv": [
+        "deno",
+        "install",
+        "npm:cowsay"
+      ],
+      "negative_argv": [
+        "deno",
+        "list"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/composer@v1",
+      "name": "composer",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:composer"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "composer",
+      "source": "reviewed exact command surface: require PACKAGE; registry endpoint is configuration-dependent",
+      "surface": "require PACKAGE",
+      "positive_argv": [
+        "composer",
+        "require",
+        "vendor/package"
+      ],
+      "negative_argv": [
+        "composer",
+        "list"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/poetry@v1",
+      "name": "poetry",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "poetry",
+      "source": "reviewed exact command surface: add PACKAGE",
+      "surface": "add PACKAGE",
+      "positive_argv": [
+        "poetry",
+        "add",
+        "requests"
+      ],
+      "negative_argv": [
+        "poetry",
+        "list"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/pipenv@v1",
+      "name": "pipenv",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "pipenv",
+      "source": "reviewed exact command surface: install [PACKAGE...]",
+      "surface": "install [PACKAGE...]",
+      "positive_argv": [
+        "pipenv",
+        "install",
+        "requests"
+      ],
+      "negative_argv": [
+        "pipenv",
+        "list"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/uv@v1",
+      "name": "uv",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "uv",
+      "source": "reviewed exact command surface: sync; lock; venv [DIR]; build; python install/find/list; pip install [-e PATH[EXTRAS]] [-r FILE] [--no-cache-dir] [--no-deps] [PACKAGES]; sync [--all-groups] [--no-install-project]; tool run/install; cache prune/clean; run COMMAND; -r and -e read local paths only, URL/VCS sources emit unsupported_source; editable extras are stripped but requirement filenames remain literal",
+      "surface": "sync; lock; venv [DIR]; build; python install/find/list; pip install [-e PATH[EXTRAS]] [-r FILE] [--no-cache-dir] [--no-deps] [PACKAGES]; sync [--all-groups] [--no-install-project]; tool run/install; cache prune/clean; run COMMAND",
+      "positive_argv": [
+        "uv",
+        "pip",
+        "install",
+        "requests"
+      ],
+      "negative_argv": [
+        "uv",
+        "tool",
+        "install",
+        "ruff"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/bundle@v1",
+      "name": "bundle",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "bundle",
+      "source": "reviewed exact command surface: add PACKAGE",
+      "surface": "add PACKAGE",
+      "positive_argv": [
+        "bundle",
+        "add",
+        "rack"
+      ],
+      "negative_argv": [
+        "bundle",
+        "list"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/gem@v1",
+      "name": "gem",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "gem",
+      "source": "reviewed exact command surface: install PACKAGE",
+      "surface": "install PACKAGE",
+      "positive_argv": [
+        "gem",
+        "install",
+        "rails"
+      ],
+      "negative_argv": [
+        "gem",
+        "list"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/mix@v1",
+      "name": "mix",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "mix",
+      "source": "reviewed exact command surface: deps.get",
+      "surface": "deps.get",
+      "positive_argv": [
+        "mix",
+        "deps.get"
+      ],
+      "negative_argv": [
+        "mix",
+        "help"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/rebar3@v1",
+      "name": "rebar3",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "rebar3",
+      "source": "reviewed exact command surface: compile",
+      "surface": "compile",
+      "positive_argv": [
+        "rebar3",
+        "compile"
+      ],
+      "negative_argv": [
+        "rebar3",
+        "help"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/dotnet@v1",
+      "name": "dotnet",
+      "operation": "filesystem.read+filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "dotnet",
+      "source": "reviewed exact command surface: restore [PROJECT]",
+      "surface": "restore [PROJECT]",
+      "positive_argv": [
+        "dotnet",
+        "restore"
+      ],
+      "negative_argv": [
+        "dotnet",
+        "list"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/nuget@v1",
+      "name": "nuget",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "nuget",
+      "source": "reviewed exact command surface: install PACKAGE",
+      "surface": "install PACKAGE",
+      "positive_argv": [
+        "nuget",
+        "install",
+        "Newtonsoft.Json"
+      ],
+      "negative_argv": [
+        "nuget",
+        "list"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "package_scripts",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/msbuild@v1",
+      "name": "msbuild",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "msbuild",
+      "source": "reviewed exact command surface: [PROJECT], with cwd discovery when omitted",
+      "surface": "[PROJECT]",
+      "positive_argv": [
+        "msbuild",
+        "app.csproj"
+      ],
+      "negative_argv": [
+        "msbuild",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/bazel@v1",
+      "name": "bazel",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "bazel",
+      "source": "reviewed exact command surface: build TARGET",
+      "surface": "build TARGET",
+      "positive_argv": [
+        "bazel",
+        "build",
+        "//app:bin"
+      ],
+      "negative_argv": [
+        "bazel",
+        "query",
+        "//..."
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/cmake@v1",
+      "name": "cmake",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "cmake",
+      "source": "reviewed exact command surface: --build DIRECTORY",
+      "surface": "--build DIRECTORY",
+      "positive_argv": [
+        "cmake",
+        "--build",
+        "build"
+      ],
+      "negative_argv": [
+        "cmake",
+        "--install"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/ninja@v1",
+      "name": "ninja",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "ninja",
+      "source": "reviewed exact command surface: [-C DIRECTORY] [TARGET...]; every form reads build.ninja and may write unresolved build outputs",
+      "surface": "[-C DIRECTORY] [TARGET...]",
+      "positive_argv": [
+        "ninja",
+        "-C",
+        "build",
+        "app"
+      ],
+      "negative_argv": [
+        "ninja",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "git",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/hg@v1",
+      "name": "hg",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "hg",
+      "source": "reviewed exact command surface: clone SOURCE [DESTINATION]",
+      "surface": "clone SOURCE [DESTINATION]",
+      "positive_argv": [
+        "hg",
+        "clone",
+        "http://hg.example.net:8080/a/b",
+        "repo"
+      ],
+      "negative_argv": [
+        "hg",
+        "status"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "git",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/svn@v1",
+      "name": "svn",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "svn",
+      "source": "reviewed exact command surface: checkout SOURCE [DESTINATION]",
+      "surface": "checkout SOURCE [DESTINATION]",
+      "positive_argv": [
+        "svn",
+        "checkout",
+        "https://svn.example.net/repo",
+        "work"
+      ],
+      "negative_argv": [
+        "svn",
+        "status"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "git",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/fossil@v1",
+      "name": "fossil",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "fossil",
+      "source": "reviewed exact command surface: clone SOURCE [DESTINATION]",
+      "surface": "clone SOURCE [DESTINATION]",
+      "positive_argv": [
+        "fossil",
+        "clone",
+        "https://fossil.example.net/proj",
+        "repo.fossil"
+      ],
+      "negative_argv": [
+        "fossil",
+        "status"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/fish@v1",
+      "name": "fish",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "fish",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -c disclosed)",
+      "surface": "SCRIPT [ARGS...] | stdin | - | -c CODE",
+      "positive_argv": [
+        "fish",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "fish-not-the-command",
+        "/work/program.src",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/ksh@v1",
+      "name": "ksh",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "ksh",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -c disclosed)",
+      "surface": "SCRIPT [ARGS...] | stdin | - | -c CODE",
+      "positive_argv": [
+        "ksh",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "ksh-not-the-command",
+        "/work/program.src",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/tcsh@v1",
+      "name": "tcsh",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "tcsh",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -c disclosed)",
+      "surface": "SCRIPT [ARGS...] | stdin | - | -c CODE",
+      "positive_argv": [
+        "tcsh",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "tcsh-not-the-command",
+        "/work/program.src",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/csh@v1",
+      "name": "csh",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "csh",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -c disclosed)",
+      "surface": "SCRIPT [ARGS...] | stdin | - | -c CODE",
+      "positive_argv": [
+        "csh",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "csh-not-the-command",
+        "/work/program.src",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/pwsh@v1",
+      "name": "pwsh",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "pwsh",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -c disclosed)",
+      "surface": "SCRIPT [ARGS...] (inline -c disclosed)",
+      "positive_argv": [
+        "pwsh",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "pwsh",
+        "-c",
+        "1"
+      ],
+      "expected_facts": [
+        "filesystem.read"
+      ],
+      "expected_boundaries": [
+        "unmodeled_inline_code"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/powershell@v1",
+      "name": "powershell",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "powershell",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -c disclosed)",
+      "surface": "SCRIPT [ARGS...] (inline -c disclosed)",
+      "positive_argv": [
+        "powershell",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "powershell",
+        "-c",
+        "1"
+      ],
+      "expected_facts": [
+        "filesystem.read"
+      ],
+      "expected_boundaries": [
+        "unmodeled_inline_code"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/perl@v1",
+      "name": "perl",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "perl",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -e disclosed)",
+      "surface": "SCRIPT [ARGS...] (inline -e disclosed)",
+      "positive_argv": [
+        "perl",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "perl",
+        "-e",
+        "1"
+      ],
+      "expected_facts": [
+        "filesystem.read"
+      ],
+      "expected_boundaries": [
+        "unmodeled_inline_code"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/lua@v1",
+      "name": "lua",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "lua",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -e disclosed)",
+      "surface": "SCRIPT [ARGS...] | stdin | - | -e CODE",
+      "positive_argv": [
+        "lua",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "lua-not-the-command",
+        "/work/program.src",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/luajit@v1",
+      "name": "luajit",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "luajit",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -e disclosed)",
+      "surface": "SCRIPT [ARGS...] | stdin | - | -e CODE",
+      "positive_argv": [
+        "luajit",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "luajit-not-the-command",
+        "/work/program.src",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/rscript@v1",
+      "name": "Rscript",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "rscript",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -e disclosed)",
+      "surface": "SCRIPT [ARGS...] | stdin | - | -e CODE",
+      "positive_argv": [
+        "Rscript",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "Rscript-not-the-command",
+        "/work/program.src",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/julia@v1",
+      "name": "julia",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "julia",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -e disclosed)",
+      "surface": "SCRIPT [ARGS...] | stdin | -e|-E|--eval CODE (--project VALUE)",
+      "positive_argv": [
+        "julia",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "julia-not-the-command",
+        "/work/program.src",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/groovy@v1",
+      "name": "groovy",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "groovy",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -e disclosed)",
+      "surface": "SCRIPT [ARGS...] | stdin | -e CODE",
+      "positive_argv": [
+        "groovy",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "groovy-not-the-command",
+        "/work/program.src",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/scala@v1",
+      "name": "scala",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "scala",
+      "source": "reviewed exact command surface: *.scala SCRIPT [ARGS...] (inline -e disclosed)",
+      "surface": "*.scala SCRIPT [ARGS...] | stdin | -e CODE (launcher verbs guarded)",
+      "positive_argv": [
+        "scala",
+        "/work/program.scala",
+        "arg"
+      ],
+      "negative_argv": [
+        "scala-not-the-command",
+        "/work/program.scala",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/swift@v1",
+      "name": "swift",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "swift",
+      "source": "reviewed exact command surface: *.swift SCRIPT [ARGS...] (inline -e disclosed)",
+      "surface": "*.swift SCRIPT [ARGS...] | stdin | -e CODE (launcher verbs guarded)",
+      "positive_argv": [
+        "swift",
+        "/work/program.swift",
+        "arg"
+      ],
+      "negative_argv": [
+        "swift-not-the-command",
+        "/work/program.swift",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "interpreters",
+      "id": "p18b/interpreters/clojure@v1",
+      "name": "clojure",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "clojure",
+      "source": "reviewed exact command surface: SCRIPT [ARGS...] (inline -e disclosed)",
+      "surface": "SCRIPT [ARGS...] | stdin | -e CODE (aliases -M|-X|-T|-A guarded)",
+      "positive_argv": [
+        "clojure",
+        "/work/program.src",
+        "arg"
+      ],
+      "negative_argv": [
+        "clojure-not-the-command",
+        "/work/program.src",
+        "arg"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.code_execution"
+      ],
+      "expected_boundaries": [
+        "dynamic_source",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "network",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/http@v1",
+      "name": "http",
+      "operation": "network.request",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "http",
+      "source": "reviewed exact command surface: URL (--offline is effect-free)",
+      "surface": "URL (--offline is effect-free)",
+      "positive_argv": [
+        "http",
+        "https://example.com/api"
+      ],
+      "negative_argv": [
+        "http",
+        "--offline",
+        "https://example.com/api"
+      ],
+      "expected_facts": [
+        "network.request"
+      ],
+      "expected_boundaries": []
+    },
+    {
+      "domain": "network",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/aria2c@v1",
+      "name": "aria2c",
+      "operation": "filesystem.read+filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "aria2c",
+      "source": "reviewed exact command surface: URL or local .torrent/.metalink metadata file",
+      "surface": "URL | TORRENT | METALINK",
+      "positive_argv": [
+        "aria2c",
+        "https://example.com/archive.bin"
+      ],
+      "negative_argv": [
+        "aria2c",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "network",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/ftp@v1",
+      "name": "ftp",
+      "operation": "network.connect",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "ftp",
+      "source": "reviewed exact command surface: [HOST], with interactive input when omitted",
+      "surface": "[HOST]",
+      "positive_argv": [
+        "ftp",
+        "files.example.com"
+      ],
+      "negative_argv": [
+        "ftp",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "network.connect"
+      ],
+      "expected_boundaries": [
+        "interactive_input",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "network",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/sftp@v1",
+      "name": "sftp",
+      "operation": "network.connect",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "sftp",
+      "source": "reviewed exact command surface: [USER@]HOST[:PATH]",
+      "surface": "[USER@]HOST[:PATH]",
+      "positive_argv": [
+        "sftp",
+        "user@files.example.com:/remote/archive.bin"
+      ],
+      "negative_argv": [
+        "sftp",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "network.connect"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "network",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/lftp@v1",
+      "name": "lftp",
+      "operation": "network.connect",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "lftp",
+      "source": "reviewed exact command surface: [HOST], with interactive input when omitted",
+      "surface": "[HOST]",
+      "positive_argv": [
+        "lftp",
+        "files.example.com"
+      ],
+      "negative_argv": [
+        "lftp",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "network.connect"
+      ],
+      "expected_boundaries": [
+        "interactive_input",
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "network",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/rclone@v1",
+      "name": "rclone",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "rclone",
+      "source": "reviewed exact command surface: copyurl URL DESTINATION; URL determines endpoint identity",
+      "surface": "copyurl URL DESTINATION",
+      "positive_argv": [
+        "rclone",
+        "copyurl",
+        "https://downloads.example.net/a",
+        "/work/a"
+      ],
+      "negative_argv": [
+        "rclone",
+        "listremotes"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "network",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/axel@v1",
+      "name": "axel",
+      "operation": "filesystem.write+network.download",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "axel",
+      "source": "reviewed exact command surface: URL",
+      "surface": "URL",
+      "positive_argv": [
+        "axel",
+        "https://example.com/archive.bin"
+      ],
+      "negative_argv": [
+        "axel",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.write",
+        "network.download"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/7z@v1",
+      "name": "7z",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "7z",
+      "source": "reviewed exact command surface: a ARCHIVE INPUT...",
+      "surface": "a ARCHIVE INPUT...",
+      "positive_argv": [
+        "7z",
+        "a",
+        "/work/archive.bin",
+        "/work/input"
+      ],
+      "negative_argv": [
+        "7z",
+        "l",
+        "/work/archive.bin"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/7za@v1",
+      "name": "7za",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "7za",
+      "source": "reviewed exact command surface: a ARCHIVE INPUT...",
+      "surface": "a ARCHIVE INPUT...",
+      "positive_argv": [
+        "7za",
+        "a",
+        "/work/archive.bin",
+        "/work/input"
+      ],
+      "negative_argv": [
+        "7za",
+        "l",
+        "/work/archive.bin"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/rar@v1",
+      "name": "rar",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "rar",
+      "source": "reviewed exact command surface: a ARCHIVE INPUT...",
+      "surface": "a ARCHIVE INPUT...",
+      "positive_argv": [
+        "rar",
+        "a",
+        "/work/archive.bin",
+        "/work/input"
+      ],
+      "negative_argv": [
+        "rar",
+        "l",
+        "/work/archive.bin"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/unrar@v1",
+      "name": "unrar",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "unrar",
+      "source": "reviewed exact command surface: x ARCHIVE",
+      "surface": "x ARCHIVE",
+      "positive_argv": [
+        "unrar",
+        "x",
+        "/work/archive.rar"
+      ],
+      "negative_argv": [
+        "unrar",
+        "l",
+        "/work/archive.rar"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/bzip2@v1",
+      "name": "bzip2",
+      "operation": "filesystem.delete+filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "bzip2",
+      "source": "reviewed exact command surface: FILE... with default replacement of each input",
+      "surface": "FILE... (default input replacement)",
+      "positive_argv": [
+        "bzip2",
+        "/work/input.bin"
+      ],
+      "negative_argv": [
+        "bzip2",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.delete",
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/bunzip2@v1",
+      "name": "bunzip2",
+      "operation": "filesystem.delete+filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "bunzip2",
+      "source": "reviewed exact command surface: FILE... with default replacement of each input",
+      "surface": "FILE... (default input replacement)",
+      "positive_argv": [
+        "bunzip2",
+        "/work/input.bin"
+      ],
+      "negative_argv": [
+        "bunzip2",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.delete",
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/xz@v1",
+      "name": "xz",
+      "operation": "filesystem.delete+filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "xz",
+      "source": "reviewed exact command surface: FILE... with default replacement of each input",
+      "surface": "FILE... (default input replacement)",
+      "positive_argv": [
+        "xz",
+        "/work/input.bin"
+      ],
+      "negative_argv": [
+        "xz",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.delete",
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/unxz@v1",
+      "name": "unxz",
+      "operation": "filesystem.delete+filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "unxz",
+      "source": "reviewed exact command surface: FILE... with default replacement of each input",
+      "surface": "FILE... (default input replacement)",
+      "positive_argv": [
+        "unxz",
+        "/work/input.bin"
+      ],
+      "negative_argv": [
+        "unxz",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.delete",
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/zstd@v1",
+      "name": "zstd",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "zstd",
+      "source": "reviewed exact command surface: FILE...",
+      "surface": "FILE...",
+      "positive_argv": [
+        "zstd",
+        "/work/input.bin"
+      ],
+      "negative_argv": [
+        "zstd",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/lz4@v1",
+      "name": "lz4",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "lz4",
+      "source": "reviewed exact command surface: INPUT [OUTPUT]",
+      "surface": "INPUT [OUTPUT]",
+      "positive_argv": [
+        "lz4",
+        "/work/input.bin",
+        "/work/output.lz4"
+      ],
+      "negative_argv": [
+        "lz4",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/cpio@v1",
+      "name": "cpio",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "cpio",
+      "source": "reviewed exact command surface: -i -F ARCHIVE",
+      "surface": "-i -F ARCHIVE",
+      "positive_argv": [
+        "cpio",
+        "-i",
+        "-F",
+        "/work/archive.cpio"
+      ],
+      "negative_argv": [
+        "cpio",
+        "-o"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/pax@v1",
+      "name": "pax",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "pax",
+      "source": "reviewed exact command surface: -w FILE... (extract output disclosed)",
+      "surface": "-w FILE... (extract output disclosed)",
+      "positive_argv": [
+        "pax",
+        "-w",
+        "/work/input"
+      ],
+      "negative_argv": [
+        "pax",
+        "-r"
+      ],
+      "expected_facts": [
+        "filesystem.read"
+      ],
+      "expected_boundaries": [
+        "unmodeled_archive_output"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/pigz@v1",
+      "name": "pigz",
+      "operation": "filesystem.delete+filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "pigz",
+      "source": "reviewed exact command surface: FILE... with default replacement of each input",
+      "surface": "FILE... (default input replacement)",
+      "positive_argv": [
+        "pigz",
+        "/work/input.bin"
+      ],
+      "negative_argv": [
+        "pigz",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.delete",
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "process",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/launchctl@v1",
+      "name": "launchctl",
+      "operation": "filesystem.read+system.service_enable",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "launchctl",
+      "source": "reviewed exact command surface: load/unload PLISTS; bootstrap DOMAIN PLISTS; bootout DOMAIN [PLISTS] or SERVICE-TARGET; start/stop/kickstart SERVICE; list/print [SERVICE]; kickstart -k stops the current service instance before starting it; plain kickstart does not stop it",
+      "surface": "load/unload PLISTS; bootstrap DOMAIN PLISTS; bootout DOMAIN [PLISTS] or SERVICE-TARGET; start/stop/kickstart SERVICE; list/print [SERVICE]",
+      "positive_argv": [
+        "launchctl",
+        "load",
+        "/Library/LaunchDaemons/x.plist"
+      ],
+      "negative_argv": [
+        "launchctl",
+        "list"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "system.service_enable"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "process",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/strace@v1",
+      "name": "strace",
+      "operation": "filesystem.delete+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "strace",
+      "source": "reviewed exact command surface: [-o TRACE] COMMAND [ARGS...] (child argv preserved)",
+      "surface": "[-o TRACE] COMMAND [ARGS...] (child argv preserved)",
+      "positive_argv": [
+        "strace",
+        "-o",
+        "/work/trace.log",
+        "rm",
+        "/tmp/x"
+      ],
+      "negative_argv": [
+        "strace",
+        "--summary"
+      ],
+      "expected_facts": [
+        "filesystem.delete",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "container",
+      "group": "containers",
+      "id": "p18b/containers/helm@v1",
+      "name": "helm",
+      "operation": "container.remove",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "helm",
+      "source": "reviewed exact command surface: uninstall NAME...",
+      "surface": "uninstall NAME...",
+      "positive_argv": [
+        "helm",
+        "uninstall",
+        "release"
+      ],
+      "negative_argv": [
+        "helm",
+        "list"
+      ],
+      "expected_facts": [
+        "container.remove"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "container",
+      "group": "containers",
+      "id": "p18b/containers/nerdctl@v1",
+      "name": "nerdctl",
+      "operation": "container.remove",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "nerdctl",
+      "source": "reviewed exact command surface: rm NAME...",
+      "surface": "rm NAME...",
+      "positive_argv": [
+        "nerdctl",
+        "rm",
+        "demo"
+      ],
+      "negative_argv": [
+        "nerdctl",
+        "list"
+      ],
+      "expected_facts": [
+        "container.remove"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "container",
+      "group": "containers",
+      "id": "p18b/containers/buildah@v1",
+      "name": "buildah",
+      "operation": "container.remove",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "buildah",
+      "source": "reviewed exact command surface: rm NAME...",
+      "surface": "rm NAME...",
+      "positive_argv": [
+        "buildah",
+        "rm",
+        "demo"
+      ],
+      "negative_argv": [
+        "buildah",
+        "list"
+      ],
+      "expected_facts": [
+        "container.remove"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "container",
+      "group": "containers",
+      "id": "p18b/containers/skopeo@v1",
+      "name": "skopeo",
+      "operation": "container.remove",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "skopeo",
+      "source": "reviewed exact command surface: delete NAME...",
+      "surface": "delete NAME...",
+      "positive_argv": [
+        "skopeo",
+        "delete",
+        "docker://example/app:old"
+      ],
+      "negative_argv": [
+        "skopeo",
+        "list"
+      ],
+      "expected_facts": [
+        "container.remove"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "container",
+      "group": "containers",
+      "id": "p18b/containers/crictl@v1",
+      "name": "crictl",
+      "operation": "container.remove",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "crictl",
+      "source": "reviewed exact command surface: rm NAME...",
+      "surface": "rm NAME...",
+      "positive_argv": [
+        "crictl",
+        "rm",
+        "demo"
+      ],
+      "negative_argv": [
+        "crictl",
+        "list"
+      ],
+      "expected_facts": [
+        "container.remove"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "container",
+      "group": "containers",
+      "id": "p18b/containers/ctr@v1",
+      "name": "ctr",
+      "operation": "container.run",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "ctr",
+      "source": "reviewed exact command surface: run IMAGE NAME",
+      "surface": "run IMAGE NAME",
+      "positive_argv": [
+        "ctr",
+        "run",
+        "example/app:1",
+        "demo"
+      ],
+      "negative_argv": [
+        "ctr",
+        "images",
+        "list"
+      ],
+      "expected_facts": [
+        "container.run"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "container",
+      "group": "containers",
+      "id": "p18b/containers/minikube@v1",
+      "name": "minikube",
+      "operation": "container.remove",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "minikube",
+      "source": "reviewed exact command surface: delete --profile NAME",
+      "surface": "delete --profile NAME",
+      "positive_argv": [
+        "minikube",
+        "delete",
+        "--profile",
+        "dev"
+      ],
+      "negative_argv": [
+        "minikube",
+        "get",
+        "clusters"
+      ],
+      "expected_facts": [
+        "container.remove"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "container",
+      "group": "containers",
+      "id": "p18b/containers/kind@v1",
+      "name": "kind",
+      "operation": "container.remove",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "kind",
+      "source": "reviewed exact command surface: delete cluster --name NAME",
+      "surface": "delete cluster --name NAME",
+      "positive_argv": [
+        "kind",
+        "delete",
+        "cluster",
+        "--name",
+        "dev"
+      ],
+      "negative_argv": [
+        "kind",
+        "get",
+        "clusters"
+      ],
+      "expected_facts": [
+        "container.remove"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "container",
+      "group": "containers",
+      "id": "p18b/containers/docker-compose@v1",
+      "name": "docker-compose",
+      "operation": "container.remove",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "docker-compose",
+      "source": "reviewed exact command surface: down",
+      "surface": "down",
+      "positive_argv": [
+        "docker-compose",
+        "down"
+      ],
+      "negative_argv": [
+        "docker-compose",
+        "up"
+      ],
+      "expected_facts": [
+        "container.remove"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "container",
+      "group": "containers",
+      "id": "p18b/containers/podman-compose@v1",
+      "name": "podman-compose",
+      "operation": "container.remove",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "podman-compose",
+      "source": "reviewed exact command surface: down",
+      "surface": "down",
+      "positive_argv": [
+        "podman-compose",
+        "down"
+      ],
+      "negative_argv": [
+        "podman-compose",
+        "up"
+      ],
+      "expected_facts": [
+        "container.remove"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "database",
+      "group": "database",
+      "id": "p18b/database/createdb@v1",
+      "name": "createdb",
+      "operation": "database.schema_write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "createdb",
+      "source": "reviewed exact command surface: [DATABASE], defaulting to the current user",
+      "surface": "[DATABASE]",
+      "positive_argv": [
+        "createdb",
+        "app"
+      ],
+      "negative_argv": [
+        "createdb",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "database.schema_write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "database",
+      "group": "database",
+      "id": "p18b/database/dropdb@v1",
+      "name": "dropdb",
+      "operation": "database.schema_drop",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "dropdb",
+      "source": "reviewed exact command surface: DATABASE",
+      "surface": "DATABASE",
+      "positive_argv": [
+        "dropdb",
+        "old_app"
+      ],
+      "negative_argv": [
+        "dropdb",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "database.schema_drop"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "database",
+      "group": "database",
+      "id": "p18b/database/pg-restore@v1",
+      "name": "pg_restore",
+      "operation": "database.write+filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "pg-restore",
+      "source": "reviewed exact command surface: --dbname DATABASE ARCHIVE",
+      "surface": "--dbname DATABASE ARCHIVE",
+      "positive_argv": [
+        "pg_restore",
+        "--dbname",
+        "app",
+        "/work/dump.bin"
+      ],
+      "negative_argv": [
+        "pg_restore",
+        "--list"
+      ],
+      "expected_facts": [
+        "database.write",
+        "filesystem.read"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "database",
+      "group": "database",
+      "id": "p18b/database/mysqladmin@v1",
+      "name": "mysqladmin",
+      "operation": "database.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "mysqladmin",
+      "source": "reviewed exact command surface: create DATABASE",
+      "surface": "create DATABASE",
+      "positive_argv": [
+        "mysqladmin",
+        "create",
+        "app"
+      ],
+      "negative_argv": [
+        "mysqladmin",
+        "status"
+      ],
+      "expected_facts": [
+        "database.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "database",
+      "group": "database",
+      "id": "p18b/database/influx@v1",
+      "name": "influx",
+      "operation": "database.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "influx",
+      "source": "reviewed exact command surface: query QUERY",
+      "surface": "query QUERY",
+      "positive_argv": [
+        "influx",
+        "query",
+        "from(bucket:sample)"
+      ],
+      "negative_argv": [
+        "influx",
+        "write",
+        "sample"
+      ],
+      "expected_facts": [
+        "database.read"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "database",
+      "group": "database",
+      "id": "p18b/database/clickhouse-client@v1",
+      "name": "clickhouse-client",
+      "operation": "network.connect",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "clickhouse-client",
+      "source": "reviewed exact command surface: --host HOST (query semantics unmodeled)",
+      "surface": "--host HOST (query semantics unmodeled)",
+      "positive_argv": [
+        "clickhouse-client",
+        "--host",
+        "db.example.com"
+      ],
+      "negative_argv": [
+        "clickhouse-client",
+        "--query",
+        "SELECT 1"
+      ],
+      "expected_facts": [
+        "network.connect"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "database",
+      "group": "database",
+      "id": "p18b/database/duckdb@v1",
+      "name": "duckdb",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "duckdb",
+      "source": "reviewed exact command surface: [DATABASE_FILE]",
+      "surface": "[DATABASE_FILE]",
+      "positive_argv": [
+        "duckdb",
+        "/work/app.duckdb"
+      ],
+      "negative_argv": [
+        "duckdb",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "database",
+      "group": "database",
+      "id": "p18b/database/cqlsh@v1",
+      "name": "cqlsh",
+      "operation": "network.connect",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "cqlsh",
+      "source": "reviewed exact command surface: [HOST], defaulting to 127.0.0.1",
+      "surface": "[HOST]",
+      "positive_argv": [
+        "cqlsh",
+        "db.example.com"
+      ],
+      "negative_argv": [
+        "cqlsh",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "network.connect"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "database",
+      "group": "database",
+      "id": "p18b/database/etcdctl@v1",
+      "name": "etcdctl",
+      "operation": "database.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "etcdctl",
+      "source": "reviewed exact command surface: get KEY",
+      "surface": "get KEY",
+      "positive_argv": [
+        "etcdctl",
+        "get",
+        "config/key"
+      ],
+      "negative_argv": [
+        "etcdctl",
+        "put",
+        "config/key",
+        "value"
+      ],
+      "expected_facts": [
+        "database.read"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "database",
+      "group": "database",
+      "id": "p18b/database/cockroach@v1",
+      "name": "cockroach",
+      "operation": "network.connect",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "cockroach",
+      "source": "reviewed exact command surface: sql (interactive connection only)",
+      "surface": "sql (interactive connection only)",
+      "positive_argv": [
+        "cockroach",
+        "sql"
+      ],
+      "negative_argv": [
+        "cockroach",
+        "node",
+        "status"
+      ],
+      "expected_facts": [
+        "network.connect"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "cloud",
+      "group": "cloud",
+      "id": "p18b/cloud/terraform@v1",
+      "name": "terraform",
+      "operation": "cloud.resource.delete",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "terraform",
+      "source": "reviewed exact command surface: destroy",
+      "surface": "destroy",
+      "positive_argv": [
+        "terraform",
+        "destroy"
+      ],
+      "negative_argv": [
+        "terraform",
+        "plan"
+      ],
+      "expected_facts": [
+        "cloud.resource.delete"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "cloud",
+      "group": "cloud",
+      "id": "p18b/cloud/tofu@v1",
+      "name": "tofu",
+      "operation": "cloud.resource.delete",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "tofu",
+      "source": "reviewed exact command surface: destroy",
+      "surface": "destroy",
+      "positive_argv": [
+        "tofu",
+        "destroy"
+      ],
+      "negative_argv": [
+        "tofu",
+        "plan"
+      ],
+      "expected_facts": [
+        "cloud.resource.delete"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "cloud",
+      "group": "cloud",
+      "id": "p18b/cloud/pulumi@v1",
+      "name": "pulumi",
+      "operation": "cloud.resource.delete",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "pulumi",
+      "source": "reviewed exact command surface: destroy",
+      "surface": "destroy",
+      "positive_argv": [
+        "pulumi",
+        "destroy"
+      ],
+      "negative_argv": [
+        "pulumi",
+        "plan"
+      ],
+      "expected_facts": [
+        "cloud.resource.delete"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "cloud",
+      "group": "cloud",
+      "id": "p18b/cloud/ansible@v1",
+      "name": "ansible",
+      "operation": "network.request",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "ansible",
+      "source": "reviewed exact command surface: HOST_PATTERN [--module-name MODULE]",
+      "surface": "HOST_PATTERN [--module-name MODULE]",
+      "positive_argv": [
+        "ansible",
+        "all"
+      ],
+      "negative_argv": [
+        "ansible",
+        "web",
+        "--list-hosts"
+      ],
+      "expected_facts": [
+        "network.request"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "cloud",
+      "group": "cloud",
+      "id": "p18b/cloud/ansible-playbook@v1",
+      "name": "ansible-playbook",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "ansible-playbook",
+      "source": "reviewed exact command surface: PLAYBOOK [ARGS...]",
+      "surface": "PLAYBOOK [ARGS...]",
+      "positive_argv": [
+        "ansible-playbook",
+        "/work/site.yml"
+      ],
+      "negative_argv": [
+        "ansible-playbook",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "filesystem.read"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "cloud",
+      "group": "cloud",
+      "id": "p18b/cloud/consul@v1",
+      "name": "consul",
+      "operation": "cloud.resource.delete",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "consul",
+      "source": "reviewed exact command surface: leave",
+      "surface": "leave",
+      "positive_argv": [
+        "consul",
+        "leave"
+      ],
+      "negative_argv": [
+        "consul",
+        "members"
+      ],
+      "expected_facts": [
+        "cloud.resource.delete"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "cloud",
+      "group": "cloud",
+      "id": "p18b/cloud/nomad@v1",
+      "name": "nomad",
+      "operation": "cloud.resource.delete",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "nomad",
+      "source": "reviewed exact command surface: job stop JOB",
+      "surface": "job stop JOB",
+      "positive_argv": [
+        "nomad",
+        "job",
+        "stop",
+        "example"
+      ],
+      "negative_argv": [
+        "nomad",
+        "alloc",
+        "stop",
+        "abc123"
+      ],
+      "expected_facts": [
+        "cloud.resource.delete"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "cloud",
+      "group": "cloud",
+      "id": "p18b/cloud/doctl@v1",
+      "name": "doctl",
+      "operation": "cloud.resource.delete",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "doctl",
+      "source": "reviewed exact command surface: compute droplet delete ID",
+      "surface": "compute droplet delete ID",
+      "positive_argv": [
+        "doctl",
+        "compute",
+        "droplet",
+        "delete",
+        "42"
+      ],
+      "negative_argv": [
+        "doctl",
+        "kubernetes",
+        "cluster",
+        "delete",
+        "my-cluster"
+      ],
+      "expected_facts": [
+        "cloud.resource.delete"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "cloud",
+      "group": "cloud",
+      "id": "p18b/cloud/ibmcloud@v1",
+      "name": "ibmcloud",
+      "operation": "cloud.resource.delete",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "ibmcloud",
+      "source": "reviewed exact command surface: resource service-instance-delete RESOURCE",
+      "surface": "resource service-instance-delete RESOURCE",
+      "positive_argv": [
+        "ibmcloud",
+        "resource",
+        "service-instance-delete",
+        "old-db"
+      ],
+      "negative_argv": [
+        "ibmcloud",
+        "service-instance-delete",
+        "old-db"
+      ],
+      "expected_facts": [
+        "cloud.resource.delete"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "messaging",
+      "group": "messaging",
+      "id": "p18b/messaging/kcat@v1",
+      "name": "kcat",
+      "operation": "messaging.publish",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "kcat",
+      "source": "reviewed exact command surface: -P -t TOPIC",
+      "surface": "-P -t TOPIC",
+      "positive_argv": [
+        "kcat",
+        "-P",
+        "-t",
+        "events"
+      ],
+      "negative_argv": [
+        "kcat",
+        "-C",
+        "-t",
+        "events"
+      ],
+      "expected_facts": [
+        "messaging.publish"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "messaging",
+      "group": "messaging",
+      "id": "p18b/messaging/pulsar-client@v1",
+      "name": "pulsar-client",
+      "operation": "messaging.publish",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "pulsar-client",
+      "source": "reviewed exact command surface: produce TOPIC",
+      "surface": "produce TOPIC",
+      "positive_argv": [
+        "pulsar-client",
+        "produce",
+        "persistent://public/default/events"
+      ],
+      "negative_argv": [
+        "pulsar-client",
+        "consume",
+        "persistent://public/default/events"
+      ],
+      "expected_facts": [
+        "messaging.publish"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "messaging",
+      "group": "messaging",
+      "id": "p18b/messaging/rabbitmq-diagnostics@v1",
+      "name": "rabbitmq-diagnostics",
+      "operation": "network.request",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "rabbitmq-diagnostics",
+      "source": "reviewed exact command surface: ping",
+      "surface": "ping",
+      "positive_argv": [
+        "rabbitmq-diagnostics",
+        "ping"
+      ],
+      "negative_argv": [
+        "rabbitmq-diagnostics",
+        "status"
+      ],
+      "expected_facts": [
+        "network.request"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "messaging",
+      "group": "messaging",
+      "id": "p18b/messaging/redis-benchmark@v1",
+      "name": "redis-benchmark",
+      "operation": "network.request",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "redis-benchmark",
+      "source": "reviewed exact command surface: [-q]",
+      "surface": "[-q]",
+      "positive_argv": [
+        "redis-benchmark"
+      ],
+      "negative_argv": [
+        "redis-benchmark",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "network.request"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "messaging",
+      "group": "messaging",
+      "id": "p18b/messaging/mosquitto-rr@v1",
+      "name": "mosquitto_rr",
+      "operation": "messaging.consume+messaging.publish",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "mosquitto-rr",
+      "source": "reviewed exact command surface: --topic REQUEST_TOPIC --response-topic RESPONSE_TOPIC",
+      "surface": "--topic REQUEST_TOPIC --response-topic RESPONSE_TOPIC",
+      "positive_argv": [
+        "mosquitto_rr",
+        "--topic",
+        "request/topic",
+        "--response-topic",
+        "response/topic"
+      ],
+      "negative_argv": [
+        "mosquitto_rr",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "messaging.consume",
+        "messaging.publish"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "messaging",
+      "group": "messaging",
+      "id": "p18b/messaging/amqp-publish@v1",
+      "name": "amqp-publish",
+      "operation": "messaging.publish",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "amqp-publish",
+      "source": "reviewed exact command surface: --routing-key TOPIC",
+      "surface": "--routing-key TOPIC",
+      "positive_argv": [
+        "amqp-publish",
+        "--routing-key",
+        "events"
+      ],
+      "negative_argv": [
+        "amqp-publish",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "messaging.publish"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "messaging",
+      "group": "messaging",
+      "id": "p18b/messaging/amqp-consume@v1",
+      "name": "amqp-consume",
+      "operation": "messaging.consume",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "amqp-consume",
+      "source": "reviewed exact command surface: --queue TOPIC",
+      "surface": "--queue TOPIC",
+      "positive_argv": [
+        "amqp-consume",
+        "--queue",
+        "jobs"
+      ],
+      "negative_argv": [
+        "amqp-consume",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "messaging.consume"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "messaging",
+      "group": "messaging",
+      "id": "p18b/messaging/celery@v1",
+      "name": "celery",
+      "operation": "messaging.publish",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "celery",
+      "source": "reviewed exact command surface: call TASK",
+      "surface": "call TASK",
+      "positive_argv": [
+        "celery",
+        "call",
+        "tasks.cleanup"
+      ],
+      "negative_argv": [
+        "celery",
+        "worker"
+      ],
+      "expected_facts": [
+        "messaging.publish"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "messaging",
+      "group": "messaging",
+      "id": "p18b/messaging/dramatiq@v1",
+      "name": "dramatiq",
+      "operation": "messaging.consume",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "dramatiq",
+      "source": "reviewed exact command surface: MODULE",
+      "surface": "MODULE",
+      "positive_argv": [
+        "dramatiq",
+        "app.tasks"
+      ],
+      "negative_argv": [
+        "dramatiq",
+        "--bad-option"
+      ],
+      "expected_facts": [
+        "messaging.consume"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "messaging",
+      "group": "messaging",
+      "id": "p18b/messaging/nsq-pub@v1",
+      "name": "nsq_pub",
+      "operation": "messaging.publish",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [],
+      "selection": "representative-declaration-capability",
+      "slug": "nsq-pub",
+      "source": "reviewed exact command surface: ENDPOINT TOPIC MESSAGE",
+      "surface": "ENDPOINT TOPIC MESSAGE",
+      "positive_argv": [
+        "nsq_pub",
+        "localhost:4150",
+        "events",
+        "hello"
+      ],
+      "negative_argv": [
+        "nsq_pub",
+        "localhost:4150"
+      ],
+      "expected_facts": [
+        "messaging.publish"
+      ],
+      "expected_boundaries": [
+        "missing_required_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/gtar@v1",
+      "name": "gtar",
+      "operation": "filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:all-entrypoints:unmodeled_command:gtar"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "gtar",
+      "source": "reviewed exact command surface: -cf ARCHIVE INPUT... or -x[z]f ARCHIVE [-C DIRECTORY] [--strip-components N]",
+      "surface": "-cf ARCHIVE INPUT... or -x[z]f ARCHIVE [-C DIRECTORY] [--strip-components N]",
+      "positive_argv": [
+        "gtar",
+        "-cf",
+        "/tmp/archive.tar",
+        "src"
+      ],
+      "negative_argv": [
+        "gtar",
+        "--concatenate",
+        "/tmp/archive.tar"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/jq@v1",
+      "name": "jq",
+      "operation": "filesystem.read",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:cli/cli:all-entrypoints:unmodeled_command:jq"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "jq",
+      "source": "reviewed exact command surface: [--arg NAME VALUE | --argjson NAME JSON | --rawfile NAME FILE | --slurpfile NAME FILE] [-e -n -c -s -r -j -S -a -M -C --tab --indent N] FILTER [FILES...]; -f FILTER_FILE [FILES...]; --args/--jsonargs FILTER VALUES...",
+      "surface": "[--arg NAME VALUE | --argjson NAME JSON | --rawfile NAME FILE | --slurpfile NAME FILE] [-e -n -c -s -r -j -S -a -M -C --tab --indent N] FILTER [FILES...]; -f FILTER_FILE [FILES...]; --args/--jsonargs FILTER VALUES...",
+      "positive_argv": [
+        "jq",
+        "-r",
+        ".name",
+        "/work/input.json"
+      ],
+      "negative_argv": [
+        "jq",
+        "--slurpfile"
+      ],
+      "expected_facts": [
+        "filesystem.read"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/install@v1",
+      "name": "install",
+      "operation": "filesystem.create+filesystem.read+filesystem.write",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:cli/cli:all-entrypoints:unmodeled_command:install"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "install",
+      "source": "reviewed exact command surface: [FLAGS] SOURCE DEST, SOURCE... DIRECTORY, -t DIRECTORY SOURCE..., or -d DIRECTORY...",
+      "surface": "[FLAGS] SOURCE DEST, SOURCE... DIRECTORY, -t DIRECTORY SOURCE..., or -d DIRECTORY...",
+      "positive_argv": [
+        "install",
+        "-m",
+        "755",
+        "/work/tool",
+        "/usr/local/bin/tool"
+      ],
+      "negative_argv": [
+        "install",
+        "--compare"
+      ],
+      "expected_facts": [
+        "filesystem.create",
+        "filesystem.read",
+        "filesystem.write"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "network",
+      "group": "package-build-vcs",
+      "id": "p18b/package-build-vcs/hub@v1",
+      "name": "hub",
+      "operation": "network.request",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:hub"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "hub",
+      "source": "reviewed exact command surface: pull-request [-m MESSAGE]; API endpoint is configuration-dependent",
+      "surface": "pull-request [-m MESSAGE]",
+      "positive_argv": [
+        "hub",
+        "pull-request",
+        "-m",
+        "release"
+      ],
+      "negative_argv": [
+        "hub",
+        "browse"
+      ],
+      "expected_facts": [
+        "network.request"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "filesystem",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/readlink@v1",
+      "name": "readlink",
+      "operation": "filesystem.metadata",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:readlink"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "readlink",
+      "source": "reviewed exact command surface: [-f|-e|-m] FILE...",
+      "surface": "[-f|-e|-m] FILE...",
+      "positive_argv": [
+        "readlink",
+        "-f",
+        "/work/link"
+      ],
+      "negative_argv": [
+        "readlink",
+        "--zero"
+      ],
+      "expected_facts": [
+        "filesystem.metadata"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "process",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/start-stop-daemon@v1",
+      "name": "start-stop-daemon",
+      "operation": "filesystem.read+process.exec",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:start-stop-daemon"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "start-stop-daemon",
+      "source": "reviewed exact command surface: --start --exec PROGRAM [-- ARGS...] or --stop --pidfile FILE",
+      "surface": "--start --exec PROGRAM [-- ARGS...] or --stop --pidfile FILE",
+      "positive_argv": [
+        "start-stop-daemon",
+        "--start",
+        "--pidfile",
+        "/run/app.pid",
+        "--exec",
+        "/usr/bin/app",
+        "--",
+        "--serve"
+      ],
+      "negative_argv": [
+        "start-stop-daemon",
+        "--status"
+      ],
+      "expected_facts": [
+        "filesystem.read",
+        "process.exec"
+      ],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "process",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/ps@v1",
+      "name": "ps",
+      "operation": "process.exec",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:all-entrypoints:unmodeled_command:ps"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "ps",
+      "source": "reviewed exact command surface: [-eAax] [-p PID] [-o FORMAT]",
+      "surface": "[-eAax] [-p PID] [-o FORMAT]",
+      "positive_argv": [
+        "ps",
+        "-e",
+        "-o",
+        "pid,ppid"
+      ],
+      "negative_argv": [
+        "ps",
+        "--forest"
+      ],
+      "expected_facts": [],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "process",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/sysctl@v1",
+      "name": "sysctl",
+      "operation": "process.exec",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:real-entrypoint:unmodeled_command:sysctl"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "sysctl",
+      "source": "reviewed exact command surface: [-an] [KEY...]",
+      "surface": "[-an] [KEY...]",
+      "positive_argv": [
+        "sysctl",
+        "-n",
+        "hw.ncpu"
+      ],
+      "negative_argv": [
+        "sysctl",
+        "-w",
+        "hw.ncpu=4"
+      ],
+      "expected_facts": [],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "process",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/col@v1",
+      "name": "col",
+      "operation": "process.exec",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:col"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "col",
+      "source": "reviewed exact command surface: [-bfhpx]",
+      "surface": "[-bfhpx]",
+      "positive_argv": [
+        "col",
+        "-b"
+      ],
+      "negative_argv": [
+        "col",
+        "--version"
+      ],
+      "expected_facts": [],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "process",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/cygpath@v1",
+      "name": "cygpath",
+      "operation": "process.exec",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:cygpath"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "cygpath",
+      "source": "reviewed exact command surface: [-ampuw] PATH...",
+      "surface": "[-ampuw] PATH...",
+      "positive_argv": [
+        "cygpath",
+        "-w",
+        "-a",
+        "/work"
+      ],
+      "negative_argv": [
+        "cygpath",
+        "--desktop"
+      ],
+      "expected_facts": [],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "process",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/psrinfo@v1",
+      "name": "psrinfo",
+      "operation": "process.exec",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:real-entrypoint:unmodeled_command:psrinfo"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "psrinfo",
+      "source": "reviewed exact command surface: [-pv] [PROCESSOR...]",
+      "surface": "[-pv] [PROCESSOR...]",
+      "positive_argv": [
+        "psrinfo",
+        "-p"
+      ],
+      "negative_argv": [
+        "psrinfo",
+        "--json"
+      ],
+      "expected_facts": [],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "process",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/sw_vers@v1",
+      "name": "sw_vers",
+      "operation": "process.exec",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:real-entrypoint:unmodeled_command:sw_vers"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "sw_vers",
+      "source": "reviewed exact command surface: [-productName|-productVersion|-buildVersion]",
+      "surface": "[-productName|-productVersion|-buildVersion]",
+      "positive_argv": [
+        "sw_vers",
+        "-productVersion"
+      ],
+      "negative_argv": [
+        "sw_vers",
+        "--json"
+      ],
+      "expected_facts": [],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "process",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/pmcycles@v1",
+      "name": "pmcycles",
+      "operation": "process.exec",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:all-entrypoints:unmodeled_command:pmcycles"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "pmcycles",
+      "source": "reviewed exact command surface: [-m]",
+      "surface": "[-m]",
+      "positive_argv": [
+        "pmcycles",
+        "-m"
+      ],
+      "negative_argv": [
+        "pmcycles",
+        "--json"
+      ],
+      "expected_facts": [],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "domain": "process",
+      "group": "transfer-archive-process",
+      "id": "p18b/transfer-archive-process/print@v1",
+      "name": "print",
+      "operation": "process.exec",
+      "p11_miss_class": "unmodeled_operation",
+      "p11_observations": [
+        "p11b_v1:BurntSushi/ripgrep:all-entrypoints:unmodeled_command:print"
+      ],
+      "selection": "p11-unmodeled-command-miss",
+      "slug": "print",
+      "source": "reviewed exact command surface: [-lnr] [TEXT...]",
+      "surface": "[-lnr] [TEXT...]",
+      "positive_argv": [
+        "print",
+        "-r",
+        "hello"
+      ],
+      "negative_argv": [
+        "print",
+        "--json"
+      ],
+      "expected_facts": [],
+      "expected_boundaries": [
+        "unrecognized_arguments"
+      ]
+    }
+  ],
+  "p11_observations": [
+    {
+      "id": "p11b_v1:cli/cli:all-entrypoints:unmodeled_command:jq",
+      "boundary_reason": "unmodeled_command",
+      "command": "jq",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 14,
+      "repo": "cli/cli",
+      "repo_sha": "0eeec0b92edbe70199f9768522f831d3534f41ad"
+    },
+    {
+      "id": "p11b_v1:cli/cli:all-entrypoints:unmodeled_command:install",
+      "boundary_reason": "unmodeled_command",
+      "command": "install",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 10,
+      "repo": "cli/cli",
+      "repo_sha": "0eeec0b92edbe70199f9768522f831d3534f41ad"
+    },
+    {
+      "id": "p11b_v1:nvm-sh/nvm:all-entrypoints:unmodeled_command:gtar",
+      "boundary_reason": "unmodeled_command",
+      "command": "gtar",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 30,
+      "repo": "nvm-sh/nvm",
+      "repo_sha": "65ded65d46c16481dbbe8e93f8ba9e6b35f20740"
+    },
+    {
+      "id": "p11b_v1:nvm-sh/nvm:all-entrypoints:unmodeled_command:ps",
+      "boundary_reason": "unmodeled_command",
+      "command": "ps",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 14,
+      "repo": "nvm-sh/nvm",
+      "repo_sha": "65ded65d46c16481dbbe8e93f8ba9e6b35f20740"
+    },
+    {
+      "id": "p11b_v1:nvm-sh/nvm:all-entrypoints:unmodeled_command:pmcycles",
+      "boundary_reason": "unmodeled_command",
+      "command": "pmcycles",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 10,
+      "repo": "nvm-sh/nvm",
+      "repo_sha": "65ded65d46c16481dbbe8e93f8ba9e6b35f20740"
+    },
+    {
+      "id": "p11b_v1:nvm-sh/nvm:real-entrypoint:unmodeled_command:psrinfo",
+      "boundary_reason": "unmodeled_command",
+      "command": "psrinfo",
+      "entrypoint_scope": "real-entrypoint",
+      "occurrences": 10,
+      "repo": "nvm-sh/nvm",
+      "repo_sha": "65ded65d46c16481dbbe8e93f8ba9e6b35f20740"
+    },
+    {
+      "id": "p11b_v1:nvm-sh/nvm:real-entrypoint:unmodeled_command:sw_vers",
+      "boundary_reason": "unmodeled_command",
+      "command": "sw_vers",
+      "entrypoint_scope": "real-entrypoint",
+      "occurrences": 10,
+      "repo": "nvm-sh/nvm",
+      "repo_sha": "65ded65d46c16481dbbe8e93f8ba9e6b35f20740"
+    },
+    {
+      "id": "p11b_v1:nvm-sh/nvm:real-entrypoint:unmodeled_command:sysctl",
+      "boundary_reason": "unmodeled_command",
+      "command": "sysctl",
+      "entrypoint_scope": "real-entrypoint",
+      "occurrences": 10,
+      "repo": "nvm-sh/nvm",
+      "repo_sha": "65ded65d46c16481dbbe8e93f8ba9e6b35f20740"
+    },
+    {
+      "id": "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:composer",
+      "boundary_reason": "unmodeled_command",
+      "command": "composer",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 2,
+      "repo": "wp-cli/wp-cli",
+      "repo_sha": "6f7facf268e64e89b359c08196524f18353cb552"
+    },
+    {
+      "id": "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:date",
+      "boundary_reason": "unmodeled_command",
+      "command": "date",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 2,
+      "repo": "wp-cli/wp-cli",
+      "repo_sha": "6f7facf268e64e89b359c08196524f18353cb552"
+    },
+    {
+      "id": "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:start-stop-daemon",
+      "boundary_reason": "unmodeled_command",
+      "command": "start-stop-daemon",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 2,
+      "repo": "wp-cli/wp-cli",
+      "repo_sha": "6f7facf268e64e89b359c08196524f18353cb552"
+    },
+    {
+      "id": "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:col",
+      "boundary_reason": "unmodeled_command",
+      "command": "col",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 1,
+      "repo": "wp-cli/wp-cli",
+      "repo_sha": "6f7facf268e64e89b359c08196524f18353cb552"
+    },
+    {
+      "id": "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:cygpath",
+      "boundary_reason": "unmodeled_command",
+      "command": "cygpath",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 1,
+      "repo": "wp-cli/wp-cli",
+      "repo_sha": "6f7facf268e64e89b359c08196524f18353cb552"
+    },
+    {
+      "id": "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:hub",
+      "boundary_reason": "unmodeled_command",
+      "command": "hub",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 1,
+      "repo": "wp-cli/wp-cli",
+      "repo_sha": "6f7facf268e64e89b359c08196524f18353cb552"
+    },
+    {
+      "id": "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:readlink",
+      "boundary_reason": "unmodeled_command",
+      "command": "readlink",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 1,
+      "repo": "wp-cli/wp-cli",
+      "repo_sha": "6f7facf268e64e89b359c08196524f18353cb552"
+    },
+    {
+      "id": "p11b_v1:BurntSushi/ripgrep:all-entrypoints:unmodeled_command:print",
+      "boundary_reason": "unmodeled_command",
+      "command": "print",
+      "entrypoint_scope": "all-entrypoints",
+      "occurrences": 10,
+      "repo": "BurntSushi/ripgrep",
+      "repo_sha": "3fce3b5bb0236da2df6d99672afb8a719642eca7"
+    }
+  ],
+  "p11_run": {
+    "label": "p11b_v1",
+    "kind": "checkpoint",
+    "report": "stress_test_runs/RUN_p11b_v1.json",
+    "output_schema": "effinterp/evaluation-report/v1",
+    "evaluation_class": "observed-regression",
+    "semantic_identity": "blake3:6749ff4d256eb9952f391ffa5ef2450f27823b228e657353be0073f79e34e78a"
+  },
+  "rejected_candidates": [
+    {
+      "name": "kubectl exec arbitrary argv",
+      "reason": "candidate could not preserve nested argv with reviewed flag coverage"
+    },
+    {
+      "name": "dynamic cloud plugin commands",
+      "reason": "plugin-owned surfaces could not be pinned to one executable grammar"
+    },
+    {
+      "name": "read-only aliases",
+      "reason": "candidate added no independent effect or mutation evidence"
+    }
+  ],
+  "schema": "effinterp/model-source-review/v1",
+  "selection_policy": [
+    "direct P11 unmodeled-command misses",
+    "representative declaration capabilities"
+  ]
+}

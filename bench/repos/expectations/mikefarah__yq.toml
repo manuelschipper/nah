@@ -1,0 +1,56 @@
+# Ground-truth expectations for mikefarah/yq (holdout-dev corpus).
+# Pinned SHA: 7862131c9c13c977e4ede55b5f6c44e5f8ac7268.
+# Real entry: yq.go (package main; builds the cobra tree via cmd.New() and
+#   Execute()s it, defaulting to the `eval` subcommand).
+# Derived from:
+#   cmd/root.go (persistent PreRun closure reads $NO_COLOR, root.go:74),
+#   cmd/utils.go (initCommand: os.ReadFile of --from-file expression file,
+#     utils.go:293, and the --split-exp-file file, utils.go:57),
+#   pkg/yqlib/utils.go (readStream: os.Open(filename) of each input document,
+#     utils.go:42),
+#   pkg/yqlib/file_utils.go (write-in-place: createTempFile via
+#     os.CreateTemp("", "temp"), file_utils.go:86; safelyRenameFile os.Rename,
+#     file_utils.go:18, with copy fallback os.Open/os.Create, file_utils.go:45/50;
+#     tryRemoveTempFile os.Remove, file_utils.go:34),
+#   pkg/yqlib/printer_writer.go (--split-exp output: os.Create(name),
+#     printer_writer.go:78),
+#   pkg/yqlib/operator_env.go (env()/strenv() operators: os.Getenv(envName),
+#     operator_env.go:26),
+#   pkg/yqlib/operator_system.go (system operator: exec.Command, operator_system.go:121).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH that these are yq's real effects. Everything below the root
+# command runs inside cobra RunE closures (Cobra-style command-tree dispatch),
+# and the env/system operators additionally dispatch through the expression
+# operator table.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+
+# Fact-level assertions (all behind the cobra RunE wall; see header).
+[facts]
+op=environment.read res=NO_COLOR origin=cmd/root.go realm=host
+op=filesystem.read origin=cmd/utils.go realm=host modality=may
+op=filesystem.read origin=pkg/yqlib/utils.go realm=host
+op=filesystem.write origin=pkg/yqlib/file_utils.go realm=host modality=may
+op=filesystem.delete origin=pkg/yqlib/file_utils.go realm=host modality=may
+op=filesystem.write origin=pkg/yqlib/printer_writer.go realm=host modality=may
+
+[forbidden]
+# yq is a pure data-file processor: no network I/O anywhere in product code.
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]
+# env()/strenv() and system() dispatch through the expression operator table.
+op=environment.read origin=pkg/yqlib/operator_env.go
+op=process.exec

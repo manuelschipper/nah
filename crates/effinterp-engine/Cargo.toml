@@ -1,0 +1,43 @@
+[package]
+name = "effinterp-engine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+effinterp-proto = { path = "../effinterp-proto" }
+effinterp-model-schema = { path = "../effinterp-model-schema" }
+blake3 = "1"
+idna = "1"
+# Python compares identifiers after NFKC normalization.
+icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
+serde.workspace = true
+serde_json.workspace = true
+rustpython-parser = "0.4.0"
+oxc_allocator = "0.116.0"
+oxc_ast = "0.116.0"
+oxc_ast_visit = "0.116.0"
+oxc_parser = "0.116.0"
+oxc_semantic = "0.116.0"
+oxc_span = "0.116.0"
+gosyn = "0.2.14"
+im = "15.1.0"
+lib-ruby-parser = "4.0.6"
+syn = { version = "2", features = ["full", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+tree-sitter = "0.25"
+tree-sitter-php = "0.23.11"
+tree-sitter-java = "0.23.5"
+hcl-rs = "0.19.8"
+yaml-rust2 = "0.12.0"
+
+[dev-dependencies]
+effinterp-repo = { path = "../effinterp-repo" }
+effinterp-testkit = { path = "../effinterp-testkit" }
+
+[build-dependencies]
+effinterp-model-schema = { path = "../effinterp-model-schema" }
+serde_json.workspace = true
+blake3 = "1"

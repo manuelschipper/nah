@@ -1,0 +1,277 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:9fea8040f2b6d3377311d0563bccf5a10c4afb1baeb6292b4cdc08cb7672edc4",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "https://gitlab.com/cryptsetup/cryptsetup/-/blob/b18cefcc7132956f4c154aefce45b1bdb4f233cf/man/cryptsetup-erase.8.adoc",
+        "digest": "blake3:0b8b4d6499af61f53adae314db82f1badb5f31f79bfffb02753c6a596bbcfcfb"
+      },
+      {
+        "uri": "https://gitlab.com/cryptsetup/cryptsetup/-/blob/b18cefcc7132956f4c154aefce45b1bdb4f233cf/man/cryptsetup-luksFormat.8.adoc",
+        "digest": "blake3:993ca3418364ac93830bdda05520119773021dda72175e0d6e3ed93f3afd7088"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "cryptsetup",
+        "requirement": "erase-manpage@b18cefcc"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "cryptsetup/erase@v1",
+        "path": "../../tests/fixtures/model_equivalence/cryptsetup.assertions.json",
+        "digest": "blake3:02538e342f49faa899d0edd0e5fc25b462c8e05a24c03914783c7fcfcc16f3fc"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "cryptsetup-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "cryptsetup-other",
+            "erase",
+            "/dev/sda"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "cryptsetup-erase-write-required",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.write"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "cryptsetup/erase@v1",
+      "commands": [
+        "cryptsetup"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "artifact",
+          "filesystem",
+          "process",
+          "environment",
+          "network",
+          "database",
+          "container",
+          "git",
+          "cloud",
+          "messaging",
+          "system",
+          "credential"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "erase",
+            "luksErase"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "device",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "device"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "keyslots_erased": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "raw_device": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "must-on-success"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "luksFormat"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "device",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "key_file",
+              "index": 1,
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "device"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "raw_device": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "must-on-success"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key_file"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [
+                "-"
+              ],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "must-on-success"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

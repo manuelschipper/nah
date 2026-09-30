@@ -1,4 +1,4 @@
-//! Runs the bounded exec/v1 process transport; it does not admit responses into policy.
+//! Runs the bounded exec/v2 process transport; it does not admit responses into policy.
 
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
@@ -12,7 +12,7 @@ use nah_proto::ctx::ActivationProjection;
 use nah_proto::extension::{
     ConsultationOutcome, ExtensionConsultation, ExtensionResponse, TransportRejectionCode,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 #[cfg(not(target_arch = "wasm32"))]
 use wait_timeout::ChildExt;
@@ -38,13 +38,16 @@ impl ChildExt for std::process::Child {
     }
 }
 
+/// How long one custom guard may run before it fails with `timeout`.
 #[cfg(not(windows))]
 pub const EXEC_TIMEOUT: Duration = Duration::from_millis(750);
+/// How long one custom guard may run before it fails with `timeout`.
 #[cfg(windows)]
 pub const EXEC_TIMEOUT: Duration = Duration::from_millis(1_500);
-pub const OUTPUT_SIZE_CAP: usize = 64 * 1024;
+/// Largest custom-guard stdout, in bytes; more is rejected as
+/// `rejected-transport:oversize`.
+pub(crate) const OUTPUT_SIZE_CAP: usize = 64 * 1024;
 const STDERR_SIZE_CAP: usize = 8 * 1024;
-const CACHE_ENTRY_VERSION: u32 = 1;
 
 pub(crate) struct ExecutionOutput {
     pub(crate) consultation: ExtensionConsultation,
@@ -215,50 +218,6 @@ fn decode_response(bytes: &[u8]) -> Result<ExtensionResponse, TransportRejection
     Ok(response)
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CacheEntry {
-    v: u32,
-    key: String,
-    activation: ActivationProjection,
-    response: ExtensionResponse,
-}
-
-pub(crate) fn encode_cache_entry(
-    key: &str,
-    activation: &ActivationProjection,
-    response: &ExtensionResponse,
-) -> Result<Vec<u8>, serde_json::Error> {
-    serde_json::to_vec(&CacheEntry {
-        v: CACHE_ENTRY_VERSION,
-        key: key.to_owned(),
-        activation: activation.clone(),
-        response: response.clone(),
-    })
-}
-
-pub(crate) fn decode_cache_entry(
-    bytes: &[u8],
-    key: &str,
-    activation: &ActivationProjection,
-) -> Result<ExtensionResponse, ()> {
-    if bytes.len() > OUTPUT_SIZE_CAP {
-        return Err(());
-    }
-    let entry: CacheEntry = serde_json::from_slice(bytes).map_err(|_| ())?;
-    if entry.v != CACHE_ENTRY_VERSION || entry.key != key || entry.activation != *activation {
-        return Err(());
-    }
-    if serde_json::to_vec(&entry).map_err(|_| ())? != bytes {
-        return Err(());
-    }
-    let mut response = entry.response;
-    if let Some(reason) = &mut response.reason {
-        *reason = strip_terminal_sequences(reason);
-    }
-    Ok(response)
-}
-
 #[cfg(unix)]
 fn configure_process_group(command: &mut Command) {
     use std::os::unix::process::CommandExt;
@@ -395,7 +354,7 @@ fn resume_suspended_process_threads(
     result
 }
 
-fn strip_terminal_sequences(input: &str) -> String {
+pub(crate) fn strip_terminal_sequences(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut characters = input.chars().peekable();
     while let Some(character) = characters.next() {
@@ -432,26 +391,6 @@ fn strip_terminal_sequences(input: &str) -> String {
         }
     }
     output
-}
-
-pub(crate) fn outcome_code(outcome: &ConsultationOutcome) -> &'static str {
-    match outcome {
-        ConsultationOutcome::Response { .. } => "response",
-        ConsultationOutcome::Silence => "silence",
-        ConsultationOutcome::Crash => "crash",
-        ConsultationOutcome::Timeout => "timeout",
-        ConsultationOutcome::SpawnFailure => "spawn-failure",
-        ConsultationOutcome::RejectedTransport { code } => match code {
-            TransportRejectionCode::Oversize => "rejected-transport:oversize",
-            TransportRejectionCode::InvalidUtf8 => "rejected-transport:invalid-utf8",
-            TransportRejectionCode::InvalidJson => "rejected-transport:invalid-json",
-            TransportRejectionCode::MultipleValues => "rejected-transport:multiple-values",
-            TransportRejectionCode::InvalidFraming => "rejected-transport:invalid-framing",
-            TransportRejectionCode::InvalidResponseFields => {
-                "rejected-transport:invalid-response-fields"
-            }
-        },
-    }
 }
 
 #[cfg(test)]

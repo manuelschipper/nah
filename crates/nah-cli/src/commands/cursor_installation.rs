@@ -9,7 +9,10 @@ use serde_json::{Map, Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_paths::reject_hook_path_symlink;
+use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
+use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 pub(crate) fn mutate_cursor_hook(
     install: bool,
@@ -141,7 +144,7 @@ fn lock(paths: &CursorHookPaths) -> Result<File, String> {
         .parent()
         .ok_or_else(|| "invalid-cursor-hook-lock-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "cursor-hook-lock-failed")?;
-    reject_symlink(&paths.lock, "cursor-hook-lock-failed")?;
+    reject_hook_path_symlink(&paths.lock, "cursor-hook-lock-failed")?;
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
@@ -152,13 +155,13 @@ fn lock(paths: &CursorHookPaths) -> Result<File, String> {
     let file = options
         .open(&paths.lock)
         .map_err(|_| "cursor-hook-lock-failed")?;
-    protect_private(&file)?;
+    restrict_file_to_owner(&file).map_err(|_| "cursor-hook-permissions-failed".to_owned())?;
     file.lock().map_err(|_| "cursor-hook-lock-failed")?;
     Ok(file)
 }
 
 fn load(path: &Path) -> Result<Value, String> {
-    reject_symlink(path, "cursor-hooks-symlink-unsupported")?;
+    reject_hook_path_symlink(path, "cursor-hooks-symlink-unsupported")?;
     let file = match File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -263,7 +266,7 @@ fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, Strin
     } else {
         format!(
             "{} hook cursor run{}",
-            shell_quote(executable),
+            quote_posix_shell_word(executable),
             policy.command_suffix()
         )
     };
@@ -272,10 +275,6 @@ fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, Strin
         "matcher": "*",
         "timeout": 5
     }))
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn is_nah_hook(hook: &Value) -> bool {
@@ -293,14 +292,15 @@ fn is_nah_hook(hook: &Value) -> bool {
 }
 
 fn save(path: &Path, config: &Value) -> Result<(), String> {
-    reject_symlink(path, "cursor-hooks-symlink-unsupported")?;
+    reject_hook_path_symlink(path, "cursor-hooks-symlink-unsupported")?;
     let parent = path
         .parent()
         .ok_or_else(|| "invalid-cursor-hooks-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "cursor-hooks-write-failed")?;
     let mut temporary =
         tempfile::NamedTempFile::new_in(parent).map_err(|_| "cursor-hooks-write-failed")?;
-    protect_private(temporary.as_file())?;
+    restrict_file_to_owner(temporary.as_file())
+        .map_err(|_| "cursor-hook-permissions-failed".to_owned())?;
     serde_json::to_writer_pretty(&mut temporary, config)
         .map_err(|_| "cursor-hooks-write-failed")?;
     temporary
@@ -313,45 +313,12 @@ fn save(path: &Path, config: &Value) -> Result<(), String> {
     temporary
         .persist(path)
         .map_err(|_| "cursor-hooks-write-failed")?;
-    sync_parent(parent)
-}
-
-fn reject_symlink(path: &Path, error: &'static str) -> Result<(), String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(error.into()),
-        Ok(_) => Ok(()),
-        Err(found) if found.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(error.into()),
-    }
+    sync_parent_directory(parent).map_err(|_| "cursor-hook-sync-failed".to_owned())
 }
 
 fn reject_symlinks(paths: &CursorHookPaths) -> Result<(), String> {
     for directory in &paths.directories {
-        reject_symlink(directory, "cursor-hooks-symlink-unsupported")?;
+        reject_hook_path_symlink(directory, "cursor-hooks-symlink-unsupported")?;
     }
-    reject_symlink(&paths.hooks, "cursor-hooks-symlink-unsupported")
-}
-
-#[cfg(unix)]
-fn protect_private(file: &File) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| "cursor-hook-permissions-failed".into())
-}
-
-#[cfg(not(unix))]
-fn protect_private(_file: &File) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), String> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| "cursor-hook-sync-failed".into())
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), String> {
-    Ok(())
+    reject_hook_path_symlink(&paths.hooks, "cursor-hooks-symlink-unsupported")
 }

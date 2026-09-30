@@ -30,7 +30,7 @@ fn performance_kpis() {
     fs::create_dir_all(&guard_directory).unwrap();
     fs::write(
         guard_directory.join("policy.toml"),
-        "name = \"kpi-guard\"\nmatch = [\"echo\"]\nprotocol = \"exec/v1\"\nprovenance = \"user\"\n",
+        "name = \"kpi-guard\"\nmatch = [\"echo\"]\nprotocol = \"exec/v2\"\nprovenance = \"user\"\n",
     )
     .unwrap();
     let run = guard_directory.join("run");
@@ -75,7 +75,9 @@ fn performance_kpis() {
         &input,
         &ctx,
         |request| {
-            let observation = nah_observe::fulfill(request).map_err(|error| error.to_string())?;
+            let observation =
+                nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
+                    .map_err(|error| error.to_string())?;
             captured = Some(observation.clone());
             Ok(observation)
         },
@@ -99,21 +101,22 @@ fn performance_kpis() {
         core.p99
     );
 
+    let provenance = initial.evidence_provenance().unwrap();
+    let cache_context = super::memo_context(provenance, provenance.input_fingerprint.clone());
     let cold = measure_indexed(COLD_SAMPLES, |index| {
         let cache = MemoCache::new(temp.path().join(format!("cold-cache-{index}")));
         let result = decide_with_extensions(
             &input,
             &ctx,
             |_| Ok(observation.clone()),
-            |observed, action_stream| {
+            |observed, evidence| {
                 consulted_extensions(consult_extensions(
                     &catalog,
                     &ctx,
                     observed,
-                    action_stream,
-                    #[cfg(feature = "effinterp")]
-                    None,
+                    evidence,
                     &cache,
+                    &cache_context,
                 ))
             },
         );
@@ -126,15 +129,14 @@ fn performance_kpis() {
         &input,
         &ctx,
         |_| Ok(observation.clone()),
-        |observed, action_stream| {
+        |observed, evidence| {
             consulted_extensions(consult_extensions(
                 &catalog,
                 &ctx,
                 observed,
-                action_stream,
-                #[cfg(feature = "effinterp")]
-                None,
+                evidence,
                 &memo_cache,
+                &cache_context,
             ))
         },
     );
@@ -144,15 +146,14 @@ fn performance_kpis() {
             &input,
             &ctx,
             |_| Ok(observation.clone()),
-            |observed, action_stream| {
+            |observed, evidence| {
                 consulted_extensions(consult_extensions(
                     &catalog,
                     &ctx,
                     observed,
-                    action_stream,
-                    #[cfg(feature = "effinterp")]
-                    None,
+                    evidence,
                     &memo_cache,
+                    &cache_context,
                 ))
             },
         );
@@ -198,7 +199,10 @@ fn performance_kpis() {
     let complete_scan = decide_with_extensions(
         &scan_input("scan-complete", true),
         &scan_ctx,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        |request| {
+            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
+                .map_err(|error| error.to_string())
+        },
         |_, _| ConsultedExtensions::default(),
     );
     let complete_scan_time = started.elapsed();
@@ -208,7 +212,10 @@ fn performance_kpis() {
     let capped_scan = decide_with_extensions(
         &scan_input("scan-capped", true),
         &scan_ctx,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        |request| {
+            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
+                .map_err(|error| error.to_string())
+        },
         |_, _| ConsultedExtensions::default(),
     );
     let capped_scan_time = started.elapsed();
@@ -237,7 +244,8 @@ fn performance_kpis() {
                     }
                 )
             }));
-            nah_observe::fulfill(request).map_err(|error| error.to_string())
+            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
+                .map_err(|error| error.to_string())
         },
         |_, _| ConsultedExtensions::default(),
     );

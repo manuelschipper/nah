@@ -1,0 +1,71 @@
+# Ground-truth expectations for sdkman/sdkman-cli (holdout-hidden corpus).
+# Pinned SHA: f02e5de113ea46a95e5e2fd795eabe6f2b7d4095.
+# Real entry: src/main/bash/sdkman-init.sh (sourced into the user's shell; it
+#   sources every sdkman-*.sh module, init.sh:79-82, defining the `sdk` shell
+#   function in sdkman-main.sh — the env-manager shape).
+# Derived from:
+#   src/main/bash/sdkman-init.sh (env reads: SDKMAN_CANDIDATES_API, init.sh:20;
+#     SDKMAN_BROKER_API, :24; SDKMAN_DIR defaulting to "$HOME/.sdkman", :28-29;
+#     ZSH_VERSION/BASH_VERSION, :65/:67; sources ${SDKMAN_DIR}/etc/config if
+#     present, :33-34; reads ${SDKMAN_DIR}/var/platform via $(cat ...), :38;
+#     reads ${SDKMAN_DIR}/var/candidates via $(<...), :106; touch of
+#     ${SDKMAN_DIR}/var/delay_upgrade when absent, :88; runs `uname -s`, :46,
+#     and `find` over src/ and ext/, :79),
+#   src/main/bash/sdkman-main.sh (sdk(): re-sources etc/config, main.sh:85;
+#     runs a libexec native command "$native_command", :124; dispatches to
+#     __sdk_"$converted_command_name", :139 — a computed function name),
+#   src/main/bash/sdkman-utils.sh (__sdkman_secure_curl family wraps curl,
+#     utils.sh:25-31/33+/60+),
+#   src/main/bash/sdkman-install.sh (curl download of the candidate binary,
+#     install.sh:141; unzip/mv into candidates, :70-74),
+#   src/main/bash/sdkman-uninstall.sh (rm -rf of the candidate version, :39),
+#   src/main/bash/sdkman-selfupdate.sh (curl | bash of the remote installer,
+#     :51/:53).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the init.sh effects: they are straight-line at source
+# time (only the etc/config read and the delay_upgrade touch are conditional,
+# hence modality=may). All subcommand bodies (curl downloads, unzip installs,
+# rm -rf uninstalls) run only through the computed `__sdk_$command` function
+# dispatch in sdkman-main.sh:139 — see known_hard.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=filesystem.read
+op=process.exec
+
+# Fact-level assertions: straight-line in the sourced init script.
+[facts]
+op=environment.read res=SDKMAN_DIR origin=src/main/bash/sdkman-init.sh realm=host
+op=environment.read res=HOME origin=src/main/bash/sdkman-init.sh realm=host
+op=environment.read res=SDKMAN_CANDIDATES_API origin=src/main/bash/sdkman-init.sh realm=host
+op=filesystem.read res=platform origin=src/main/bash/sdkman-init.sh realm=host
+op=filesystem.read res=candidates origin=src/main/bash/sdkman-init.sh realm=host
+op=filesystem.read res=config origin=src/main/bash/sdkman-init.sh realm=host modality=may
+op=filesystem.write res=delay_upgrade origin=src/main/bash/sdkman-init.sh realm=host modality=may
+op=process.exec res=uname origin=src/main/bash/sdkman-init.sh realm=host
+op=process.exec res=find origin=src/main/bash/sdkman-init.sh realm=host
+
+[forbidden]
+# sdkman talks to its candidate API over curl but never touches a database,
+# cloud SDK, message broker, or git.
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]
+# Everything a subcommand does sits behind the computed-function dispatch
+# __sdk_"$converted_command_name" (sdkman-main.sh:139) or the libexec native
+# command exec (main.sh:124): the curl network calls, the install unzip/mv
+# writes, and the uninstall rm -rf.
+op=network.
+op=filesystem.delete origin=src/main/bash/sdkman-uninstall.sh
+op=filesystem.write origin=src/main/bash/sdkman-install.sh
+op=process.exec origin=src/main/bash/sdkman-main.sh

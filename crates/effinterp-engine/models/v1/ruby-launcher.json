@@ -1,0 +1,164 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:cd5c14cf715bb781c9f3607051cbec64c7e066bfe18c85a556903237e247c87f",
+  "provenance": {
+    "author": "migrated_handwritten",
+    "sources": [
+      {
+        "uri": "git:57902bb2e2c326a6604c436409ba667798527a22:crates/effinterp-engine/src/models/rubyexec.rs",
+        "digest": "blake3:6cccb642461a3b1e2dc035055dd3e0d6b81c6eee6153805d9b3f2ead0d0aa028"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "ruby-launcher",
+        "requirement": "argv-surface@57902bb2"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "registry",
+        "name": "ruby-launcher",
+        "expected_entries": [
+          "ruby/ruby@v0"
+        ]
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "ruby-help-does-not-run-script",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "ruby",
+            "--help",
+            "ignored.rb"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [],
+    "expected_facts": [],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "ruby/ruby@v0",
+      "commands": [
+        "irb",
+        "ruby"
+      ],
+      "launcher": {
+        "frontend": "ruby",
+        "options": [
+          {
+            "names": [
+              "-e",
+              "--eval"
+            ],
+            "class": "inline_source",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "-r",
+              "--require"
+            ],
+            "class": "preload",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "-C",
+              "--directory"
+            ],
+            "class": "chdir",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "-I",
+              "-E",
+              "--encoding"
+            ],
+            "class": "value",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--"
+            ],
+            "class": "end_of_options",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-x"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-c",
+              "--dump=syntax"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-h",
+              "--help",
+              "--version",
+              "--copyright",
+              "--dump=version",
+              "-v",
+              "--verbose"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-"
+            ],
+            "class": "unreviewed",
+            "attachment": "attached"
+          }
+        ],
+        "operands": [
+          "script",
+          "stdin_program",
+          "program_arguments"
+        ]
+      },
+      "fragments": [],
+      "inert": true,
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

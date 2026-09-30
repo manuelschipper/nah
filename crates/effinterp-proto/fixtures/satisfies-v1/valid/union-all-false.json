@@ -1,0 +1,48 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "union-all-false",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/x"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "union",
+        "alternatives": [
+          {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/a"
+            }
+          },
+          {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/b"
+            }
+          }
+        ]
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "not_satisfied"
+  }
+}

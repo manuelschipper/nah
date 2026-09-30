@@ -1,0 +1,362 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:d5bf1827bcb6a6db87d5bdca1dea837b4744151e1472770fcdbb16215c8b8f18",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/interpreters/clojure@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "clojure",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/interpreters/clojure@v1",
+        "path": "../../tests/fixtures/model_tranche/clojure.json",
+        "digest": "blake3:cb3505a3af3fe652fa0c70084343bdf1bba005705ca1d241eb9d3d96aa60de32"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "clojure-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "clojure-not-the-command",
+            "/work/program.src",
+            "arg"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/interpreters/clojure@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "process.code_execution"
+    ],
+    "expected_boundaries": [
+      "dynamic_source",
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/interpreters/clojure@v1",
+      "commands": [
+        "clojure"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-e"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-A",
+            "-M",
+            "-T",
+            "-X"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "script",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": [
+            "-e"
+          ]
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "script"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-A",
+              "-M",
+              "-T",
+              "-X"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "process.code_execution",
+              "resource": {
+                "kind": "process",
+                "executable": {
+                  "kind": "argument",
+                  "index": 0
+                },
+                "argv": []
+              },
+              "attributes": {
+                "source": {
+                  "kind": "constant_string",
+                  "value": "file"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-A",
+              "-M",
+              "-T",
+              "-X"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e"
+            ],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "process.code_execution",
+              "resource": {
+                "kind": "process",
+                "executable": {
+                  "kind": "argument",
+                  "index": 0
+                },
+                "argv": []
+              },
+              "attributes": {
+                "source": {
+                  "kind": "constant_string",
+                  "value": "stdin"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-A",
+              "-M",
+              "-T",
+              "-X"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e"
+            ],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "reason": "dynamic_source",
+          "class": "unresolved",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "inline-code",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-A",
+              "-M",
+              "-T",
+              "-X"
+            ],
+            "flag_value_present": [
+              "-e"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "-e"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "argument",
+                      "index": 0
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "argument"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "dynamic_source",
+              "class": "unresolved",
+              "domains": [
+                "filesystem",
+                "process"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "launcher-alias",
+          "when": {
+            "flag_present": [
+              "-A",
+              "-M",
+              "-T",
+              "-X"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_subcommand",
+              "class": "unmodeled",
+              "domains": [
+                "process"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

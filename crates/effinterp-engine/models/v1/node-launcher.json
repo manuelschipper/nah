@@ -1,0 +1,486 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:62b1168bf128f0357de9d2d2c76aa050d4054cd4a06f2c9b5ac995f9565e2e72",
+  "provenance": {
+    "author": "migrated_handwritten",
+    "sources": [
+      {
+        "uri": "git:57902bb2e2c326a6604c436409ba667798527a22:crates/effinterp-engine/src/models/nodeexec.rs",
+        "digest": "blake3:d70e62cedf8de502418d6130a2e01b0641f335d4afa238c1d9f64f1b049cad35"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "node-launcher",
+        "requirement": "argv-surface@57902bb2"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "registry",
+        "name": "node-launcher",
+        "expected_entries": [
+          "node/node@v0",
+          "node/tsx@v0"
+        ]
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "node-help-does-not-run-script",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "node",
+            "--help",
+            "ignored.js"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [],
+    "expected_facts": [],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "node/node@v0",
+      "commands": [
+        "iojs",
+        "node",
+        "nodejs"
+      ],
+      "launcher": {
+        "frontend": "node",
+        "options": [
+          {
+            "names": [
+              "-e",
+              "--eval",
+              "-p",
+              "--print"
+            ],
+            "class": "inline_source",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "-r"
+            ],
+            "class": "preload",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--require",
+              "--import",
+              "--loader",
+              "--experimental-loader"
+            ],
+            "class": "preload",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "--allow-fs-read",
+              "--allow-fs-write",
+              "--experimental-default-type",
+              "--conditions",
+              "--cpu-prof-dir",
+              "--cpu-prof-interval",
+              "--cpu-prof-name",
+              "--debug-port",
+              "--diagnostic-dir",
+              "--disable-proto",
+              "--disable-warning",
+              "--dns-result-order",
+              "--env-file",
+              "--env-file-if-exists",
+              "--experimental-test-isolation",
+              "--experimental-test-tag-filter",
+              "--heap-prof-dir",
+              "--heap-prof-interval",
+              "--heap-prof-name",
+              "--heapsnapshot-near-heap-limit",
+              "--heapsnapshot-signal",
+              "--input-type",
+              "--icu-data-dir",
+              "--inspect-port",
+              "--inspect-publish-uid",
+              "--localstorage-file",
+              "--max-http-header-size",
+              "--max-old-space-size-percentage",
+              "--network-family-autoselection-attempt-timeout",
+              "--openssl-config",
+              "--redirect-warnings",
+              "--report-dir",
+              "--report-directory",
+              "--report-filename",
+              "--report-signal",
+              "--secure-heap",
+              "--secure-heap-min",
+              "--snapshot-blob",
+              "--test-concurrency",
+              "--test-coverage-branches",
+              "--test-coverage-exclude",
+              "--test-coverage-functions",
+              "--test-coverage-include",
+              "--test-coverage-lines",
+              "--test-global-setup",
+              "--test-isolation",
+              "--test-name-pattern",
+              "--test-random-seed",
+              "--test-reporter",
+              "--test-reporter-destination",
+              "--test-rerun-failures",
+              "--test-shard",
+              "--test-skip-pattern",
+              "--test-timeout",
+              "--tls-cipher-list",
+              "--tls-keylog",
+              "--title",
+              "--trace-event-categories",
+              "--trace-event-file-pattern",
+              "--trace-require-module",
+              "--unhandled-rejections",
+              "--use-largepages",
+              "--v8-pool-size",
+              "--watch-kill-signal",
+              "--watch-path"
+            ],
+            "class": "value",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "-C"
+            ],
+            "class": "value",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--"
+            ],
+            "class": "end_of_options",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-c",
+              "--check"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-h",
+              "--help",
+              "-v",
+              "--version",
+              "--v8-options",
+              "--completion-bash",
+              "--prof-process"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--run",
+              "--experimental-sea-config",
+              "--build-snapshot-config"
+            ],
+            "class": "inert",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "--build-snapshot",
+              "--test"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--no-warnings",
+              "--no-deprecation",
+              "--trace-warnings",
+              "--trace-deprecation",
+              "--throw-deprecation",
+              "--pending-deprecation",
+              "--enable-source-maps",
+              "--preserve-symlinks",
+              "--preserve-symlinks-main",
+              "--abort-on-uncaught-exception",
+              "--expose-gc",
+              "--frozen-intrinsics",
+              "--jitless",
+              "--harmony"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-"
+            ],
+            "class": "unreviewed",
+            "attachment": "attached"
+          }
+        ],
+        "operands": [
+          "script",
+          "stdin_program",
+          "program_arguments"
+        ]
+      },
+      "fragments": [],
+      "inert": true,
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "node/tsx@v0",
+      "commands": [
+        "tsx"
+      ],
+      "launcher": {
+        "frontend": "node",
+        "options": [
+          {
+            "names": [
+              "--tsconfig"
+            ],
+            "class": "value",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "--no-cache"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-e",
+              "--eval",
+              "-p",
+              "--print"
+            ],
+            "class": "inline_source",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "-r"
+            ],
+            "class": "preload",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--require",
+              "--import",
+              "--loader",
+              "--experimental-loader"
+            ],
+            "class": "preload",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "--allow-fs-read",
+              "--allow-fs-write",
+              "--experimental-default-type",
+              "--conditions",
+              "--cpu-prof-dir",
+              "--cpu-prof-interval",
+              "--cpu-prof-name",
+              "--debug-port",
+              "--diagnostic-dir",
+              "--disable-proto",
+              "--disable-warning",
+              "--dns-result-order",
+              "--env-file",
+              "--env-file-if-exists",
+              "--experimental-test-isolation",
+              "--experimental-test-tag-filter",
+              "--heap-prof-dir",
+              "--heap-prof-interval",
+              "--heap-prof-name",
+              "--heapsnapshot-near-heap-limit",
+              "--heapsnapshot-signal",
+              "--input-type",
+              "--icu-data-dir",
+              "--inspect-port",
+              "--inspect-publish-uid",
+              "--localstorage-file",
+              "--max-http-header-size",
+              "--max-old-space-size-percentage",
+              "--network-family-autoselection-attempt-timeout",
+              "--openssl-config",
+              "--redirect-warnings",
+              "--report-dir",
+              "--report-directory",
+              "--report-filename",
+              "--report-signal",
+              "--secure-heap",
+              "--secure-heap-min",
+              "--snapshot-blob",
+              "--test-concurrency",
+              "--test-coverage-branches",
+              "--test-coverage-exclude",
+              "--test-coverage-functions",
+              "--test-coverage-include",
+              "--test-coverage-lines",
+              "--test-global-setup",
+              "--test-isolation",
+              "--test-name-pattern",
+              "--test-random-seed",
+              "--test-reporter",
+              "--test-reporter-destination",
+              "--test-rerun-failures",
+              "--test-shard",
+              "--test-skip-pattern",
+              "--test-timeout",
+              "--tls-cipher-list",
+              "--tls-keylog",
+              "--title",
+              "--trace-event-categories",
+              "--trace-event-file-pattern",
+              "--trace-require-module",
+              "--unhandled-rejections",
+              "--use-largepages",
+              "--v8-pool-size",
+              "--watch-kill-signal",
+              "--watch-path"
+            ],
+            "class": "value",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "-C"
+            ],
+            "class": "value",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--"
+            ],
+            "class": "end_of_options",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-c",
+              "--check"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-h",
+              "--help",
+              "-v",
+              "--version",
+              "--v8-options",
+              "--completion-bash",
+              "--prof-process"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--run",
+              "--experimental-sea-config",
+              "--build-snapshot-config"
+            ],
+            "class": "inert",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "--build-snapshot",
+              "--test"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--no-warnings",
+              "--no-deprecation",
+              "--trace-warnings",
+              "--trace-deprecation",
+              "--throw-deprecation",
+              "--pending-deprecation",
+              "--enable-source-maps",
+              "--preserve-symlinks",
+              "--preserve-symlinks-main",
+              "--abort-on-uncaught-exception",
+              "--expose-gc",
+              "--frozen-intrinsics",
+              "--jitless",
+              "--harmony"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-"
+            ],
+            "class": "unreviewed",
+            "attachment": "attached"
+          }
+        ],
+        "operands": [
+          "script",
+          "stdin_program",
+          "program_arguments"
+        ]
+      },
+      "fragments": [],
+      "inert": true,
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

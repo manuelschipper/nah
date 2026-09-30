@@ -1,0 +1,56 @@
+# Ground-truth expectations for checkstyle/checkstyle (holdout-hidden corpus).
+# Pinned SHA: 8481f1b739cb9367f13a8e78a991547d9f286f3f.
+# Real entry: src/main/java/com/puppycrawl/tools/checkstyle/Main.java (public
+#   static void main, Main.java:110; picocli CommandLine dispatch, :113 —
+#   the main-class CLI + reflection-dispatch shape).
+# Derived from:
+#   src/main/java/com/puppycrawl/tools/checkstyle/Main.java (-p properties
+#     load via Files.newInputStream, Main.java:451; -o report output via
+#     Files.newOutputStream(outputPath), :536; the RootModule (Checker) is
+#     created reflectively through PackageObjectFactory.createModule,
+#     :476-479),
+#   src/main/java/com/puppycrawl/tools/checkstyle/api/FileText.java (each
+#     checked source file is read via readFile's InputStreamReader,
+#     FileText.java:194-201, from Checker.process, Checker.java:339),
+#   src/main/java/com/puppycrawl/tools/checkstyle/PropertyCacheFile.java
+#     (cache persist via Files.newOutputStream + store,
+#     PropertyCacheFile.java:151-152).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the Main.java option-gated read/write (they run inside
+# the picocli-dispatched runCli body, hence modality=may). The core product
+# read — every checked file through FileText — happens only after the Checker
+# is instantiated reflectively via PackageObjectFactory (Main.java:476-479),
+# so it and the cache write sit behind the reflection wall — see known_hard.
+# Checkstyle is a local linter with no database, cloud, or subprocess use on
+# the CLI path; network is NOT forbidden because -c accepts http/https/ftp
+# config URLs (CommonUtil.getWebOrFileProtocolUri, CommonUtil.java:372-376),
+# which the SAX config load then fetches.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+
+# Fact-level assertions.
+[facts]
+op=filesystem.read origin=checkstyle/Main.java realm=host modality=may
+op=filesystem.write origin=checkstyle/Main.java realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=process.exec
+op=git.
+
+[known_hard]
+# The Checker root module is instantiated reflectively
+# (PackageObjectFactory.createModule), so per-file reads and the cache write
+# sit behind reflection dispatch.
+op=filesystem.read origin=api/FileText.java
+op=filesystem.write origin=checkstyle/PropertyCacheFile.java

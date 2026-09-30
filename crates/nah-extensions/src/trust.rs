@@ -11,8 +11,11 @@ use nah_proto::ctx::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::user_state::{nah_home_path, sync_parent_directory};
+
 const TRUST_DATABASE_VERSION: u32 = 1;
 
+/// The trusted project roots stored in `trust.json`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrustDatabase {
@@ -91,11 +94,15 @@ impl TrustDatabase {
         temporary.write_all(b"\n").map_err(|_| TrustError::Io)?;
         temporary.as_file().sync_all().map_err(|_| TrustError::Io)?;
         temporary.persist(path).map_err(|_| TrustError::Io)?;
-        sync_parent(parent)?;
+        sync_parent_directory(parent).map_err(|_| TrustError::Io)?;
         Ok(())
     }
 }
 
+/// Persists `root` as a trusted project root exactly as given; it does not
+/// canonicalize. The caller owns canonical-root intake (the CLI resolves
+/// `canonical_project_root` first), because project guard selection compares
+/// trusted-root paths as text.
 pub fn record_trusted_root(
     path: &Path,
     platform: Platform,
@@ -193,28 +200,9 @@ pub fn revoke_trusted_root(
     Ok(removed)
 }
 
+/// `<home>/.nah/trust.json`, spelled for the target platform.
 pub fn trust_database_path(home: &AbsolutePath, platform: Platform) -> PathBuf {
-    let separator = if platform == Platform::Windows {
-        '\\'
-    } else {
-        '/'
-    };
-    PathBuf::from(format!(
-        "{}{separator}.nah{separator}trust.json",
-        home.as_str().trim_end_matches(['/', '\\'])
-    ))
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), TrustError> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| TrustError::Io)
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), TrustError> {
-    Ok(())
+    nah_home_path(home, platform, &["trust.json"])
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

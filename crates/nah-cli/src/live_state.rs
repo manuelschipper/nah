@@ -1,11 +1,9 @@
 //! Live HOME-derived context, extension catalog, and memo-cache construction.
 
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, ShippedGuardState, TrustProjection};
 
-use crate::catalog::{
-    configured_guard_states, reserved_shipped_names, shipped_defaults, shipped_guard_aliases,
-};
-use crate::nap::{self, ActiveNap};
+use crate::catalog::{configured_guard_states, reserved_guard_names, shipped_defaults};
+use crate::nap::{self, ActiveNap, NapMode};
 use crate::shipped_state::{ShippedState, state_path};
 use crate::state_protection::ensure_nah_state_directory;
 
@@ -16,8 +14,6 @@ pub(crate) struct LiveState {
     pub(crate) nap: Option<ActiveNap>,
     pub(crate) extension_state_unavailable: bool,
     pub(crate) warnings: Vec<String>,
-    #[cfg(feature = "effinterp")]
-    pub(crate) effinterp_enabled: bool,
 }
 
 /// Damaged state must never be treated better than absent state: every loader
@@ -46,7 +42,7 @@ pub(crate) fn load() -> Result<LiveState, String> {
                 (nah_extensions::ActivationDatabase::empty(), true)
             }
         };
-    let reserved_names = reserved_shipped_names();
+    let reserved_names = reserved_guard_names();
     let extensions = match nah_extensions::load_active_extensions(
         &home,
         platform,
@@ -65,11 +61,22 @@ pub(crate) fn load() -> Result<LiveState, String> {
         warnings.push("one or more activated extension guards could not be loaded".into());
     }
     let extension_state_unavailable = activation_state_unavailable || activated_bundle_unavailable;
-    let shipped_state = match ShippedState::load(
-        &state_path(&home, platform),
-        &shipped_defaults(),
-        shipped_guard_aliases(),
-    ) {
+    let nap = match nap::load(&home, platform) {
+        Ok(nap) => nap,
+        Err(error) => {
+            warnings.push(format!("{error}; self-protection remains awake"));
+            None
+        }
+    };
+    // A guard nap removes exactly the named guards before evaluation; every
+    // other guard, self-protection, and the permanent layers still run.
+    let napped_guards = match nap.as_ref().map(ActiveNap::mode) {
+        Some(NapMode::Guards(names)) => names.as_slice(),
+        _ => &[],
+    };
+    let extensions = extensions.without_guards(napped_guards);
+    let shipped_state = match ShippedState::load(&state_path(&home, platform), &shipped_defaults())
+    {
         Ok((shipped_state, diagnostics)) => {
             warnings.extend(diagnostics);
             shipped_state
@@ -79,32 +86,27 @@ pub(crate) fn load() -> Result<LiveState, String> {
             ShippedState::defaults()
         }
     };
+    let shipped_guards = configured_guard_states(&shipped_state)
+        .into_iter()
+        .map(|guard| {
+            if napped_guards.iter().any(|name| name == guard.name()) {
+                // Explicitly disabled, so a project declaration cannot re-enable it.
+                ShippedGuardState::with_explicit_disable(guard.name(), false, true)
+                    .expect("a disabled shipped guard state is valid")
+            } else {
+                guard
+            }
+        })
+        .collect();
     let ctx = Ctx::new(
         platform,
         home.clone(),
-        configured_guard_states(&shipped_state),
+        shipped_guards,
         extensions.activations(),
         trust,
     )
     .map_err(|error| error.to_string())?;
     let cache = nah_extensions::MemoCache::new(nah_extensions::memo_cache_path(&home, platform));
-    let nap = match nap::load(&home, platform) {
-        Ok(nap) => nap,
-        Err(error) => {
-            warnings.push(format!("{error}; self-protection remains awake"));
-            None
-        }
-    };
-    #[cfg(feature = "effinterp")]
-    let effinterp_enabled =
-        match crate::effinterp_state::enabled(&crate::effinterp_state::state_path(&home, platform))
-        {
-            Ok(enabled) => enabled,
-            Err(error) => {
-                warnings.push(format!("{error}; effinterp shadow remains off"));
-                false
-            }
-        };
     Ok(LiveState {
         ctx,
         extensions,
@@ -112,8 +114,6 @@ pub(crate) fn load() -> Result<LiveState, String> {
         nap,
         extension_state_unavailable,
         warnings,
-        #[cfg(feature = "effinterp")]
-        effinterp_enabled,
     })
 }
 
@@ -138,6 +138,29 @@ pub(crate) fn home(platform: Platform) -> Result<AbsolutePath, String> {
             .map_err(|_| "nah-state-protection-failed".to_owned())?;
     }
     Ok(home)
+}
+
+/// The running nah executable's paths, as launched and with links resolved,
+/// so a call that runs this same binary is recognized as nah wherever it is
+/// installed.
+pub(crate) fn nah_executable_paths(platform: Platform) -> Vec<AbsolutePath> {
+    let Ok(executable) = std::env::current_exe() else {
+        return Vec::new();
+    };
+    let canonical = std::fs::canonicalize(&executable).ok();
+    [Some(executable), canonical]
+        .into_iter()
+        .flatten()
+        .filter_map(|path| {
+            let path = path.to_str()?;
+            let path = if platform == Platform::Windows {
+                nah_observe::normalize_windows_observed_path(path)
+            } else {
+                path.to_owned()
+            };
+            AbsolutePath::new(platform, path).ok()
+        })
+        .collect()
 }
 
 fn configured_home<F>(platform: Platform, mut get: F) -> Result<std::ffi::OsString, String>

@@ -1,0 +1,9 @@
+{
+  "command": "terragrunt run and plan/apply/destroy shortcuts",
+  "reviewed": "2026-09-21",
+  "sources": [
+    "https://docs.terragrunt.com/reference/cli/commands/run/",
+    "https://docs.terragrunt.com/reference/hcl/blocks/"
+  ],
+  "surface": "The wrapper delegates through configured terraform_binary, extra_arguments and hooks. Preserve a process delegation and a provider_io boundary; do not infer a whole-stack destruction from the shortcut."
+}

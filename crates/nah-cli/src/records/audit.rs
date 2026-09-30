@@ -14,6 +14,8 @@ use std::fs::OpenOptions;
 
 use super::FailureSummary;
 use super::redaction::AuditRecordV1;
+use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
+use crate::state_protection::nah_state_file_path;
 
 const MAX_AUDIT_BYTES: u64 = 8 * 1024 * 1024;
 const COMPACTED_AUDIT_BYTES: u64 = 4 * 1024 * 1024;
@@ -43,7 +45,7 @@ impl DecisionLog {
             return Err(AuditError::InvalidRecord);
         }
         let mut file = open_regular(&self.path, true)?.ok_or(AuditError::Io)?;
-        protect_file(&file)?;
+        restrict_file_to_owner(&file).map_err(|_| AuditError::Io)?;
         file.try_lock().map_err(|_| AuditError::Io)?;
         let result = (|| {
             repair_incomplete_tail(&mut file)?;
@@ -303,11 +305,11 @@ fn archive(path: &Path, file: &mut File) -> Result<PathBuf, AuditError> {
     let nonce_low = getrandom::u64().map_err(|_| AuditError::Io)?;
     let backup_path = old_logs.join(format!("audit-{nonce_high:016x}{nonce_low:016x}.jsonl"));
     let mut backup = open_regular(&backup_path, true)?.ok_or(AuditError::Io)?;
-    protect_file(&backup)?;
+    restrict_file_to_owner(&backup).map_err(|_| AuditError::Io)?;
     file.seek(SeekFrom::Start(0)).map_err(|_| AuditError::Io)?;
     std::io::copy(file, &mut backup).map_err(|_| AuditError::Io)?;
     backup.sync_all().map_err(|_| AuditError::Io)?;
-    sync_parent(&old_logs)?;
+    sync_parent_directory(&old_logs).map_err(|_| AuditError::Io)?;
     Ok(backup_path)
 }
 
@@ -606,15 +608,7 @@ fn compact_for(file: &mut File, incoming: u64) -> Result<(), AuditError> {
 }
 
 pub(crate) fn decision_log_path(home: &AbsolutePath, platform: Platform) -> PathBuf {
-    let separator = if platform == Platform::Windows {
-        '\\'
-    } else {
-        '/'
-    };
-    PathBuf::from(format!(
-        "{}{separator}.nah{separator}audit.jsonl",
-        home.as_str().trim_end_matches(['/', '\\'])
-    ))
+    nah_state_file_path(home, platform, "audit.jsonl")
 }
 
 // wasm (homepage demo) has no auditable store; nothing there records
@@ -622,30 +616,6 @@ pub(crate) fn decision_log_path(home: &AbsolutePath, platform: Platform) -> Path
 #[cfg(target_arch = "wasm32")]
 fn open_regular(_path: &Path, _append: bool) -> Result<Option<File>, AuditError> {
     Err(AuditError::Io)
-}
-
-#[cfg(unix)]
-fn protect_file(file: &File) -> Result<(), AuditError> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| AuditError::Io)
-}
-
-#[cfg(not(unix))]
-fn protect_file(_file: &File) -> Result<(), AuditError> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), AuditError> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| AuditError::Io)
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), AuditError> {
-    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

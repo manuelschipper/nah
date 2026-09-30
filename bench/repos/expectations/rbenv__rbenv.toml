@@ -1,0 +1,55 @@
+# Ground-truth expectations for rbenv/rbenv (holdout-dev corpus).
+# Pinned SHA: 07e9b1e297a5977298c6aadc9971ae0e9eb7f0dc.
+# Real entry: libexec/rbenv (bash dispatcher; every subcommand is its own
+#   libexec/rbenv-* script resolved via `type -P "rbenv-$command"` and exec'd —
+#   the env-manager exec-dispatch shape).
+# Derived from:
+#   libexec/rbenv (reads RBENV_DEBUG via `--debug`/env; RBENV_ROOT defaulting to
+#     "$HOME/.rbenv"; RBENV_DIR defaulting to "$PWD"; saves RBENV_ORIG_PATH from
+#     PATH; builds RBENV_HOOK_PATH incl. plugin dirs; case dispatch at the tail:
+#     `exec rbenv---version`, `exec rbenv-help`, and the dynamic
+#     `exec "$command_path"` where command_path="$(type -P "rbenv-$command")"),
+#   libexec/rbenv-version-file-write (writes the version to disk:
+#     `echo "$RBENV_VERSION" > "$RBENV_VERSION_FILE"`),
+#   libexec/rbenv-version-file-read (reads version files),
+#   libexec/rbenv-exec (`rbenv exec` re-execs the selected ruby binary).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. The dispatcher's env reads and execs are straight-line bash
+# in one script. Subcommand effects (version-file read/write) sit behind the
+# `type -P` + `exec "$command_path"` dynamic dispatch — see known_hard.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=process.exec
+
+# Fact-level assertions: dispatcher env family + the concrete execs.
+[facts]
+op=environment.read res=RBENV_ROOT origin=libexec/rbenv realm=host
+op=environment.read res=RBENV_DIR origin=libexec/rbenv realm=host
+op=environment.read res=RBENV_DEBUG origin=libexec/rbenv realm=host
+op=environment.read res=HOME origin=libexec/rbenv realm=host
+op=process.exec res=rbenv---version origin=libexec/rbenv realm=host modality=may
+op=process.exec res=rbenv-help origin=libexec/rbenv realm=host modality=may
+op=process.exec origin=libexec/rbenv realm=host
+
+[forbidden]
+# rbenv never downloads rubies (that is the ruby-build plugin) and touches no
+# network, database, or cloud service.
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]
+# Subcommand scripts are reached only through the dynamic
+# `exec "$(type -P "rbenv-$command")"` dispatch.
+op=filesystem.write origin=libexec/rbenv-version-file-write
+op=filesystem.read origin=libexec/rbenv-version-file-read

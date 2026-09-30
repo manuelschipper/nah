@@ -1,0 +1,43 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "empty-binding",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "environment",
+        "name": "HOME"
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {
+        "HOME": {
+          "value": "",
+          "source": {
+            "kind": "declared"
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "kind": "indeterminate",
+    "reason": {
+      "kind": "invalid_input"
+    }
+  }
+}

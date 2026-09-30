@@ -1,0 +1,5 @@
+{
+  "id": "p18b/containers/minikube@v1",
+  "selection": "representative-declaration-capability",
+  "surface": "delete [--profile NAME]"
+}

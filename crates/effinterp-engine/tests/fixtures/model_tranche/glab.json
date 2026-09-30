@@ -1,0 +1,5485 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "mr",
+          "list"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "issue",
+          "create"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "repo",
+          "clone",
+          "group/name"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-X",
+          "HEAD",
+          "projects/1"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "--input",
+          "/srv/body.json",
+          "endpoint"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "--input",
+          "-",
+          "endpoint"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-F",
+          "body=@/srv/body.json",
+          "endpoint"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "glab release download v1 --dir /srv/artifacts",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/srv/artifacts"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "glab release download v1 -D artifacts",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/artifacts"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "glab release download v1 --dir \"$OUT\"",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "$OUT"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "glab release download v1 -d /srv/artifacts",
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "unrecognized flags: -d"
+                },
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "environment",
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "glab ci download --dir /srv/artifacts",
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "unrecognized operands: ci, download"
+                },
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "environment",
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "glab pipeline download --dir /srv/artifacts",
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "unrecognized operands: pipeline, download"
+                },
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "environment",
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "glab snippet create /srv/secret",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "Payload file and stdin reads and upload bindings are not modeled"
+                },
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "glab release create v1 /srv/artifact",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "Payload file and stdin reads and upload bindings are not modeled"
+                },
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "cat secret | glab variable create TOKEN",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/secret"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "Payload file and stdin reads and upload bindings are not modeled"
+                },
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "cat secret | glab variable set TOKEN",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/secret"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "Payload file and stdin reads and upload bindings are not modeled"
+                },
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "glab mr create -F /srv/body",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "Payload option semantics outside api are not modeled"
+                },
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "repo",
+          "delete"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-X",
+          "DELETE",
+          "repos/owner/project"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-X",
+          "DELETE",
+          "repos/{owner}/{repo}/hooks/123"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-X",
+          "DELETE",
+          "projects/123/variables/DEPLOY_ENV"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "project",
+          "delete",
+          "group/repo",
+          "-y"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "release",
+          "delete",
+          "v1",
+          "--with-tag"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "variable",
+          "delete",
+          "KEY",
+          "--group",
+          "team"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "variable",
+          "remove",
+          "KEY",
+          "--scope",
+          "prod"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "ssh-key",
+          "delete",
+          "42"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "ssh-key",
+          "delete",
+          "--page",
+          "2"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "variable",
+          "delete",
+          "KEY",
+          "--group",
+          "team",
+          "--scope",
+          "prod"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "variable",
+          "delete",
+          "invalid-key"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "endpoint"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "environment"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "environment.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "env:GITLAB_TOKEN"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "repo",
+          "delete",
+          "owner/repo",
+          "--yes"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "confirmation_requested",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "gitlab"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "owner/repo"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "must-on-success"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "repo",
+          "delete",
+          "owner/repo"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "confirmation_requested",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "gitlab"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "owner/repo"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "release",
+          "delete",
+          "v1",
+          "--yes"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "cleanup_tag",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "confirmation_requested",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "release"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "gitlab"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "v1"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "resource"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "must-on-success"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "release",
+          "delete",
+          "v1",
+          "--yes",
+          "--yes=false"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "cleanup_tag",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "confirmation_requested",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "release"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "gitlab"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "v1"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "resource"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "mr",
+          "list"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "--paginate=false",
+          "--input",
+          "/dev/null",
+          "-X",
+          "DELETE",
+          "projects/123"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-F",
+          "data={",
+          "-X",
+          "DELETE",
+          "projects/123"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-F",
+          "data={\"audit\":true}",
+          "-X",
+          "DELETE",
+          "projects/123"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-F",
+          "data=[1,true,\"audit\"]",
+          "-X",
+          "DELETE",
+          "projects/123"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-F",
+          "data=null",
+          "-X",
+          "DELETE",
+          "projects/123"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-f",
+          "data={\"audit\":true}",
+          "-X",
+          "DELETE",
+          "projects/123"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-F",
+          "data=[null]",
+          "-X",
+          "DELETE",
+          "projects/123"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-F",
+          "data=[[1]]",
+          "-X",
+          "DELETE",
+          "projects/123"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "glab",
+          "api",
+          "-F",
+          "data=[{\"audit\":true}]",
+          "-X",
+          "DELETE",
+          "projects/123"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "detail": {
+                  "equals": "no model for command \"glab\""
+                },
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "glab api -X DELETE projects/:group/:namespace/:repo",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "gitlab"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "projects/:group/:namespace/:repo"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "must-on-success"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "glab ssh-key delete 123",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "ssh_key"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "gitlab"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "user"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "123"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "resource"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "must-on-success"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    }
+  ]
+}

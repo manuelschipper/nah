@@ -1,0 +1,48 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "service-pattern",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "service_unit",
+        "manager": "systemd",
+        "name": "web.service"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "service_unit",
+          "manager": {
+            "kind": "exact",
+            "value": "systemd"
+          },
+          "name_glob": "*.service"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

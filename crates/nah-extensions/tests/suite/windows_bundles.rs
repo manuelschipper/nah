@@ -14,7 +14,7 @@ fn write_manifest(directory: &std::path::Path, data: Option<&str>) {
     fs::write(
         directory.join("policy.toml"),
         format!(
-            "name = \"tool\"\nmatch = [\"tool\"]\nprotocol = \"exec/v1\"\nprovenance = \"user\"\n{}",
+            "name = \"tool\"\nmatch = [\"tool\"]\nprotocol = \"exec/v2\"\nprovenance = \"user\"\n{}",
             data.unwrap_or_default()
         ),
     )

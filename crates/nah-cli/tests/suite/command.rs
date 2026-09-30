@@ -46,6 +46,23 @@ fn decide_command_emits_machine_json_and_verdict_exit_codes() {
         assert_eq!(result.status.code(), Some(expected_code));
         let output: DecisionOutput = serde_json::from_slice(&result.stdout).unwrap();
         assert_eq!(output.verdict(), expected_verdict);
+
+        // `nah test --tool` dry-runs the same call to the same decision.
+        let tested = Command::new(env!("CARGO_BIN_EXE_nah"))
+            .args(["test", "--json", "--tool", "Read", "--args-json"])
+            .arg(json!({"file_path": path}).to_string())
+            .current_dir(&repo)
+            .env("HOME", &root)
+            .env("USERPROFILE", &root)
+            .env_remove("XDG_CONFIG_HOME")
+            .output()
+            .unwrap();
+        assert_eq!(tested.status.code(), Some(0), "{tested:?}");
+        let tested: serde_json::Value = serde_json::from_slice(&tested.stdout).unwrap();
+        let decided: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+        for field in ["verdict", "coverage", "reason", "policy_attributions"] {
+            assert_eq!(tested["decision"][field], decided[field], "{path}: {field}");
+        }
     }
 }
 
@@ -56,15 +73,11 @@ fn commands_past_a_parser_bound_delegate_instead_of_ending_the_process() {
     // paths before matching them
     let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
-    // 8000 nested groups is 40 KB and used to overflow the parser's stack,
-    // which ended `nah` on a signal with no verdict at all.
-    let nested = format!("{}true{}; rm -rf /", "{ ".repeat(8000), "; }".repeat(8000));
     let oversized = format!("echo {}", "a".repeat(1024 * 1024));
     let too_complex = (0..20_000).map(|_| ":").collect::<Vec<_>>().join(" && ");
     for (command, expected_reason) in [
-        (&nested, "nests too deeply"),
-        (&oversized, "larger than"),
-        (&too_complex, "too complex"),
+        (&oversized, "input-byte-limit"),
+        (&too_complex, "analysis is incomplete"),
     ] {
         let input = json!({
             "v": 1,
@@ -101,6 +114,39 @@ fn commands_past_a_parser_bound_delegate_instead_of_ending_the_process() {
         );
     }
 
+    // 8000 nested groups is 40 KB and used to overflow the parser's stack,
+    // which ended `nah` on a signal with no verdict at all. The engine now
+    // parses the whole input and blocks the trailing root deletion, so this
+    // asserts both that nah exits with a documented verdict code (never None)
+    // and that the proven `rm -rf /` still reaches a guard.
+    let nested = format!("{}true{}; rm -rf /", "{ ".repeat(8000), "; }".repeat(8000));
+    let input = json!({
+        "v": 1,
+        "tool": "Bash",
+        "input": {"command": &nested},
+        "cwd": repo,
+    });
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nah"))
+        .arg("decide")
+        .env("HOME", &root)
+        .env("USERPROFILE", &root)
+        .env_remove("XDG_CONFIG_HOME")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let result = child.wait_with_output().unwrap();
+    assert_eq!(result.status.code(), Some(1));
+    let output: DecisionOutput = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(output.verdict(), Verdict::Block);
+
     let result = Command::new(env!("CARGO_BIN_EXE_nah"))
         .arg("test")
         .arg(&nested)
@@ -112,7 +158,7 @@ fn commands_past_a_parser_bound_delegate_instead_of_ending_the_process() {
         .unwrap();
     assert_eq!(result.status.code(), Some(0));
     let rendered = String::from_utf8(result.stdout).unwrap();
-    assert!(rendered.starts_with("verdict: delegate\n"), "{rendered}");
+    assert!(rendered.starts_with("verdict: block\n"), "{rendered}");
 
     let wrapped = format!("bash -c '{}true{}'", "{ ".repeat(8000), "; }".repeat(8000));
     let result = Command::new(env!("CARGO_BIN_EXE_nah"))

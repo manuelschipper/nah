@@ -241,13 +241,24 @@ impl From<&Decision> for DecisionOutput {
     }
 }
 
+/// The `nah` exit code of every command; a success exits 0. `nah decide`
+/// exits with its verdict, and a runtime hook adapter exits with its runtime's
+/// hook protocol codes instead.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExitCode(u8);
 
 impl ExitCode {
+    /// A command other than `nah decide` failed after a valid invocation. It
+    /// shares 2 with the delegate verdict because only `nah decide` has one.
+    pub const COMMAND_FAILURE: Self = Self(2);
+
     /// nah could not decide at all, so it reports no verdict and no decision
     /// body. Adapters apply their configured unavailable failure policy.
     pub const UNAVAILABLE: Self = Self(3);
+
+    /// Invalid CLI invocation (usage error), for every command, including an
+    /// interactive command run without a terminal.
+    pub const USAGE: Self = Self(4);
 
     pub const fn value(self) -> u8 {
         self.0

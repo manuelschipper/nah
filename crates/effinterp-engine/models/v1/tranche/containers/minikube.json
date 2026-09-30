@@ -1,0 +1,197 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:6a179de3a6328352351e236e87b422f7f549840a4caa19b5af2d42ad67cf28a0",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/minikube_source.json",
+        "digest": "blake3:c59660b09e67dde703a165a60add43cb974f5795aa4ad8c7c455256e6ffed556"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "minikube",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/containers/minikube@v1",
+        "path": "../../tests/fixtures/model_tranche/minikube.json",
+        "digest": "blake3:d4183f3fa92e6d552be1add5835280b53e77c569db20145a5b3ff26fe73685be"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "minikube-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "minikube-not-the-command",
+            "delete",
+            "--profile",
+            "dev"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "container.remove"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/containers/minikube@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "container.remove"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/containers/minikube@v1",
+      "commands": [
+        "minikube"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "container",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "delete"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--profile"
+              ],
+              "takes_value": true
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--profile"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "container.remove",
+                  "resource": {
+                    "kind": "container",
+                    "runtime": {
+                      "kind": "literal",
+                      "value": "minikube"
+                    },
+                    "name": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--profile"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "container.remove",
+                  "resource": {
+                    "kind": "container",
+                    "runtime": {
+                      "kind": "literal",
+                      "value": "minikube"
+                    },
+                    "name": {
+                      "kind": "literal",
+                      "value": "minikube"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "container",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

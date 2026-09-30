@@ -1,0 +1,766 @@
+[
+  {
+    "id": "p18b/agents/amp@v1",
+    "primary_documentation": [
+      "https://ampcode.com/docs/cli",
+      "https://ampcode.com/docs/cli/settings",
+      "https://ampcode.com/docs/cli/execute-mode"
+    ],
+    "reviewed_surface": "Bare and execute sessions read user ~/.config/amp/settings.json or settings.jsonc and workspace .amp settings; AMP_API_KEY selects authentication. Only help/version are inert. Copied config, auth, MCP and updater mutations are not reviewed here and remain bounded.",
+    "positive_argv": [
+      [
+        "amp"
+      ],
+      [
+        "amp",
+        "-x",
+        "fix it"
+      ],
+      [
+        "amp",
+        "--version"
+      ]
+    ],
+    "negative_argv": [
+      "amp-not-the-command"
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  {
+    "id": "p18b/agents/claude@v1",
+    "primary_documentation": [
+      "https://code.claude.com/docs/en/mcp",
+      "https://code.claude.com/docs/en/settings"
+    ],
+    "reviewed_surface": "MCP add/remove/add-json/import scopes: project .mcp.json; user/local ~/.claude.json. Settings config set remains the explicitly approved legacy settings surface. MCP serve and prompts are sessions; help, doctor, config/MCP get/list are inert. Copied review, status, login/logout and upgrade verbs are omitted.",
+    "positive_argv": [
+      [
+        "claude"
+      ],
+      [
+        "claude",
+        "config",
+        "set",
+        "-g",
+        "theme",
+        "dark"
+      ],
+      [
+        "claude",
+        "mcp",
+        "add",
+        "--scope",
+        "project",
+        "server",
+        "command"
+      ],
+      [
+        "claude",
+        "mcp",
+        "add",
+        "--scope",
+        "user",
+        "server",
+        "command"
+      ],
+      [
+        "claude",
+        "mcp",
+        "add",
+        "server",
+        "command"
+      ],
+      [
+        "claude",
+        "--version"
+      ]
+    ],
+    "negative_argv": [
+      "claude-not-the-command"
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "filesystem.write",
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  {
+    "id": "p18b/agents/codex@v1",
+    "primary_documentation": [
+      "https://developers.openai.com/codex/cli/reference"
+    ],
+    "reviewed_surface": "Exec, review, resume and mcp-server are sessions. MCP add/remove writes user config.toml; get/list and login status are inert. Login/logout targets auth.json. Copied config set, MCP add-json/import/serve, doctor, setup-token and update verbs are omitted.",
+    "positive_argv": [
+      [
+        "codex"
+      ],
+      [
+        "codex",
+        "mcp",
+        "add",
+        "server",
+        "command"
+      ],
+      [
+        "codex",
+        "login",
+        "status"
+      ],
+      [
+        "codex",
+        "login"
+      ],
+      [
+        "codex",
+        "--version"
+      ]
+    ],
+    "negative_argv": [
+      "codex-not-the-command"
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "filesystem.write",
+      "network.connect",
+      "network.upload"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  {
+    "id": "p18b/agents/cursor-agent@v1",
+    "primary_documentation": [
+      "https://cursor.com/docs/cli/reference/parameters",
+      "https://cursor.com/docs/cli/reference/configuration",
+      "https://cursor.com/docs/enterprise/network-configuration"
+    ],
+    "reviewed_surface": "Bare/positional, print and resume are sessions. Status/help/version are inert. Reads user cli-config.json and project cli.json and MCP files. Copied config set, MCP add/remove/import/serve, doctor and upgrade verbs are omitted; other lifecycle forms are bounded pending exact storage review. Session network targets use the documented *.cursor.sh backend family rather than the unrelated public administration API.",
+    "positive_argv": [
+      [
+        "cursor-agent"
+      ],
+      [
+        "cursor-agent",
+        "status"
+      ],
+      [
+        "cursor-agent",
+        "--version"
+      ]
+    ],
+    "negative_argv": [
+      "cursor-agent-not-the-command"
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  {
+    "id": "p18b/agents/droid@v1",
+    "primary_documentation": [
+      "https://docs.factory.ai/droid-cli/cli-reference",
+      "https://docs.factory.ai/harness/mcp",
+      "https://docs.factory.ai/enterprise/network-and-deployment"
+    ],
+    "reviewed_surface": "Bare/positional and exec sessions read .factory settings and MCP configuration. MCP add/remove always writes ~/.factory/mcp.json. Copied config set, MCP add-json/import/serve, auth, diagnostics and updater verbs are omitted. Session network targets retain the documented *.factory.ai family because regional selection comes from authentication/configuration.",
+    "positive_argv": [
+      [
+        "droid"
+      ],
+      [
+        "droid",
+        "mcp",
+        "add",
+        "server",
+        "command"
+      ],
+      [
+        "droid",
+        "exec",
+        "fix it"
+      ],
+      [
+        "droid",
+        "--version"
+      ]
+    ],
+    "negative_argv": [
+      "droid-not-the-command"
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "filesystem.write",
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  {
+    "id": "p18b/agents/hermes@v1",
+    "primary_documentation": [
+      "https://hermes-agent.nousresearch.com/docs/user-guide/cli/",
+      "https://hermes-agent.nousresearch.com/docs/user-guide/configuration/"
+    ],
+    "reviewed_surface": "Bare/chat/query/resume forms are sessions. Config get is inert; config set may write config.yaml or .env for secret keys under HERMES_HOME or ~/.hermes. No project .hermes config is assumed. Copied MCP, auth, doctor and update commands are omitted pending exact reviewed targets.",
+    "positive_argv": [
+      [
+        "hermes"
+      ],
+      [
+        "hermes",
+        "config",
+        "set",
+        "model",
+        "test"
+      ],
+      [
+        "hermes",
+        "chat",
+        "-q",
+        "fix it"
+      ],
+      [
+        "hermes",
+        "--version"
+      ]
+    ],
+    "negative_argv": [
+      "hermes-not-the-command"
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "filesystem.write",
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  {
+    "id": "p18b/agents/pi@v1",
+    "primary_documentation": [
+      "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md"
+    ],
+    "reviewed_surface": "Positional messages, including status and doctor, and -p/--print run sessions. No built-in MCP. User settings/auth live under ~/.pi/agent or PI_CODING_AGENT_DIR; project settings live in .pi/settings.json. Only --help/--version are inert. Copied config/MCP/auth/updater subcommands are removed.",
+    "positive_argv": [
+      [
+        "pi"
+      ],
+      [
+        "pi",
+        "status"
+      ],
+      [
+        "pi",
+        "doctor"
+      ],
+      [
+        "pi",
+        "mcp",
+        "add",
+        "server",
+        "command"
+      ],
+      [
+        "pi",
+        "--version"
+      ]
+    ],
+    "negative_argv": [
+      "pi-not-the-command"
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  {
+    "id": "p18b/devtools/checksums@v1",
+    "primary_documentation": [
+      "https://www.gnu.org/software/coreutils/manual/html_node/cksum-common-options.html",
+      "https://man.openbsd.org/sha256"
+    ],
+    "reviewed_surface": "reviewed command and option forms represented by the promoted declaration",
+    "positive_argv": [
+      [
+        "sha256sum",
+        "artifact"
+      ],
+      [
+        "sha256sum",
+        "-c",
+        "checksums"
+      ]
+    ],
+    "negative_argv": [
+      "checksums-not-the-command"
+    ],
+    "expected_facts": [
+      "filesystem.read"
+    ],
+    "expected_boundaries": [
+      "input_determined_arguments"
+    ]
+  },
+  {
+    "id": "p18b/devtools/gh@v1",
+    "primary_documentation": [
+      "https://cli.github.com/manual/",
+      "https://cli.github.com/manual/gh_release_download",
+      "https://cli.github.com/manual/gh_run_download",
+      "https://github.com/cli/cli/blob/v2.100.0/pkg/cmd/api/api.go#L311-L315",
+      "https://github.com/cli/cli/blob/v2.100.0/pkg/cmd/api/api.go#L425-L434",
+      "https://github.com/cli/cli/blob/v2.100.0/pkg/cmd/api/fields.go#L101-L105",
+      "https://github.com/cli/go-gh/blob/v2.16.0/pkg/template/template.go#L69-L93",
+      "https://github.com/cli/go-gh/blob/v2.16.0/pkg/template/template.go#L269-L282",
+      "https://github.com/golang/go/blob/go1.26.1/src/text/template/parse/parse.go#L439-L445",
+      "https://github.com/golang/go/blob/go1.26.1/src/text/template/parse/parse.go#L792-L813",
+      "https://github.com/golang/go/blob/go1.26.1/src/text/template/parse/node.go#L633-L708",
+      "https://github.com/golang/go/blob/go1.26.1/src/text/template/parse/lex.go#L671-L678"
+    ],
+    "reviewed_surface": "Reviewed hosted verb groups, API method selectors, release/run download --dir/-D destinations, and unknown extension subcommands. JSON/query/pagination and PR options; release upload TAG FILES reads assets; run/release download honors --dir and --pattern; api --input reads a file. API -F/--field key=@path reads file payloads, literal fields do not read files, and symbolic fields or @- retain dynamic input boundaries; run list accepts --branch and --status. Exact API DELETE additionally requires unique scalar field keys and a bounded Go template grammar; malformed or unsupported template syntax retains a boundary.",
+    "positive_argv": [
+      [
+        "gh",
+        "pr",
+        "list"
+      ],
+      [
+        "gh",
+        "issue",
+        "create"
+      ],
+      [
+        "gh",
+        "repo",
+        "clone",
+        "owner/name"
+      ],
+      [
+        "gh",
+        "config",
+        "set",
+        "editor",
+        "vim"
+      ],
+      [
+        "gh",
+        "release",
+        "download",
+        "--dir",
+        "/srv/artifacts"
+      ],
+      [
+        "gh",
+        "run",
+        "download",
+        "-D",
+        "/srv/artifacts"
+      ],
+      [
+        "gh",
+        "api",
+        "-X",
+        "HEAD",
+        "repos/o/r"
+      ],
+      [
+        "gh",
+        "customverb",
+        "foo"
+      ]
+    ],
+    "negative_argv": [
+      "gh-not-the-command"
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "filesystem.write",
+      "network.download",
+      "network.request",
+      "network.upload"
+    ],
+    "expected_boundaries": [
+      "unmodeled_subcommand",
+      "unrecognized_arguments"
+    ]
+  },
+  {
+    "id": "p18b/devtools/glab@v1",
+    "primary_documentation": [
+      "https://docs.gitlab.com/cli/",
+      "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/api/api.go#L315-L328",
+      "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/api/api.go#L778-L818",
+      "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/api/api.go#L972-L1015",
+      "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/api/http.go#L20-L78",
+      "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/api/http.go#L100-L205",
+      "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/api/api_test.go#L1519-L1625",
+      "https://github.com/spf13/cobra/blob/v1.10.2/flag_groups.go#L130-L140",
+      "https://github.com/spf13/cobra/blob/v1.10.2/flag_groups.go#L188-L205"
+    ],
+    "reviewed_surface": "Exact API DELETE requires raw-presence option compatibility and fields convertible to query parameters under the reviewed CLI source: scalar and flat scalar-array values, typed-field overwrite and raw-field precedence. Objects, nested arrays, null array members and ambiguous wire-key collisions remain bounded.",
+    "positive_argv": [
+      [
+        "glab",
+        "mr",
+        "list"
+      ],
+      [
+        "glab",
+        "issue",
+        "create"
+      ],
+      [
+        "glab",
+        "repo",
+        "clone",
+        "group/name"
+      ],
+      [
+        "glab",
+        "api",
+        "-X",
+        "HEAD",
+        "projects/1"
+      ]
+    ],
+    "negative_argv": [
+      "glab-not-the-command"
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "filesystem.write",
+      "network.download",
+      "network.request",
+      "network.upload"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  {
+    "id": "p18b/devtools/inert@v1",
+    "primary_documentation": [
+      "https://man7.org/linux/man-pages/man1/id.1.html",
+      "https://man7.org/linux/man-pages/man8/ss.8.html",
+      "https://lsof.readthedocs.io/en/stable/manpage/"
+    ],
+    "reviewed_surface": "reviewed command and option forms represented by the promoted declaration",
+    "positive_argv": [
+      [
+        "id",
+        "-u"
+      ],
+      [
+        "hostname",
+        "replacement"
+      ],
+      [
+        "seq",
+        "10"
+      ],
+      [
+        "seq",
+        "1",
+        "10"
+      ],
+      [
+        "seq",
+        "1",
+        "2",
+        "10"
+      ]
+    ],
+    "negative_argv": [
+      "inert-not-the-command"
+    ],
+    "expected_facts": [],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  {
+    "id": "p18b/devtools/mktemp@v1",
+    "primary_documentation": [
+      "https://www.gnu.org/software/coreutils/manual/html_node/mktemp-invocation.html"
+    ],
+    "reviewed_surface": "Create a fresh-name pattern under explicit -p/--tmpdir or symbolic TMPDIR; X runs are randomized, never literal file identities. The -t template form is recognized.",
+    "positive_argv": [
+      [
+        "mktemp",
+        "-d",
+        "job.XXXXXX"
+      ],
+      [
+        "mktemp",
+        "-p",
+        "/safe",
+        "job.XXXXXX"
+      ]
+    ],
+    "negative_argv": [
+      "mktemp-not-the-command"
+    ],
+    "expected_facts": [
+      "filesystem.create"
+    ],
+    "expected_boundaries": []
+  },
+  {
+    "id": "p18b/devtools/prefix-wrappers@v1",
+    "primary_documentation": [
+      "https://man7.org/linux/man-pages/man1/time.1.html",
+      "https://man7.org/linux/man-pages/man1/taskset.1.html",
+      "https://man7.org/linux/man-pages/man1/chrt.1.html",
+      "https://man7.org/linux/man-pages/man1/ionice.1.html",
+      "https://man7.org/linux/man-pages/man1/setpriv.1.html"
+    ],
+    "reviewed_surface": "Each wrapper stops option parsing at the nested command; taskset mask and chrt priority precede it. Child flags are forwarded unchanged; time -o writes timing output; fakeroot -i/-s reads/writes state.",
+    "positive_argv": [
+      [
+        "time",
+        "rg",
+        "TODO",
+        "src"
+      ],
+      [
+        "taskset",
+        "-p",
+        "123"
+      ],
+      [
+        "ionice",
+        "rg",
+        "TODO",
+        "src"
+      ],
+      [
+        "taskset",
+        "-c",
+        "0",
+        "rg",
+        "TODO",
+        "src"
+      ],
+      [
+        "chrt",
+        "-f",
+        "10",
+        "rg",
+        "TODO",
+        "src"
+      ],
+      [
+        "ionice",
+        "rm",
+        "-rf",
+        "/srv/x"
+      ],
+      [
+        "unbuffer",
+        "rg",
+        "-n",
+        "TODO",
+        "src"
+      ],
+      [
+        "/usr/bin/time",
+        "-o",
+        "/srv/timing.log",
+        "true"
+      ]
+    ],
+    "negative_argv": [
+      "prefix-wrappers-not-the-command"
+    ],
+    "expected_facts": [
+      "filesystem.delete",
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": []
+  },
+  {
+    "id": "p18b/devtools/read-operands@v1",
+    "primary_documentation": [
+      "https://www.gnu.org/software/coreutils/manual/coreutils.html",
+      "https://man7.org/linux/man-pages/man1/getent.1.html",
+      "https://www.x.org/releases/X11R7.6/doc/man/man1/xxd.1.xhtml"
+    ],
+    "reviewed_surface": "Reviewed operand readers; file -f reads the file list with input-determined filesystem uncertainty; xxd writes its second operand in forward and reverse forms.",
+    "positive_argv": [
+      [
+        "cmp",
+        "left",
+        "right"
+      ],
+      [
+        "diff",
+        "-r",
+        "left",
+        "right"
+      ],
+      [
+        "du"
+      ],
+      [
+        "lsb_release",
+        "-a"
+      ],
+      [
+        "getent",
+        "passwd",
+        "root"
+      ],
+      [
+        "uniq",
+        "input",
+        "output"
+      ],
+      [
+        "xxd",
+        "-r",
+        "input.hex",
+        "output"
+      ],
+      [
+        "file",
+        "-f",
+        "paths.txt"
+      ],
+      [
+        "xxd",
+        "input",
+        "output"
+      ]
+    ],
+    "negative_argv": [
+      "read-operands-not-the-command"
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": [
+      "input_determined_arguments"
+    ]
+  },
+  {
+    "id": "p18b/devtools/rg@v1",
+    "primary_documentation": [
+      "https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md"
+    ],
+    "reviewed_surface": "reviewed command and option forms represented by the promoted declaration",
+    "positive_argv": [
+      [
+        "rg",
+        "-n",
+        "TODO",
+        "src"
+      ],
+      [
+        "rg",
+        "--pre",
+        "cat",
+        "TODO",
+        "src"
+      ],
+      [
+        "rg",
+        "--search-zip",
+        "TODO",
+        "archive.zip"
+      ]
+    ],
+    "negative_argv": [
+      "rg-not-the-command"
+    ],
+    "expected_facts": [
+      "filesystem.read"
+    ],
+    "expected_boundaries": [
+      "input_determined_arguments",
+      "unmodeled_subprocess",
+      "unrecognized_arguments"
+    ]
+  },
+  {
+    "id": "p18b/devtools/rust-tools@v1",
+    "primary_documentation": [
+      "https://doc.rust-lang.org/rustc/command-line-arguments.html",
+      "https://rust-lang.github.io/rustfmt/"
+    ],
+    "reviewed_surface": "reviewed command and option forms represented by the promoted declaration",
+    "positive_argv": [
+      [
+        "rustc",
+        "src/main.rs"
+      ],
+      [
+        "rustfmt",
+        "--check",
+        "src/lib.rs"
+      ],
+      [
+        "rustfmt",
+        "src/lib.rs"
+      ]
+    ],
+    "negative_argv": [
+      "rust-tools-not-the-command"
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": []
+  },
+  {
+    "id": "p18b/devtools/which@v1",
+    "primary_documentation": [
+      "https://man7.org/linux/man-pages/man1/whereis.1.html",
+      "https://cgit.freedesktop.org/xdg/which/tree/which.1"
+    ],
+    "reviewed_surface": "reviewed command and option forms represented by the promoted declaration",
+    "positive_argv": [
+      [
+        "which",
+        "cargo"
+      ]
+    ],
+    "negative_argv": [
+      "which-not-the-command"
+    ],
+    "expected_facts": [
+      "environment.read"
+    ],
+    "expected_boundaries": []
+  }
+]

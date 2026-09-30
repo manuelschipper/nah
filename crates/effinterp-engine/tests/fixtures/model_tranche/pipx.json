@@ -1,0 +1,781 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pipx",
+          "run",
+          "black"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "filesystem:/work/python-environment"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "no model for command \"black\""
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "filesystem",
+                    "process",
+                    "environment",
+                    "network",
+                    "database",
+                    "container",
+                    "git",
+                    "cloud",
+                    "messaging",
+                    "system",
+                    "credential",
+                    "dataflow"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "package_scripts"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pipx",
+          "run",
+          "script.py",
+          "arg"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "filesystem:/work/python-environment"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "process"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "source",
+                      "test": {
+                        "equals": "file"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "process.code_execution"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "python3"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/script.py"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "CPython site startup may execute .pth files, sitecustomize, and usercustomize; startup paths are unobserved"
+                },
+                "domains": {
+                  "all_of": [
+                    "environment"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "environment"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "python script source unavailable: stale"
+                },
+                "domains": {
+                  "all_of": [
+                    "environment",
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "dynamic_source"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "environment",
+            "filesystem",
+            "network",
+            "process"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "python script source unavailable: stale"
+                },
+                "domains": {
+                  "all_of": [
+                    "environment",
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecoverable_source"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "environment",
+            "filesystem",
+            "network",
+            "process"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "package_scripts"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "container": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "credential": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "database": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1,
+            2,
+            3
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            1,
+            2,
+            3,
+            4
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "messaging": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            1,
+            2,
+            3,
+            4
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            1,
+            2,
+            3,
+            4
+          ]
+        },
+        "system": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pipx",
+          "run",
+          "--spec",
+          "black==24.1",
+          "black",
+          "."
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "filesystem:/work/python-environment"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "no model for command \"black\""
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "filesystem",
+                    "process",
+                    "environment",
+                    "network",
+                    "database",
+                    "container",
+                    "git",
+                    "cloud",
+                    "messaging",
+                    "system",
+                    "credential",
+                    "dataflow"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "domains": {
+                  "all_of": [
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "package_scripts"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    }
+  ]
+}

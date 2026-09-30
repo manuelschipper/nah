@@ -1,0 +1,331 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:d10ed2dd92a16cb69a710a3f34d92cc70238786cd302685ae0d929f1012c92c6",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "https://sourceware.org/binutils/docs/binutils/strip.html",
+        "digest": "blake3:0fa3cd0f9fa95be54f8930b2c352a2e63e733e31692c5f01bde41c8abde99595"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "strip",
+        "requirement": "GNU-binutils-reviewed-surface@2026-09-20"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "binutils/strip@v1",
+        "path": "../../tests/fixtures/model_tranche/command-state-strip.json",
+        "digest": "blake3:69407e499733dde32bacb49c58f63b0c5f4fe51c22ada9ebb652ef1596d6ba19"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "strip-help",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "strip",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write",
+          "filesystem.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "strip-near-name",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "strip-other"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write",
+          "filesystem.delete"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "strip-write-required",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.write"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "binutils/strip@v1",
+      "commands": [
+        "strip"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version",
+            "-V"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--strip-debug",
+            "-g"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--strip-all",
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-S"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--output",
+            "--output-file",
+            "-o"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "inputs",
+          "index": 0,
+          "variadic": true,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "inputs"
+          },
+          "when": {
+            "arguments_literal": true,
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "-h",
+              "--version",
+              "-V"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "inputs"
+          },
+          "when": {
+            "arguments_literal": true,
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "-h",
+              "--version",
+              "-V",
+              "-o",
+              "--output",
+              "--output-file"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-o",
+              "--output",
+              "--output-file"
+            ]
+          },
+          "when": {
+            "arguments_literal": true,
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "-h",
+              "--version",
+              "-V"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "min_operands": 1,
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [
+              "-o",
+              "--output",
+              "--output-file"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "min_operands": 2,
+            "reads_stdin": false
+          },
+          "reason": "unrecognized_arguments",
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "information",
+          "when": {
+            "flag_present": [
+              "--help",
+              "-h",
+              "--version",
+              "-V"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ]
+    }
+  ]
+}

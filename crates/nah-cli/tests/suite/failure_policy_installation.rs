@@ -110,6 +110,7 @@ fn stale_strict_wiring_is_preserved_for_path_based_installers() {
         "cursor",
         "devin",
         "droid",
+        "hermes",
         "kiro",
         "openclaw",
         "opencode",
@@ -120,6 +121,7 @@ fn stale_strict_wiring_is_preserved_for_path_based_installers() {
     .filter(installation_supported_on_host)
     {
         let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp.path().join(".hermes")).unwrap();
         let strict = nah(temp.path(), runtime, "install", Some("--fail-closed"));
         assert!(strict.status.success(), "{runtime}: {strict:?}");
         let stale_executable = if cfg!(windows) {

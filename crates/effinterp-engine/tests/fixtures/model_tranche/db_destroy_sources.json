@@ -1,0 +1,219 @@
+[
+  {
+    "id": "p18b/database/prisma@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://www.prisma.io/docs/orm/reference/prisma-cli-reference"
+    ],
+    "reviewed_surface": "migrate reset drops or soft-resets the configured database and reapplies migrations; db push --force-reset resets it before pushing; db push --accept-data-loss applies an unobserved lossy diff; db execute --stdin runs the piped SQL. -h/--help and -v/--version exit without acting."
+  },
+  {
+    "id": "p18b/database/rails@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://guides.rubyonrails.org/active_record_migrations.html",
+      "https://github.com/rails/rails/blob/main/activerecord/lib/active_record/railties/databases.rake"
+    ],
+    "reviewed_surface": "Built-in Active Record tasks, matched as exact tokens: db:drop, db:reset, db:migrate:reset, db:purge and the test-database purge tasks (db:test:purge, db:test:load_schema, db:test:prepare), with their :all, :NAME and db:drop:_unsafe forms, drop or empty a configured database; db:schema:load and db:setup recreate every table with force: :cascade; db:truncate_all and db:seed:replant truncate every table. db:fixtures:load deletes every row of each table that has a fixture file before inserting the fixtures. Several tasks may be given in one call. Rails commands such as runner, console and generate take no tasks. -v is the version command only as the first argument; after a task it reaches Rake, where it means verbose."
+  },
+  {
+    "id": "p18b/database/rake@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://guides.rubyonrails.org/active_record_migrations.html",
+      "https://github.com/ruby/rake/blob/master/lib/rake/application.rb"
+    ],
+    "reviewed_surface": "The same built-in Active Record tasks run through rake, matched as exact tokens; NAME=value operands are environment assignments. -T/-D/-W/-P list tasks and -n/--dry-run skips actions; rake -e (inline Ruby) and other options stay unmodeled."
+  },
+  {
+    "id": "p18b/database/django-admin@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://docs.djangoproject.com/en/stable/ref/django-admin/#flush",
+      "https://github.com/django/django/blob/main/django/core/management/commands/flush.py",
+      "https://github.com/django-extensions/django-extensions/blob/main/django_extensions/management/commands/reset_db.py"
+    ],
+    "reviewed_surface": "flush removes all data from every table of the selected database; django-extensions reset_db drops and recreates the database. Other commands stay unmodeled."
+  },
+  {
+    "id": "p18b/database/sequelize@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://github.com/sequelize/cli#documentation"
+    ],
+    "reviewed_surface": "db:drop drops the configured database. Undo migrations and other commands stay unmodeled."
+  },
+  {
+    "id": "p18b/database/typeorm@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://typeorm.io/docs/advanced-topics/using-cli/"
+    ],
+    "reviewed_surface": "schema:drop drops every table of the data source's database. schema:sync, schema:log and migrations stay unmodeled."
+  },
+  {
+    "id": "p18b/database/drizzle-kit@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://orm.drizzle.team/docs/drizzle-kit-push"
+    ],
+    "reviewed_surface": "push applies the schema diff to the configured database; drop removes a migration file, not data, and stays unmodeled."
+  },
+  {
+    "id": "p18b/database/flyway@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://documentation.red-gate.com/fd/clean-277579001.html",
+      "https://documentation.red-gate.com/fd/flyway-clean-disabled-setting-277578981.html"
+    ],
+    "reviewed_surface": "clean drops every object in the configured schemas. A literal -cleanDisabled=true refuses it; configuration can also disable clean (the default since Flyway 9), which Nah does not read."
+  },
+  {
+    "id": "p18b/database/liquibase@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://docs.liquibase.com/commands/utility/drop-all.html"
+    ],
+    "reviewed_surface": "drop-all drops every database object in the configured schemas; --force and --require-force take picocli boolean values. Rollback commands stay unmodeled."
+  },
+  {
+    "id": "p18b/database/dbmate@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://github.com/amacneil/dbmate#command-line-options",
+      "https://github.com/amacneil/dbmate/blob/main/main.go"
+    ],
+    "reviewed_surface": "drop drops the target database. Global options precede the command; rollback stays unmodeled."
+  },
+  {
+    "id": "p18b/database/atlas@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://atlasgo.io/cli-reference#atlas-schema-clean",
+      "https://github.com/mongodb/mongodb-atlas-cli/blob/master/internal/cli/clusters/delete.go",
+      "https://github.com/mongodb/mongodb-atlas-cli/blob/master/internal/cli/clusters/clusters.go"
+    ],
+    "reviewed_surface": "Two tools share the atlas name with disjoint subcommands: Ariga's schema clean drops every object in the target database; the MongoDB Atlas CLI's clusters (alias cluster) delete (alias rm) and serverless delete remove the deployment and its backup snapshots."
+  },
+  {
+    "id": "p18b/cloud/neonctl@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://github.com/neondatabase/neonctl/blob/main/src/commands/projects.ts",
+      "https://github.com/neondatabase/neonctl/blob/main/src/commands/branches.ts",
+      "https://github.com/neondatabase/neonctl/blob/main/src/commands/databases.ts",
+      "https://github.com/neondatabase/neonctl/blob/main/src/index.ts"
+    ],
+    "reviewed_surface": "projects (alias project), branches (alias branch) and databases (aliases database, db) delete remove the named resource; branches reset --parent and branches restore overwrite a branch's data, optionally preserving the old state under a new name. -h/--help and -v/--version exit without acting. Endpoint (compute) deletion stays unmodeled."
+  },
+  {
+    "id": "p18b/cloud/pscale@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://github.com/planetscale/cli/blob/main/internal/cmd/database/database.go",
+      "https://github.com/planetscale/cli/blob/main/internal/cmd/database/delete.go",
+      "https://github.com/planetscale/cli/blob/main/internal/cmd/branch/delete.go",
+      "https://github.com/planetscale/cli/blob/main/internal/cmd/root.go"
+    ],
+    "reviewed_surface": "database (alias db) delete (alias rm) removes a database and branch delete (alias rm) removes a branch (and with --delete-descendants its descendants). Password, role and backup commands stay unmodeled."
+  },
+  {
+    "id": "p18b/cloud/turso@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://github.com/tursodatabase/turso-cli/blob/main/internal/cmd/db_destroy.go",
+      "https://github.com/tursodatabase/turso-cli/blob/main/internal/cmd/group.go",
+      "https://github.com/tursodatabase/turso-cli/blob/main/internal/cmd/db_shell.go"
+    ],
+    "reviewed_surface": "db destroy removes each named database (one or more); with a nonempty --location or --instance it removes only one replica or instance instead. group destroy removes a group and all of its databases; db shell runs SQL against the named database."
+  },
+  {
+    "id": "p18b/cloud/wrangler@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://developers.cloudflare.com/workers/wrangler/commands/d1/",
+      "https://github.com/cloudflare/workers-sdk/blob/main/packages/wrangler/src/d1/execute.ts"
+    ],
+    "reviewed_surface": "d1 delete removes a D1 database. d1 execute --remote runs --command SQL once against the Cloudflare database, or its preview database with --preview. Without --remote it targets the local Miniflare state on disk; Wrangler refuses --preview without --remote, --local with --remote, and a nonempty --persist-to without --local."
+  },
+  {
+    "id": "p18b/cloud/heroku@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://github.com/heroku/cli/blob/main/src/commands/pg/reset.ts",
+      "https://github.com/heroku/cli/blob/main/src/commands/pg/backups/restore.ts",
+      "https://github.com/heroku/cli/blob/main/src/commands/pg/copy.ts"
+    ],
+    "reviewed_surface": "pg:reset deletes all data in the database (DATABASE_URL by default); pg:backups:restore and pg:copy replace the target database's contents. The attachment names do not identify the database, so the target stays unresolved."
+  },
+  {
+    "id": "p18b/cloud/upstash@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://github.com/upstash/cli/blob/main/src/commands/redis/delete.ts",
+      "https://github.com/upstash/cli/blob/main/src/commands/redis/exec.ts",
+      "https://github.com/upstash/cli/blob/main/src/commands/vector/delete.ts",
+      "https://github.com/upstash/cli/blob/main/src/commands/search/delete.ts"
+    ],
+    "reviewed_surface": "redis delete, vector delete and search delete remove the database or index named by id (--dry-run only prints); redis exec FLUSHALL or FLUSHDB empties the database. Other exec commands stay unmodeled."
+  },
+  {
+    "id": "p18b/cloud/supabase@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://supabase.com/docs/reference/cli/supabase-db-reset",
+      "https://github.com/supabase/cli/blob/develop/apps/cli/src/commands/db/reset/reset.command.ts",
+      "https://github.com/supabase/cli/blob/develop/apps/cli/src/commands/projects/delete/delete.handler.ts",
+      "https://github.com/supabase/cli/blob/develop/apps/cli/src/commands/branches/delete/delete.handler.ts"
+    ],
+    "reviewed_surface": "db reset --linked or --db-url drops the remote database's user schemas and reapplies migrations and seeds; the default local reset targets the development container. projects delete and branches delete remove the named project or branch, or one chosen at a prompt when no target is given."
+  },
+  {
+    "id": "p18b/cloud/doctl@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://docs.digitalocean.com/reference/doctl/reference/databases/delete/",
+      "https://docs.digitalocean.com/reference/doctl/reference/databases/db/delete/",
+      "https://github.com/digitalocean/doctl/blob/main/commands/databases.go"
+    ],
+    "reviewed_surface": "databases delete (alias rm; databases also answers to database, db, dbs and d) removes a managed database cluster; databases db delete removes one database from a cluster. -h/--help exits without acting, for these and for compute droplet delete."
+  },
+  {
+    "id": "p18b/package-build-vcs/mix@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://hexdocs.pm/ecto/Mix.Tasks.Ecto.Drop.html"
+    ],
+    "reviewed_surface": "mix ecto.drop drops the storage of each configured repo. ecto.reset is a project alias defined in mix.exs, not an Ecto task, and stays unmodeled. ecto.reset is not an Ecto task but the alias Phoenix generates in mix.exs as ecto.drop followed by ecto.setup; mix.exs is not read, so it is taken to drop the database."
+  },
+  {
+    "id": "p18b/package-build-vcs/bundle@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://bundler.io/man/bundle-exec.1.html"
+    ],
+    "reviewed_surface": "bundle exec runs the given command inside the bundle after evaluating the Gemfile."
+  },
+  {
+    "id": "p18b/database/artisan@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://laravel.com/docs/migrations",
+      "https://github.com/laravel/framework/blob/11.x/src/Illuminate/Database/Console/WipeCommand.php",
+      "https://github.com/laravel/framework/blob/11.x/src/Illuminate/Database/Console/Migrations/FreshCommand.php",
+      "https://github.com/laravel/framework/blob/11.x/src/Illuminate/Database/Console/Migrations/ResetCommand.php",
+      "https://github.com/laravel/framework/blob/11.x/src/Illuminate/Database/Console/Migrations/RefreshCommand.php"
+    ],
+    "reviewed_surface": "db:wipe drops every table (and with --drop-views/--drop-types views and types); migrate:fresh runs db:wipe then migrate; migrate:reset runs every migration's down method, unless --pretend only prints the SQL; migrate:refresh resets every migration unless --step is a positive number, which rolls back that many instead. In production each asks for confirmation unless --force. migrate:rollback and other commands stay unmodeled. A command name whose colon segments each prefix a modeled command's (migrate:fr) is read as that command, as Symfony Console resolves it against the registered commands. --database, --path, --schema-path, --seeder, --step and --env take optional values. -h/--help and -V/--version exit without acting."
+  },
+  {
+    "id": "p18b/database/symfony-console@v1",
+    "selection": "db-destroy-plan",
+    "primary_documentation": [
+      "https://github.com/doctrine/DoctrineBundle/blob/3.3.x/src/Command/DropDatabaseDoctrineCommand.php",
+      "https://github.com/doctrine/orm/blob/3.7.x/src/Tools/Console/Command/SchemaTool/DropCommand.php",
+      "https://github.com/doctrine/DoctrineFixturesBundle/blob/4.3.x/src/Command/LoadDataFixturesDoctrineCommand.php"
+    ],
+    "reviewed_surface": "doctrine:database:drop drops the connection's database only with -f/--force and otherwise prints what it would drop; doctrine:schema:drop drops the mapped schema (or with --full-database every asset) only with -f/--force, and --dump-sql prints the SQL instead; doctrine:fixtures:load purges every mapped table with DELETE (or TRUNCATE with --purge-with-truncate) unless --append or --dry-run, asking for confirmation only when interactive. Other commands stay unmodeled; a command name whose colon segments each prefix a modeled command's (d:d:d) is read as that command, as Symfony Console resolves it. -h/--help and -V/--version exit without acting."
+  }
+]

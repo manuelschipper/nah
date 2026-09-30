@@ -1,0 +1,52 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "database-unqualified",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "database_table",
+        "table": "users"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "database_table",
+          "server": {
+            "kind": "exact",
+            "value": "prod"
+          },
+          "database": {
+            "kind": "any"
+          },
+          "schema": {
+            "kind": "any"
+          },
+          "table": {
+            "kind": "exact",
+            "value": "users"
+          }
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "indeterminate",
+    "reason": {
+      "kind": "underqualified_fields"
+    }
+  }
+}

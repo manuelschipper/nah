@@ -1,0 +1,685 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "terragrunt",
+          "destroy"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "help",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "mode",
+                      "test": {
+                        "equals": "destroy"
+                      }
+                    },
+                    {
+                      "name": "preview",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "whole_stack",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:managed/terraform/fs:/work/? [workspace=<other:?>; instance=<other:?>]"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "Only selected command configuration environment inputs are modeled"
+                },
+                "domains": {
+                  "all_of": [
+                    "environment"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "environment"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "Infrastructure providers, data sources, modules, provisioners, state backend and locks may execute code or perform I/O; configuration expressions and state-only inventory are unresolved"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "provider_io"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "cloud",
+            "filesystem",
+            "network",
+            "process"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "Infrastructure root configuration discovery is unavailable; root is not known empty"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "partial_analysis"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "cloud",
+            "filesystem"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            2,
+            3
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            2,
+            3
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            2
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            2
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "terragrunt",
+          "run",
+          "destroy"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "help",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "mode",
+                      "test": {
+                        "equals": "destroy"
+                      }
+                    },
+                    {
+                      "name": "preview",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "whole_stack",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:managed/terraform/fs:/work/? [workspace=<other:?>; instance=<other:?>]"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "Only selected command configuration environment inputs are modeled"
+                },
+                "domains": {
+                  "all_of": [
+                    "environment"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "environment"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "Infrastructure providers, data sources, modules, provisioners, state backend and locks may execute code or perform I/O; configuration expressions and state-only inventory are unresolved"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "filesystem",
+                    "network",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "provider_io"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "cloud",
+            "filesystem",
+            "network",
+            "process"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "Infrastructure root configuration discovery is unavailable; root is not known empty"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "partial_analysis"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "cloud",
+            "filesystem"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            2,
+            3
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            2,
+            3
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            2
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            2
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "terragrunt",
+          "plan"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "process"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "process.exec"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<process:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "delegated_command",
+                      "test": {
+                        "equals": "plan"
+                      }
+                    },
+                    {
+                      "name": "wrapper",
+                      "test": {
+                        "equals": "terragrunt"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "Terragrunt delegates to a configured Terraform/OpenTofu binary; configuration, extra_arguments, hooks and unit selection are unresolved"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "filesystem",
+                    "network",
+                    "process",
+                    "environment"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "provider_io"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "cloud",
+            "filesystem",
+            "network",
+            "process",
+            "environment"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "terragrunt",
+          "apply"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "process"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "process.exec"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<process:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "delegated_command",
+                      "test": {
+                        "equals": "apply"
+                      }
+                    },
+                    {
+                      "name": "wrapper",
+                      "test": {
+                        "equals": "terragrunt"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "Terragrunt delegates to a configured Terraform/OpenTofu binary; configuration, extra_arguments, hooks and unit selection are unresolved"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "filesystem",
+                    "network",
+                    "process",
+                    "environment"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "provider_io"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "cloud",
+            "filesystem",
+            "network",
+            "process",
+            "environment"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "terragrunt",
+          "destroy",
+          "--help"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "Only selected command configuration environment inputs are modeled"
+                },
+                "domains": {
+                  "all_of": [
+                    "environment"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "environment_configuration"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "environment"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    }
+  ]
+}

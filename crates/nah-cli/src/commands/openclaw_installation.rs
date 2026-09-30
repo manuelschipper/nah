@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_paths::reject_hook_path_symlink;
 use super::javascript_bridge::javascript_decision_bridge;
 use super::{RuntimeHookStatus, RuntimeMutation};
 
@@ -184,7 +185,7 @@ fn lock(paths: &OpenClawHookPaths) -> Result<File, String> {
         .parent()
         .ok_or_else(|| "invalid-openclaw-hook-lock-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "openclaw-hook-lock-failed")?;
-    reject_symlink(&paths.lock, "openclaw-hook-lock-failed")?;
+    reject_hook_path_symlink(&paths.lock, "openclaw-hook-lock-failed")?;
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
@@ -208,18 +209,9 @@ fn reject_symlinks(paths: &OpenClawHookPaths) -> Result<(), String> {
         &paths.manifest,
         &paths.module,
     ] {
-        reject_symlink(path, "openclaw-plugin-symlink-unsupported")?;
+        reject_hook_path_symlink(path, "openclaw-plugin-symlink-unsupported")?;
     }
     Ok(())
-}
-
-fn reject_symlink(path: &Path, error: &str) -> Result<(), String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(error.into()),
-        Ok(_) => Ok(()),
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(error.into()),
-    }
 }
 
 fn validate_target(paths: &OpenClawHookPaths) -> Result<(), String> {

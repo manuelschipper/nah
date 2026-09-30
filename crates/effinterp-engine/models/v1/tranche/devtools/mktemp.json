@@ -1,0 +1,346 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:e16a81ac714e6991cf3fd63828492832c1c99c9b204d000493cc51a88302cbfe",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/devtools/mktemp@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "mktemp",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/mktemp@v1",
+        "path": "../../tests/fixtures/model_tranche/mktemp.json",
+        "digest": "blake3:b33b75e13ef6e36a60781cd92d971a811de253817d592218ce60227ca62ac4b3"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "mktemp-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "mktemp-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.create"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/mktemp@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.create"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/mktemp@v1",
+      "commands": [
+        "mktemp"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--directory",
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--tmpdir",
+            "-p"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--quiet",
+            "-q"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--suffix"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-t"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "template",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "template"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-p",
+              "--tmpdir"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.create",
+              "resource": {
+                "kind": "in_directory",
+                "directory": {
+                  "kind": "environment",
+                  "name": "TMPDIR"
+                },
+                "entry": {
+                  "kind": "temporary_name",
+                  "value": {
+                    "kind": "current"
+                  }
+                }
+              },
+              "attributes": {
+                "directory": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-d",
+                    "--directory"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-p",
+              "--tmpdir"
+            ],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.create",
+              "resource": {
+                "kind": "in_directory",
+                "directory": {
+                  "kind": "flag_value",
+                  "flags": [
+                    "-p",
+                    "--tmpdir"
+                  ]
+                },
+                "entry": {
+                  "kind": "temporary_name",
+                  "value": {
+                    "kind": "literal",
+                    "value": "tmp.XXXXXXXXXX"
+                  }
+                }
+              },
+              "attributes": {
+                "directory": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-d",
+                    "--directory"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "template"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-p",
+              "--tmpdir"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.create",
+              "resource": {
+                "kind": "in_directory",
+                "directory": {
+                  "kind": "flag_value",
+                  "flags": [
+                    "-p",
+                    "--tmpdir"
+                  ]
+                },
+                "entry": {
+                  "kind": "temporary_name",
+                  "value": {
+                    "kind": "current"
+                  }
+                }
+              },
+              "attributes": {
+                "directory": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-d",
+                    "--directory"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-p",
+              "--tmpdir"
+            ],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.create",
+              "resource": {
+                "kind": "in_directory",
+                "directory": {
+                  "kind": "environment",
+                  "name": "TMPDIR"
+                },
+                "entry": {
+                  "kind": "temporary_name",
+                  "value": {
+                    "kind": "literal",
+                    "value": "tmp.XXXXXXXXXX"
+                  }
+                }
+              },
+              "attributes": {
+                "directory": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-d",
+                    "--directory"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "stdout_value": true,
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.create",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

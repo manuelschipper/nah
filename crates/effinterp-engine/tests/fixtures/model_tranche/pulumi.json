@@ -1,0 +1,1686 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "destroy"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "exclude_protected",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "help",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "ignore_protect",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "mode",
+                      "test": {
+                        "equals": "destroy"
+                      }
+                    },
+                    {
+                      "name": "preview",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "provider",
+                      "test": {
+                        "equals": "pulumi"
+                      }
+                    },
+                    {
+                      "name": "target_dependents",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "targeted",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "whole_stack",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<cloud:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      },
+      "required_boundaries": []
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "plan"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unrecognized operands: plan"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "cloud",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "destroy",
+          "--yes"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "exclude_protected",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "help",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "ignore_protect",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "mode",
+                      "test": {
+                        "equals": "destroy"
+                      }
+                    },
+                    {
+                      "name": "preview",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "provider",
+                      "test": {
+                        "equals": "pulumi"
+                      }
+                    },
+                    {
+                      "name": "target_dependents",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "targeted",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "whole_stack",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<cloud:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      },
+      "required_boundaries": []
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "down",
+          "-yf"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "exclude_protected",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "help",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "ignore_protect",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "mode",
+                      "test": {
+                        "equals": "destroy"
+                      }
+                    },
+                    {
+                      "name": "preview",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "provider",
+                      "test": {
+                        "equals": "pulumi"
+                      }
+                    },
+                    {
+                      "name": "target_dependents",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "targeted",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "whole_stack",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<cloud:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      },
+      "required_boundaries": []
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "dn",
+          "--yes",
+          "--skip-preview"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "exclude_protected",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "help",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "ignore_protect",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "mode",
+                      "test": {
+                        "equals": "destroy"
+                      }
+                    },
+                    {
+                      "name": "preview",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "provider",
+                      "test": {
+                        "equals": "pulumi"
+                      }
+                    },
+                    {
+                      "name": "target_dependents",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "targeted",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "whole_stack",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<cloud:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      },
+      "required_boundaries": []
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "destroy",
+          "--target",
+          "urn:only"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "no model for command \"pulumi\""
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "filesystem",
+                    "process",
+                    "environment",
+                    "network",
+                    "database",
+                    "container",
+                    "git",
+                    "cloud",
+                    "messaging",
+                    "system",
+                    "credential",
+                    "dataflow"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "destroy",
+          "--exclude",
+          "urn:skip"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "no model for command \"pulumi\""
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "filesystem",
+                    "process",
+                    "environment",
+                    "network",
+                    "database",
+                    "container",
+                    "git",
+                    "cloud",
+                    "messaging",
+                    "system",
+                    "credential",
+                    "dataflow"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "destroy",
+          "--exclude-protected=false",
+          "--ignore-protect=false"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "no model for command \"pulumi\""
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "filesystem",
+                    "process",
+                    "environment",
+                    "network",
+                    "database",
+                    "container",
+                    "git",
+                    "cloud",
+                    "messaging",
+                    "system",
+                    "credential",
+                    "dataflow"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unmodeled_command"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "-v3",
+          "destroy",
+          "-sdev",
+          "-p4",
+          "-mmessage",
+          "-cfoo=bar",
+          "-r=false"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "exclude_protected",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "help",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "ignore_protect",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "mode",
+                      "test": {
+                        "equals": "destroy"
+                      }
+                    },
+                    {
+                      "name": "preview",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "provider",
+                      "test": {
+                        "equals": "pulumi"
+                      }
+                    },
+                    {
+                      "name": "stack",
+                      "test": {
+                        "equals": "dev"
+                      }
+                    },
+                    {
+                      "name": "target_dependents",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "targeted",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "whole_stack",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<cloud:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    },
+                    {
+                      "name": "purpose",
+                      "test": {
+                        "equals": "stack_configuration"
+                      }
+                    },
+                    {
+                      "name": "stack",
+                      "test": {
+                        "equals": "dev"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<fs:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "Pulumi stack configuration path requires project discovery when --config-file is absent"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "live_inventory"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "filesystem"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "destroy",
+          "--config",
+          "key=value",
+          "--refresh"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "active",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "dry_run",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "exclude_protected",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "help",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "ignore_protect",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "mode",
+                      "test": {
+                        "equals": "destroy"
+                      }
+                    },
+                    {
+                      "name": "preview",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "provider",
+                      "test": {
+                        "equals": "pulumi"
+                      }
+                    },
+                    {
+                      "name": "target_dependents",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "targeted",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "whole_stack",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<cloud:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    },
+                    {
+                      "name": "purpose",
+                      "test": {
+                        "equals": "stack_configuration"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<fs:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "Pulumi stack configuration path requires project discovery when --config-file is absent"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "live_inventory"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "filesystem"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "destroy",
+          "-r",
+          "false"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unrecognized operands: false"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "cloud",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "destroy",
+          "--refresh=invalid"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "unrecognized flags: --refresh=invalid"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecognized_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "cloud",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "destroy",
+          "-c"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "missing flag values: -c"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "filesystem",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "missing_required_arguments"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "cloud",
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "pulumi",
+          "destroy",
+          "--preview-only",
+          "-cfoo=bar",
+          "-r=false"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "disclosure",
+                      "test": {
+                        "equals": "contents"
+                      }
+                    },
+                    {
+                      "name": "purpose",
+                      "test": {
+                        "equals": "stack_configuration"
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<fs:?>"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "Pulumi stack configuration path requires project discovery when --config-file is absent"
+                },
+                "domains": {
+                  "all_of": [
+                    "filesystem"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "live_inventory"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "filesystem"
+          ]
+        },
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "Pulumi destroy preview reads stack state and invokes providers without requesting resource deletion"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "process"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "provider_io"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "cloud",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        }
+      }
+    }
+  ]
+}

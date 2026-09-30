@@ -1,0 +1,354 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:ef7001ff706be0fbb31299a3cebe677eb9b2932df5607a3eb791da2c9cbae57d",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/agents_selfprot_sources.json#selfprot/agents/pi@v1",
+        "digest": "blake3:8bab1c9cbbd0ed24f19c085e7f1dfdff7a16a16f858ccd9e628ba414b45e1b95"
+      },
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/agents/pi@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "pi",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/agents/pi@v1",
+        "path": "../../tests/fixtures/model_tranche/agents-pi.json",
+        "digest": "blake3:df9468b4d28b04d8fdd0b3a17d91c01d8a91c64495a2d4592da962490995944f"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "pi-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pi-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "environment.read"
+        ],
+        "absent_boundaries": [
+          "unmodeled_dynamic"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/agents/pi@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/agents/pi@v1",
+      "commands": [
+        "pi"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "--print",
+            "-p"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--continue"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--resume"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--no-extensions"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "container",
+          "database",
+          "environment",
+          "filesystem",
+          "git",
+          "messaging",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "without_subcommand": true,
+          "name": "session",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "PI_CODING_AGENT_DIR"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "settings.json"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".pi/agent/settings.json"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "union",
+                        "alternatives": [
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "PI_CODING_AGENT_DIR"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": "auth.json"
+                            }
+                          },
+                          {
+                            "kind": "in_directory",
+                            "directory": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            },
+                            "entry": {
+                              "kind": "literal",
+                              "value": ".pi/agent/auth.json"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "literal",
+                          "value": ".pi/settings.json"
+                        }
+                      }
+                    ]
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "literal",
+                      "value": "api.openai.com"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "OPENAI_API_KEY"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "ANTHROPIC_API_KEY"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "PI_CODING_AGENT_DIR"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ]
+    }
+  ]
+}

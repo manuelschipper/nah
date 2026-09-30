@@ -1,0 +1,63 @@
+# Ground-truth expectations for ddollar/foreman (holdout-hidden corpus).
+# Pinned SHA: f65ddba83932bd4670e014389d6e27ea1e20b469.
+# Real entry: bin/foreman (gem executable, foreman.gemspec:16; requires
+#   foreman/cli and calls Foreman::CLI.start, bin/foreman:7 — the Thor
+#   command-tree shape).
+# Derived from:
+#   lib/foreman/cli.rb (options merges .foreman defaults via
+#     YAML::load_file(".foreman"), cli.rb:137; `run` forks and
+#     `exec args.shelljoin`, cli.rb:101),
+#   lib/foreman/procfile.rb (parse: File.read(filename) of the Procfile,
+#     procfile.rb:93 — reached from start/check/export via
+#     engine.load_procfile, engine.rb:169),
+#   lib/foreman/env.rb (Env#initialize File.read of the .env / -e file,
+#     env.rb:8),
+#   lib/foreman/process.rb (start: Process.spawn of each Procfile command,
+#     process.rb:54; `run PROCESS` Kernel.exec, process.rb:69),
+#   lib/foreman/engine.rb (base_port reads ENV["PORT"], engine.rb:284),
+#   lib/foreman/engine/cli.rb (color? reads ENV["TERM"], cli.rb:36),
+#   lib/foreman/export/base.rb (export: write_file File.open(target, "w"),
+#     base.rb:125-131; clean FileUtils.rm, base.rb:64, and clean_dir
+#     FileUtils.rm_r, base.rb:70; templates read via File.read,
+#     base.rb:80-97).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. Spawning the Procfile processes is the product. All
+# subcommand bodies sit behind Thor's CLI.start dispatch (same wall as
+# tmuxinator); the .foreman/.env reads and the export write/delete paths are
+# per-subcommand or conditional, hence modality=may. No network, database, or
+# git usage exists anywhere in lib/.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+op=process.exec
+op=environment.read
+
+# Fact-level assertions (all behind the Thor dispatch wall; see header).
+[facts]
+op=filesystem.read origin=lib/foreman/procfile.rb realm=host
+op=filesystem.read origin=lib/foreman/env.rb realm=host modality=may
+op=filesystem.read res=.foreman origin=lib/foreman/cli.rb realm=host modality=may
+op=process.exec origin=lib/foreman/process.rb realm=host
+op=process.exec origin=lib/foreman/cli.rb realm=host modality=may
+op=environment.read res=PORT origin=lib/foreman/engine.rb realm=host
+op=environment.read res=TERM origin=lib/foreman/engine/cli.rb realm=host modality=may
+op=filesystem.write origin=lib/foreman/export/base.rb realm=host modality=may
+op=filesystem.delete origin=lib/foreman/export/base.rb realm=host modality=may
+
+[forbidden]
+# A process manager reads Procfiles and spawns them; it never touches the
+# network, a database, a cloud service, or git.
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]

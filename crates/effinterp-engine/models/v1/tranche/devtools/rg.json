@@ -1,0 +1,3558 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:3cb24511faf5ffebf3f2bc676dd165f9f46037a3cd13a0c65903a49e21cc0515",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/devtools/rg@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "rg",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/rg@v1",
+        "path": "../../tests/fixtures/model_tranche/rg.json",
+        "digest": "blake3:0edb39e1099f1f03662681c5123de46d108ac66f1fc49c167e14f559ca92493d"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "rg-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rg-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": [
+          "input_determined_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/rg@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read"
+    ],
+    "expected_boundaries": [
+      "input_determined_arguments",
+      "unmodeled_subprocess",
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/rg@v1",
+      "commands": [
+        "rg"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--file",
+            "-f"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--regexp",
+            "-e"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--glob",
+            "-g"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--type",
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--pre"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--ignore-file"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--files"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--search-zip"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--files-with-matches",
+            "-l"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--files-without-match"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--count",
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--count-matches"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--only-matching",
+            "-o"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--json"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--vimgrep"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--quiet",
+            "-q"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--line-number",
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--heading"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-heading"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--color"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--ignore-case",
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-ignore"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--hidden"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-config"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--follow",
+            "-L"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--unrestricted",
+            "-u"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "pattern",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": [
+            "-e",
+            "--regexp",
+            "-f",
+            "--file"
+          ]
+        },
+        {
+          "name": "paths",
+          "index": 1,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "paths"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--files",
+              "--files-with-matches",
+              "-l",
+              "--files-without-match",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "content"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": true
+            },
+            "flag_present": [],
+            "flag_absent": [
+              "--files",
+              "--files-with-matches",
+              "-l",
+              "--files-without-match",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "content"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [],
+            "flag_absent": [
+              "--files",
+              "--files-with-matches",
+              "-l",
+              "--files-without-match",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q",
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "environment_supplied": false,
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "content"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [],
+            "flag_absent": [
+              "--files",
+              "--files-with-matches",
+              "-l",
+              "--files-without-match",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q",
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "environment_gates": [
+              {
+                "names": [
+                  "RIPGREP_CONFIG_PATH"
+                ],
+                "matches": false
+              }
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "content"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_all_present": [
+              "--no-config"
+            ],
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [],
+            "flag_absent": [
+              "--files",
+              "--files-with-matches",
+              "-l",
+              "--files-without-match",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "join",
+                    "parts": [
+                      {
+                        "kind": "cwd"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "**/*"
+                      }
+                    ],
+                    "separator": "/"
+                  }
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "content"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [],
+            "flag_absent": [
+              "--files",
+              "--files-with-matches",
+              "-l",
+              "--files-without-match",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q",
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "environment_gates": [
+              {
+                "names": [
+                  "RIPGREP_CONFIG_PATH"
+                ],
+                "matches": true
+              }
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "join",
+                    "parts": [
+                      {
+                        "kind": "cwd"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "**/*"
+                      }
+                    ],
+                    "separator": "/"
+                  }
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "content"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "paths"
+          },
+          "when": {
+            "flag_present": [
+              "--files-with-matches",
+              "-l",
+              "--files-without-match"
+            ],
+            "flag_absent": [
+              "--files",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": true
+            },
+            "flag_present": [
+              "--files-with-matches",
+              "-l",
+              "--files-without-match"
+            ],
+            "flag_absent": [
+              "--files",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--files-with-matches",
+              "-l",
+              "--files-without-match"
+            ],
+            "flag_absent": [
+              "--files",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q",
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "environment_supplied": false,
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--files-with-matches",
+              "-l",
+              "--files-without-match"
+            ],
+            "flag_absent": [
+              "--files",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q",
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "environment_gates": [
+              {
+                "names": [
+                  "RIPGREP_CONFIG_PATH"
+                ],
+                "matches": false
+              }
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_all_present": [
+              "--no-config"
+            ],
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--files-with-matches",
+              "-l",
+              "--files-without-match"
+            ],
+            "flag_absent": [
+              "--files",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "join",
+                    "parts": [
+                      {
+                        "kind": "cwd"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "**/*"
+                      }
+                    ],
+                    "separator": "/"
+                  }
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--files-with-matches",
+              "-l",
+              "--files-without-match"
+            ],
+            "flag_absent": [
+              "--files",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q",
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "environment_gates": [
+              {
+                "names": [
+                  "RIPGREP_CONFIG_PATH"
+                ],
+                "matches": true
+              }
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "join",
+                    "parts": [
+                      {
+                        "kind": "cwd"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "**/*"
+                      }
+                    ],
+                    "separator": "/"
+                  }
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "paths"
+          },
+          "when": {
+            "flag_present": [
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_absent": [
+              "--files"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "count"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": true
+            },
+            "flag_present": [
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_absent": [
+              "--files"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "count"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_absent": [
+              "--files",
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "environment_supplied": false,
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "count"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_absent": [
+              "--files",
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "environment_gates": [
+              {
+                "names": [
+                  "RIPGREP_CONFIG_PATH"
+                ],
+                "matches": false
+              }
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "count"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_all_present": [
+              "--no-config"
+            ],
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_absent": [
+              "--files"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "join",
+                    "parts": [
+                      {
+                        "kind": "cwd"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "**/*"
+                      }
+                    ],
+                    "separator": "/"
+                  }
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "count"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_absent": [
+              "--files",
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "environment_gates": [
+              {
+                "names": [
+                  "RIPGREP_CONFIG_PATH"
+                ],
+                "matches": true
+              }
+            ],
+            "max_operands": 1,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "join",
+                    "parts": [
+                      {
+                        "kind": "cwd"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "**/*"
+                      }
+                    ],
+                    "separator": "/"
+                  }
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "content_filter": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "count"
+                },
+                "query": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "positional",
+                    "name": "pattern"
+                  }
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [
+              "--files"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": true
+            },
+            "flag_present": [
+              "--files"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--files"
+            ],
+            "flag_absent": [
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_supplied": false,
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--files"
+            ],
+            "flag_absent": [
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "RIPGREP_CONFIG_PATH"
+                ],
+                "matches": false
+              }
+            ],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_all_present": [
+              "--no-config"
+            ],
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--files"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "join",
+                    "parts": [
+                      {
+                        "kind": "cwd"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "**/*"
+                      }
+                    ],
+                    "separator": "/"
+                  }
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "--hidden",
+                "--unrestricted",
+                "-u",
+                "--glob",
+                "-g",
+                "--type",
+                "-t",
+                "--follow",
+                "-L"
+              ],
+              "present": false
+            },
+            "flag_present": [
+              "--files"
+            ],
+            "flag_absent": [
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "RIPGREP_CONFIG_PATH"
+                ],
+                "matches": true
+              }
+            ],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "join",
+                    "parts": [
+                      {
+                        "kind": "cwd"
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "**/*"
+                      }
+                    ],
+                    "separator": "/"
+                  }
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_symlinks": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "--follow",
+                    "-L"
+                  ]
+                },
+                "output_mode": {
+                  "kind": "constant_string",
+                  "value": "filenames"
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-f",
+              "--file"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "--ignore-file"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "environment.read",
+              "resource": {
+                "kind": "environment_variable",
+                "name": {
+                  "kind": "literal",
+                  "value": "RIPGREP_CONFIG_PATH"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--no-config"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "environment_gates": [
+              {
+                "names": [
+                  "RIPGREP_CONFIG_PATH"
+                ],
+                "matches": false
+              }
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "environment_or",
+                  "name": "RIPGREP_CONFIG_PATH",
+                  "default": {
+                    "kind": "environment",
+                    "name": "RIPGREP_CONFIG_PATH"
+                  }
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "--pre"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [
+            {
+              "kind": "flag_value",
+              "flags": [
+                "--pre"
+              ]
+            }
+          ]
+        }
+      ],
+      "bindings": [
+        {
+          "assurance": "exact",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--files",
+              "--search-zip",
+              "--files-with-matches",
+              "-l",
+              "--files-without-match",
+              "--count",
+              "-c",
+              "--count-matches",
+              "--quiet",
+              "-q"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-f",
+              "--file",
+              "--ignore-file",
+              "--pre"
+            ],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "positional_may_be_stdio": [
+              "paths"
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--files"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "--pre"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "input_determined_arguments",
+          "class": "unresolved",
+          "domains": [
+            "filesystem",
+            "process"
+          ],
+          "detail": "the preprocessor file argument is selected at runtime"
+        },
+        {
+          "when": {
+            "flag_present": [
+              "--search-zip"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "unmodeled_subprocess",
+          "class": "unmodeled",
+          "domains": [
+            "process"
+          ],
+          "detail": "archive decompressor selection is runtime-dependent"
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "pattern-flags",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-e",
+              "--regexp",
+              "-f",
+              "--file"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "paths",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "paths"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [
+                "-"
+              ],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    },
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_occurrence": {
+                  "flags": [
+                    "--hidden",
+                    "--unrestricted",
+                    "-u",
+                    "--glob",
+                    "-g",
+                    "--type",
+                    "-t",
+                    "--follow",
+                    "-L"
+                  ],
+                  "present": true
+                },
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "cwd"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    },
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_occurrence": {
+                  "flags": [
+                    "--hidden",
+                    "--unrestricted",
+                    "-u",
+                    "--glob",
+                    "-g",
+                    "--type",
+                    "-t",
+                    "--follow",
+                    "-L"
+                  ],
+                  "present": false
+                },
+                "flag_present": [],
+                "flag_absent": [
+                  "--no-config"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "environment_supplied": false,
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "cwd"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    },
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_occurrence": {
+                  "flags": [
+                    "--hidden",
+                    "--unrestricted",
+                    "-u",
+                    "--glob",
+                    "-g",
+                    "--type",
+                    "-t",
+                    "--follow",
+                    "-L"
+                  ],
+                  "present": false
+                },
+                "flag_present": [],
+                "flag_absent": [
+                  "--no-config"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "environment_gates": [
+                  {
+                    "names": [
+                      "RIPGREP_CONFIG_PATH"
+                    ],
+                    "matches": false
+                  }
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "cwd"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    },
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_all_present": [
+                  "--no-config"
+                ],
+                "flag_occurrence": {
+                  "flags": [
+                    "--hidden",
+                    "--unrestricted",
+                    "-u",
+                    "--glob",
+                    "-g",
+                    "--type",
+                    "-t",
+                    "--follow",
+                    "-L"
+                  ],
+                  "present": false
+                },
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "join",
+                        "parts": [
+                          {
+                            "kind": "cwd"
+                          },
+                          {
+                            "kind": "literal",
+                            "value": "**/*"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    },
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_occurrence": {
+                  "flags": [
+                    "--hidden",
+                    "--unrestricted",
+                    "-u",
+                    "--glob",
+                    "-g",
+                    "--type",
+                    "-t",
+                    "--follow",
+                    "-L"
+                  ],
+                  "present": false
+                },
+                "flag_present": [],
+                "flag_absent": [
+                  "--no-config"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "environment_gates": [
+                  {
+                    "names": [
+                      "RIPGREP_CONFIG_PATH"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "join",
+                        "parts": [
+                          {
+                            "kind": "cwd"
+                          },
+                          {
+                            "kind": "literal",
+                            "value": "**/*"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    },
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [
+            {
+              "when": {
+                "positional_may_be_stdio": [
+                  "paths"
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--files"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "from": {
+                "kind": "port",
+                "port": "stdin"
+              },
+              "to": {
+                "kind": "port",
+                "port": "stdout"
+              }
+            }
+          ]
+        },
+        {
+          "name": "files",
+          "when": {
+            "flag_present": [
+              "--files"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "paths",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "paths"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [
+                "-"
+              ],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_occurrence": {
+                  "flags": [
+                    "--hidden",
+                    "--unrestricted",
+                    "-u",
+                    "--glob",
+                    "-g",
+                    "--type",
+                    "-t",
+                    "--follow",
+                    "-L"
+                  ],
+                  "present": true
+                },
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "cwd"
+                    }
+                  },
+                  "attributes": {
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_occurrence": {
+                  "flags": [
+                    "--hidden",
+                    "--unrestricted",
+                    "-u",
+                    "--glob",
+                    "-g",
+                    "--type",
+                    "-t",
+                    "--follow",
+                    "-L"
+                  ],
+                  "present": false
+                },
+                "flag_present": [],
+                "flag_absent": [
+                  "--no-config"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "environment_supplied": false,
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "cwd"
+                    }
+                  },
+                  "attributes": {
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_occurrence": {
+                  "flags": [
+                    "--hidden",
+                    "--unrestricted",
+                    "-u",
+                    "--glob",
+                    "-g",
+                    "--type",
+                    "-t",
+                    "--follow",
+                    "-L"
+                  ],
+                  "present": false
+                },
+                "flag_present": [],
+                "flag_absent": [
+                  "--no-config"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "environment_gates": [
+                  {
+                    "names": [
+                      "RIPGREP_CONFIG_PATH"
+                    ],
+                    "matches": false
+                  }
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "cwd"
+                    }
+                  },
+                  "attributes": {
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_all_present": [
+                  "--no-config"
+                ],
+                "flag_occurrence": {
+                  "flags": [
+                    "--hidden",
+                    "--unrestricted",
+                    "-u",
+                    "--glob",
+                    "-g",
+                    "--type",
+                    "-t",
+                    "--follow",
+                    "-L"
+                  ],
+                  "present": false
+                },
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "join",
+                        "parts": [
+                          {
+                            "kind": "cwd"
+                          },
+                          {
+                            "kind": "literal",
+                            "value": "**/*"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_occurrence": {
+                  "flags": [
+                    "--hidden",
+                    "--unrestricted",
+                    "-u",
+                    "--glob",
+                    "-g",
+                    "--type",
+                    "-t",
+                    "--follow",
+                    "-L"
+                  ],
+                  "present": false
+                },
+                "flag_present": [],
+                "flag_absent": [
+                  "--no-config"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "environment_gates": [
+                  {
+                    "names": [
+                      "RIPGREP_CONFIG_PATH"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "join",
+                        "parts": [
+                          {
+                            "kind": "cwd"
+                          },
+                          {
+                            "kind": "literal",
+                            "value": "**/*"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "content_filter": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "follow_symlinks": {
+                      "kind": "flag_present",
+                      "flags": [
+                        "--follow",
+                        "-L"
+                      ]
+                    },
+                    "recursive": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "name": "standard-input",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--files"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    }
+  ]
+}

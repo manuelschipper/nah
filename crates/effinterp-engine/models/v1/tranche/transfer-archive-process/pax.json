@@ -1,0 +1,184 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:89eb261a6aaa1a47e29ba1621845901ebe3519f3591dea3b7cf0cc0993b478f3",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/pax@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "pax",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/pax@v1",
+        "path": "../../tests/fixtures/model_tranche/pax.json",
+        "digest": "blake3:ee1c28cedf93bb2a055290d4d9f1cf4b04dad01ca21552184be2fc8fc7bd0cd2"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "pax-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pax-not-the-command",
+            "-w",
+            "/work/input"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/transfer-archive-process/pax@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read"
+    ],
+    "expected_boundaries": [
+      "unmodeled_archive_output"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/pax@v1",
+      "commands": [
+        "pax"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-r"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-w"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "input",
+          "index": 0,
+          "variadic": true,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [
+              "-w"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "extract",
+          "when": {
+            "flag_present": [
+              "-r"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_archive_output",
+              "class": "unmodeled",
+              "domains": [
+                "filesystem",
+                "process"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+# Source-authored expectations for prettier/prettier at 0bc958e734b00907e2bae2bae45c664ad8a1a2f7.
+# `bin/prettier.cjs` dynamically imports `src/cli/index.js`; formatting reads a
+# named input in `src/cli/format.js` and `--write` delegates to mockable's
+# `fs.writeFile` wrapper. These facts were read from source, not EI output.
+
+version = 2
+
+[should_find]
+op=filesystem.read
+op=filesystem.write
+
+[facts]
+op=filesystem.read origin=src/cli/format.js realm=host modality=may
+op=filesystem.write origin=src/cli/mockable.js realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]
+# Plugin loading and optional CLI branches remain runtime-selected.

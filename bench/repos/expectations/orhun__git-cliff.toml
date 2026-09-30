@@ -1,0 +1,62 @@
+# Ground-truth expectations for orhun/git-cliff (holdout-dev corpus).
+# Pinned SHA: becfee64c5ed5774cee0038d43486fbb33bcd89a.
+# Real entry: git-cliff/src/main.rs (bin crate of the git-cliff +
+#   git-cliff-core workspace; clap-parses Opt then calls git_cliff::run in
+#   git-cliff/src/lib.rs).
+# Derived from:
+#   git-cliff/src/main.rs (env::var_os("RUST_LOG"), main.rs:21, and
+#     env::set_var("RUST_LOG", ...) for -v levels, main.rs:18/20/22),
+#   git-cliff/src/lib.rs (`--init` writes the config, fs::write at lib.rs:181;
+#     `--with-commit`-style body file read, :643; `.cliffignore` read, :797;
+#     `--prepend` reads the old changelog, :892, and File::create rewrites it,
+#     :893),
+#   git-cliff-core/src/repo.rs (git2 GitRepository::open, repo.rs:70, and the
+#     revwalk over commit history, :155-165 — the product reads the local git
+#     repository),
+#   git-cliff-core/src/command.rs (commit-preprocessor `replace_command` spawns
+#     `sh -c`/`cmd /C`, command.rs:14-28, config-driven),
+#   git-cliff-core/src/remote/mod.rs (reqwest Client for the
+#     github/gitlab/gitea/bitbucket integrations, mod.rs:28; default features
+#     enable "integrations" and "update-informer", git-cliff/Cargo.toml:26).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the RUST_LOG read/write (straight-line in main) and the
+# git history read (the product's purpose). File writes are flag-gated
+# (modality=may); the preprocessor exec only fires when the config asks for it.
+# GIT_CLIFF_* env vars are read through clap derive `env = ...` attributes in
+# git-cliff/src/args.rs (macro-generated) and the remote/update-informer HTTP
+# calls run inside reqwest/update_informer — see known_hard.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=git.read
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=RUST_LOG origin=git-cliff/src/main.rs realm=host
+op=environment.write res=RUST_LOG origin=git-cliff/src/main.rs realm=host
+op=git.read origin=git-cliff-core/src/repo.rs realm=host
+op=filesystem.read origin=git-cliff/src/lib.rs realm=host modality=may
+op=filesystem.write origin=git-cliff/src/lib.rs realm=host modality=may
+op=process.exec origin=git-cliff-core/src/command.rs realm=host modality=may
+
+[forbidden]
+# git-cliff only reads history; it never rewrites refs or worktrees.
+op=git.history_rewrite
+op=git.worktree_discard
+op=database.
+op=cloud.
+op=messaging.
+
+[known_hard]
+# clap-derive `env = "GIT_CLIFF_*"` reads are macro-generated in args.rs; the
+# remote-integration and update-informer HTTP requests live inside reqwest /
+# update_informer dependency code.
+op=environment.read res=GIT_CLIFF origin=git-cliff/src/args.rs
+op=network.

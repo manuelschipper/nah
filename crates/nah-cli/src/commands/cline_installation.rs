@@ -8,7 +8,10 @@ use nah_proto::ctx::{AbsolutePath, Platform};
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_paths::reject_hook_path_symlink;
+use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
+use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 const MARKER: &str = "Managed by nah: Cline PreToolUse";
 
@@ -45,15 +48,17 @@ pub(crate) fn cline_hook_status() -> Result<RuntimeHookStatus, String> {
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     let delegate = desired_hook(&executable, platform, FailurePolicy::Delegate)?;
     let strict = desired_hook(&executable, platform, FailurePolicy::Block)?;
-    let ide = hook_state(&paths.ide_hook, &delegate)?;
-    let cli = hook_state(&paths.cli_hook, &delegate)?;
-    if ide.is_none() && cli.is_none() {
+    let redundant = redundant_hook(&paths)?.is_some();
+    let states = hook_states(&paths, &delegate)?;
+    if !redundant && states.iter().all(Option::is_none) {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
-    if ide == Some(true) && cli == Some(true) {
+    if !redundant && states.iter().all(|state| *state == Some(true)) {
         Ok(RuntimeHookStatus::WiringCurrent)
-    } else if hook_state(&paths.ide_hook, &strict)? == Some(true)
-        && hook_state(&paths.cli_hook, &strict)? == Some(true)
+    } else if !redundant
+        && hook_states(&paths, &strict)?
+            .iter()
+            .all(|state| *state == Some(true))
     {
         Ok(RuntimeHookStatus::WiringCurrentFailClosed)
     } else {
@@ -69,6 +74,11 @@ fn configured_policy(paths: &ClineHookPaths) -> Result<FailurePolicy, String> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(_) => return Err("cline-hook-read-failed".into()),
         }
+    }
+    // A redundant copy may be the only remaining registration, for example
+    // after relocated Documents moved back, so it still carries the policy
+    if let Some(contents) = redundant_hook(paths)? {
+        modes.push(contents.contains(" hook cline run --fail-closed"));
     }
     Ok(
         if !modes.is_empty() && modes.into_iter().all(|strict| strict) {
@@ -96,13 +106,14 @@ fn install_hook(
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
     let desired = desired_hook(executable, platform, policy)?;
-    let ide = hook_state(&paths.ide_hook, &desired)?;
-    let cli = hook_state(&paths.cli_hook, &desired)?;
-    if ide != Some(true) {
-        save(&paths.ide_hook, &desired)?;
+    let states = hook_states(&paths, &desired)?;
+    for (path, state) in paths.hooks().into_iter().zip(states) {
+        if state != Some(true) {
+            save(path, &desired)?;
+        }
     }
-    if cli != Some(true) {
-        save(&paths.cli_hook, &desired)?;
+    if redundant_hook(&paths)?.is_some() {
+        std::fs::remove_file(&paths.cli_hook).map_err(|_| "cline-hook-remove-failed")?;
     }
     drop(lock);
     Ok(paths.ide_hook)
@@ -126,13 +137,21 @@ fn uninstall_hook(home: &AbsolutePath, platform: Platform) -> Result<PathBuf, St
             std::fs::remove_file(path).map_err(|_| "cline-hook-remove-failed")?;
         }
     }
+    if redundant_hook(&paths)?.is_some() {
+        std::fs::remove_file(&paths.cli_hook).map_err(|_| "cline-hook-remove-failed")?;
+    }
     drop(lock);
     Ok(paths.ide_hook)
 }
 
 struct ClineHookPaths {
     ide_hook: PathBuf,
+    /// The hook in the CLI's own `~/.cline/hooks` root. The CLI also runs
+    /// hooks from the literal `home/Documents/Cline/Hooks`, so nah installs
+    /// this one only when the IDE's Documents directory is elsewhere;
+    /// otherwise the CLI would run nah twice per call.
     cli_hook: PathBuf,
+    cli_reads_ide_hook: bool,
     lock: PathBuf,
     directories: Vec<PathBuf>,
 }
@@ -143,7 +162,9 @@ impl ClineHookPaths {
     /// the helper fails or returns invalid UTF-8, an empty path, or a relative path.
     fn new(home: &AbsolutePath, platform: Platform) -> Self {
         let home = PathBuf::from(home.as_str());
-        let cline = documents_path(&home, platform).join("Cline");
+        let documents = documents_path(&home, platform);
+        let cli_reads_ide_hook = documents == home.join("Documents");
+        let cline = documents.join("Cline");
         let ide_hooks = cline.join("Hooks");
         let cli = home.join(".cline");
         let cli_hooks = cli.join("hooks");
@@ -155,14 +176,46 @@ impl ClineHookPaths {
         Self {
             ide_hook: ide_hooks.join(file),
             cli_hook: cli_hooks.join(file),
+            cli_reads_ide_hook,
             lock: home.join(".nah/cline-hook.lock"),
             directories: vec![cline, ide_hooks, cli, cli_hooks],
         }
     }
 
-    fn hooks(&self) -> [&Path; 2] {
-        [&self.ide_hook, &self.cli_hook]
+    /// The hooks nah installs.
+    fn hooks(&self) -> Vec<&Path> {
+        if self.cli_reads_ide_hook {
+            vec![&self.ide_hook]
+        } else {
+            vec![&self.ide_hook, &self.cli_hook]
+        }
     }
+}
+
+fn hook_states(paths: &ClineHookPaths, desired: &str) -> Result<Vec<Option<bool>>, String> {
+    paths
+        .hooks()
+        .into_iter()
+        .map(|path| hook_state(path, desired))
+        .collect()
+}
+
+/// The contents of nah's own CLI-root hook when it is present although the
+/// IDE hook already covers the CLI. A symlink or any script nah did not
+/// generate exactly is the user's and stays.
+fn redundant_hook(paths: &ClineHookPaths) -> Result<Option<String>, String> {
+    if !paths.cli_reads_ide_hook {
+        return Ok(None);
+    }
+    match std::fs::symlink_metadata(&paths.cli_hook) {
+        Ok(metadata) if metadata.file_type().is_symlink() => return Ok(None),
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("cline-hook-read-failed".into()),
+    }
+    let configured =
+        std::fs::read_to_string(&paths.cli_hook).map_err(|_| "cline-hook-read-failed")?;
+    Ok(is_owned(&configured).then_some(configured))
 }
 
 fn hook_state(path: &Path, desired: &str) -> Result<Option<bool>, String> {
@@ -221,36 +274,45 @@ fn desired_hook(
     } else {
         Ok(format!(
             "#!/bin/sh\n# {MARKER}\nexec {} hook cline run{}\n",
-            shell_quote(executable),
+            quote_posix_shell_word(executable),
             policy.command_suffix()
         ))
     }
 }
 
+/// Whether `contents` is exactly a hook `desired_hook` generates for some nah
+/// executable and failure policy. Any other content makes the script the
+/// user's, even with nah's marker.
 fn is_owned(contents: &str) -> bool {
-    let contents = contents.replace(" hook cline run --fail-closed", " hook cline run");
-    let lines = contents.lines().collect::<Vec<_>>();
-    match lines.as_slice() {
-        ["#!/bin/sh", marker, command]
-            if *marker == format!("# {MARKER}")
-                && command.starts_with("exec '")
-                && command.ends_with("/nah' hook cline run") =>
-        {
-            true
-        }
-        [marker, payload, command, exit]
-            if *marker == format!("# {MARKER}")
-                && *payload == "$payload = [Console]::In.ReadToEnd()"
-                && command.starts_with("$payload | & '")
-                && command
-                    .to_ascii_lowercase()
-                    .ends_with("nah.exe' hook cline run")
-                && *exit == "exit $LASTEXITCODE" =>
-        {
-            true
-        }
-        _ => false,
+    let Some((executable, platform)) = generated_executable(contents) else {
+        return false;
+    };
+    [FailurePolicy::Delegate, FailurePolicy::Block]
+        .into_iter()
+        .any(|policy| {
+            desired_hook(Path::new(&executable), platform, policy)
+                .is_ok_and(|hook| hook == contents)
+        })
+}
+
+/// The unquoted nah executable on a generated hook's command line, with the
+/// platform whose script form names it.
+fn generated_executable(contents: &str) -> Option<(String, Platform)> {
+    let command = contents.lines().nth(2)?;
+    if let Some(command) = command.strip_prefix("exec '") {
+        let (quoted, _) = command.rsplit_once("' hook cline run")?;
+        let executable = quoted.replace("'\"'\"'", "'");
+        return executable
+            .ends_with("/nah")
+            .then_some((executable, Platform::Linux));
     }
+    let command = command.strip_prefix("$payload | & '")?;
+    let (quoted, _) = command.rsplit_once("' hook cline run")?;
+    let executable = quoted.replace("''", "'");
+    executable
+        .to_ascii_lowercase()
+        .ends_with("nah.exe")
+        .then_some((executable, Platform::Windows))
 }
 
 fn lock(paths: &ClineHookPaths) -> Result<File, String> {
@@ -258,9 +320,9 @@ fn lock(paths: &ClineHookPaths) -> Result<File, String> {
         .lock
         .parent()
         .ok_or_else(|| "invalid-cline-hook-lock-path".to_owned())?;
-    reject_symlink(parent, "cline-hook-lock-failed")?;
+    reject_hook_path_symlink(parent, "cline-hook-lock-failed")?;
     std::fs::create_dir_all(parent).map_err(|_| "cline-hook-lock-failed")?;
-    reject_symlink(&paths.lock, "cline-hook-lock-failed")?;
+    reject_hook_path_symlink(&paths.lock, "cline-hook-lock-failed")?;
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
@@ -271,23 +333,23 @@ fn lock(paths: &ClineHookPaths) -> Result<File, String> {
     let file = options
         .open(&paths.lock)
         .map_err(|_| "cline-hook-lock-failed")?;
-    protect_private(&file)?;
+    restrict_file_to_owner(&file).map_err(|_| "cline-hook-permissions-failed".to_owned())?;
     file.lock().map_err(|_| "cline-hook-lock-failed")?;
     Ok(file)
 }
 
 fn reject_symlinks(paths: &ClineHookPaths) -> Result<(), String> {
     for directory in &paths.directories {
-        reject_symlink(directory, "cline-hook-symlink-unsupported")?;
+        reject_hook_path_symlink(directory, "cline-hook-symlink-unsupported")?;
     }
     for path in paths.hooks() {
-        reject_symlink(path, "cline-hook-symlink-unsupported")?;
+        reject_hook_path_symlink(path, "cline-hook-symlink-unsupported")?;
     }
     Ok(())
 }
 
 fn save(path: &Path, contents: &str) -> Result<(), String> {
-    reject_symlink(path, "cline-hook-symlink-unsupported")?;
+    reject_hook_path_symlink(path, "cline-hook-symlink-unsupported")?;
     let parent = path
         .parent()
         .ok_or_else(|| "invalid-cline-hook-path".to_owned())?;
@@ -305,32 +367,7 @@ fn save(path: &Path, contents: &str) -> Result<(), String> {
     temporary
         .persist(path)
         .map_err(|_| "cline-hook-write-failed")?;
-    sync_parent(parent)
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-fn reject_symlink(path: &Path, error: &'static str) -> Result<(), String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(error.into()),
-        Ok(_) => Ok(()),
-        Err(found) if found.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(error.into()),
-    }
-}
-
-#[cfg(unix)]
-fn protect_private(file: &File) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| "cline-hook-permissions-failed".into())
-}
-
-#[cfg(not(unix))]
-fn protect_private(_file: &File) -> Result<(), String> {
-    Ok(())
+    sync_parent_directory(parent).map_err(|_| "cline-hook-sync-failed".to_owned())
 }
 
 #[cfg(unix)]
@@ -350,18 +387,6 @@ fn executable_file(path: &Path) -> Result<bool, String> {
     use std::os::unix::fs::PermissionsExt;
     let metadata = std::fs::metadata(path).map_err(|_| "cline-hook-read-failed")?;
     Ok(metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), String> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| "cline-hook-sync-failed".into())
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), String> {
-    Ok(())
 }
 
 #[cfg(test)]
@@ -394,6 +419,7 @@ mod tests {
         let paths = ClineHookPaths {
             ide_hook: temp.path().join("ide"),
             cli_hook: temp.path().join("cli"),
+            cli_reads_ide_hook: false,
             lock: temp.path().join("lock"),
             directories: vec![],
         };

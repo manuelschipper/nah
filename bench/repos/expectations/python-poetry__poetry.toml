@@ -1,0 +1,64 @@
+# Ground-truth expectations for python-poetry/poetry (holdout-hidden corpus).
+# Pinned SHA: 92b74dcfe348d0e01e14d40d6c1fa47a4ee04a54.
+# Real entry: src/poetry/console/application.py (`poetry =
+#   "poetry.console.application:main"`, pyproject.toml:58; main() runs the
+#   cleo Application, application.py:649-651; src/poetry/__main__.py wraps
+#   the same main — the src-layout console-script + plugin-system shape).
+# Derived from:
+#   src/poetry/locations.py (import-time CONFIG_DIR reads POETRY_CONFIG_DIR,
+#     locations.py:16; data_dir reads POETRY_HOME, :22),
+#   src/poetry/config/config.py (Config.create reads CONFIG_DIR/config.toml,
+#     config.py:438-441, and CONFIG_DIR/auth.toml, :446-449, when present;
+#     Config.get resolves computed "POETRY_"-prefixed env names via
+#     os.getenv(env), :345),
+#   src/poetry/utils/env/base_env.py (every python/pip invocation funnels
+#     through subprocess check_call/check_output/Popen,
+#     base_env.py:454/:457/:473),
+#   src/poetry/utils/authenticator.py (all repository HTTP goes through
+#     Authenticator.request's session.send, authenticator.py:241),
+#   src/poetry/installation/wheel_installer.py (wheel payload writes,
+#     wheel_installer.py:105/:155),
+#   src/poetry/utils/cache.py (cache clear unlink/rmtree,
+#     cache.py:127/:133/:272).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the locations.py import-time env read (module-level,
+# imported by the application module) and the config-file reads (every
+# command creates a Config). Everything else runs inside cleo-dispatched
+# command handlers; the env/subprocess/network funnels are the product's
+# core (installs run pip/build backends and fetch from PyPI), hence
+# modality=may on those facts. Wheel-install writes and cache deletes sit
+# additionally behind executor/operation class dispatch and the plugin
+# system — see known_hard. No database or messaging use exists in src/.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=filesystem.read
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=POETRY_CONFIG_DIR origin=src/poetry/locations.py realm=host
+op=filesystem.read res=config.toml origin=src/poetry/config/config.py realm=host modality=may
+op=filesystem.read res=auth.toml origin=src/poetry/config/config.py realm=host modality=may
+op=environment.read origin=src/poetry/config/config.py realm=host modality=may
+op=process.exec origin=src/poetry/utils/env/base_env.py realm=host modality=may
+op=network. origin=src/poetry/utils/authenticator.py realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]
+# Wheel installation writes and cache-clear deletes run behind the cleo
+# command dispatch plus executor/operation class indirection (and plugins
+# load via entry points).
+op=filesystem.write origin=src/poetry/installation/wheel_installer.py
+op=filesystem.delete origin=src/poetry/utils/cache.py

@@ -7,11 +7,10 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 
 use nah_extensions::{consult_extensions, memo_cache_path};
-use nah_proto::action::{ActionStream, Coverage, EffectKind, InvocationInput};
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::extension::ConsultationOutcome;
 
-use support::{Fixture, consultation_outcomes, make_executable};
+use support::{Fixture, consultation_outcomes, make_executable, warm_up};
 
 #[test]
 fn semantic_rejection_remains_a_response_and_is_never_cached() {
@@ -87,6 +86,7 @@ fn execution_failures_are_never_memoized() {
     )
     .unwrap();
     make_executable(&spawn.run);
+    warm_up(&spawn.run);
     assert!(matches!(
         consultation_outcomes(spawn.consult()).as_slice(),
         [ConsultationOutcome::Response { .. }]
@@ -176,35 +176,61 @@ printf '%s' "$((count + 1))" > "$count_file"
 printf '%s\n' '{"block":true,"reason":"counted"}'"#,
     );
     for argument in ["status", "destroy"] {
-        let stream = ActionStream::new(
-            Coverage::Full,
-            vec![vec![
-                EffectKind::opaque_with_input(
-                    "tool",
-                    InvocationInput::shell(
-                        "tool",
-                        vec!["tool".into(), argument.into()],
-                        Some(vec!["tool".into(), argument.into()]),
-                    ),
-                )
-                .unwrap(),
-            ]],
-            vec![],
-        )
-        .unwrap();
         consult_extensions(
             &fixture.catalog,
             &fixture.ctx,
             &fixture.observation,
-            &stream,
-            #[cfg(feature = "effinterp")]
-            None,
+            &support::call_evidence(&[(&["tool", argument], None)]),
             &fixture.cache,
+            &crate::support::memo_context(),
         );
     }
     assert_eq!(
         fs::read_to_string(fixture.run.parent().unwrap().join("count")).unwrap(),
         "2"
+    );
+}
+
+#[test]
+fn analysis_identity_changes_use_different_entries() {
+    let fixture = Fixture::shell(
+        "identity-memo",
+        r#"count_file="$PWD/count"
+count=0
+if [ -f "$count_file" ]; then count=$(cat "$count_file"); fi
+printf '%s' "$((count + 1))" > "$count_file"
+printf '%s\n' '{"block":true}'"#,
+    );
+    let evidence = fixture.evidence.clone();
+    let context = |producer: &str, model: &str, source: &str, input: &str, limit| {
+        nah_extensions::MemoContext::new(
+            producer,
+            Some(model.to_owned()),
+            std::collections::BTreeMap::from([("steps".into(), limit)]),
+            input,
+            source,
+        )
+    };
+    for context in [
+        context("effinterp/revision", "model-a", "source-a", "input-a", 100),
+        context("normal/1", "model-a", "source-a", "input-a", 100),
+        context("effinterp/revision", "model-b", "source-a", "input-a", 100),
+        context("effinterp/revision", "model-a", "source-b", "input-a", 100),
+        context("effinterp/revision", "model-a", "source-a", "input-b", 100),
+        context("effinterp/revision", "model-a", "source-a", "input-a", 200),
+    ] {
+        consult_extensions(
+            &fixture.catalog,
+            &fixture.ctx,
+            &fixture.observation,
+            &evidence,
+            &fixture.cache,
+            &context,
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(fixture.run.parent().unwrap().join("count")).unwrap(),
+        "6"
     );
 }
 
@@ -219,24 +245,16 @@ printf '%s' "$((count + 1))" > "$count_file"
 printf '%s\n' '{"block":true,"reason":"counted"}'"#,
     );
     for cwd in ["/repo/one", "/repo/two"] {
-        let stream = ActionStream::new(
-            Coverage::Full,
-            vec![vec![
-                EffectKind::known("tool", "read-only")
-                    .unwrap()
-                    .with_invocation_cwd(AbsolutePath::new(Platform::Linux, cwd).unwrap()),
-            ]],
-            vec![],
-        )
-        .unwrap();
         consult_extensions(
             &fixture.catalog,
             &fixture.ctx,
             &fixture.observation,
-            &stream,
-            #[cfg(feature = "effinterp")]
-            None,
+            &support::call_evidence(&[(
+                &["tool"],
+                Some(AbsolutePath::new(Platform::Linux, cwd).unwrap()),
+            )]),
             &fixture.cache,
+            &crate::support::memo_context(),
         );
     }
     assert_eq!(

@@ -1,0 +1,57 @@
+# Ground-truth expectations for composer/composer (holdout-dev corpus).
+# Pinned SHA: 6987fe5a4daa888cedf098fc217cd2a04063175b.
+# Real entry: bin/composer (php shebang script; requires src/bootstrap.php, then
+#   constructs Composer\Console\Application and run()s it).
+# Derived from:
+#   bin/composer (getenv('COMPOSER_MEMORY_LIMIT') to set the memory limit;
+#     Platform::putEnv('COMPOSER_BINARY', ...) at the tail; the nested include
+#     chain: require src/bootstrap.php),
+#   src/bootstrap.php (includeIfExists: include of vendor/autoload.php or
+#     ../../autoload.php — the Composer-app nested-include shape),
+#   src/Composer/Console/Application.php (doRun: Platform::getEnv('HOME') /
+#     Platform::getEnv('USERPROFILE'), Application.php:207; plugin-safety probe
+#     writes+reads+unlinks a temp file, Application.php:371; reads the resolved
+#     composer.json via file_get_contents($file), Application.php:378, where
+#     $file comes from Factory::getComposerFile),
+#   src/Composer/Factory.php (getComposerFile: Platform::getEnv('COMPOSER') else
+#     'composer.json', Factory.php:226),
+#   src/Composer/Util/Platform.php (getEnv falls through to getenv($name),
+#     Platform.php:86 — the shared env accessor for all names above).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for env reads and the composer.json read/temp-file probe in
+# Application::doRun, which runs before Symfony Console command dispatch.
+# Package downloads, git/svn processes, and vendor tree writes all live in
+# Symfony-dispatched commands (install/update/require) — see known_hard.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=filesystem.read
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=COMPOSER_MEMORY_LIMIT origin=bin/composer realm=host
+op=filesystem.read res=autoload.php origin=src/bootstrap.php realm=host
+op=environment.read origin=src/Composer/Util/Platform.php realm=host
+op=filesystem.read origin=src/Composer/Console/Application.php realm=host modality=may
+op=filesystem.write origin=src/Composer/Console/Application.php realm=host modality=may
+op=filesystem.delete origin=src/Composer/Console/Application.php realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]
+# Repo metadata + dist downloads (packagist.org over HttpDownloader), git/svn
+# clone processes, and vendor/ tree writes happen inside Symfony Console
+# dispatched commands (install/update/require/self-update).
+op=network.
+op=process.exec

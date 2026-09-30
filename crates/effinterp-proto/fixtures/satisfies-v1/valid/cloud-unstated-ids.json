@@ -1,0 +1,139 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "cloud-unstated-ids",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "cloud_resource",
+        "scope": {
+          "kind": "aws_regional",
+          "identity": {
+            "partition": {
+              "state": "value",
+              "value": {
+                "expr": "literal",
+                "value": "aws"
+              }
+            },
+            "account": {
+              "state": "value",
+              "value": {
+                "expr": "literal",
+                "value": "123456789012"
+              }
+            },
+            "project": {
+              "state": "not_applicable"
+            },
+            "subscription": {
+              "state": "not_applicable"
+            },
+            "region": {
+              "state": "value",
+              "value": {
+                "expr": "literal",
+                "value": "us-east-1"
+              }
+            },
+            "zone": {
+              "state": "not_applicable"
+            },
+            "storage_account": {
+              "state": "not_applicable"
+            },
+            "resource_group": {
+              "state": "not_applicable"
+            },
+            "cluster": {
+              "state": "not_applicable"
+            },
+            "namespace": {
+              "state": "not_applicable"
+            }
+          },
+          "access": []
+        },
+        "provider": "aws",
+        "service": "ec2",
+        "kind": "instance"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "cloud_resource",
+          "scope": {
+            "kind": "aws_regional",
+            "identity": {
+              "partition": {
+                "state": "value",
+                "value": {
+                  "expr": "literal",
+                  "value": "aws"
+                }
+              },
+              "account": {
+                "state": "value",
+                "value": {
+                  "expr": "literal",
+                  "value": "123456789012"
+                }
+              },
+              "project": {
+                "state": "not_applicable"
+              },
+              "subscription": {
+                "state": "not_applicable"
+              },
+              "region": {
+                "state": "value",
+                "value": {
+                  "expr": "literal",
+                  "value": "us-east-1"
+                }
+              },
+              "zone": {
+                "state": "not_applicable"
+              },
+              "storage_account": {
+                "state": "not_applicable"
+              },
+              "resource_group": {
+                "state": "not_applicable"
+              },
+              "cluster": {
+                "state": "not_applicable"
+              },
+              "namespace": {
+                "state": "not_applicable"
+              }
+            },
+            "access": []
+          },
+          "provider": "aws",
+          "service": "ec2",
+          "kind": "instance"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "indeterminate",
+    "reason": {
+      "kind": "underqualified_fields"
+    }
+  }
+}

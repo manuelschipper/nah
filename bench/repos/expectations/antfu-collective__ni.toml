@@ -1,0 +1,63 @@
+# Ground-truth expectations for antfu-collective/ni (holdout-dev corpus).
+# Pinned SHA: 33c16cd18fba6ccaf40751de173a67409a06d95a.
+# Real entries: package.json "bin" ni/nr/nci/nup/nd/nlx/na/nun -> bin/*.mjs,
+#   each importing the built src/commands/*.ts which call runCli in
+#   src/runner.ts (ESM).
+# Derived from:
+#   src/config.ts (process.env.NI_CONFIG_FILE, config.ts:8; USERPROFILE/HOME,
+#     :11-12; rc file fs.readFileSync(rcPath), :41; NI_DEFAULT_AGENT, :44-45;
+#     NI_GLOBAL_AGENT, :47-48; CI, :72),
+#   src/environment.ts (process.env.NI_AUTO_INSTALL, environment.ts:14),
+#   src/runner.ts (the resolved package-manager command runs via tinyexec
+#     x(command.command, command.args), runner.ts:227; `-v` agent version
+#     probes, :133),
+#   src/detect.ts (process.env.CI, detect.ts:56; prompted global install of a
+#     missing agent x(...), :70),
+#   src/fs.ts (package.json fs.readFileSync, fs.ts:12),
+#   src/storage.ts (last-command storage read fs.readFile(storagePath),
+#     storage.ts:16, and writeFileSafe(storagePath), :30, under
+#     os.tmpdir()/antfu-ni per src/utils.ts:9),
+#   src/utils.ts (writeFileSafe temp write + rename, utils.ts:72-78; temp
+#     cleanup fs.unlink, :49),
+#   src/fetch.ts (`ni -i` package search fetch of registry.npmjs.com,
+#     fetch.ts:30),
+#   src/commands/nr.ts (completion reads process.env.COMP_LINE/COMP_CWORD,
+#     nr.ts:73-74).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. Running the detected package manager (runner.ts:227) is
+# straight-line from runCli -> run -> runCmd; config/env discovery precedes it.
+# The registry fetch only happens in interactive `ni -i`, storage writes only
+# when recording the last nr command, hence modality=may. ni shells out to
+# npm/yarn/pnpm/bun/deno only — never to git — and opens no sockets outside
+# fetch.ts.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=process.exec
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=NI_CONFIG_FILE origin=src/config.ts realm=host
+op=environment.read res=NI_DEFAULT_AGENT origin=src/config.ts realm=host
+op=environment.read res=NI_AUTO_INSTALL origin=src/environment.ts realm=host
+op=filesystem.read origin=src/config.ts realm=host modality=may
+op=filesystem.read origin=src/fs.ts realm=host modality=may
+op=process.exec origin=src/runner.ts realm=host
+op=filesystem.write origin=src/utils.ts realm=host modality=may
+op=filesystem.delete origin=src/utils.ts realm=host modality=may
+op=network. origin=src/fetch.ts realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]

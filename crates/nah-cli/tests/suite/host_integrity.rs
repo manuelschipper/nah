@@ -4,7 +4,6 @@ use crate::support;
 
 use nah_cli::decide_with;
 #[cfg(unix)]
-use nah_proto::action::EffectKind;
 use nah_proto::decision::Verdict;
 use serde_json::json;
 use support::{bash_path, call, ctx, factory_ctx, repo};
@@ -17,7 +16,7 @@ fn decide(
     decide_with(
         &call("Bash", json!({"command":command}), cwd),
         context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     )
 }
 
@@ -93,7 +92,7 @@ fn enabling_shell_profiles_blocks_each_visible_mutation_producer() {
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(native.core().verdict(), Verdict::Block);
     assert!(
@@ -111,7 +110,7 @@ fn enabling_shell_profiles_blocks_each_visible_mutation_producer() {
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(patch.core().verdict(), Verdict::Block);
     assert!(
@@ -163,16 +162,12 @@ fn reviewed_destructive_utilities_name_only_real_auth_targets() {
             result.core().policy_attributions()
         );
         assert!(
-            result
-                .action_stream()
-                .effects()
+            support::filesystem_accesses(&result)
                 .iter()
-                .filter_map(|effect| match effect.kind() {
-                    EffectKind::Filesystem { effect } => Some(effect),
-                    _ => None,
-                })
-                .all(|effect| !effect.target.as_str().ends_with("/0")),
-            "{command}"
+                .all(|(_, resource, _)| !support::resource_path(resource)
+                    .is_some_and(|path| path.ends_with("/0"))),
+            "{command}: {:?}",
+            support::facts(&result)
         );
     }
 }
@@ -215,7 +210,7 @@ fn requested_shell_profile_identity_survives_a_symlinked_target() {
             &repo,
         ),
         &ctx(&root),
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(result.core().verdict(), Verdict::Block);
     assert!(

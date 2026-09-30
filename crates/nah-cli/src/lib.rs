@@ -24,8 +24,6 @@ mod devin_adapter;
 mod dispatch;
 mod docs;
 mod droid_adapter;
-#[cfg(feature = "effinterp")]
-mod effinterp_state;
 mod hermes_adapter;
 mod hook_adapter;
 mod kiro_adapter;
@@ -37,6 +35,8 @@ mod opencode_adapter;
 mod pi_adapter;
 mod pipeline;
 mod prime_agent_adapter;
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+mod private_files;
 #[cfg_attr(target_arch = "wasm32", allow(dead_code, unused_imports))]
 mod records;
 mod runtime;
@@ -48,8 +48,12 @@ mod xi_adapter;
 #[cfg(not(target_arch = "wasm32"))]
 mod tui;
 
-pub use catalog::{all_shipped_guard_states_enabled, shipped_guard_states, shipped_guards};
+pub use catalog::{all_shipped_guard_states_enabled, shipped_guard_states};
 pub use dispatch::run;
-pub use pipeline::{DecisionResult, EvidenceProvenance, decide_with};
-#[cfg(feature = "effinterp")]
-pub use pipeline::{OptionalEvidenceAnalysis, analyze_optional_with};
+pub use nah_effinterp::{DeclaredSource, DeclaredSourceObservations, SourceProvider};
+pub use pipeline::{
+    AnalysisRefusal, DecisionResult, EvaluationFailure, EvidenceProvenance, decide_replay,
+    decide_replay_code, decide_with,
+};
+
+pub use nah_effinterp::{ObservationBudget, ObservationResolver};

@@ -1,0 +1,43 @@
+# Ground-truth expectations for nvm-sh/nvm.
+# Derived from: nvm.sh (nvm_download execs curl/wget to fetch node tarballs;
+#   nvm_install_* does `command mkdir -p "$VERSION_PATH"`, extracts the tarball
+#   with tar under the install dir, and `command rm -rf` old version paths;
+#   nvm_write_nvmrc tees the version string into "$PWD"/.nvmrc).
+# Authored 2026-08-18 by reading product source, NOT EI output.
+# Confidence: HIGH. nvm downloads node and writes/removes under its install dir.
+# All logic lives in the one script, so it is statically reachable (no dynamic
+# dispatch wall here).
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 1
+
+# v1 regression floor (domain-level).
+[should_find]
+op=filesystem.
+op=network.
+op=process.exec
+
+# Fact-level assertions: the download path reaches a network effect through
+# curl/wget, and installation writes/creates/removes version paths — all
+# originating in the one product script.
+[facts]
+op=network.download origin=nvm.sh realm=host modality=may
+op=process.exec res=proc:curl origin=nvm.sh realm=host
+op=process.exec res=proc:wget origin=nvm.sh realm=host
+op=process.exec res=proc:tar origin=nvm.sh realm=host
+op=filesystem.create origin=nvm.sh realm=host
+op=filesystem.delete origin=nvm.sh realm=host
+op=filesystem.write res=.nvmrc origin=nvm.sh realm=host
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+# nvm reads /etc/issue for distro detection but never writes under /etc.
+op=filesystem.write res=/etc/
+
+[known_hard]

@@ -1,0 +1,231 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:cdb2b65e5c39c0c9f320f046702ef0bdd672262e30678d62e38380a15e8f9e8e",
+  "provenance": {
+    "author": "migrated_handwritten",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_apis/api_sources.json#p18b/stdlib/python-filesystem-read@v1",
+        "digest": "blake3:ea9a604762d9c87fc292873a2ce422d61591ad892984437fe80b65412f7f7f8c"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "python-standard-library",
+        "requirement": "frontend-surface@c1897ac4"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/stdlib/python-filesystem-read@v1",
+        "path": "../../tests/fixtures/model_apis/python.json",
+        "digest": "blake3:5119e298fd0ec2655207685e6f07bcd1e501e23967f61eb0bf984747f6a22066"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "python-near-symbol-does-not-activate",
+        "subject": {
+          "kind": "source",
+          "language": "python",
+          "source": "openish = \"/tmp/f\""
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/stdlib/python-filesystem-read@v1-change-operation",
+        "mutation": "change_first_operation"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "library_api",
+      "id": "p18b/stdlib/python-filesystem-read@v1",
+      "lang": "python",
+      "symbols": [
+        {
+          "target": {
+            "kind": "function",
+            "name": "open"
+          },
+          "operation": "filesystem.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "os.path.expanduser"
+          },
+          "operation": "environment.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "os.path.expandvars"
+          },
+          "operation": "environment.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "os.path.exists"
+          },
+          "operation": "filesystem.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "os.path.isfile"
+          },
+          "operation": "filesystem.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "os.path.isdir"
+          },
+          "operation": "filesystem.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "os.path.getsize"
+          },
+          "operation": "filesystem.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "os.path.getmtime"
+          },
+          "operation": "filesystem.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "glob.glob"
+          },
+          "operation": "filesystem.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "glob.iglob"
+          },
+          "operation": "filesystem.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "os.walk"
+          },
+          "operation": "filesystem.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "tempfile.mkdtemp"
+          },
+          "operation": "filesystem.create"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "tempfile.mkstemp"
+          },
+          "operation": "filesystem.create"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "tempfile.TemporaryDirectory"
+          },
+          "operation": "filesystem.create"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "tempfile.NamedTemporaryFile"
+          },
+          "operation": "filesystem.create"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "zipfile.ZipFile"
+          },
+          "operation": "filesystem.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "zipfile.ZipFile"
+          },
+          "operation": "filesystem.write"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "shutil.which"
+          },
+          "operation": "environment.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "shutil.which"
+          },
+          "operation": "filesystem.read"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "os.kill"
+          },
+          "operation": "process.signal"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "os.killpg"
+          },
+          "operation": "process.signal"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "urllib.request.urlopen"
+          },
+          "operation": "network.request"
+        },
+        {
+          "target": {
+            "kind": "function",
+            "name": "urllib.request.urlopen"
+          },
+          "operation": "network.upload"
+        }
+      ]
+    }
+  ]
+}

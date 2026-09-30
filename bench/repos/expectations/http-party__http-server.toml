@@ -1,0 +1,58 @@
+# Ground-truth expectations for http-party/http-server (holdout-dev corpus).
+# Pinned SHA: 0d3b7bb5b6e8a59fd450ae2dca65870009cfcd8b.
+# Real entry: bin/http-server (CommonJS bin script, package.json "bin"; requires
+#   ../lib/http-server which requires ./core — the CommonJS+callbacks shape).
+# Derived from:
+#   bin/http-server (env reads: process.env.PORT, bin/http-server:96;
+#     NODE_HTTP_SERVER_NO_PANIC, :97; NODE_HTTP_SERVER_SSL_PASSPHRASE, :101;
+#     NODE_HTTP_SERVER_USERNAME/NODE_HTTP_SERVER_PASSWORD, :219-220;
+#     fs.readFileSync(proxyConfig), :285; httpServer.createServer(options) and
+#     server.listen(port, host, callback), :339-340),
+#   lib/core/index.js (per-request callbacks serve files: fs.readFileSync(file),
+#     index.js:236; fs.createReadStream, index.js:65/283/329).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. Serving local files over a listening HTTP socket is the
+# product; the env reads and listen() are straight-line in the bin script, while
+# the core file reads run inside request-handler callbacks.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=network.
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=PORT origin=bin/http-server realm=host
+op=environment.read res=NODE_HTTP_SERVER_SSL_PASSPHRASE origin=bin/http-server realm=host
+op=environment.read res=NODE_HTTP_SERVER_USERNAME origin=bin/http-server realm=host
+op=filesystem.read origin=bin/http-server realm=host modality=may
+op=network. origin=bin/http-server realm=host
+# Crash-log write in the uncaught-exception handler (bin/http-server:119-121);
+# added by the source correction noted under [forbidden].
+op=filesystem.write res=httpserver- origin=bin/http-server realm=host modality=may
+
+[forbidden]
+# A static file server must never delete what it serves.
+# SOURCE CORRECTION (after RUN_holdout_dev_blind_1/2): the original blanket
+# filesystem.write forbidden was an authorship error — the analyzer correctly
+# found the uncaught-exception handler's crash-log write, fs.writeFileSync of
+# httpserver-<epoch>.log at bin/http-server:119-121 in the pinned SHA. The
+# forbidden is narrowed to the served tree's modification via delete only;
+# the crash-log write is recorded as a fact below.
+op=filesystem.delete
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]
+# Served-file reads happen inside per-request handler callbacks registered
+# through union/httpServerCore; `-o` opens a browser via the external `opener`
+# package (process exec in a dependency).
+op=filesystem.read origin=lib/core/index.js

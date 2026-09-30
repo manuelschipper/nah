@@ -187,7 +187,7 @@ pub(crate) fn set_runtime_configured(
 
 pub(crate) fn runtime_self_protection(
     runtime: Runtime,
-) -> Result<nah_actions::SelfProtectionProjection, String> {
+) -> Result<nah_proto::runtime_protection::SelfProtectionProjection, String> {
     let protected_paths = match runtime {
         Runtime::Amp => amp_self_protection_paths(),
         Runtime::Antigravity => antigravity_self_protection_paths(),
@@ -218,7 +218,7 @@ pub(crate) fn runtime_self_protection(
                 })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(nah_actions::SelfProtectionProjection::new(protected_paths))
+    Ok(nah_proto::runtime_protection::SelfProtectionProjection::new(protected_paths))
 }
 
 #[cfg(test)]

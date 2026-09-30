@@ -1,0 +1,125 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:4bab06d46d62735082b457c742be88d9bc9b80233eeee687749d327d3c592a1b",
+  "provenance": {
+    "author": "llm_drafted",
+    "sources": [
+      {
+        "uri": "git:67c27cd44c68d67347e8dd2b9febd1fbd292c17e:crates/effinterp-engine/src/python/ipython.rs",
+        "digest": "blake3:bb070139a03c5f200494c06f4ac3e63365f538170249782ea0bcbe91384d590d"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "ipython-launcher",
+        "requirement": "argv-surface@67c27cd4"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "registry",
+        "name": "ipython-launcher",
+        "expected_entries": [
+          "python/ipython@v0"
+        ]
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "ipython-help-does-not-run-cell",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "ipython",
+            "--help",
+            "-c",
+            "open('ignored').read()"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [],
+    "expected_facts": [],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "python/ipython@v0",
+      "commands": [
+        "ipython",
+        "ipython3"
+      ],
+      "launcher": {
+        "frontend": "python",
+        "options": [
+          {
+            "names": [
+              "-c"
+            ],
+            "class": "inline_source",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--"
+            ],
+            "class": "end_of_options",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-h",
+              "--help",
+              "--help-all",
+              "-V",
+              "--version"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--no-banner",
+              "--quick",
+              "--simple-prompt",
+              "--no-autoindent",
+              "--no-confirm-exit"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          }
+        ],
+        "operands": [
+          "script",
+          "program_arguments"
+        ]
+      },
+      "fragments": [],
+      "inert": true,
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

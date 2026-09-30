@@ -1,0 +1,9 @@
+{
+  "name": "sample",
+  "scripts": {
+    "build": "mkdir -p dist && cp src/index.js dist/index.js",
+    "clean": "rm -rf dist",
+    "migrate": "psql -h db -d app -c 'UPDATE public.users SET active = true'",
+    "nuke": "rm -rf /var/lib/data"
+  }
+}

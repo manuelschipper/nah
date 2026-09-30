@@ -1,13 +1,14 @@
+use crate::support;
+
 use nah_cli::decide_with;
-use nah_proto::action::{
-    Coverage, EffectKind, FilesystemOperation, InvocationEffect, InvocationInput,
-};
+use nah_proto::action::Coverage;
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::decision::Verdict;
+use nah_proto::effects::{FactPayload, FilesystemOperation, Knowledge, Selection};
 use nah_proto::observation::{
-    EnvObservation, Observation, ObservationFact, ObservationQuery, ObservationRequest,
-    ObservationValue, Observed, PathKind, PathObservation, ProjectGuardDeclaration,
-    ProjectGuardObservation, Root, RootKind,
+    DescendantObservation, EnvObservation, Observation, ObservationFact, ObservationQuery,
+    ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
+    ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind,
 };
 use nah_proto::tool::ToolCallInput;
 use serde_json::json;
@@ -70,20 +71,27 @@ fn observed(request: &ObservationRequest) -> Observation {
                     )
                     .unwrap(),
                 },
-                ObservationQuery::Path { requested, .. } => ObservationValue::Path {
-                    observed: Observed::Ok {
-                        value: PathObservation::new(
-                            windows_path(requested),
-                            None,
-                            PathKind::Missing,
-                        ),
-                    },
-                },
+                ObservationQuery::Path {
+                    requested,
+                    inspect_descendants,
+                    ..
+                } => {
+                    let mut value =
+                        PathObservation::new(windows_path(requested), None, PathKind::Missing);
+                    if *inspect_descendants {
+                        value = value
+                            .with_descendants(DescendantObservation::new(vec![], true).unwrap());
+                    }
+                    ObservationValue::Path {
+                        observed: Observed::Ok { value },
+                    }
+                }
                 ObservationQuery::Env { .. } => ObservationValue::Env {
                     observed: Observed::Ok {
                         value: EnvObservation::Unset,
                     },
                 },
+                ObservationQuery::UserHome { .. } => unreachable!("no named-user tilde"),
             };
             ObservationFact::new(query.clone(), value).unwrap()
         })
@@ -91,52 +99,37 @@ fn observed(request: &ObservationRequest) -> Observation {
     Observation::new(request.version(), request.request_id(), facts).unwrap()
 }
 
+/// The program runs with an argument the shell computes at runtime: the
+/// engine keeps the execution visible while leaving that word unknown.
 fn has_visible_dynamic_invocation(result: &nah_cli::DecisionResult, program: &str) -> bool {
-    result.action_stream().effects().iter().any(|effect| {
-        matches!(
-            effect.kind(),
-            EffectKind::Invocation {
-                invocation:
-                    InvocationEffect::Known {
-                        program: actual_program,
-                        input: InvocationInput::Shell { words, argv },
-                        ..
+    let resources = match result.guard_evidence() {
+        Some(Ok(evidence)) => &evidence.graph().resources,
+        _ => return false,
+    };
+    support::facts(result)
+        .iter()
+        .any(|fact| match &fact.payload {
+            FactPayload::ProcessExecution {
+                target, arguments, ..
+            } => {
+                resources[target.0 as usize].identity.name == Knowledge::Known(program.to_owned())
+                    && match arguments {
+                        Knowledge::Known(words) => words.contains(&Knowledge::Unknown),
+                        Knowledge::Unknown => true,
                     }
-            } if actual_program == program
-                && argv.is_none()
-                && words.iter().any(|word| word.contains("$(target)"))
-        )
-    })
+            }
+            _ => false,
+        })
 }
 
 #[test]
 fn windows_unresolved_destructive_targets_delegate_without_inventing_a_namespace() {
     for (cwd, command, program) in [
-        (
-            r"C:\repo",
-            r#"target(){ printf D:/victim; }; rm -rf "$(target)""#,
-            "rm",
-        ),
-        (
-            r"\\server\share\repo",
-            r#"target(){ printf C:/victim; }; rm -rf "$(target)""#,
-            "rm",
-        ),
-        (
-            r"C:\repo",
-            r#"target(){ printf D:/victim; }; chmod -R 000 "$(target)""#,
-            "chmod",
-        ),
-        (
-            r"C:\repo",
-            r#"target(){ printf D:/victim; }; rm -f "$(target)""#,
-            "rm",
-        ),
-        (
-            r"C:\repo",
-            r#"target(){ printf D:/victim; }; chmod 000 "$(target)""#,
-            "chmod",
-        ),
+        (r"C:\repo", r#"rm -rf "$(unknown)""#, "rm"),
+        (r"\\server\share\repo", r#"rm -rf "$(unknown)""#, "rm"),
+        (r"C:\repo", r#"chmod -R 000 "$(unknown)""#, "chmod"),
+        (r"C:\repo", r#"rm -f "$(unknown)""#, "rm"),
+        (r"C:\repo", r#"chmod 000 "$(unknown)""#, "chmod"),
     ] {
         let result = decide_with(
             &windows_input(cwd, command),
@@ -146,14 +139,14 @@ fn windows_unresolved_destructive_targets_delegate_without_inventing_a_namespace
 
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{cwd}");
         assert_eq!(result.core().coverage(), Coverage::Partial, "{cwd}");
+        // The destructive access is recorded against an unknown target rather
+        // than a path invented under the workspace namespace.
         assert!(
-            !result
-                .action_stream()
-                .effects()
+            support::filesystem_accesses(&result)
                 .iter()
-                .any(|effect| matches!(effect.kind(), EffectKind::Filesystem { .. })),
+                .all(|(_, resource, _)| resource.identity.name == Knowledge::Unknown),
             "{cwd}: {:?}",
-            result.action_stream().effects()
+            support::facts(&result)
         );
         assert!(has_visible_dynamic_invocation(&result, program), "{cwd}");
     }
@@ -161,28 +154,42 @@ fn windows_unresolved_destructive_targets_delegate_without_inventing_a_namespace
 
 #[test]
 fn windows_static_destructive_target_reaches_outside_workspace_guard() {
-    let command = "rm -rf D:/victim";
-    let result = decide_with(
-        &windows_input(r"C:\repo", command),
-        &windows_context(),
-        |request| Ok(observed(request)),
-    );
-    assert_eq!(result.core().verdict(), Verdict::Block);
-    assert!(
-        result
-            .core()
-            .policy_attributions()
-            .iter()
-            .any(|attribution| attribution.name() == "fs-outside-workspace-delete")
-    );
-    assert!(result.action_stream().effects().iter().any(|effect| {
-        matches!(
-            effect.kind(),
-            EffectKind::Filesystem { effect }
-                if effect.operation == FilesystemOperation::Delete
-                    && effect.target == windows_path("D:/victim")
-                    && effect.recursive
-                    && !effect.pattern
-        )
-    }));
+    for command in [
+        "rm -rf D:/victim",
+        r#"target(){ printf D:/victim; }; rm -rf "$(target)""#,
+    ] {
+        let result = decide_with(
+            &windows_input(r"C:\repo", command),
+            &windows_context(),
+            |request| Ok(observed(request)),
+        );
+        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .any(|attribution| attribution.name() == "fs-outside-workspace-delete"),
+            "{command}"
+        );
+        assert!(
+            support::filesystem_accesses(&result)
+                .iter()
+                .any(|(operation, resource, fact)| {
+                    *operation == FilesystemOperation::Delete
+                        && support::resource_path(resource)
+                            == Some(windows_path("D:/victim").as_str())
+                        && matches!(
+                            fact.payload,
+                            FactPayload::FilesystemAccess {
+                                recursive: Knowledge::Known(true),
+                                ..
+                            }
+                        )
+                        && !matches!(resource.selection, Selection::Pattern { .. })
+                }),
+            "{command}: {:?}",
+            support::facts(&result)
+        );
+    }
 }

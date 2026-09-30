@@ -1,0 +1,34 @@
+# Ground-truth expectations for BurntSushi/ripgrep.
+# Derived from: crates/core/main.rs (main -> run -> search -> reads haystack
+#   files / stdin; all output goes to stdout, never to files) and
+#   crates/core/flags/config.rs (reads $RIPGREP_CONFIG_PATH, then reads the
+#   config file it names).
+# Authored 2026-08-18 by reading product source, NOT EI output.
+# Confidence: HIGH for filesystem.read. ripgrep is a read-only search tool.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 1
+
+# v1 regression floor (domain-level).
+[should_find]
+op=filesystem.read
+
+# Fact-level assertions: the config path comes from $RIPGREP_CONFIG_PATH and
+# that file is read, both in flags/config.rs. The haystack read itself happens
+# inside the external grep-searcher crate, so it carries no in-repo origin.
+[facts]
+op=environment.read res=RIPGREP_CONFIG_PATH origin=crates/core/flags/config.rs realm=host
+op=filesystem.read origin=crates/core/flags/config.rs realm=host modality=may
+
+[forbidden]
+# ripgrep never deletes, anywhere.
+op=filesystem.delete
+op=network.
+op=database.
+
+[known_hard]
+# Optional preprocessor (--pre) / pager, spawned by name only when flagged.
+op=process.exec

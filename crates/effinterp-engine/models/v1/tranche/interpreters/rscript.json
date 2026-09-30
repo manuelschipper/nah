@@ -1,0 +1,378 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:433c3685fb5320267f149c36c50a6644063fa300dc19edffe3ea455d96064256",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/interpreters/rscript@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "Rscript",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/interpreters/rscript@v1",
+        "path": "../../tests/fixtures/model_tranche/rscript.json",
+        "digest": "blake3:36c9d4b0514debce04680dbaa453ba440a5efe506c1665060228cf562e097fc3"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "Rscript-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "Rscript-not-the-command",
+            "/work/program.src",
+            "arg"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/interpreters/rscript@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "process.code_execution"
+    ],
+    "expected_boundaries": [
+      "dynamic_source",
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/interpreters/rscript@v1",
+      "commands": [
+        "Rscript"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-e"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "script",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": [
+            "-e"
+          ]
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "script"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "process.code_execution",
+              "resource": {
+                "kind": "process",
+                "executable": {
+                  "kind": "argument",
+                  "index": 0
+                },
+                "argv": []
+              },
+              "attributes": {
+                "source": {
+                  "kind": "constant_string",
+                  "value": "file"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e"
+            ],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "process.code_execution",
+              "resource": {
+                "kind": "process",
+                "executable": {
+                  "kind": "argument",
+                  "index": 0
+                },
+                "argv": []
+              },
+              "attributes": {
+                "source": {
+                  "kind": "constant_string",
+                  "value": "stdin"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-e"
+            ],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "reason": "dynamic_source",
+          "class": "unresolved",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "inline-code",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-e"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "nested_source": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "language": "r",
+              "from": {
+                "kind": "flag_values",
+                "flags": [
+                  "-e"
+                ]
+              }
+            }
+          ],
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "-e"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "argument",
+                      "index": 0
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "argument"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "name": "explicit-stdin",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-e"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "stdin",
+              "index": 0,
+              "allowed_literals": [
+                "-"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "stdin"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "argument",
+                      "index": 0
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "stdin"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "dynamic_source",
+              "class": "unresolved",
+              "domains": [
+                "filesystem",
+                "process"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

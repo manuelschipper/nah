@@ -1,0 +1,13 @@
+[package]
+name = "effinterp-matcher"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+effinterp-proto = { path = "../effinterp-proto" }
+effinterp-trace = { path = "../effinterp-trace" }
+serde = { workspace = true }
+serde_json = { workspace = true }

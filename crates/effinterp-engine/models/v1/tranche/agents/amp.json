@@ -1,0 +1,1370 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:b4e31465d61851c16b1db7450efb19c5aab71dda007692382f9058c7c923991e",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/agents_selfprot_sources.json#selfprot/agents/amp@v1",
+        "digest": "blake3:8bab1c9cbbd0ed24f19c085e7f1dfdff7a16a16f858ccd9e628ba414b45e1b95"
+      },
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/agents/amp@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "amp",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/agents/amp@v1",
+        "path": "../../tests/fixtures/model_tranche/agents-amp.json",
+        "digest": "blake3:d1aa895071d1205acd31493d769033598b3d75196bc7192092bed18b2362cd12"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "amp-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "amp-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "environment.read"
+        ],
+        "absent_boundaries": [
+          "unmodeled_dynamic"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/agents/amp@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "protected_control": true,
+      "id": "p18b/agents/amp@v1",
+      "commands": [
+        "amp"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "--execute",
+            "-x"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--target"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "container",
+          "database",
+          "environment",
+          "filesystem",
+          "git",
+          "messaging",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [
+        {
+          "names": [
+            "add"
+          ],
+          "index": 1,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "group",
+              "index": 0,
+              "allowed_literals": [
+                "plugins"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "plugin",
+              "index": 1,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "XDG_CONFIG_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".config"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "amp/plugins"
+                        },
+                        {
+                          "kind": "current"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--target"
+                    ],
+                    "allowed_literals": [
+                      "system"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "XDG_CONFIG_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".config"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "amp/plugins"
+                        },
+                        {
+                          "kind": "current"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--target"
+                    ],
+                    "allowed_literals": [
+                      "workspace"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "in_directory",
+                    "directory": {
+                      "kind": "cwd"
+                    },
+                    "entry": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": ".amp/plugins"
+                        },
+                        {
+                          "kind": "current"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "remove",
+            "rm"
+          ],
+          "index": 1,
+          "flags": [
+            {
+              "names": [
+                "--help",
+                "-h"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--version",
+                "-V"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "group",
+              "index": 0,
+              "allowed_literals": [
+                "plugins"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "plugin",
+              "index": 1,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "XDG_CONFIG_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".config"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "amp/plugins"
+                        },
+                        {
+                          "kind": "current"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--target"
+                    ],
+                    "allowed_literals": [
+                      "system"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "XDG_CONFIG_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".config"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "amp/plugins"
+                        },
+                        {
+                          "kind": "current"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--target"
+                    ],
+                    "allowed_literals": [
+                      "workspace"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "in_directory",
+                    "directory": {
+                      "kind": "cwd"
+                    },
+                    "entry": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": ".amp/plugins"
+                        },
+                        {
+                          "kind": "current"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "XDG_CONFIG_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".config"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "amp/plugins"
+                        },
+                        {
+                          "kind": "current"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--target"
+                    ],
+                    "allowed_literals": [
+                      "system"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "XDG_CONFIG_HOME",
+                          "default": {
+                            "kind": "join",
+                            "parts": [
+                              {
+                                "kind": "environment_or",
+                                "name": "HOME",
+                                "default": {
+                                  "kind": "environment",
+                                  "name": "HOME"
+                                }
+                              },
+                              {
+                                "kind": "literal",
+                                "value": ".config"
+                              }
+                            ],
+                            "separator": "/"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "amp/plugins"
+                        },
+                        {
+                          "kind": "current"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--target"
+                    ],
+                    "allowed_literals": [
+                      "system"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--target"
+                    ],
+                    "allowed_literals": [
+                      "workspace"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "in_directory",
+                    "directory": {
+                      "kind": "cwd"
+                    },
+                    "entry": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": ".amp/plugins"
+                        },
+                        {
+                          "kind": "current"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--target"
+                    ],
+                    "allowed_literals": [
+                      "workspace"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": false,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "help"
+          ],
+          "index": 0,
+          "inert": true,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": [
+        {
+          "without_subcommand": true,
+          "name": "session",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "in_directory",
+                        "directory": {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        "entry": {
+                          "kind": "literal",
+                          "value": ".config/amp/settings.json"
+                        }
+                      },
+                      {
+                        "kind": "in_directory",
+                        "directory": {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        "entry": {
+                          "kind": "literal",
+                          "value": ".config/amp/settings.jsonc"
+                        }
+                      },
+                      {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "literal",
+                          "value": ".amp/settings.json"
+                        }
+                      },
+                      {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "literal",
+                          "value": ".amp/settings.jsonc"
+                        }
+                      }
+                    ]
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "literal",
+                      "value": "ampcode.com"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "AMP_API_KEY"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ]
+    }
+  ]
+}

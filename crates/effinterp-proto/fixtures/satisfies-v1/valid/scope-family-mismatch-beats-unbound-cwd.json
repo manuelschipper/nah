@@ -1,0 +1,37 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "scope-family-mismatch-beats-unbound-cwd",
+  "request": {
+    "mode": "intersects",
+    "scope": {
+      "realm": null,
+      "set": {
+        "kind": "pattern",
+        "pattern": {
+          "family": "fs_path",
+          "glob": "*"
+        }
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "network_endpoint",
+          "host": "example.test"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "not_satisfied"
+  }
+}

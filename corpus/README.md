@@ -8,6 +8,10 @@ No test imports or executes nah 0.x.
 ```text
 corpus/threat-model.jsonl          reviewed first-principles threat cases
 corpus/native.jsonl                reviewed native-tool cases
+corpus/code.jsonl                  reviewed code-input cases
+corpus/compound.jsonl              reviewed compound agent-command cases
+corpus/database.jsonl              reviewed database-destruction cases
+corpus/database-services.jsonl     reviewed data-store, framework and managed-database cases
 corpus/execution-flows.jsonl       reviewed execution-flow cases
 corpus/filesystem.jsonl            reviewed filesystem cases
 corpus/git.jsonl                   reviewed Git cases
@@ -32,6 +36,20 @@ Each JSONL row is self-contained: its descriptive ID, tool input, fixtures, and
 exact expected verdict, guard, and coverage define the behavior under test.
 Context fixtures name either the compiled factory posture or the intentionally
 all-enabled posture; tests must not assume those are equivalent.
+
+### Row shape
+
+A row carries exactly one input form:
+
+```text
+"command": "rm -rf /etc"                                Bash command
+"tool": "Write", "input": {"file_path": "..."}          native tool call
+"language": "python", "code": "import shutil\n..."      code tool source
+```
+
+`language` is `python`, `ipython`, `powershell`, `javascript`, or `typescript`.
+A code row replays through the route the runtime's code hook takes, not as a
+Bash command.
 
 ### Depth budget
 

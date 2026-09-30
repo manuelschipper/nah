@@ -1,0 +1,36 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "missing-explicit-scope-realm",
+  "request": {
+    "mode": "contains",
+    "scope": {
+      "set": {
+        "kind": "fs_subtree",
+        "root": "/"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "fs_path",
+          "path": "/x"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": []
+    }
+  }
+}

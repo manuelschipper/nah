@@ -51,7 +51,7 @@ Malformed, reserved, or colliding proposals are skipped; `nah test` warns
 without hiding healthy siblings.
 Once an activation exists, a missing, changed, untrusted, or unreadable
 activated bundle contributes an evaluation failure. The call delegates unless
-another guard or self-protection blocks. `nah nap --all` is the intentional
+another guard or self-protection blocks. `nah nap all` is the intentional
 exception: it skips custom guards with the rest of non-permanent enforcement.
 
 ## Manifest
@@ -59,12 +59,14 @@ exception: it skips custom guards with the rest of non-permanent enforcement.
 ```toml
 name = "corp-api"
 match = ["corp-api", "curl"]
-protocol = "exec/v1"
+protocol = "exec/v2"
 provenance = "agent"       # "user" or "agent"; informational only
 data = ["rules.json"]      # optional
 ```
 
-Unknown manifest fields are rejected. A guard name is 1–64 ASCII bytes,
+Unknown manifest fields are rejected. A bundle with another `protocol`, such as
+an `exec/v1` guard from nah 1.5.0, is skipped with `unsupported-policy-protocol`
+until its manifest and program are updated for `exec/v2`. A guard name is 1–64 ASCII bytes,
 starts and ends with a lowercase letter or digit, and otherwise contains only
 lowercase letters, digits, `-`, `_`, or `.`. Built-in guard names are reserved.
 Each `match` entry is an exact lexical program token, not a glob, command line,
@@ -72,22 +74,24 @@ or regular expression. Entries must be unique and nonempty; control characters
 and `*`, `?`, `[`, or `]` are rejected.
 An explicit path selector matches only that path. A bare selector such as
 `aws` also matches the same name in a standard executable directory such as
-`/bin`, `/usr/bin`, `/usr/local/bin`, or macOS Homebrew's `/opt/homebrew/bin`.
+`/bin`, `/usr/bin`, `/usr/local/bin`, or macOS Homebrew's `/opt/homebrew/bin`
+and its coreutils and findutils `libexec/gnubin`. Filesystem guards trust the
+same list for `/`-spelled program paths.
 It does not match `./aws`, `/tmp/aws`, or a project-local lookalike; name one of
 those paths explicitly when intended.
 
-Selection and `exec/v1` use the public ActionStream: at most 64 modeled calls per
-interpreted source. Saturation makes coverage partial; later calls are
-language-safety only. Any visible known, opaque, or code-execution invocation
-may select a guard. A user guard is eligible
-everywhere. A project guard also requires the invocation's visible `cwd` to be
-its trusted root or a descendant. Re-check each invocation rather than treating
-unrelated or out-of-root effects as in scope.
+Selection and `exec/v2` use the same public evidence. Public calls are the
+tool call itself and, for shell input, the exact child commands it launches
+with fully literal arguments and a bound working directory, such as `corp-api`
+under `sudo corp-api`. A child with an unresolved expansion or directory, and
+interpreter source, including `bash -c` and script launches, stay private to
+built-in guards. Any public call with a known identity may select a guard. A
+user guard is eligible everywhere. A project guard also requires the matching
+call's known `cwd` to be its trusted root or a descendant. Re-check each call
+rather than treating unrelated or out-of-root facts as in scope.
 
-Exact child commands found in visible interpreter code may appear as additional
-stages beside the original `code-execution` invocation. They use the ordinary
-effect schema; a flow to the parent exists only when the child API is proven to
-inherit stdout. Do not infer nesting or execution from stage adjacency.
+Use explicit parent and dataflow references; array adjacency does not
+establish nesting or execution.
 
 Every `data` path must be unique, relative, nonempty, and made only of normal
 path components. `policy.toml`, `run`, `run.exe`, `run.cmd`, and `run.bat`
@@ -102,7 +106,7 @@ every declared data file, is covered by the activation hash on every platform.
 The Windows template declares `run.py` as data so its interpreter source is
 also covered.
 
-## Exact exec/v1 request
+## Exact exec/v2 request
 
 For every selected uncached request, nah starts the selected entrypoint with the
 guard directory as its working directory. The unsandboxed process inherits nah's
@@ -110,43 +114,39 @@ environment. nah writes one compact UTF-8 JSON object plus a newline to standard
 input, closes it, and captures stdout and stderr. Inherited variables may
 contain credentials.
 
-Representative request:
+Request for `corp-api delete --all`, with `resources`, `facts`, `occurrences`,
+and `relations` omitted:
 
 ```json
 {
-  "v": 1,
-  "action_stream": {
-    "v": 1,
-    "coverage": "full",
-    "effects": [
-      {
-        "id": "e0",
-        "stage": "s0",
-        "kind": {
-          "kind": "invocation",
-          "invocation": {
-            "kind": "known",
-            "program": "curl",
-            "operation": "network-transfer",
-            "input": {
-              "kind": "shell",
-              "words": ["curl", "https://example.test"],
-              "argv": ["curl", "https://example.test"]
-            },
-            "cwd": "/repo"
-          }
-        }
-      },
-      {
-        "id": "e1",
-        "stage": "s0",
-        "kind": {
-          "kind": "network",
-          "direction": "outbound"
-        }
-      }
-    ],
-    "flows": []
+  "v": 2,
+  "evidence": {
+    "coverage": "partial",
+    "complete": true,
+    "calls": [{
+      "id": 0,
+      "parent": null,
+      "kind": "Shell",
+      "identity": {"Known": "Bash"},
+      "arguments": "Unknown",
+      "cwd": {"Known": "/repo"},
+      "payload_group": {"Known": 0},
+      "visibility_ordinal": {"Known": 0},
+      "coverage": "partial"
+    }, {
+      "id": 1,
+      "parent": 0,
+      "kind": "Argv",
+      "identity": {"Known": "corp-api"},
+      "arguments": {"Known": ["corp-api", "delete", "--all"]},
+      "cwd": {"Known": "/repo"},
+      "payload_group": {"Known": 0},
+      "visibility_ordinal": {"Known": 1},
+      "coverage": "partial"
+    }],
+    "conditions": [],
+    "gaps": [{"id": 0, "call": 0, "phase": "Analysis", "category": "Unmodeled",
+      "code": "unmodeled-command", "domain": null}]
   },
   "observation": {
     "cwd": {"status": "ok", "value": "/repo"},
@@ -158,74 +158,56 @@ Representative request:
 }
 ```
 
-`coverage` describes preserved visible input, not whether nah understands an
-opaque program; see `nah docs concepts`. Effects are ordered and have stable
-request-local ids `e0`, `e1`, and so on. Each stage has one invocation and its
-associated effects. `flows` contains `{ "from_stage": "s0", "to_stage": "s1" }`
-edges when data flows between stages.
+`coverage` is `full` or `partial`; partial evidence cannot prove that an
+unrepresented operation is absent. `complete: false` means the public projection
+omitted evidence, for example private interpreter source. IDs are
+request-local integers; resolve references by ID rather than array position.
+The public subset closes call parents and fact, resource, occurrence, relation,
+and condition references without exposing private calls.
 
-An effect `kind` is one of:
+Calls have a `kind` of `Shell`, `Argv`, `VisibleCode`, or `Native`. A known
+identity can select a guard even when the call's arguments are unknown.
+Knowledge fields use `{"Known": value}` or the string `"Unknown"`. Unknown is not an empty value or a negative finding.
 
-- `invocation`, whose `invocation.kind` is `known` (`program`, `operation`),
-  `opaque` (`program`), or `code-execution` (`program`, optional
-  `interpreter`, `source`, and optional exact `code`);
-- `filesystem` (`operation`, `target`, `scope`, `sensitivity`, optional
-  `protection`, optional `host_integrity`, `selects_root`, `selects_home`,
-  `recursive`, `pattern`);
-- `filesystem-unresolved` (`operation`, `recursive`) when a visible operand
-  cannot be bounded to one filesystem root; the invocation keeps its input;
-- `git` (`operation`);
-- `network` (`direction`, optional `host`);
-- `system-state` (`operation`).
+`arguments`, when known, contains exact visible command arguments including
+element zero, empty arguments, repeated flags, `--`, and `--key=value` spelling.
+Compare the array directly rather than joining it into a string. Shell and
+other source-bearing calls have unknown arguments. Raw tool input, shell
+source, inline code, and process-resource argv are excluded. Native calls
+expose modeled facts rather than their raw input objects.
 
-Filesystem operation values are `read`, `write`, or `delete`. Scope is tagged
-by `kind`: `project` also has `root`; the other values are `home`, `system`,
-and `outside-project`. Sensitivity is `none`, `environment-secret`,
-`credential-secret`, or `other-sensitive`. Protection, when present, is
-`critical`, `permanent`, or `proposal`. `host_integrity`, when present, is
-`shell-profile`, `startup-persistence`, or `auth-identity`; it classifies a
-reviewed requested or effective target independently of sensitivity. Built-in
-policy uses it only for writes and deletes, so extensions should still inspect
-`operation`. `pattern` is true when the shell expands the target: the effect
-covers paths starting with the literal text before the first `*`, `?`, `[`,
-`{`, `@(`, `+(`, or `!(`, and coverage is `partial`. The optional field retains
-ActionStream v1.
+Facts carry `call`, `realm`, `certainty`, `modality`, optional `condition` and
+occurrence bounds, and a tagged `payload`. For example,
+`{"EnvironmentAccess": {...}}` represents environment access,
+`{"FilesystemSearch": {...}}` a search, and `{"FilesystemAccess": {...}}`
+a filesystem operation. Filesystem operations include `Read`, `Write`, `Delete`,
+and `Move`; their `target` and optional `destination` reference resources.
+Their `purpose` is what the modeled command or the plan's data flow shows the
+access does with the contents, not a policy judgment about disclosure.
+Resource `labels`, when available, carry path scope, sensitivity, protection,
+and host-integrity evidence. These are knowledge fields, so a missing label
+must not be treated as a safe target.
 
-Every invocation also has an `input`. Shell input is
-`{"kind":"shell","words":[...],"argv":[...]}`. `words` preserves the visible
-shell tokens; `argv`, when present, is the exact statically determined argument
-array including element zero, empty arguments, repeated flags, `--`, and
-`--key=value` spelling. If expansion, substitution, or globbing prevents nah
-from proving the final arguments, `argv` is absent and coverage is partial.
-Compare the array directly rather than joining it into a string.
+Occurrences identify a call's semantic or concrete ports. Relations connect
+occurrence IDs and describe the modeled flow, with their own certainty and
+optional condition. Do not infer a flow merely because a source and sink both
+appear. Conditions preserve boolean expressions and exclusive alternatives;
+conditional evidence does not establish unconditional execution. Gaps identify
+incomplete interpretation using stable phase, category, and code fields.
 
-`environment-disclosure`, `credential-disclosure`, and `credential-search` are
-extension-visible `known` v1 operations.
-
-Each invocation includes `cwd` when nah can bind the visible requested working
-directory at that stage; it is absent when that directory is unresolved. When
-an earlier `cd` may have failed, coverage is partial even though the requested
-directory remains visible.
-
-Native input is `{"kind":"native","value":{...},"complete":true}`.
-Adapters preserve it for custom guards while normalizing documented tools for
-built-in policy. Unknown native tools remain opaque. An unrecognized field
-makes coverage partial but remains visible. Input and inline code can contain
-secrets and are provided only to activated custom guards and `nah test --json`.
-nah does not copy raw evidence into records, diagnostics, or feedback, but a
-guard's `reason` is memoized and sent to the runtime. Never put secrets or raw
-input in a reason.
-Invocation evidence over 1 MiB is omitted and marked incomplete rather than
-being sent to a guard.
+Visible arguments and modeled resource values can still contain secrets. nah
+does not copy raw evidence into records, diagnostics, or feedback, but a guard's
+`reason` is memoized and sent to the runtime. Never put secrets or raw input in
+a reason.
 
 Observed `cwd` and `roots` either have `{"status":"ok","value":...}` or
 `{"status":"error","error":"..."}`. Error values are `invalid-path`,
 `not-found`, `permission-denied`, `timeout`, `unavailable`, and `non-unicode`.
 Root kinds are `project` and `worktree-main`. Consume the JSON structurally;
-do not depend on object-key spacing or ordering. For Bash, inspect the exact
-request without execution or audit recording with `nah test --json <command>`.
-Native input shapes arrive through runtime adapters; `nah test` does not
-synthesize them.
+do not depend on object-key spacing or ordering. Inspect the exact request
+without execution or audit recording with `nah test --json <command>`, or
+`nah test --json --runtime <runtime> --tool <name> --args-json <json>` for a
+tool call as that runtime's hook receives it (default runtime: `claude`).
 
 ## Exact responses
 
@@ -256,14 +238,13 @@ import sys
 
 request = json.load(sys.stdin)
 response = {"abstain": True}
-for effect in request["action_stream"]["effects"]:
-    invocation = effect["kind"].get("invocation")
-    if not invocation or invocation.get("program") != "corp-api":
+for call in request["evidence"]["calls"]:
+    identity = call["identity"]
+    if not isinstance(identity, dict) or identity.get("Known") != "corp-api":
         continue
-    input = invocation["input"]
-    if input.get("kind") == "shell" and input.get("argv") == [
-        "corp-api", "delete", "--all"
-    ]:
+    arguments = call["arguments"]
+    argv = arguments.get("Known") if isinstance(arguments, dict) else None
+    if argv == ["corp-api", "delete", "--all"]:
         response = {
             "block": True,
             "reason": "corp-api delete --all requires review",
@@ -304,7 +285,9 @@ Transport rejection codes are `oversize`, `invalid-utf8`, `invalid-json`,
 
 The response must be a pure function of the request and activated bundle: do
 not use cross-call memory, clocks, or changing network reads. nah memoizes a
-validated response under a digest covering the represented arguments, code,
-native input, working directories, observations, guard context, and bundle
-identity. Raw evidence is not stored in the key. Identical hot calls
+validated response under a digest covering the exact serialized exec/v2 request,
+activation, and trusted project root. The activation includes the bundle hash.
+Private source and omitted evidence do not affect this key; changes to visible
+arguments, facts, working directories, or observations do. Raw evidence is not
+stored in the key. Identical hot calls
 can avoid a process spawn. No manifest option disables memoization.

@@ -1,5 +1,6 @@
 //! Testable command dispatch and machine-facing `nah decide` I/O.
 
+use std::collections::BTreeSet;
 use std::io::{IsTerminal, Read, Write};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -9,22 +10,17 @@ use nah_proto::tool::ToolCallInput;
 
 use crate::amp_adapter;
 use crate::antigravity_adapter;
-#[cfg(feature = "effinterp")]
-use crate::args::DaemonAction;
-#[cfg(feature = "effinterp")]
-use crate::args::EffinterpAction;
-use crate::args::{Command, GuardAction, GuardTargetArgs, HookAction, parse_from};
+use crate::args::{Cli, Command, GuardAction, GuardTargetArgs, HookAction, parse_from};
+use crate::catalog::{NAP_ALL, shipped_names};
 use crate::claude_adapter;
 use crate::cline_adapter;
 use crate::code_input::CodeInput;
 use crate::codex_adapter;
 use crate::commands::{
-    GuardSelector, RuntimeHookStatus, list_custom_guards, list_shipped_guards, new_guard,
-    reset_guard, runtime_entry, runtime_self_protection, set_guard_enabled, set_runtime_configured,
-    test_command, trust_root, untrust_root,
+    GuardSelector, RuntimeHookStatus, TestError, custom_guard_entries, list_custom_guards,
+    list_shipped_guards, new_guard, reset_guard, runtime_entry, runtime_self_protection,
+    set_guard_enabled, set_runtime_configured, test_command, trust_root, untrust_root,
 };
-#[cfg(feature = "effinterp")]
-use crate::commands::{configure_effinterp, effinterp_status};
 use crate::copilot_adapter;
 use crate::cursor_adapter;
 use crate::devin_adapter;
@@ -37,13 +33,13 @@ use crate::nap::{self, NapMode};
 use crate::openclaw_adapter;
 use crate::opencode_adapter;
 use crate::pi_adapter;
-use crate::pipeline::{EvaluationFailure, decide_live_with_self_protection, failed_delegate};
+use crate::pipeline::{
+    DecisionResult, EvaluationFailure, decide_live_with_self_protection, failed_delegate,
+};
 use crate::prime_agent_adapter;
 use crate::records;
 use crate::runtime::{FailurePolicy, Runtime};
 use crate::xi_adapter;
-
-const CLI_USAGE_ERROR: u8 = 4;
 
 /// Testable stdin/stdout seam for the thin binary.
 fn run_with<R: Read, W: Write, E: Write>(
@@ -62,7 +58,7 @@ fn run_with<R: Read, W: Write, E: Write>(
             stderr,
             "error: `nah hook {runtime}` requires an action\n\nUsage: nah hook {runtime} <install|uninstall|status>\n\nFor more information, try `nah hook --help`."
         );
-        return CLI_USAGE_ERROR;
+        return ExitCode::USAGE.value();
     }
     let cli = match parse_from(std::iter::once("nah".to_owned()).chain(args.iter().cloned())) {
         Ok(cli) => cli,
@@ -71,37 +67,18 @@ fn run_with<R: Read, W: Write, E: Write>(
     match cli.command {
         Command::Tui => {
             let _ = writeln!(stderr, "nah: `nah tui` requires an interactive terminal.");
-            2
+            ExitCode::USAGE.value()
         }
-        Command::Decide(args) => {
-            #[cfg(feature = "effinterp")]
-            {
-                crate::effinterp_state::with_forced(args.effinterp, || {
-                    run_decide(stdin, stdout, stderr)
-                })
-            }
-            #[cfg(not(feature = "effinterp"))]
-            {
-                let _ = args;
-                run_decide(stdin, stdout, stderr)
-            }
-        }
+        Command::Decide(_) => run_decide(stdin, stdout, stderr),
         Command::Nap(_) => {
             let _ = writeln!(
                 stderr,
                 "nah: `nah nap` must be run by the operator in an interactive terminal."
             );
-            2
+            ExitCode::USAGE.value()
         }
         Command::Wake => wake(stdout, stderr),
-        Command::Test(args) => {
-            // UNDOCUMENTED-EFFINTERP: forward the hidden opt-in only in feature builds.
-            #[cfg(feature = "effinterp")]
-            let result = test_command(&args.command, args.json, args.effinterp);
-            #[cfg(not(feature = "effinterp"))]
-            let result = test_command(&args.command, args.json);
-            emit_test(result, stdout, stderr)
-        }
+        Command::Test(args) => emit_test(test_command(&args), stdout, stderr),
         Command::Trust(args) => persist_trust(&args.root, stdout, stderr),
         Command::Untrust(args) => revoke_trust(&args.root, stdout, stderr),
         Command::Guards => emit_catalog(false, stdout, stderr),
@@ -130,47 +107,17 @@ fn run_with<R: Read, W: Write, E: Write>(
                 } else {
                     FailurePolicy::Delegate
                 };
-                #[cfg(feature = "effinterp")]
-                {
-                    crate::effinterp_state::with_forced(run.effinterp, || {
-                        run_runtime_hook(args.runtime, policy, stdin, stdout, stderr)
-                    })
-                }
-                #[cfg(not(feature = "effinterp"))]
-                {
-                    run_runtime_hook(args.runtime, policy, stdin, stdout, stderr)
-                }
+                run_runtime_hook(args.runtime, policy, stdin, stdout, stderr)
             }
         },
         Command::Why(args) => explain(&args.id, stdout, stderr),
         Command::Log(args) => {
-            #[cfg(feature = "effinterp")]
             let gap = args.effinterp_gap;
-            #[cfg(not(feature = "effinterp"))]
-            let gap = false;
             list_log(args.count, args.json, args.blocked, gap, stdout, stderr)
         }
-        #[cfg(feature = "effinterp")]
-        Command::Effinterp(args) => configure_effinterp_command(args.action, stdout, stderr),
-        Command::Docs(args) => emit_docs(args.topic.as_deref(), stdout, stderr),
-        // UNDOCUMENTED-EFFINTERP: dispatch the hidden daemon only in feature builds.
-        #[cfg(feature = "effinterp")]
-        Command::Daemon(args) => match args.action {
-            DaemonAction::Run(args) => nah_effinterp::run_daemon(
-                nah_effinterp::DaemonRunOptions {
-                    once: args.once,
-                    poll_seconds: args.poll,
-                    max_memory_mib: args.max_memory,
-                    max_files: args.max_files,
-                },
-                stderr,
-            ),
-            DaemonAction::Status => nah_effinterp::daemon_status(stdout, stderr),
-            DaemonAction::Stop => nah_effinterp::stop_daemon(stderr),
-            DaemonAction::Build(args) => {
-                nah_effinterp::build_daemon_snapshot(&args.id, args.max_memory, stderr)
-            }
-        },
+        Command::Docs(args) => {
+            emit_docs(args.topic.as_deref(), args.guard.as_deref(), stdout, stderr)
+        }
     }
 }
 
@@ -187,7 +134,7 @@ fn emit_clap_error<W: Write, E: Write>(error: clap::Error, stdout: &mut W, stder
         0
     } else {
         let _ = write!(stderr, "{rendered}");
-        CLI_USAGE_ERROR
+        ExitCode::USAGE.value()
     }
 }
 
@@ -215,7 +162,7 @@ fn configure_guard<W: Write, E: Write>(action: GuardAction, stdout: &mut W, stde
             }
             Err(error) => {
                 let _ = writeln!(stderr, "nah: {error}");
-                2
+                ExitCode::COMMAND_FAILURE.value()
             }
         };
     }
@@ -231,9 +178,9 @@ fn configure_guard<W: Write, E: Write>(action: GuardAction, stdout: &mut W, stde
         |enabled| set_guard_enabled(&args.name, enabled, &selector),
     );
     match result {
-        Ok(mutation) => {
-            let _ = writeln!(stdout, "{action_name} guard {}", mutation.canonical_name);
-            for warning in mutation.warnings {
+        Ok(warnings) => {
+            let _ = writeln!(stdout, "{action_name} guard {}", args.name);
+            for warning in warnings {
                 let _ = writeln!(stderr, "nah: {warning}");
             }
             0
@@ -245,7 +192,7 @@ fn configure_guard<W: Write, E: Write>(action: GuardAction, stdout: &mut W, stde
                 ""
             };
             let _ = writeln!(stderr, "nah: {error}{suffix}");
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
@@ -274,7 +221,7 @@ fn configure_runtime_hook<W: Write, E: Write>(
         }
         Err(error) => {
             let _ = writeln!(stderr, "nah: {error}");
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
@@ -346,7 +293,7 @@ fn inspect_runtime_hook<W: Write, E: Write>(
         }
         Err(error) => {
             let _ = writeln!(stderr, "nah: {error}");
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
@@ -388,7 +335,7 @@ fn run_runtime_hook<R: Read, W: Write, E: Write>(
 }
 
 fn emit_test<W: Write, E: Write>(
-    result: Result<(String, Vec<String>), String>,
+    result: Result<(String, Vec<String>), TestError>,
     stdout: &mut W,
     stderr: &mut E,
 ) -> u8 {
@@ -400,25 +347,37 @@ fn emit_test<W: Write, E: Write>(
             }
             0
         }
-        Err(error) => {
+        Err(TestError::Usage(error)) => {
             let _ = writeln!(stderr, "nah: {error}");
-            2
+            ExitCode::USAGE.value()
+        }
+        Err(TestError::Failed(error)) => {
+            let _ = writeln!(stderr, "nah: {error}");
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
 
-fn emit_docs<W: Write, E: Write>(topic: Option<&str>, stdout: &mut W, stderr: &mut E) -> u8 {
-    if topic == Some(docs::GUARDS_TOPIC) {
-        return emit_catalog(true, stdout, stderr);
-    }
-    match docs::render(topic) {
+fn emit_docs<W: Write, E: Write>(
+    topic: Option<&str>,
+    guard: Option<&str>,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> u8 {
+    let rendered = match (topic, guard) {
+        (Some(docs::GUARDS_TOPIC), None) => return emit_catalog(true, stdout, stderr),
+        (Some(docs::GUARDS_TOPIC), Some(guard)) => docs::render_guard(guard),
+        (_, Some(_)) => Err("only the `guards` topic takes a guard name".to_owned()),
+        (topic, None) => docs::render(topic),
+    };
+    match rendered {
         Ok(contents) => {
             let _ = write!(stdout, "{contents}");
             0
         }
         Err(error) => {
             let _ = writeln!(stderr, "nah: {error}");
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
@@ -517,24 +476,9 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
         Ok(state) => {
             all_paused = state
                 .nap
-                .is_some_and(|active| active.mode() == NapMode::All);
-            let self_protection = runtime
-                .map(runtime_self_protection)
-                .transpose()
-                .map(|self_protection| self_protection.unwrap_or_default());
-            let (self_protection, self_protection_error) = match self_protection {
-                Ok(self_protection) => (self_protection, None),
-                Err(error) => (
-                    nah_actions::SelfProtectionProjection::default(),
-                    Some(error),
-                ),
-            };
-            let mut result =
-                decide_live_with_self_protection(&input, code, &state, &self_protection);
-            if let Some(error) = self_protection_error {
-                result.push_warning(format!("runtime self-protection failed: {error}"));
-                result.push_failure(EvaluationFailure::nah("runtime-self-protection", "failed"));
-            }
+                .as_ref()
+                .is_some_and(|active| active.mode() == &NapMode::All);
+            let result = decide_live_for_runtime(&input, code, &state, runtime);
             audit = Some((state.ctx.clone(), input.clone()));
             result
         }
@@ -546,24 +490,16 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             failed_delegate("pipeline", "context", "context failed")
         }
     };
-    let mut fail_closed_block = false;
-    if failure_policy == FailurePolicy::Block
-        && !all_paused
-        && result.core().verdict() == nah_proto::decision::Verdict::Delegate
-        && (!result.failures().is_empty() || !result.refusals().is_empty())
-    {
-        let core = nah_proto::decision::DecisionCore::structural_block(
-            result.action_stream(),
-            result.recovery_advice().message(),
-        )
-        .expect("fixed fail-closed reason is valid");
-        result.replace_core(core);
-        fail_closed_block = true;
-    }
+    let fail_closed_block = apply_failure_policy(&mut result, failure_policy, all_paused);
     let duration_us = started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
     let id = decision_id();
-    let envelope = DecisionEnvelope::new(&id, &timestamp_rfc3339(), duration_us)
+    let envelope = DecisionEnvelope::new(&id, &current_timestamp_rfc3339(), duration_us)
         .expect("generated decision envelope is valid");
+    let include_refusals = failure_policy == FailurePolicy::Block
+        || result
+            .refusals()
+            .iter()
+            .any(|refusal| refusal.code() == "deadline-exceeded");
     let mut audit_recorded = false;
     if let Some((ctx, input)) = audit {
         match records::append_decision(
@@ -572,7 +508,7 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             &result,
             envelope.clone(),
             runtime,
-            failure_policy == FailurePolicy::Block,
+            include_refusals,
         ) {
             Ok(()) => audit_recorded = true,
             Err(error) => {
@@ -584,7 +520,7 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
                     &result,
                     envelope,
                     runtime,
-                    failure_policy == FailurePolicy::Block,
+                    include_refusals,
                 ) {
                     Ok(()) => audit_recorded = true,
                     Err(fallback_error) => {
@@ -601,7 +537,7 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             &result,
             envelope,
             runtime,
-            failure_policy == FailurePolicy::Block,
+            include_refusals,
         ) {
             Ok(()) => audit_recorded = true,
             Err(error) => result.push_warning(format!("audit failed: {error}")),
@@ -624,6 +560,56 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
     }
 }
 
+/// Decides under the self-protection projection of `runtime`, the adapter the
+/// call came through. A projection that cannot be built is an evaluation
+/// failure, never silently no protection.
+pub(crate) fn decide_live_for_runtime(
+    input: &ToolCallInput,
+    code: Option<&CodeInput>,
+    state: &live_state::LiveState,
+    runtime: Option<Runtime>,
+) -> DecisionResult {
+    let self_protection = runtime
+        .map(runtime_self_protection)
+        .transpose()
+        .map(|self_protection| self_protection.unwrap_or_default());
+    let (self_protection, self_protection_error) = match self_protection {
+        Ok(self_protection) => (self_protection, None),
+        Err(error) => (
+            nah_proto::runtime_protection::SelfProtectionProjection::default(),
+            Some(error),
+        ),
+    };
+    let mut result = decide_live_with_self_protection(input, code, state, &self_protection);
+    if let Some(error) = self_protection_error {
+        result.push_warning(format!("runtime self-protection failed: {error}"));
+        result.push_failure(EvaluationFailure::nah("runtime-self-protection", "failed"));
+    }
+    result
+}
+
+fn apply_failure_policy(
+    result: &mut DecisionResult,
+    failure_policy: FailurePolicy,
+    all_paused: bool,
+) -> bool {
+    if failure_policy == FailurePolicy::Block
+        && !all_paused
+        && result.core().verdict() == nah_proto::decision::Verdict::Delegate
+        && (!result.failures().is_empty() || !result.refusals().is_empty())
+    {
+        let core = nah_proto::decision::DecisionCore::structural_block_with_coverage(
+            result.core().coverage(),
+            result.recovery_advice().message(),
+        )
+        .expect("fixed fail-closed reason is valid");
+        result.replace_core(core);
+        true
+    } else {
+        false
+    }
+}
+
 fn emit_decision_output<W: Write>(stdout: &mut W, output: &DecisionOutput) -> u8 {
     if serde_json::to_writer(&mut *stdout, output).is_err() || writeln!(stdout).is_err() {
         ExitCode::UNAVAILABLE.value()
@@ -640,7 +626,7 @@ fn persist_trust<W: Write, E: Write>(root: &str, stdout: &mut W, stderr: &mut E)
         }
         Err(error) => {
             let _ = writeln!(stderr, "nah: {error}");
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
@@ -657,7 +643,7 @@ fn revoke_trust<W: Write, E: Write>(root: &str, stdout: &mut W, stderr: &mut E) 
         }
         Err(error) => {
             let _ = writeln!(stderr, "nah: {error}");
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
@@ -673,7 +659,7 @@ fn wake<W: Write, E: Write>(stdout: &mut W, stderr: &mut E) -> u8 {
         }
         Err(error) => {
             let _ = writeln!(stderr, "nah: {error}");
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
@@ -689,7 +675,7 @@ fn emit_catalog<W: Write, E: Write>(docs: bool, stdout: &mut W, stderr: &mut E) 
         }
         (Err(error), _) | (_, Err(error)) => {
             let _ = writeln!(stderr, "nah: {error}");
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
@@ -709,11 +695,11 @@ fn explain<W: Write, E: Write>(id: &str, stdout: &mut W, stderr: &mut E) -> u8 {
                 stderr,
                 "nah: decision `{id}` was not found; run `nah log` to list recent decision IDs"
             );
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
         Err(error) => {
             let _ = writeln!(stderr, "nah: {error}");
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
@@ -765,30 +751,7 @@ fn list_log<W: Write, E: Write>(
         }
         Err(error) => {
             let _ = writeln!(stderr, "nah: {error}");
-            2
-        }
-    }
-}
-
-#[cfg(feature = "effinterp")]
-fn configure_effinterp_command<W: Write, E: Write>(
-    action: EffinterpAction,
-    stdout: &mut W,
-    stderr: &mut E,
-) -> u8 {
-    let result = match action {
-        EffinterpAction::On => configure_effinterp(true),
-        EffinterpAction::Off => configure_effinterp(false),
-        EffinterpAction::Status => effinterp_status(),
-    };
-    match result {
-        Ok(status) => {
-            let _ = writeln!(stdout, "{status}");
-            0
-        }
-        Err(error) => {
-            let _ = writeln!(stderr, "nah: {error}");
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
@@ -801,7 +764,9 @@ pub(crate) fn decision_id() -> String {
     format!("decision-{}-{nanos}", std::process::id())
 }
 
-pub(crate) fn timestamp_rfc3339() -> String {
+/// The current UTC time as an RFC 3339 timestamp with whole seconds, such as
+/// `2026-07-23T12:00:00Z`.
+pub(crate) fn current_timestamp_rfc3339() -> String {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -825,15 +790,23 @@ pub(crate) fn timestamp_rfc3339() -> String {
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
+/// The `nah` binary entry point.
 pub fn run() -> std::process::ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    if let Some(mode) = interactive_nap_mode(&args) {
+    if let Some(requested) = interactive_nap_request(&args) {
         if !stdin.is_terminal() || !stdout.is_terminal() {
             eprintln!("nah: `nah nap` must be run by the operator in an interactive terminal.");
-            return std::process::ExitCode::from(2);
+            return std::process::ExitCode::from(ExitCode::USAGE.value());
         }
+        let mode = match nap_mode(requested, &shipped_names(), live_custom_guard_names) {
+            Ok(mode) => mode,
+            Err(error) => {
+                eprintln!("nah: {error}");
+                return std::process::ExitCode::from(ExitCode::USAGE.value());
+            }
+        };
         let mut stdin = stdin.lock();
         return std::process::ExitCode::from(run_interactive_nap(
             mode,
@@ -846,13 +819,13 @@ pub fn run() -> std::process::ExitCode {
     if matches!(args.as_slice(), [command] if command == "tui") {
         if !stdin.is_terminal() || !stdout.is_terminal() {
             eprintln!("nah: `nah tui` requires an interactive terminal.");
-            return std::process::ExitCode::from(2);
+            return std::process::ExitCode::from(ExitCode::USAGE.value());
         }
         return match crate::tui::run() {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("nah: {error}");
-                std::process::ExitCode::from(2)
+                std::process::ExitCode::from(ExitCode::COMMAND_FAILURE.value())
             }
         };
     }
@@ -860,7 +833,7 @@ pub fn run() -> std::process::ExitCode {
         eprintln!(
             "nah: `nah decide` reads a JSON tool call from stdin; use `nah test <command>` for an interactive dry run."
         );
-        return std::process::ExitCode::from(2);
+        return std::process::ExitCode::from(ExitCode::USAGE.value());
     }
     let code = run_with(
         &args,
@@ -871,12 +844,68 @@ pub fn run() -> std::process::ExitCode {
     std::process::ExitCode::from(code)
 }
 
-fn interactive_nap_mode(args: &[String]) -> Option<NapMode> {
-    match args {
-        [command] if command == "nap" => Some(NapMode::SelfProtection),
-        [command, flag] if command == "nap" && flag == "--all" => Some(NapMode::All),
+/// Every argument list the grammar accepts as `nah nap` takes the interactive
+/// path, returning its requested guard names. Help and usage errors fall
+/// through to the ordinary dispatcher, which prints them without starting a
+/// nap.
+fn interactive_nap_request(args: &[String]) -> Option<Vec<String>> {
+    match parse_from(std::iter::once("nah".to_owned()).chain(args.iter().cloned())) {
+        Ok(Cli {
+            command: Command::Nap(nap),
+        }) => Some(nap.guards),
         _ => None,
     }
+}
+
+/// Resolves `nah nap` arguments against the guards `nah guards` lists.
+/// `custom` yields one name per listed custom guard, so a name listed in
+/// several scopes is ambiguous, as it is for `nah guard disable`; it is read
+/// only when guard names were given.
+fn nap_mode(
+    requested: Vec<String>,
+    shipped: &[&str],
+    custom: impl FnOnce() -> Result<Vec<String>, String>,
+) -> Result<NapMode, String> {
+    let requested = requested.into_iter().collect::<BTreeSet<_>>();
+    if requested.is_empty() {
+        return Ok(NapMode::SelfProtection);
+    }
+    if requested.contains(NAP_ALL) {
+        return if requested.len() == 1 {
+            Ok(NapMode::All)
+        } else {
+            Err(format!("`{NAP_ALL}` cannot be combined with guard names"))
+        };
+    }
+    let custom = custom()?;
+    for name in &requested {
+        match custom.iter().filter(|custom| *custom == name).count() {
+            0 if shipped.contains(&name.as_str()) => {}
+            0 => {
+                let valid = shipped
+                    .iter()
+                    .map(|name| (*name).to_owned())
+                    .chain(custom)
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                return Err(format!(
+                    "unknown guard `{name}`; valid guards: {}",
+                    valid.join(", ")
+                ));
+            }
+            1 => {}
+            _ => return Err(format!("guard name `{name}` is ambiguous across scopes")),
+        }
+    }
+    Ok(NapMode::Guards(requested.into_iter().collect()))
+}
+
+fn live_custom_guard_names() -> Result<Vec<String>, String> {
+    Ok(custom_guard_entries()?
+        .into_iter()
+        .map(|entry| entry.target.name().to_owned())
+        .collect())
 }
 
 fn run_interactive_nap<R: std::io::BufRead, W: Write, E: Write>(
@@ -885,55 +914,56 @@ fn run_interactive_nap<R: std::io::BufRead, W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
 ) -> u8 {
-    let (scope, confirmation) = nap_prompt(mode);
+    let scope = nap_prompt(&mode);
     let _ = writeln!(
         stdout,
-        "Pause nah globally for 10 minutes?\n{scope}\nThis affects every session using this nah installation.\nPersistent changes remain after the nap expires.\nIf nah or its hook is removed, expiration cannot restore it.\n\nType {confirmation} to continue:"
+        "Pause nah globally for 10 minutes?\n{scope}\nThis affects every session using this nah installation.\nPersistent changes remain after the nap expires.\nIf nah or its hook is removed, expiration cannot restore it.\n\nType nap to continue:"
     );
     let _ = stdout.flush();
     let mut input = String::new();
     if stdin.read_line(&mut input).is_err() {
         let _ = writeln!(stderr, "nah: nap confirmation failed");
-        return 2;
+        return ExitCode::COMMAND_FAILURE.value();
     }
-    if !nap_confirmation(&input, confirmation) {
+    if !nap_confirmation(&input) {
         let _ = writeln!(stderr, "nah: nap cancelled");
-        return 2;
+        return ExitCode::COMMAND_FAILURE.value();
     }
     let platform = live_state::host_platform();
     let result = live_state::home(platform)
         .and_then(|home| nap::start(&home, platform, mode).map_err(|error| error.to_string()));
     match result {
         Ok(active) => {
-            let kind = match active.mode() {
-                NapMode::SelfProtection => "self-protection",
-                NapMode::All => "all enforcement",
-            };
             let _ = writeln!(
                 stdout,
-                "nah {kind} is napping for 10 minutes\nrun `nah wake` to resume sooner"
+                "nah {} is napping for 10 minutes\nrun `nah wake` to resume sooner",
+                active.mode().scope()
             );
             0
         }
         Err(error) => {
             let _ = writeln!(stderr, "nah: {error}");
-            2
+            ExitCode::COMMAND_FAILURE.value()
         }
     }
 }
 
-fn nap_confirmation(input: &str, confirmation: &str) -> bool {
+fn nap_confirmation(input: &str) -> bool {
     input
         .trim_end_matches(['\r', '\n'])
-        .eq_ignore_ascii_case(confirmation)
+        .eq_ignore_ascii_case("nap")
 }
 
-fn nap_prompt(mode: NapMode) -> (&'static str, &'static str) {
+fn nap_prompt(mode: &NapMode) -> String {
     match mode {
-        NapMode::SelfProtection => ("Self-protection will pause; guards remain active.", "NAP"),
-        NapMode::All => (
-            "All non-permanent enforcement will pause; other calls will delegate to their runtime.",
-            "NAP ALL",
+        NapMode::SelfProtection => "Self-protection will pause; guards remain active.".to_owned(),
+        NapMode::All => {
+            "All non-permanent enforcement will pause; other calls will delegate to their runtime."
+                .to_owned()
+        }
+        NapMode::Guards(_) => format!(
+            "Only {} will pause; self-protection and every other guard remain active.",
+            mode.scope()
         ),
     }
 }
@@ -947,6 +977,81 @@ mod tests {
     use super::*;
 
     #[test]
+    fn expired_analysis_obeys_fail_open_fail_closed_and_all_paused() {
+        use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
+
+        let ctx = Ctx::new(
+            Platform::Linux,
+            AbsolutePath::new(Platform::Linux, "/home/test").unwrap(),
+            vec![],
+            vec![],
+            TrustProjection::new(vec![]).unwrap(),
+        )
+        .unwrap();
+        let input = ToolCallInput::new(
+            SchemaVersion::V1,
+            "Bash",
+            serde_json::json!({"command":"echo ok"}),
+            "/repo",
+            None,
+        )
+        .unwrap();
+        let expired = |mode| crate::pipeline::decide_with_expired_budget(&input, &ctx, mode);
+
+        let mut fail_open = expired(nah_policy::EnforcementMode::Normal);
+        assert!(!apply_failure_policy(
+            &mut fail_open,
+            FailurePolicy::Delegate,
+            false
+        ));
+        assert_eq!(
+            fail_open.core().verdict(),
+            nah_proto::decision::Verdict::Delegate
+        );
+        assert!(matches!(
+            fail_open.refusals(),
+            [refusal]
+                if refusal.code() == "deadline-exceeded"
+                    && refusal.component() == "effinterp-engine"
+        ));
+        assert_eq!(
+            fail_open.recovery_advice(),
+            crate::pipeline::RecoveryAdvice::CorrectOrSimplify
+        );
+
+        let mut fail_closed = expired(nah_policy::EnforcementMode::Normal);
+        assert!(apply_failure_policy(
+            &mut fail_closed,
+            FailurePolicy::Block,
+            false
+        ));
+        assert_eq!(
+            fail_closed.core().verdict(),
+            nah_proto::decision::Verdict::Block
+        );
+        assert!(!apply_failure_policy(
+            &mut fail_closed,
+            FailurePolicy::Delegate,
+            false
+        ));
+        assert_eq!(
+            fail_closed.core().verdict(),
+            nah_proto::decision::Verdict::Block
+        );
+
+        let mut all_paused = expired(nah_policy::EnforcementMode::AllPaused);
+        assert!(!apply_failure_policy(
+            &mut all_paused,
+            FailurePolicy::Block,
+            true
+        ));
+        assert_eq!(
+            all_paused.core().verdict(),
+            nah_proto::decision::Verdict::Delegate
+        );
+    }
+
+    #[test]
     fn trust_command_rejects_extra_root_arguments() {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
@@ -956,7 +1061,7 @@ mod tests {
             &mut stdout,
             &mut stderr,
         );
-        assert_eq!(code, CLI_USAGE_ERROR);
+        assert_eq!(code, ExitCode::USAGE.value());
         let stderr = String::from_utf8(stderr).unwrap();
         assert!(stderr.contains("unexpected argument '/two'"));
         assert!(stderr.contains("Usage: nah trust [ROOT]"));
@@ -964,7 +1069,7 @@ mod tests {
 
     #[test]
     fn timestamps_are_valid_rfc3339() {
-        assert!(DecisionEnvelope::new("decision", &timestamp_rfc3339(), 0).is_ok());
+        assert!(DecisionEnvelope::new("decision", &current_timestamp_rfc3339(), 0).is_ok());
     }
 
     #[test]
@@ -1031,16 +1136,8 @@ mod tests {
             }
         }
 
-        let stream = nah_proto::action::ActionStream::new(
+        let core = nah_proto::decision::DecisionCore::new_with_coverage(
             nah_proto::action::Coverage::Full,
-            vec![vec![
-                nah_proto::action::EffectKind::known("echo", "print").unwrap(),
-            ]],
-            vec![],
-        )
-        .unwrap();
-        let core = nah_proto::decision::DecisionCore::new(
-            &stream,
             nah_proto::decision::Verdict::Delegate,
             vec![],
         )
@@ -1066,34 +1163,82 @@ mod tests {
 
     #[test]
     fn only_exact_nap_shapes_enter_the_interactive_path() {
+        let request = |args: &[&str]| {
+            interactive_nap_request(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>())
+        };
+        assert_eq!(request(&["nap"]), Some(vec![]));
+        assert_eq!(request(&["nap", "all"]), Some(vec!["all".into()]));
         assert_eq!(
-            interactive_nap_mode(&["nap".into()]),
-            Some(NapMode::SelfProtection)
+            request(&["nap", "fs-home", "no-such-guard"]),
+            Some(vec!["fs-home".into(), "no-such-guard".into()])
+        );
+        for help_or_usage_error in [
+            &["nap", "--help"][..],
+            &["nap", "-h"],
+            &["nap", "fs-home", "--help"],
+            &["nap", "--all"],
+            &["nap", "--bogus"],
+            &["wake"],
+        ] {
+            assert_eq!(
+                request(help_or_usage_error),
+                None,
+                "{help_or_usage_error:?}"
+            );
+        }
+
+        let shipped = ["fs-home", "git-history"];
+        let custom = || Ok(vec!["corp".to_owned(), "shared".into(), "shared".into()]);
+        let unread = || -> Result<Vec<String>, String> { panic!("custom guards were read") };
+        let names = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect();
+        assert_eq!(
+            nap_mode(vec![], &shipped, unread),
+            Ok(NapMode::SelfProtection)
         );
         assert_eq!(
-            interactive_nap_mode(&["nap".into(), "--all".into()]),
-            Some(NapMode::All)
+            nap_mode(names(&["all", "all"]), &shipped, unread),
+            Ok(NapMode::All)
         );
-        assert_eq!(interactive_nap_mode(&["nap".into(), "--help".into()]), None);
+        assert_eq!(
+            nap_mode(
+                names(&["git-history", "corp", "git-history"]),
+                &shipped,
+                custom
+            ),
+            Ok(NapMode::Guards(names(&["corp", "git-history"])))
+        );
+        assert!(nap_mode(names(&["all", "fs-home"]), &shipped, custom).is_err());
+        let unknown = nap_mode(names(&["fs-home", "nope"]), &shipped, custom).unwrap_err();
+        assert!(unknown.contains("nope"), "{unknown}");
+        for valid in ["corp", "fs-home", "git-history", "shared"] {
+            assert!(unknown.contains(valid), "{unknown}");
+        }
+        let ambiguous = nap_mode(names(&["shared"]), &shipped, custom).unwrap_err();
+        assert!(ambiguous.contains("ambiguous"), "{ambiguous}");
     }
 
     #[test]
     fn confirmation_copy_distinguishes_self_and_all() {
-        let (self_scope, self_token) = nap_prompt(NapMode::SelfProtection);
-        let (all_scope, all_token) = nap_prompt(NapMode::All);
-        assert_eq!(self_token, "NAP");
-        assert_eq!(all_token, "NAP ALL");
-        assert!(!self_scope.trim().is_empty());
-        assert!(!all_scope.trim().is_empty());
-        assert_ne!(self_scope, all_scope);
+        let guards = NapMode::Guards(vec!["corp".into(), "fs-home".into()]);
+        let scopes = [
+            nap_prompt(&NapMode::SelfProtection),
+            nap_prompt(&NapMode::All),
+            nap_prompt(&guards),
+        ];
+        for (index, scope) in scopes.iter().enumerate() {
+            assert!(!scope.trim().is_empty());
+            assert!(!scopes[..index].contains(scope));
+        }
+        assert!(scopes[2].contains("corp") && scopes[2].contains("fs-home"));
     }
 
     #[test]
     fn nap_confirmation_is_case_insensitive() {
-        assert!(nap_confirmation("NAP\n", "NAP"));
-        assert!(nap_confirmation("nap\r\n", "NAP"));
-        assert!(nap_confirmation("NAP ALL\n", "NAP ALL"));
-        assert!(nap_confirmation("nap all\r\n", "NAP ALL"));
-        assert!(!nap_confirmation("nap", "NAP ALL"));
+        for input in ["NAP\n", "nap\r\n", "Nap\n", "nAP"] {
+            assert!(nap_confirmation(input), "{input:?}");
+        }
+        for input in ["NAP ALL\n", "nap all", "", "naps\n"] {
+            assert!(!nap_confirmation(input), "{input:?}");
+        }
     }
 }

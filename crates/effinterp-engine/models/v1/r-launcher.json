@@ -1,0 +1,132 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:dd6457ddabfd33e9f7159f6e541719f18140f5d032dfc02071dcd24570772c4e",
+  "provenance": {
+    "author": "migrated_handwritten",
+    "sources": [
+      {
+        "uri": "git:57902bb2e2c326a6604c436409ba667798527a22:crates/effinterp-engine/src/models/rexec.rs",
+        "digest": "blake3:9e195f29937566713a6adb3f45cb3131ca460dbd568158fe1385fec08d49cc56"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "r-launcher",
+        "requirement": "argv-surface@57902bb2"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "registry",
+        "name": "r-launcher",
+        "expected_entries": [
+          "r/R@v0"
+        ]
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "r-args-do-not-select-a-program",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "R",
+            "--args",
+            "ignored.R"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [],
+    "expected_facts": [],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "r/R@v0",
+      "commands": [
+        "R"
+      ],
+      "launcher": {
+        "frontend": "r",
+        "options": [
+          {
+            "names": [
+              "-e",
+              "--expression"
+            ],
+            "class": "inline_source",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "-f"
+            ],
+            "class": "value",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--file"
+            ],
+            "class": "value",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "--encoding",
+              "--max-connections",
+              "-d",
+              "--debugger"
+            ],
+            "class": "value",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--args"
+            ],
+            "class": "end_of_options",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-"
+            ],
+            "class": "unreviewed",
+            "attachment": "attached"
+          }
+        ],
+        "operands": [
+          "program_arguments"
+        ]
+      },
+      "fragments": [],
+      "inert": true,
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

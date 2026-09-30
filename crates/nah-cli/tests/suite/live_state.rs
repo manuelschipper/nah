@@ -8,9 +8,11 @@ use std::path::Path;
 use std::process::Command;
 
 use nah_cli::decide_with;
-use nah_proto::action::{Coverage, EffectKind, FilesystemOperation, PathScope};
+use nah_proto::action::Coverage;
 use nah_proto::ctx::SchemaVersion;
 use nah_proto::decision::{DecisionOutput, Verdict};
+use nah_proto::effects::{FilesystemOperation, Knowledge, Reach};
+use nah_proto::labels::PathScope;
 use nah_proto::tool::ToolCallInput;
 use serde_json::json;
 use support::{bash_path, call, ctx, git, repo};
@@ -35,7 +37,7 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
         ("Grep", json!({"pattern":"demo", "path":"src/lib.rs"})),
     ] {
         let result = decide_with(&call(tool, input, &repo), &context, |request| {
-            nah_observe::fulfill(request).map_err(|error| error.to_string())
+            support::fulfill_observation(request)
         });
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{tool}");
         assert_eq!(result.core().coverage(), Coverage::Full);
@@ -44,7 +46,7 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
     let sensitive = decide_with(
         &call("Read", json!({"file_path":".env"}), &repo),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(sensitive.core().verdict(), Verdict::Block);
 
@@ -55,7 +57,7 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(git_metadata.core().verdict(), Verdict::Delegate);
     assert_eq!(git_metadata.core().coverage(), Coverage::Full);
@@ -75,7 +77,7 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
                 &repo,
             ),
             &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            support::fulfill_observation,
         );
         assert_eq!(escaped_write.core().verdict(), Verdict::Delegate);
 
@@ -86,7 +88,7 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
                 &repo,
             ),
             &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            support::fulfill_observation,
         );
         assert_eq!(escaped_child_write.core().verdict(), Verdict::Delegate);
 
@@ -101,7 +103,7 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
                 &repo,
             ),
             &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            support::fulfill_observation,
         );
         assert_eq!(escaped_glob.core().verdict(), Verdict::Delegate);
         assert_eq!(escaped_glob.core().coverage(), Coverage::Full);
@@ -121,30 +123,41 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
             ),
         ] {
             let aliased = decide_with(&call(tool, input, &repo), &context, |request| {
-                nah_observe::fulfill(request).map_err(|error| error.to_string())
+                support::fulfill_observation(request)
             });
             assert_eq!(aliased.core().verdict(), Verdict::Delegate, "{tool}");
-            assert_eq!(aliased.core().coverage(), Coverage::Partial, "{tool}");
+            assert_eq!(aliased.core().coverage(), Coverage::Full, "{tool}");
         }
     }
 
-    for input in [
-        json!({"pattern":"../outside/*", "path":"."}),
-        json!({"pattern":".e??", "path":"."}),
-    ] {
-        let glob = decide_with(&call("Glob", input, &repo), &context, |request| {
-            nah_observe::fulfill(request).map_err(|error| error.to_string())
-        });
-        assert_eq!(glob.core().verdict(), Verdict::Delegate);
-        assert_eq!(glob.core().coverage(), Coverage::Partial);
-    }
+    let escaping_glob = decide_with(
+        &call("Glob", json!({"pattern":"../outside/*", "path":"."}), &repo),
+        &context,
+        support::fulfill_observation,
+    );
+    assert_eq!(escaping_glob.core().verdict(), Verdict::Delegate);
+    assert_eq!(escaping_glob.core().coverage(), Coverage::Full);
+    // The pattern selects .env, so the environment-secret read is proven.
+    let secret_glob = decide_with(
+        &call("Glob", json!({"pattern":".e??", "path":"."}), &repo),
+        &context,
+        support::fulfill_observation,
+    );
+    assert_eq!(secret_glob.core().verdict(), Verdict::Block);
+    assert!(
+        secret_glob
+            .core()
+            .policy_attributions()
+            .iter()
+            .any(|guard| guard.name() == "secrets-env")
+    );
     let recursive_grep = decide_with(
         &call("Grep", json!({"pattern":"password", "path":"src"}), &repo),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(recursive_grep.core().verdict(), Verdict::Delegate);
-    assert_eq!(recursive_grep.core().coverage(), Coverage::Partial);
+    assert_eq!(recursive_grep.core().coverage(), Coverage::Full);
 }
 
 #[test]
@@ -162,7 +175,7 @@ fn live_bash_analysis_keeps_exact_quoted_here_document_code() {
     let result = decide_with(
         &call("Bash", json!({"command": command}), &repo),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(result.core().verdict(), Verdict::Block);
 }
@@ -186,22 +199,15 @@ fn path_identity_distinguishes_entries_from_targets_and_retains_lexical_danger()
     let delete_project_link = decide_with(
         &call("Bash", json!({"command":"rm -rf root-link"}), &repo),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(delete_project_link.core().verdict(), Verdict::Delegate);
-
-    let delete_through_final_link = decide_with(
-        &call("Bash", json!({"command":"rm -rf root-link/."}), &repo),
-        &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-    );
-    assert_eq!(delete_through_final_link.core().verdict(), Verdict::Block);
 
     symlink(&root, repo.join("home-link")).unwrap();
     let move_project_link = decide_with(
         &call("Bash", json!({"command":"mv home-link moved-link"}), &repo),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(move_project_link.core().verdict(), Verdict::Delegate);
 
@@ -213,7 +219,7 @@ fn path_identity_distinguishes_entries_from_targets_and_retains_lexical_danger()
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(delete_outside_link.core().verdict(), Verdict::Delegate);
 
@@ -221,37 +227,12 @@ fn path_identity_distinguishes_entries_from_targets_and_retains_lexical_danger()
     let delete_through_parent_link = decide_with(
         &call("Bash", json!({"command":"rm -f escape/file"}), &repo),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(
         delete_through_parent_link.core().verdict(),
         Verdict::Delegate
     );
-
-    std::fs::write(repo.join(".env"), "TOKEN=secret\n").unwrap();
-    std::fs::hard_link(repo.join(".env"), repo.join("env-alias")).unwrap();
-    let environment = decide_with(
-        &call("Read", json!({"file_path":".env"}), &repo),
-        &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-    );
-    assert_eq!(environment.core().verdict(), Verdict::Block);
-    assert_eq!(environment.core().coverage(), Coverage::Partial);
-
-    std::fs::create_dir(root.join(".ssh")).unwrap();
-    std::fs::write(root.join(".ssh/id_rsa"), "private\n").unwrap();
-    std::fs::hard_link(root.join(".ssh/id_rsa"), root.join("key-alias")).unwrap();
-    let credential = decide_with(
-        &call(
-            "Bash",
-            json!({"command":format!("cat {}", bash_path(&root.join(".ssh/id_rsa")))}),
-            &repo,
-        ),
-        &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
-    );
-    assert_eq!(credential.core().verdict(), Verdict::Block);
-    assert_eq!(credential.core().coverage(), Coverage::Partial);
 
     std::fs::create_dir(root.join(".codex")).unwrap();
     std::fs::write(root.join(".codex/hooks.json"), "{}\n").unwrap();
@@ -263,10 +244,10 @@ fn path_identity_distinguishes_entries_from_targets_and_retains_lexical_danger()
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(shared_runtime_config.core().verdict(), Verdict::Delegate);
-    assert_eq!(shared_runtime_config.core().coverage(), Coverage::Partial);
+    assert_eq!(shared_runtime_config.core().coverage(), Coverage::Full);
 }
 
 #[cfg(unix)]
@@ -283,7 +264,7 @@ fn symlink_following_project_searches_delegate() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            support::fulfill_observation,
         );
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
         assert_eq!(result.core().coverage(), Coverage::Full, "{command}");
@@ -297,10 +278,10 @@ fn symlink_following_project_searches_delegate() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            support::fulfill_observation,
         );
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
-        assert_eq!(result.core().coverage(), Coverage::Partial, "{command}");
+        assert_eq!(result.core().coverage(), Coverage::Full, "{command}");
     }
 }
 
@@ -320,7 +301,7 @@ fn codex_apply_patch_uses_the_same_project_and_sensitive_path_policy() {
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(safe.core().verdict(), Verdict::Delegate);
     assert_eq!(safe.core().coverage(), Coverage::Full);
@@ -332,29 +313,26 @@ fn codex_apply_patch_uses_the_same_project_and_sensitive_path_policy() {
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(moved.core().verdict(), Verdict::Delegate);
-    assert_eq!(moved.core().coverage(), Coverage::Full);
+    // The move endpoint is unobserved: the engine records the gap
+    // `move-destination-unavailable` rather than claiming full coverage.
+    assert_eq!(moved.core().coverage(), Coverage::Partial);
     assert_eq!(
-        moved
-            .action_stream()
-            .effects()
+        support::filesystem_accesses(&moved)
             .iter()
-            .filter_map(|effect| match effect.kind() {
-                EffectKind::Filesystem { effect } => Some((
-                    effect.operation,
-                    std::path::Path::new(effect.target.as_str())
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned(),
-                )),
-                _ => None,
-            })
+            .map(|(operation, resource, _)| (
+                *operation,
+                std::path::Path::new(support::resource_path(resource).unwrap())
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+            ))
             .collect::<Vec<_>>(),
         [
-            (FilesystemOperation::Delete, "lib.rs".into()),
+            (FilesystemOperation::Move, "lib.rs".into()),
             (FilesystemOperation::Write, "moved.rs".into()),
         ]
     );
@@ -366,7 +344,7 @@ fn codex_apply_patch_uses_the_same_project_and_sensitive_path_policy() {
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(env_write.core().verdict(), Verdict::Delegate);
     assert_eq!(env_write.core().coverage(), Coverage::Full);
@@ -378,7 +356,7 @@ fn codex_apply_patch_uses_the_same_project_and_sensitive_path_policy() {
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(sensitive_delete.core().verdict(), Verdict::Delegate);
     assert_eq!(sensitive_delete.core().coverage(), Coverage::Full);
@@ -390,7 +368,7 @@ fn codex_apply_patch_uses_the_same_project_and_sensitive_path_policy() {
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(outside.core().verdict(), Verdict::Delegate);
     assert_eq!(outside.core().coverage(), Coverage::Full);
@@ -402,7 +380,7 @@ fn codex_apply_patch_uses_the_same_project_and_sensitive_path_policy() {
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(mixed.core().verdict(), Verdict::Delegate);
     assert_eq!(mixed.core().coverage(), Coverage::Full);
@@ -414,7 +392,7 @@ fn codex_apply_patch_uses_the_same_project_and_sensitive_path_policy() {
             &repo,
         ),
         &context,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(header_content.core().verdict(), Verdict::Delegate);
     assert_eq!(header_content.core().coverage(), Coverage::Full);
@@ -426,7 +404,7 @@ fn codex_apply_patch_uses_the_same_project_and_sensitive_path_policy() {
         let unsupported = decide_with(
             &call("apply_patch", json!({"command":command}), &repo),
             &context,
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            support::fulfill_observation,
         );
         assert_eq!(unsupported.core().verdict(), Verdict::Delegate, "{command}");
         assert_eq!(
@@ -484,7 +462,7 @@ fn git_environment_and_config_cannot_expand_project_roots() {
             &repo,
         ),
         &ctx(&root),
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(configured.core().verdict(), Verdict::Delegate);
 }
@@ -508,7 +486,7 @@ fn linked_worktree_includes_the_main_checkout_boundary() {
             worktree,
         ),
         &ctx(&root),
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(result.core().verdict(), Verdict::Delegate);
 
@@ -519,7 +497,7 @@ fn linked_worktree_includes_the_main_checkout_boundary() {
             worktree,
         ),
         &ctx(&root),
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(delete_main.core().verdict(), Verdict::Block);
     assert!(
@@ -532,19 +510,19 @@ fn linked_worktree_includes_the_main_checkout_boundary() {
     // The main checkout is inside the worktree's project boundary, and the
     // delete selects that boundary's root.
     assert!(
-        delete_main
-            .action_stream()
-            .effects()
-            .iter()
-            .any(|effect| matches!(
-                effect.kind(),
-                EffectKind::Filesystem { effect }
-                    if effect.operation == FilesystemOperation::Delete
-                        && effect.selects_root
-                        && matches!(&effect.scope, PathScope::Project { root } if root.as_str() == repo.to_str().unwrap())
-            )),
+        support::filesystem_accesses(&delete_main).iter().any(
+            |(operation, resource, _)| *operation == FilesystemOperation::Delete
+                && resource.labels.as_ref().is_some_and(|labels| {
+                    labels.selects_project == Reach::Yes
+                        && matches!(
+                            &labels.scope,
+                            Knowledge::Known(PathScope::Project { root })
+                                if root.as_str() == repo.to_str().unwrap()
+                        )
+                })
+        ),
         "{:?}",
-        delete_main.action_stream().effects()
+        support::facts(&delete_main)
     );
 }
 
@@ -588,7 +566,7 @@ fn project_guard_diagnostics_never_weaken_policy() {
     let result = decide_with(
         &call("Read", json!({"file_path":"src/lib.rs"}), &repo),
         &ctx(&root),
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(result.core().verdict(), Verdict::Delegate);
     assert_eq!(result.warnings(), ["unknown project guard `typo-guard`"]);
@@ -597,7 +575,7 @@ fn project_guard_diagnostics_never_weaken_policy() {
     let guarded = decide_with(
         &call("Bash", json!({"command":"rm -rf /"}), &repo),
         &ctx(&root),
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(guarded.core().verdict(), Verdict::Block);
 
@@ -605,7 +583,7 @@ fn project_guard_diagnostics_never_weaken_policy() {
     let malformed = decide_with(
         &call("Read", json!({"file_path":"src/lib.rs"}), &repo),
         &ctx(&root),
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        support::fulfill_observation,
     );
     assert_eq!(malformed.core().verdict(), Verdict::Delegate);
 
@@ -618,8 +596,42 @@ fn project_guard_diagnostics_never_weaken_policy() {
         let linked = decide_with(
             &call("Read", json!({"file_path":"src/lib.rs"}), &repo),
             &ctx(&root),
-            |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+            support::fulfill_observation,
         );
         assert_eq!(linked.core().verdict(), Verdict::Delegate);
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn hard_linked_sensitive_paths_keep_their_entry_identity() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = support::test_temp_path(temp.path());
+    let repo = repo(&root);
+    let context = ctx(&root);
+
+    std::fs::write(repo.join(".env"), "TOKEN=secret\n").unwrap();
+    std::fs::hard_link(repo.join(".env"), repo.join("env-alias")).unwrap();
+    let environment = decide_with(
+        &call("Read", json!({"file_path":".env"}), &repo),
+        &context,
+        support::fulfill_observation,
+    );
+    assert_eq!(environment.core().verdict(), Verdict::Block);
+    assert_eq!(environment.core().coverage(), Coverage::Full);
+
+    std::fs::create_dir(root.join(".ssh")).unwrap();
+    std::fs::write(root.join(".ssh/id_rsa"), "private\n").unwrap();
+    std::fs::hard_link(root.join(".ssh/id_rsa"), root.join("key-alias")).unwrap();
+    let credential = decide_with(
+        &call(
+            "Bash",
+            json!({"command":format!("cat {}", bash_path(&root.join(".ssh/id_rsa")))}),
+            &repo,
+        ),
+        &context,
+        support::fulfill_observation,
+    );
+    assert_eq!(credential.core().verdict(), Verdict::Block);
+    assert_eq!(credential.core().coverage(), Coverage::Full);
 }

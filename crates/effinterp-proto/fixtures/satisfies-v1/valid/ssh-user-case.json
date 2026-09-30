@@ -1,0 +1,38 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "ssh-user-case",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "remote",
+        "endpoint": "user@host:/Path"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/x"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "remote",
+        "endpoint": "User@host:/Path"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "fs_path",
+          "path": "/x"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "not_satisfied"
+  }
+}

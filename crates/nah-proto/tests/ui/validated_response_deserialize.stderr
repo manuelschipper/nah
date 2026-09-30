@@ -1,5 +1,5 @@
 error[E0277]: the trait bound `ValidatedExtensionResponse: serde::Deserialize<'de>` is not satisfied
- --> tests/ui/validated_response_deserialize.rs:4:41
+ --> ./crates/nah-proto/tests/ui/validated_response_deserialize.rs:4:41
   |
 4 |     let _: ValidatedExtensionResponse = serde_json::from_str("{}").unwrap();
   |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `serde_core::de::Deserialize<'_>` is not implemented for `ValidatedExtensionResponse`

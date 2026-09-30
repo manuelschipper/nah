@@ -114,7 +114,7 @@ fn untrust_revokes_the_root_and_its_project_policy_attributions() {
     std::fs::create_dir_all(&guard).unwrap();
     std::fs::write(
         guard.join("policy.toml"),
-        "name = \"project-guard\"\nmatch = [\"project-guard\"]\nprotocol = \"exec/v1\"\nprovenance = \"agent\"\n",
+        "name = \"project-guard\"\nmatch = [\"project-guard\"]\nprotocol = \"exec/v2\"\nprovenance = \"agent\"\n",
     )
     .unwrap();
     let run = guard.join("run");

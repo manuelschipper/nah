@@ -1,0 +1,69 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "artifact-tag-vx",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "artifact",
+        "ecosystem": "oci",
+        "endpoint": {
+          "expr": "literal",
+          "value": "registry.example"
+        },
+        "name": {
+          "expr": "literal",
+          "value": "app"
+        },
+        "reference": {
+          "kind": "tag",
+          "value": {
+            "expr": "literal",
+            "value": "vx"
+          }
+        }
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "artifact",
+          "ecosystem": "oci",
+          "endpoint": {
+            "expr": "literal",
+            "value": "registry.example"
+          },
+          "name": {
+            "expr": "literal",
+            "value": "app"
+          },
+          "reference": {
+            "kind": "tag",
+            "value": {
+              "expr": "pattern",
+              "pattern": {
+                "family": "artifact_field",
+                "glob": "v[12]"
+              }
+            }
+          }
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "not_satisfied"
+  }
+}

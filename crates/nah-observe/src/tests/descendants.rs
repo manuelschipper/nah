@@ -72,6 +72,9 @@ fn symlink_targets_are_followed_only_when_requested() {
     fs::write(outside.join("id_rsa"), "secret").unwrap();
     symlink(&outside, repo.join("src/vendor")).unwrap();
 
+    fs::create_dir(repo.join("tidy")).unwrap();
+    fs::create_dir(repo.join("tidy/empty")).unwrap();
+    fs::write(repo.join("tidy/file"), "x").unwrap();
     for (traversal, sees_target) in [
         (SymlinkTraversal::None, false),
         (SymlinkTraversal::Root, false),
@@ -84,6 +87,8 @@ fn symlink_targets_are_followed_only_when_requested() {
         else {
             panic!("path observation");
         };
+        // An unfollowed link is an entry the snapshot does not list.
+        assert_eq!(path.descendants().unwrap().unlisted_entries(), !sees_target);
         assert_eq!(
             path.descendants().unwrap().paths().iter().any(|path| {
                 path.as_str()
@@ -96,7 +101,86 @@ fn symlink_targets_are_followed_only_when_requested() {
             }),
             sees_target
         );
+        // A followed link is named with the directory it leads to.
+        let followed = path
+            .descendants()
+            .unwrap()
+            .links()
+            .iter()
+            .any(|(visible, target)| {
+                visible.as_str().ends_with("/src/vendor")
+                    && target.as_str() == outside.canonicalize().unwrap().to_str().unwrap()
+            });
+        assert_eq!(followed, sees_target);
     }
+
+    // So is an empty directory beneath the root.
+    let observation = fulfill(&descendant_request(&repo, "tidy", SymlinkTraversal::None)).unwrap();
+    let ObservationValue::Path {
+        observed: Observed::Ok { value: path },
+    } = value(&observation, "path")
+    else {
+        panic!("path observation");
+    };
+    assert!(path.descendants().unwrap().complete());
+    assert!(path.descendants().unwrap().unlisted_entries());
+
+    // So are a special file and the entries of an unreadable directory.
+    use std::os::unix::fs::PermissionsExt;
+    fs::create_dir(repo.join("special")).unwrap();
+    fs::write(repo.join("special/file"), "x").unwrap();
+    let status = std::process::Command::new("mkfifo")
+        .arg(repo.join("special/pipe"))
+        .status()
+        .expect("mkfifo");
+    assert!(status.success());
+    fs::create_dir_all(repo.join("sealed/locked")).unwrap();
+    fs::write(repo.join("sealed/locked/file"), "x").unwrap();
+    fs::set_permissions(
+        repo.join("sealed/locked"),
+        fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+    // Root reads the directory regardless of its mode.
+    let sealed = unsafe { libc::geteuid() } != 0;
+    for (root, omits) in [("special", true), ("sealed", sealed)] {
+        let observation =
+            fulfill(&descendant_request(&repo, root, SymlinkTraversal::None)).unwrap();
+        let ObservationValue::Path {
+            observed: Observed::Ok { value: path },
+        } = value(&observation, "path")
+        else {
+            panic!("path observation");
+        };
+        assert_eq!(path.descendants().unwrap().unlisted_entries(), omits);
+    }
+    fs::set_permissions(
+        repo.join("sealed/locked"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+
+    // A second link to the same directory lists its entries under its own
+    // spelling too.
+    symlink(&outside, repo.join("src/second")).unwrap();
+    let observation = fulfill(&descendant_request(&repo, "src", SymlinkTraversal::All)).unwrap();
+    let ObservationValue::Path {
+        observed: Observed::Ok { value: path },
+    } = value(&observation, "path")
+    else {
+        panic!("path observation");
+    };
+    let descendants = path.descendants().unwrap();
+    assert!(descendants.complete());
+    for alias in ["/src/vendor/id_rsa", "/src/second/id_rsa"] {
+        assert!(
+            descendants
+                .paths()
+                .iter()
+                .any(|path| path.as_str().ends_with(alias))
+        );
+    }
+    fs::remove_file(repo.join("src/second")).unwrap();
 
     symlink(&outside, repo.join("root-link")).unwrap();
     for traversal in [SymlinkTraversal::Root, SymlinkTraversal::All] {
@@ -166,14 +250,22 @@ fn descendant_budget_charges_roots_and_is_shared_across_walks() {
             PathKind::Directory,
         )
     };
-    let mut budget = crate::descendants::Budget::limited(1);
+    let mut budget = crate::descendants::DescendantBudget::limited(1);
     assert!(
-        crate::descendants::observe(&observed(&first), SymlinkTraversal::None, &mut budget)
-            .complete()
+        crate::descendants::observe_descendants(
+            &observed(&first),
+            SymlinkTraversal::None,
+            &mut budget
+        )
+        .complete()
     );
     assert!(
-        !crate::descendants::observe(&observed(&second), SymlinkTraversal::None, &mut budget)
-            .complete()
+        !crate::descendants::observe_descendants(
+            &observed(&second),
+            SymlinkTraversal::None,
+            &mut budget
+        )
+        .complete()
     );
 }
 
@@ -184,10 +276,12 @@ fn descendant_path_bytes_are_bounded() {
     fs::create_dir(&directory).unwrap();
     fs::write(directory.join("long-file-name"), "").unwrap();
     let observed = PathObservation::new(absolute(&directory), None, PathKind::Directory);
-    let mut budget = crate::descendants::Budget::limited_path_bytes(1);
-    let descendants = crate::descendants::observe(&observed, SymlinkTraversal::None, &mut budget);
+    let mut budget = crate::descendants::DescendantBudget::limited_path_bytes(1);
+    let descendants =
+        crate::descendants::observe_descendants(&observed, SymlinkTraversal::None, &mut budget);
     assert!(!descendants.complete());
     assert!(descendants.paths().is_empty());
+    assert!(descendants.unlisted_entries());
 }
 
 #[test]
@@ -210,9 +304,11 @@ fn duplicate_descendant_queries_reuse_one_scan() {
         });
     }
     let request = ObservationRequest::new(SchemaVersion::V1, "request", queries).unwrap();
-    let observation =
-        crate::fulfill_with_descendant_budget(&request, crate::descendants::Budget::limited(3))
-            .unwrap();
+    let observation = crate::fulfill_with_descendant_budget(
+        &request,
+        crate::descendants::DescendantBudget::limited(3),
+    )
+    .unwrap();
     for key in ["first", "second"] {
         let ObservationValue::Path {
             observed: Observed::Ok { value: path },

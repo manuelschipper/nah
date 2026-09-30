@@ -1,0 +1,295 @@
+[
+  {
+    "id": "p18b/database/dolt@v2",
+    "primary_documentation": [
+      "https://www.dolthub.com/docs/cli-reference/cli/"
+    ],
+    "reviewed_surface": "Dolt config mutations, inline SQL, server/client endpoints, local version operations and remote transfers. Remote destinations remain unresolved without repository configuration.",
+    "positive_argv": [
+      [
+        "dolt",
+        "config",
+        "--global",
+        "--add",
+        "user.name",
+        "Test"
+      ],
+      [
+        "dolt",
+        "config",
+        "--local",
+        "--add",
+        "user.name",
+        "Test"
+      ],
+      [
+        "dolt",
+        "sql",
+        "-q",
+        "DROP TABLE issues"
+      ],
+      [
+        "dolt",
+        "sql-server",
+        "-H",
+        "0.0.0.0",
+        "-P",
+        "3307"
+      ],
+      [
+        "dolt",
+        "sql-client",
+        "-h",
+        "db.example",
+        "-u",
+        "root",
+        "-P",
+        "3307"
+      ],
+      [
+        "dolt",
+        "push"
+      ],
+      [
+        "dolt",
+        "pull"
+      ],
+      [
+        "dolt",
+        "fetch"
+      ],
+      [
+        "dolt",
+        "clone",
+        "org/db"
+      ],
+      [
+        "dolt",
+        "add",
+        "."
+      ],
+      [
+        "dolt",
+        "commit",
+        "-m",
+        "change"
+      ],
+      [
+        "dolt",
+        "init"
+      ],
+      [
+        "dolt",
+        "merge",
+        "branch"
+      ],
+      [
+        "dolt",
+        "version"
+      ],
+      [
+        "dolt",
+        "unknown"
+      ]
+    ]
+  },
+  {
+    "id": "p18b/devtools/js-toolchain@v2",
+    "primary_documentation": [
+      "https://www.typescriptlang.org/docs/handbook/compiler-options",
+      "https://eslint.org/docs/latest/use/command-line-interface",
+      "https://prettier.io/docs/cli",
+      "https://vite.dev/guide/cli",
+      "https://vitest.dev/guide/cli",
+      "https://github.com/kentcdodds/cross-env"
+    ],
+    "reviewed_surface": "CLI reads, explicit mutation modes, symbolic configured TypeScript output, Vite listeners, Vitest execution, and prefix environment assignments forwarded to the child.",
+    "positive_argv": [
+      [
+        "tsc",
+        "-p",
+        "."
+      ],
+      [
+        "tsc",
+        "--noEmit"
+      ],
+      [
+        "tsc",
+        "--outDir",
+        "build"
+      ],
+      [
+        "eslint",
+        "src"
+      ],
+      [
+        "eslint",
+        "--fix",
+        "src"
+      ],
+      [
+        "prettier",
+        "--write",
+        "src"
+      ],
+      [
+        "prettier",
+        "--check",
+        "src"
+      ],
+      [
+        "vite",
+        "--port",
+        "5173"
+      ],
+      [
+        "vite",
+        "preview",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "9000"
+      ],
+      [
+        "vite",
+        "build"
+      ],
+      [
+        "vitest",
+        "run"
+      ],
+      [
+        "cross-env",
+        "NODE_ENV=production",
+        "tsc",
+        "-p",
+        "."
+      ],
+      [
+        "cross-env",
+        "A=1",
+        "B=two",
+        "tsc",
+        "--noEmit",
+        "-p",
+        "."
+      ]
+    ]
+  },
+  {
+    "id": "p18b/devtools/pytest@v2",
+    "primary_documentation": [
+      "https://pytest.org/en/stable/how-to/usage.html"
+    ],
+    "reviewed_surface": "Read path operands (approved default tests/) and execute test collection and tests.",
+    "positive_argv": [
+      [
+        "pytest",
+        "tests/",
+        "-x",
+        "-q"
+      ],
+      [
+        "pytest"
+      ],
+      [
+        "pytest",
+        "--collect-only",
+        "tests/"
+      ]
+    ]
+  },
+  {
+    "id": "p18b/devtools/gofmt@v2",
+    "primary_documentation": [
+      "https://pkg.go.dev/cmd/gofmt"
+    ],
+    "reviewed_surface": "Read files/directories, write only with -w; no operands formats standard input.",
+    "positive_argv": [
+      [
+        "gofmt",
+        "-l",
+        "."
+      ],
+      [
+        "gofmt",
+        "-w",
+        "main.go"
+      ],
+      [
+        "gofmt",
+        "main.go"
+      ],
+      [
+        "gofmt"
+      ]
+    ]
+  },
+  {
+    "id": "p18b/devtools/open@v2",
+    "primary_documentation": [
+      "https://keith.github.io/xcode-man-pages/open.1.html"
+    ],
+    "reviewed_surface": "macOS open reads path operands or requests HTTP(S)/FTP URLs; application selectors are not file operands.",
+    "positive_argv": [
+      [
+        "open",
+        "report.pdf"
+      ],
+      [
+        "open",
+        "https://example.org/path"
+      ],
+      [
+        "open",
+        "-a",
+        "Safari",
+        "https://example.org"
+      ]
+    ]
+  },
+  {
+    "id": "p18b/devtools/comm@v2",
+    "primary_documentation": [
+      "https://www.gnu.org/software/coreutils/manual/html_node/comm-invocation.html"
+    ],
+    "reviewed_surface": "Read the two operands, excluding the standard-input marker.",
+    "positive_argv": [
+      [
+        "comm",
+        "-12",
+        "left",
+        "right"
+      ],
+      [
+        "comm",
+        "-",
+        "right"
+      ]
+    ]
+  },
+  {
+    "id": "p18b/devtools/s6-setuidgid@v2",
+    "primary_documentation": [
+      "https://www.skarnet.org/software/s6/s6-setuidgid.html"
+    ],
+    "reviewed_surface": "Strip the user operand and forward the child command and flags without parsing them as wrapper options.",
+    "positive_argv": [
+      [
+        "s6-setuidgid",
+        "nobody",
+        "gofmt",
+        "-w",
+        "main.go"
+      ],
+      [
+        "s6-setuidgid",
+        "root",
+        "gofmt",
+        "-l",
+        "."
+      ]
+    ]
+  }
+]

@@ -66,18 +66,28 @@ fn install_approves_only_nah_and_uninstall_preserves_other_hooks() {
         "model:\n  default: test\nhooks:\n  pre_tool_call:\n    - command: existing-hook\n      matcher: terminal\n",
     )
     .unwrap();
-    let unrelated_approval = json!({
-        "event":"pre_tool_call",
-        "command":"existing-hook",
-        "approved_at":"user-approved",
-        "script_mtime_at_approval":null
-    });
+    // The second approval runs `/bin/echo`; its `/nah` is only an argument.
+    let unrelated_approval = json!([
+        {
+            "event":"pre_tool_call",
+            "command":"existing-hook",
+            "approved_at":"user-approved",
+            "script_mtime_at_approval":null
+        },
+        {
+            "event":"pre_tool_call",
+            "command":"'/bin/echo' '/nah' hook hermes run",
+            "approved_at":"user-approved",
+            "script_mtime_at_approval":null
+        }
+    ]);
     std::fs::write(
         hermes_home.join("shell-hooks-allowlist.json"),
-        json!({"approvals":[unrelated_approval.clone()]}).to_string(),
+        json!({"approvals":unrelated_approval.clone()}).to_string(),
     )
     .unwrap();
     let (_, log, path) = fake_hermes(home);
+    let hook_command = format!("'{}' hook hermes run", env!("CARGO_BIN_EXE_nah"));
 
     let installed = run_lifecycle(home, &hermes_home, &log, &path, "install");
     assert!(installed.status.success(), "{installed:?}");
@@ -85,7 +95,7 @@ fn install_approves_only_nah_and_uninstall_preserves_other_hooks() {
     let hooks = config["hooks"]["pre_tool_call"].as_sequence().unwrap();
     assert_eq!(hooks.len(), 2);
     assert_eq!(hooks[0]["command"], "existing-hook");
-    assert_eq!(hooks[1]["command"], "nah hook hermes run");
+    assert_eq!(hooks[1]["command"], hook_command.as_str());
     assert_eq!(hooks[1]["timeout"], 5);
     assert_eq!(hooks[1]["managed_by"], "nah");
     assert_eq!(config["model"]["default"], "test");
@@ -94,26 +104,47 @@ fn install_approves_only_nah_and_uninstall_preserves_other_hooks() {
     )
     .unwrap();
     let approvals = allowlist["approvals"].as_array().unwrap();
-    assert_eq!(approvals.len(), 2);
-    assert_eq!(approvals[0], unrelated_approval);
-    assert_eq!(approvals[1]["event"], "pre_tool_call");
-    assert_eq!(approvals[1]["command"], "nah hook hermes run");
+    assert_eq!(approvals.len(), 3);
+    assert_eq!(approvals[..2], unrelated_approval.as_array().unwrap()[..]);
+    assert_eq!(approvals[2]["event"], "pre_tool_call");
+    assert_eq!(approvals[2]["command"], hook_command.as_str());
     let current = run_lifecycle(home, &hermes_home, &log, &path, "status");
-    assert_eq!(
-        String::from_utf8_lossy(&current.stdout),
-        "Hermes: wiring current\nfailure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-hermes\n"
+    let stdout = String::from_utf8_lossy(&current.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines[0], "Hermes: wiring current", "{stdout}");
+    assert!(lines.contains(&"failure policy: fail-open"), "{stdout}");
+    assert!(
+        lines.iter().any(|line| line
+            .strip_prefix("guarantee: ")
+            .is_some_and(|text| !text.is_empty())),
+        "{stdout}"
+    );
+    assert!(
+        lines.contains(&"verify: nah docs runtime-hermes"),
+        "{stdout}"
     );
 
     std::fs::write(
         hermes_home.join("shell-hooks-allowlist.json"),
-        json!({"approvals":[unrelated_approval.clone()]}).to_string(),
+        json!({"approvals":unrelated_approval.clone()}).to_string(),
     )
     .unwrap();
     let stale = run_lifecycle(home, &hermes_home, &log, &path, "status");
-    assert_eq!(
-        String::from_utf8_lossy(&stale.stdout),
-        "Hermes: reinstall required\ndetected failure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook hermes install\ndocs: nah docs runtime-hermes\n"
+    let stdout = String::from_utf8_lossy(&stale.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines[0], "Hermes: reinstall required", "{stdout}");
+    assert!(
+        lines.contains(&"detected failure policy: fail-open"),
+        "{stdout}"
     );
+    assert!(
+        lines.iter().any(|line| line
+            .strip_prefix("guarantee: ")
+            .is_some_and(|text| !text.is_empty())),
+        "{stdout}"
+    );
+    assert!(lines.contains(&"next: nah hook hermes install"), "{stdout}");
+    assert!(lines.contains(&"docs: nah docs runtime-hermes"), "{stdout}");
 
     let reinstalled = run_lifecycle(home, &hermes_home, &log, &path, "install");
     assert!(reinstalled.status.success(), "{reinstalled:?}");
@@ -124,6 +155,24 @@ fn install_approves_only_nah_and_uninstall_preserves_other_hooks() {
             .len(),
         2
     );
+
+    // Hermes ignores a hook that cannot start unless the entry fails closed.
+    let strict = Command::new(env!("CARGO_BIN_EXE_nah"))
+        .args(["hook", "hermes", "install", "--fail-closed"])
+        .env("HOME", home)
+        .env_remove("XDG_CONFIG_HOME")
+        .env("HERMES_HOME", &hermes_home)
+        .env("PATH", &path)
+        .output()
+        .unwrap();
+    assert!(strict.status.success(), "{strict:?}");
+    let config = yaml(&hermes_home.join("config.yaml"));
+    let hook = &config["hooks"]["pre_tool_call"][1];
+    assert_eq!(
+        hook["command"],
+        format!("{hook_command} --fail-closed").as_str()
+    );
+    assert_eq!(hook["fail_closed"], true);
 
     let uninstalled = run_lifecycle(home, &hermes_home, &log, &path, "uninstall");
     assert!(uninstalled.status.success(), "{uninstalled:?}");
@@ -136,7 +185,7 @@ fn install_approves_only_nah_and_uninstall_preserves_other_hooks() {
         &std::fs::read_to_string(hermes_home.join("shell-hooks-allowlist.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(allowlist["approvals"], json!([unrelated_approval]));
+    assert_eq!(allowlist["approvals"], unrelated_approval);
 }
 
 #[cfg(unix)]
@@ -182,4 +231,61 @@ fn install_rejects_unowned_or_ambiguous_native_hooks() {
     assert!(!linked.status.success());
     assert!(String::from_utf8_lossy(&linked.stderr).contains("hermes-hook-symlink-unsupported"));
     assert_eq!(std::fs::read_to_string(target).unwrap(), "model: user\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn install_refuses_an_executable_self_protection_cannot_recognize() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = home.as_path();
+    let hermes_home = home.join(".hermes");
+    std::fs::create_dir_all(&hermes_home).unwrap();
+    let renamed = home.join("nah-v1");
+    std::fs::copy(env!("CARGO_BIN_EXE_nah"), &renamed).unwrap();
+
+    let installed = Command::new(&renamed)
+        .args(["hook", "hermes", "install", "--fail-closed"])
+        .env("HOME", home)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("HERMES_HOME")
+        .output()
+        .unwrap();
+    assert!(!installed.status.success(), "{installed:?}");
+    assert!(String::from_utf8_lossy(&installed.stderr).contains("nah-executable-name-unsupported"));
+    assert!(!hermes_home.join("config.yaml").exists());
+    assert!(!hermes_home.join("shell-hooks-allowlist.json").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn stale_failure_policy_comes_only_from_nah_hook() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = home.as_path();
+    let hermes_home = home.join(".hermes-test");
+    std::fs::create_dir_all(&hermes_home).unwrap();
+    std::fs::write(
+        hermes_home.join("config.yaml"),
+        "hooks:\n  pre_tool_call:\n    - command: other-hook --fail-closed\n    - command: nah hook hermes run\n      timeout: 5\n      managed_by: nah\n",
+    )
+    .unwrap();
+    let (_, log, path) = fake_hermes(home);
+
+    let stale = run_lifecycle(home, &hermes_home, &log, &path, "status");
+    assert!(
+        String::from_utf8_lossy(&stale.stdout).contains("detected failure policy: fail-open"),
+        "{stale:?}"
+    );
+
+    let reinstalled = run_lifecycle(home, &hermes_home, &log, &path, "install");
+    assert!(reinstalled.status.success(), "{reinstalled:?}");
+    let config = yaml(&hermes_home.join("config.yaml"));
+    let hooks = config["hooks"]["pre_tool_call"].as_sequence().unwrap();
+    assert_eq!(hooks[0]["command"], "other-hook --fail-closed");
+    assert_eq!(
+        hooks[1]["command"],
+        format!("'{}' hook hermes run", env!("CARGO_BIN_EXE_nah")).as_str()
+    );
+    assert!(hooks[1].get("fail_closed").is_none());
 }

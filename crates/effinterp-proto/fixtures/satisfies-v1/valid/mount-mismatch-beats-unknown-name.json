@@ -1,0 +1,79 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "mount-mismatch-beats-unknown-name",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "container",
+        "runtime": "docker",
+        "image": "app:v1",
+        "storage": [
+          {
+            "kind": "bind_mount",
+            "host_path": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/a"
+              }
+            },
+            "container_path": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/data"
+              }
+            },
+            "read_only": false
+          }
+        ]
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "container",
+          "runtime": "docker",
+          "name": "app",
+          "image": "app:v1",
+          "storage": [
+            {
+              "kind": "bind_mount",
+              "host_path": {
+                "expr": "concrete",
+                "identity": {
+                  "family": "fs_path",
+                  "path": "/b"
+                }
+              },
+              "container_path": {
+                "expr": "concrete",
+                "identity": {
+                  "family": "fs_path",
+                  "path": "/data"
+                }
+              },
+              "read_only": false
+            }
+          ]
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "not_satisfied"
+  }
+}

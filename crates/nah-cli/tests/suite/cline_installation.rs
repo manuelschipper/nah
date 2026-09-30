@@ -48,17 +48,15 @@ fn install_status_repair_and_uninstall_are_owned_and_idempotent() {
         assert!(script.starts_with("#!/bin/sh\n# Managed by nah: Cline PreToolUse\n"));
     }
     assert!(script.contains(" hook cline run\n"));
-    assert_eq!(std::fs::read(&cli_path).unwrap(), first);
+    // The CLI also runs the Documents hook, so a second one would make it
+    // decide every call twice
+    assert!(!cli_path.exists());
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         assert_ne!(
             std::fs::metadata(&ide_path).unwrap().permissions().mode() & 0o111,
-            0
-        );
-        assert_ne!(
-            std::fs::metadata(&cli_path).unwrap().permissions().mode() & 0o111,
             0
         );
     }
@@ -76,12 +74,47 @@ fn install_status_repair_and_uninstall_are_owned_and_idempotent() {
     }
     assert!(nah(home, &["hook", "cline", "install"]).status.success());
     assert_eq!(std::fs::read(&ide_path).unwrap(), first);
-    assert_eq!(std::fs::read(&cli_path).unwrap(), first);
+
+    // Earlier installs also wrote the CLI root; reinstalling retires it
+    std::fs::create_dir_all(cli_path.parent().unwrap()).unwrap();
+    std::fs::write(&cli_path, &first).unwrap();
+    let status = nah(home, &["hook", "cline", "status"]);
+    assert!(
+        String::from_utf8_lossy(&status.stdout).contains("reinstall required"),
+        "{status:?}"
+    );
+    assert!(nah(home, &["hook", "cline", "install"]).status.success());
+    assert!(!cli_path.exists());
+
+    // When that copy is the only registration left, its fail-closed policy
+    // survives the reinstall that retires it
+    assert!(
+        nah(home, &["hook", "cline", "install", "--fail-closed"])
+            .status
+            .success()
+    );
+    std::fs::rename(&ide_path, &cli_path).unwrap();
+    let status = nah(home, &["hook", "cline", "status"]);
+    let output = String::from_utf8_lossy(&status.stdout);
+    assert!(
+        output.contains("reinstall required") && output.contains("fail-closed"),
+        "{output}"
+    );
+    assert!(nah(home, &["hook", "cline", "install"]).status.success());
+    assert!(!cli_path.exists());
+    let strict = std::fs::read_to_string(&ide_path).unwrap();
+    assert!(strict.contains(" hook cline run --fail-closed"), "{strict}");
+    assert!(
+        nah(home, &["hook", "cline", "install", "--fail-open"])
+            .status
+            .success()
+    );
+    assert_eq!(std::fs::read(&ide_path).unwrap(), first);
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&cli_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::set_permissions(&ide_path, std::fs::Permissions::from_mode(0o600)).unwrap();
         let status = nah(home, &["hook", "cline", "status"]);
         let output = String::from_utf8_lossy(&status.stdout);
         for expected in [
@@ -125,23 +158,48 @@ fn install_refuses_unowned_or_symlinked_hook_paths() {
         "#!/bin/sh\nexit 0\n"
     );
 
-    let cli_conflict = tempfile::tempdir().unwrap();
-    let cli_path = cli_conflict.path().join(".cline/hooks").join(file);
-    std::fs::create_dir_all(cli_path.parent().unwrap()).unwrap();
-    std::fs::write(&cli_path, "#!/bin/sh\nexit 0\n").unwrap();
-    let conflict = nah(cli_conflict.path(), &["hook", "cline", "install"]);
-    assert_eq!(conflict.status.code(), Some(2), "{conflict:?}");
-    assert_eq!(
-        std::fs::read_to_string(&cli_path).unwrap(),
-        "#!/bin/sh\nexit 0\n"
-    );
-    assert!(
-        !cli_conflict
-            .path()
-            .join("Documents/Cline/Hooks")
-            .join(file)
-            .exists()
-    );
+    // nah does not need the CLI root here, so a user's script there stays,
+    // including an edited copy that still carries nah's marker
+    for script in [
+        "#!/bin/sh\nexit 0\n",
+        "#!/bin/sh\n# Managed by nah: Cline PreToolUse\nexec '/usr/bin/env' MY_POLICY=custom '/opt/nah' hook cline run\n",
+    ] {
+        let cli_user = tempfile::tempdir().unwrap();
+        let cli_path = cli_user.path().join(".cline/hooks").join(file);
+        std::fs::create_dir_all(cli_path.parent().unwrap()).unwrap();
+        std::fs::write(&cli_path, script).unwrap();
+        for action in ["install", "uninstall"] {
+            let output = nah(cli_user.path(), &["hook", "cline", action]);
+            assert!(output.status.success(), "{output:?}");
+            assert_eq!(std::fs::read_to_string(&cli_path).unwrap(), script);
+        }
+    }
+
+    // A symlink there is never followed to classify it as nah's copy
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+
+        let linked = tempfile::tempdir().unwrap();
+        let generated = linked.path().join("Documents/Cline/Hooks/PreToolUse");
+        assert!(
+            nah(linked.path(), &["hook", "cline", "install"])
+                .status
+                .success()
+        );
+        let target = linked.path().join("generated");
+        std::fs::rename(&generated, &target).unwrap();
+        let cli_path = linked.path().join(".cline/hooks/PreToolUse");
+        std::fs::create_dir_all(cli_path.parent().unwrap()).unwrap();
+        symlink(&target, &cli_path).unwrap();
+        assert!(
+            nah(linked.path(), &["hook", "cline", "install"])
+                .status
+                .success()
+        );
+        assert!(std::fs::symlink_metadata(&cli_path).unwrap().is_symlink());
+        assert!(target.exists());
+    }
 
     #[cfg(unix)]
     {

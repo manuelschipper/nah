@@ -8,7 +8,7 @@ fn tui_requires_an_interactive_terminal() {
         .arg("tui")
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(4));
     assert!(output.stdout.is_empty());
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),

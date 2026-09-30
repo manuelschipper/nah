@@ -4,6 +4,7 @@ use crate::ctx::AbsolutePath;
 use crate::ctx::SchemaVersion;
 use serde::Deserialize;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -18,6 +19,11 @@ pub enum ObservationQuery {
         cwd_key: String,
     },
     Env {
+        key: String,
+        name: String,
+    },
+    /// The home directory the host account database records for user `name`.
+    UserHome {
         key: String,
         name: String,
     },
@@ -40,6 +46,7 @@ impl ObservationQuery {
             Self::Cwd { key, .. }
             | Self::Roots { key, .. }
             | Self::Env { key, .. }
+            | Self::UserHome { key, .. }
             | Self::Path { key, .. }
             | Self::ProjectGuards { key, .. } => key,
         }
@@ -52,7 +59,7 @@ impl ObservationQuery {
         let valid = match self {
             Self::Cwd { .. } => true,
             Self::Roots { cwd_key, .. } => !cwd_key.is_empty(),
-            Self::Env { name, .. } => !name.is_empty(),
+            Self::Env { name, .. } | Self::UserHome { name, .. } => !name.is_empty(),
             Self::Path {
                 requested, cwd_key, ..
             } => !requested.is_empty() && !cwd_key.is_empty(),
@@ -75,7 +82,8 @@ pub struct ObservationRequest {
 
 impl ObservationRequest {
     /// Accepts either a nonempty environment-only preflight request or exactly one
-    /// cwd/roots/project-guards spine, optionally with environment and path queries.
+    /// cwd/roots/project-guards spine, optionally with environment, user-home, and
+    /// path queries.
     /// Roots and all paths must reference that cwd; project guards must reference
     /// those roots. Query keys must be unique, and identifiers must be nonempty.
     /// Path symlink traversal beyond `None` requires descendant inspection.
@@ -185,6 +193,15 @@ pub enum EnvObservation {
     Unset,
 }
 
+/// A user the account database has no entry for is observed absent, which is
+/// distinct from a lookup that failed.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum UserHomeObservation {
+    Home { path: AbsolutePath },
+    NoSuchUser,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PathKind {
@@ -250,9 +267,15 @@ impl PathObservation {
     }
 }
 
+/// Most paths one descendant snapshot may carry.
 pub const MAX_DESCENDANT_PATHS: usize = 10_000;
+/// Most bytes of path text one descendant snapshot may carry.
 pub const MAX_DESCENDANT_PATH_BYTES: usize = 1024 * 1024;
+/// Most directory entries one observation request may inspect across all its
+/// descendant snapshots.
 pub const MAX_DESCENDANT_ENTRIES: usize = 10_000;
+/// Deepest directory level below the requested path a descendant snapshot
+/// descends to.
 pub const MAX_DESCENDANT_DEPTH: usize = 64;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -267,19 +290,70 @@ pub enum SymlinkTraversal {
 pub struct DescendantObservation {
     paths: Vec<AbsolutePath>,
     complete: bool,
+    /// Each symbolic link a link-following walk went through, as its path in
+    /// the walk and the path it leads to. A walk that follows no link has
+    /// none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    links: Vec<(AbsolutePath, AbsolutePath)>,
+    /// The snapshot lists regular files. An entry beneath the root it omits,
+    /// a link it did not follow, an empty directory, a special file, or an
+    /// entry it could not read or reach within its budget, leaves the entries
+    /// beneath the root unknown even when the listed files are complete.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    unlisted_entries: bool,
 }
 
 impl DescendantObservation {
     pub fn new(mut paths: Vec<AbsolutePath>, complete: bool) -> Result<Self, BindingError> {
+        Self::normalize_paths(&mut paths)?;
+        Ok(Self {
+            paths,
+            complete,
+            links: Vec::new(),
+            unlisted_entries: false,
+        })
+    }
+
+    pub fn with_links(
+        mut self,
+        links: Vec<(AbsolutePath, AbsolutePath)>,
+    ) -> Result<Self, BindingError> {
+        self.links = links;
+        self.normalize()?;
+        Ok(self)
+    }
+
+    pub fn with_unlisted_entries(mut self) -> Self {
+        self.unlisted_entries = true;
+        self
+    }
+
+    fn normalize(&mut self) -> Result<(), BindingError> {
+        Self::normalize_paths(&mut self.paths)?;
+        if self.links.len() > MAX_DESCENDANT_PATHS {
+            return Err(BindingError::ExceedsLimit);
+        }
+        self.links.sort();
+        if self.links.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(BindingError::Duplicate);
+        }
+        Ok(())
+    }
+
+    fn normalize_paths(paths: &mut [AbsolutePath]) -> Result<(), BindingError> {
         if paths.len() > MAX_DESCENDANT_PATHS
             || paths.iter().map(|path| path.as_str().len()).sum::<usize>()
                 > MAX_DESCENDANT_PATH_BYTES
         {
             return Err(BindingError::ExceedsLimit);
         }
-        reject_duplicates(paths.iter())?;
-        paths.sort();
-        Ok(Self { paths, complete })
+        if !paths.is_sorted() {
+            paths.sort();
+        }
+        if paths.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(BindingError::Duplicate);
+        }
+        Ok(())
     }
 
     pub fn paths(&self) -> &[AbsolutePath] {
@@ -288,6 +362,15 @@ impl DescendantObservation {
 
     pub const fn complete(&self) -> bool {
         self.complete
+    }
+
+    pub fn links(&self) -> &[(AbsolutePath, AbsolutePath)] {
+        &self.links
+    }
+
+    /// Whether the snapshot omits an entry beneath the root.
+    pub const fn unlisted_entries(&self) -> bool {
+        self.unlisted_entries
     }
 }
 
@@ -342,6 +425,10 @@ pub enum ObservationValue {
         #[serde(flatten)]
         observed: Observed<EnvObservation>,
     },
+    UserHome {
+        #[serde(flatten)]
+        observed: Observed<UserHomeObservation>,
+    },
     Path {
         #[serde(flatten)]
         observed: Observed<PathObservation>,
@@ -358,6 +445,7 @@ impl ObservationValue {
             (ObservationQuery::Cwd { .. }, Self::Cwd { .. })
             | (ObservationQuery::Roots { .. }, Self::Roots { .. })
             | (ObservationQuery::Env { .. }, Self::Env { .. })
+            | (ObservationQuery::UserHome { .. }, Self::UserHome { .. })
             | (ObservationQuery::ProjectGuards { .. }, Self::ProjectGuards { .. }) => true,
             (
                 ObservationQuery::Path {
@@ -396,11 +484,8 @@ impl ObservationValue {
             Self::Path {
                 observed: Observed::Ok { value },
             } => {
-                if let Some(descendants) = value.descendants.take() {
-                    value.descendants = Some(DescendantObservation::new(
-                        descendants.paths,
-                        descendants.complete,
-                    )?);
+                if let Some(descendants) = &mut value.descendants {
+                    descendants.normalize()?;
                 }
             }
             _ => {}
@@ -437,6 +522,8 @@ pub struct Observation {
     v: SchemaVersion,
     request_id: String,
     facts: Vec<ObservationFact>,
+    #[serde(skip)]
+    fingerprint: String,
 }
 
 impl Observation {
@@ -462,10 +549,12 @@ impl Observation {
             fact.value.normalize()?;
         }
         facts.sort_by(|left, right| left.query.key().cmp(right.query.key()));
+        let fingerprint = observation_fingerprint(v, &request_id, &facts);
         let observation = Self {
             v,
             request_id,
             facts,
+            fingerprint,
         };
         observation.validate_project_guards()?;
         Ok(observation)
@@ -481,6 +570,10 @@ impl Observation {
 
     pub fn request_id(&self) -> &str {
         &self.request_id
+    }
+
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
     }
 
     pub fn bind(&self, request: &ObservationRequest) -> Result<(), BindingError> {
@@ -551,6 +644,71 @@ impl Observation {
             }
         }
     }
+}
+
+fn observation_fingerprint(
+    version: SchemaVersion,
+    request_id: &str,
+    facts: &[ObservationFact],
+) -> String {
+    fn update(digest: &mut Sha256, bytes: &[u8]) {
+        digest.update((bytes.len() as u64).to_le_bytes());
+        digest.update(bytes);
+    }
+
+    let mut digest = Sha256::new();
+    update(
+        &mut digest,
+        &serde_json::to_vec(&version).expect("observation version serializes"),
+    );
+    update(&mut digest, request_id.as_bytes());
+    for fact in facts {
+        update(
+            &mut digest,
+            &serde_json::to_vec(fact.query()).expect("observation query serializes"),
+        );
+        match fact.value() {
+            ObservationValue::Path {
+                observed: Observed::Ok { value },
+            } => {
+                digest.update([1]);
+                update(&mut digest, value.resolved().as_str().as_bytes());
+                match value.realpath() {
+                    Some(path) => {
+                        digest.update([1]);
+                        update(&mut digest, path.as_str().as_bytes());
+                    }
+                    None => digest.update([0]),
+                }
+                update(
+                    &mut digest,
+                    &serde_json::to_vec(&value.kind()).expect("path kind serializes"),
+                );
+                update(
+                    &mut digest,
+                    &serde_json::to_vec(&value.target_kind()).expect("target kind serializes"),
+                );
+                match value.descendants() {
+                    Some(descendants) => {
+                        digest.update([1, u8::from(descendants.complete())]);
+                        digest.update((descendants.paths().len() as u64).to_le_bytes());
+                        for path in descendants.paths() {
+                            update(&mut digest, path.as_str().as_bytes());
+                        }
+                    }
+                    None => digest.update([0]),
+                }
+            }
+            value => {
+                digest.update([0]);
+                update(
+                    &mut digest,
+                    &serde_json::to_vec(value).expect("observation value serializes"),
+                );
+            }
+        }
+    }
+    format!("{:x}", digest.finalize())
 }
 
 #[derive(Deserialize)]
@@ -642,7 +800,9 @@ fn validate_queries(queries: &[ObservationQuery]) -> Result<(), BindingError> {
     let roots_key = roots[0].key();
     for query in queries {
         let valid = match query {
-            ObservationQuery::Cwd { .. } | ObservationQuery::Env { .. } => true,
+            ObservationQuery::Cwd { .. }
+            | ObservationQuery::Env { .. }
+            | ObservationQuery::UserHome { .. } => true,
             ObservationQuery::Roots {
                 cwd_key: reference, ..
             }

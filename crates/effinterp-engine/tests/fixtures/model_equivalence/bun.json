@@ -1,0 +1,1416 @@
+[
+  {
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 32768,
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_go_nodes": 80000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
+        "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
+        "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
+        "max_source_bytes": 4194304,
+        "max_value_cardinality": 64,
+        "max_value_depth": 24
+      },
+      "model_set": "builtin:blake3:6280e6424af8c3f70d02d0ec2e3dd6a5c4fd507664859bca8788f3f0fa4d62bd"
+    },
+    "boundaries": [
+      {
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "provenance": [
+          1
+        ],
+        "reason": "package_scripts",
+        "scope": "environment"
+      },
+      {
+        "class": "unmodeled",
+        "detail": "model covers a reviewed command surface",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "provenance": [
+          1
+        ],
+        "reason": "reviewed_command_surface",
+        "scope": "environment"
+      }
+    ],
+    "causality": {
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:065997a780e618d2090a99c97d60a2b974df97c3c0e34442d6caf7e4f6053a2d",
+            "modality": "may",
+            "order": 0,
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:eb5e958455d4f650e80b8eb67572c55c3edbce422bb528409815c0a9471b7a8f"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:19ed7946698a3c58ba6a6b4ec6201a59f5e76bdb8d7f182a4087a0a7055d7619",
+            "modality": "may",
+            "order": 1,
+            "reason": "containment",
+            "to": "occurrence:blake3:4b907386d6f8f8c77ac6c41e2d9feeaf010558880ece88129398a99500a71900"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:294bad2b0826ba6e8990a1e4692927a1040cfecd4e8d44a7497eb345c950003c",
+            "modality": "may",
+            "order": 2,
+            "reason": "containment",
+            "to": "occurrence:blake3:50034c6db2858745d033f4a946de45ce7b193d5d5f0409c3b36002b17326964a"
+          },
+          {
+            "assurance": "exact",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:4918289f667ac9617f5d24637c34deb49551fe75489cbb51b2e795a3d1bfed58",
+            "modality": "may",
+            "order": 3,
+            "provenance": [
+              2,
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:e1ba9834bf4475374d58095b1b3081c52a77e99834c2e6e3c9bbeb0f68511168"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:4b907386d6f8f8c77ac6c41e2d9feeaf010558880ece88129398a99500a71900",
+            "modality": "may",
+            "order": 4,
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:eb5e958455d4f650e80b8eb67572c55c3edbce422bb528409815c0a9471b7a8f"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:50034c6db2858745d033f4a946de45ce7b193d5d5f0409c3b36002b17326964a",
+            "modality": "may",
+            "order": 5,
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:eb5e958455d4f650e80b8eb67572c55c3edbce422bb528409815c0a9471b7a8f"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:950b139e59db35f73e7b2364a2de7b91656fb5b72a2eb9fb528fa6702d9f1564",
+            "modality": "may",
+            "order": 6,
+            "reason": "containment",
+            "to": "occurrence:blake3:065997a780e618d2090a99c97d60a2b974df97c3c0e34442d6caf7e4f6053a2d"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:eb5e958455d4f650e80b8eb67572c55c3edbce422bb528409815c0a9471b7a8f",
+            "modality": "may",
+            "order": 7,
+            "provenance": [
+              0
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:3373219db87548b07545a7fe2595ab82ea14944131e83c9e5328a9a848aaad1b"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:eb5e958455d4f650e80b8eb67572c55c3edbce422bb528409815c0a9471b7a8f",
+            "modality": "may",
+            "order": 8,
+            "provenance": [
+              2,
+              1
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:4918289f667ac9617f5d24637c34deb49551fe75489cbb51b2e795a3d1bfed58"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:eb5e958455d4f650e80b8eb67572c55c3edbce422bb528409815c0a9471b7a8f",
+            "modality": "may",
+            "order": 9,
+            "provenance": [
+              2,
+              1
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:e58323fe50a2e7af7536a184dd0196310b68f00aba2ce03dd92d3a8d0d5e4cf5"
+          }
+        ],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:eb5e958455d4f650e80b8eb67572c55c3edbce422bb528409815c0a9471b7a8f",
+            "kind": "port",
+            "modality": "may",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:950b139e59db35f73e7b2364a2de7b91656fb5b72a2eb9fb528fa6702d9f1564",
+            "kind": "value",
+            "modality": "may",
+            "order": 1,
+            "value": {
+              "expr": "literal",
+              "value": "bun"
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:065997a780e618d2090a99c97d60a2b974df97c3c0e34442d6caf7e4f6053a2d",
+            "kind": "port",
+            "modality": "may",
+            "order": 2,
+            "port": {
+              "arg": 0
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:19ed7946698a3c58ba6a6b4ec6201a59f5e76bdb8d7f182a4087a0a7055d7619",
+            "kind": "value",
+            "modality": "may",
+            "order": 3,
+            "value": {
+              "expr": "literal",
+              "value": "install"
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:4b907386d6f8f8c77ac6c41e2d9feeaf010558880ece88129398a99500a71900",
+            "kind": "port",
+            "modality": "may",
+            "order": 4,
+            "port": {
+              "arg": 1
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:294bad2b0826ba6e8990a1e4692927a1040cfecd4e8d44a7497eb345c950003c",
+            "kind": "value",
+            "modality": "may",
+            "order": 5,
+            "value": {
+              "expr": "literal",
+              "value": "left-pad"
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:50034c6db2858745d033f4a946de45ce7b193d5d5f0409c3b36002b17326964a",
+            "kind": "port",
+            "modality": "may",
+            "order": 6,
+            "port": {
+              "arg": 2
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:3373219db87548b07545a7fe2595ab82ea14944131e83c9e5328a9a848aaad1b",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "process.exec",
+            "order": 7,
+            "provenance": [
+              0
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "argv": [
+                  {
+                    "expr": "literal",
+                    "value": "install"
+                  },
+                  {
+                    "expr": "literal",
+                    "value": "left-pad"
+                  }
+                ],
+                "cwd": {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "/work"
+                  }
+                },
+                "executable": "bun",
+                "family": "process"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:4918289f667ac9617f5d24637c34deb49551fe75489cbb51b2e795a3d1bfed58",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "network.download",
+            "order": 8,
+            "provenance": [
+              2,
+              1
+            ],
+            "resource": {
+              "expr": "unresolved",
+              "family": "network"
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:e1ba9834bf4475374d58095b1b3081c52a77e99834c2e6e3c9bbeb0f68511168",
+            "kind": "port",
+            "modality": "may",
+            "order": 9,
+            "port": "http_response_body",
+            "provenance": [
+              2,
+              1
+            ]
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:e58323fe50a2e7af7536a184dd0196310b68f00aba2ce03dd92d3a8d0d5e4cf5",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "order": 10,
+            "provenance": [
+              2,
+              1
+            ],
+            "resource": {
+              "expr": "pattern",
+              "pattern": {
+                "family": "fs_path",
+                "glob": "/work/dependency-tree"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "id": "occurrence:blake3:760d9c0530aaa795e8a6d0070972952bda923f05321cf2f21b978eea612b2a00",
+            "kind": "boundary",
+            "modality": "may",
+            "order": 11,
+            "provenance": [
+              1
+            ],
+            "reason": "package_scripts"
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "detail": "model covers a reviewed command surface",
+            "id": "occurrence:blake3:aed27be8f7b6c365d40249db6cb5b1e9b550c595d2f64c292ae68766f001438a",
+            "kind": "boundary",
+            "modality": "may",
+            "order": 12,
+            "provenance": [
+              1
+            ],
+            "reason": "reviewed_command_surface"
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "filesystem": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      },
+      "network": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      },
+      "process": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      }
+    },
+    "effects": [
+      {
+        "execution": 0,
+        "id": "effect:blake3:3a6d17c889014716351f6fad0d026da21c63705ec85096d1a587dccdb569b3db",
+        "modality": "may",
+        "operation": "process.exec",
+        "provenance": [
+          0
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "argv": [
+              {
+                "expr": "literal",
+                "value": "install"
+              },
+              {
+                "expr": "literal",
+                "value": "left-pad"
+              }
+            ],
+            "cwd": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/work"
+              }
+            },
+            "executable": "bun",
+            "family": "process"
+          }
+        }
+      },
+      {
+        "execution": 0,
+        "id": "effect:blake3:347a2639180f45423bbab1eebcfa0e32edd23047c3ac205bce1b37cb4da4993c",
+        "modality": "may",
+        "operation": "network.download",
+        "provenance": [
+          2,
+          1
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "unresolved",
+          "family": "network"
+        }
+      },
+      {
+        "execution": 0,
+        "id": "effect:blake3:d94b80cf00bef932d76b932c41bb8a2717665a264be69ca3cd81afcd15ef2538",
+        "modality": "may",
+        "operation": "filesystem.write",
+        "provenance": [
+          2,
+          1
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "pattern",
+          "pattern": {
+            "family": "fs_path",
+            "glob": "/work/dependency-tree"
+          }
+        }
+      }
+    ],
+    "execution_graph": {
+      "entry": 0,
+      "nodes": [
+        {
+          "argv": [
+            {
+              "expr": "literal",
+              "value": "bun"
+            },
+            {
+              "expr": "literal",
+              "value": "install"
+            },
+            {
+              "expr": "literal",
+              "value": "left-pad"
+            }
+          ],
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/work"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "argv": [
+              "bun",
+              "install",
+              "left-pad"
+            ],
+            "cwd": "/work",
+            "kind": "exec"
+          }
+        }
+      ]
+    },
+    "provenance": [
+      {
+        "index": 0,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          0
+        ],
+        "kind": "model_application",
+        "model": "pkg/manager@v1"
+      },
+      {
+        "index": 2,
+        "kind": "argument"
+      }
+    ],
+    "schema": "effinterp/plan/v1",
+    "subject": {
+      "argv": [
+        "bun",
+        "install",
+        "left-pad"
+      ],
+      "cwd": "/work",
+      "kind": "exec"
+    }
+  },
+  {
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 32768,
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_go_nodes": 80000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
+        "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
+        "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
+        "max_source_bytes": 4194304,
+        "max_value_cardinality": 64,
+        "max_value_depth": 24
+      },
+      "model_set": "builtin:blake3:6280e6424af8c3f70d02d0ec2e3dd6a5c4fd507664859bca8788f3f0fa4d62bd"
+    },
+    "boundaries": [
+      {
+        "class": "unresolved",
+        "detail": "execution input unobserved: Ambiguous",
+        "domains": [
+          "artifact",
+          "filesystem",
+          "process",
+          "environment",
+          "network",
+          "database",
+          "container",
+          "git",
+          "cloud",
+          "messaging",
+          "system",
+          "credential"
+        ],
+        "reason": "unrecoverable_source"
+      },
+      {
+        "affected_resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/work/package.json"
+          }
+        },
+        "class": "unresolved",
+        "detail": "execution input unobserved: ResolverUnavailable",
+        "domains": [
+          "artifact",
+          "filesystem",
+          "process",
+          "environment",
+          "network",
+          "database",
+          "container",
+          "git",
+          "cloud",
+          "messaging",
+          "system",
+          "credential"
+        ],
+        "reason": "unrecoverable_source"
+      },
+      {
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "provenance": [
+          1
+        ],
+        "reason": "package_scripts",
+        "scope": "environment"
+      },
+      {
+        "class": "unmodeled",
+        "detail": "model covers a reviewed command surface",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "provenance": [
+          1
+        ],
+        "reason": "reviewed_command_surface",
+        "scope": "environment"
+      }
+    ],
+    "causality": {
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:12f56afaeebcc5af41577f81f4ece3c883da12ab94cb7c30f3bce2ab09043348",
+            "modality": "may",
+            "order": 0,
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:2b5b103e46296af85d77213987f871c6cd2eb1bde6827cd13d34c39a365ba97c"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:245672c32ed441a1044c7f15279138c50140149259336ff37f803ea7d9c767a0",
+            "modality": "may",
+            "order": 1,
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:2b5b103e46296af85d77213987f871c6cd2eb1bde6827cd13d34c39a365ba97c"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:2b5b103e46296af85d77213987f871c6cd2eb1bde6827cd13d34c39a365ba97c",
+            "modality": "may",
+            "order": 2,
+            "reason": "launch",
+            "to": "occurrence:blake3:04b4ce8602a9c53a82471ff4f3851dacd2dd9fe9d605943026b2e2206899711b"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:2b5b103e46296af85d77213987f871c6cd2eb1bde6827cd13d34c39a365ba97c",
+            "modality": "may",
+            "order": 3,
+            "provenance": [
+              0,
+              1
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:08cd8f575af5e84de3d0e853f80d0488ec95c3c891e3390eee3f04d9e828963e"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:2b5b103e46296af85d77213987f871c6cd2eb1bde6827cd13d34c39a365ba97c",
+            "modality": "may",
+            "order": 4,
+            "provenance": [
+              0,
+              1
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:516ed6e56ef914e8d501c4226f12d2443564941e4465d633ad66e8dbc6eeb599"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:2b5b103e46296af85d77213987f871c6cd2eb1bde6827cd13d34c39a365ba97c",
+            "modality": "may",
+            "order": 5,
+            "reason": "launch",
+            "to": "occurrence:blake3:88b3e8b38791da9dd10fde6c9112c46253c31be05b51ba031dc2f6df66f7c126"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:2b5b103e46296af85d77213987f871c6cd2eb1bde6827cd13d34c39a365ba97c",
+            "modality": "may",
+            "order": 6,
+            "provenance": [
+              0
+            ],
+            "reason": "control_dependency",
+            "to": "occurrence:blake3:c29ce8e0edc32d771dda25dd954cda6ceff2409ba009c01e05bd61abd29cb8d3"
+          },
+          {
+            "assurance": "exact",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:516ed6e56ef914e8d501c4226f12d2443564941e4465d633ad66e8dbc6eeb599",
+            "modality": "may",
+            "order": 7,
+            "provenance": [
+              0,
+              1
+            ],
+            "reason": "value_dependency",
+            "to": "occurrence:blake3:2316344ec974838429223208fc3bd5f58784fc0dbf535fdf25922c5c8c64fda2"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:9b7aea77d40dc83ea32c85deef5faa3fbd65c020202c4e40597fc11747f0d6f6",
+            "modality": "may",
+            "order": 8,
+            "reason": "containment",
+            "to": "occurrence:blake3:12f56afaeebcc5af41577f81f4ece3c883da12ab94cb7c30f3bce2ab09043348"
+          },
+          {
+            "assurance": "conservative",
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "from": "occurrence:blake3:b1b0f8f7d3a1fd2e87e7d80a1195582d3e2db4ac6b3e7b7832d6061618b2c2b4",
+            "modality": "may",
+            "order": 9,
+            "reason": "containment",
+            "to": "occurrence:blake3:245672c32ed441a1044c7f15279138c50140149259336ff37f803ea7d9c767a0"
+          }
+        ],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:2b5b103e46296af85d77213987f871c6cd2eb1bde6827cd13d34c39a365ba97c",
+            "kind": "port",
+            "modality": "may",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:b1b0f8f7d3a1fd2e87e7d80a1195582d3e2db4ac6b3e7b7832d6061618b2c2b4",
+            "kind": "value",
+            "modality": "may",
+            "order": 1,
+            "value": {
+              "expr": "literal",
+              "value": "bun"
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:245672c32ed441a1044c7f15279138c50140149259336ff37f803ea7d9c767a0",
+            "kind": "port",
+            "modality": "may",
+            "order": 2,
+            "port": {
+              "arg": 0
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:9b7aea77d40dc83ea32c85deef5faa3fbd65c020202c4e40597fc11747f0d6f6",
+            "kind": "value",
+            "modality": "may",
+            "order": 3,
+            "value": {
+              "expr": "literal",
+              "value": "install"
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:12f56afaeebcc5af41577f81f4ece3c883da12ab94cb7c30f3bce2ab09043348",
+            "kind": "port",
+            "modality": "may",
+            "order": 4,
+            "port": {
+              "arg": 1
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 1,
+            "id": "occurrence:blake3:88b3e8b38791da9dd10fde6c9112c46253c31be05b51ba031dc2f6df66f7c126",
+            "kind": "port",
+            "modality": "may",
+            "order": 5,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 2,
+            "id": "occurrence:blake3:04b4ce8602a9c53a82471ff4f3851dacd2dd9fe9d605943026b2e2206899711b",
+            "kind": "port",
+            "modality": "may",
+            "order": 6,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:c29ce8e0edc32d771dda25dd954cda6ceff2409ba009c01e05bd61abd29cb8d3",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "process.exec",
+            "order": 7,
+            "provenance": [
+              0
+            ],
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "argv": [
+                  {
+                    "expr": "literal",
+                    "value": "install"
+                  }
+                ],
+                "cwd": {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "/work"
+                  }
+                },
+                "executable": "bun",
+                "family": "process"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:516ed6e56ef914e8d501c4226f12d2443564941e4465d633ad66e8dbc6eeb599",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "network.download",
+            "order": 8,
+            "provenance": [
+              0,
+              1
+            ],
+            "resource": {
+              "expr": "unresolved",
+              "family": "network"
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:2316344ec974838429223208fc3bd5f58784fc0dbf535fdf25922c5c8c64fda2",
+            "kind": "port",
+            "modality": "may",
+            "order": 9,
+            "port": "http_response_body",
+            "provenance": [
+              0,
+              1
+            ]
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:08cd8f575af5e84de3d0e853f80d0488ec95c3c891e3390eee3f04d9e828963e",
+            "kind": "resource_interaction",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "order": 10,
+            "provenance": [
+              0,
+              1
+            ],
+            "resource": {
+              "expr": "pattern",
+              "pattern": {
+                "family": "fs_path",
+                "glob": "/work/dependency-tree"
+              }
+            }
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "detail": "execution input unobserved: Ambiguous",
+            "id": "occurrence:blake3:986cd34b040204941f5e3072309023812c3b1c80639a7ea00190950006002b5f",
+            "kind": "boundary",
+            "modality": "may",
+            "order": 11,
+            "reason": "unrecoverable_source"
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "detail": "execution input unobserved: ResolverUnavailable",
+            "id": "occurrence:blake3:6e5f277df6c63f4b9f4cf736fb1a4a63a7d4980873edcb13a5207e09a5f26b17",
+            "kind": "boundary",
+            "modality": "may",
+            "order": 12,
+            "reason": "unrecoverable_source"
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "id": "occurrence:blake3:4f151a15d981153cb3c78d90c5ed14917a7522d3fbd4186fd734451b624c02fc",
+            "kind": "boundary",
+            "modality": "may",
+            "order": 13,
+            "provenance": [
+              1
+            ],
+            "reason": "package_scripts"
+          },
+          {
+            "cardinality": {
+              "max": null,
+              "min": 0
+            },
+            "detail": "model covers a reviewed command surface",
+            "id": "occurrence:blake3:3508133dbe4653e980b9e38cff48abf76abe102678327f70fb81ea7b883c2441",
+            "kind": "boundary",
+            "modality": "may",
+            "order": 14,
+            "provenance": [
+              1
+            ],
+            "reason": "reviewed_command_surface"
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "artifact": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      },
+      "cloud": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      },
+      "container": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      },
+      "credential": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      },
+      "database": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      },
+      "environment": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      },
+      "filesystem": {
+        "gaps": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "level": "partial"
+      },
+      "git": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      },
+      "messaging": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      },
+      "network": {
+        "gaps": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "level": "partial"
+      },
+      "process": {
+        "gaps": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "level": "partial"
+      },
+      "system": {
+        "gaps": [
+          0,
+          1
+        ],
+        "level": "partial"
+      }
+    },
+    "effects": [
+      {
+        "execution": 0,
+        "id": "effect:blake3:e998d1bf84b4cb4b5ac51e8b153159c03f9f374d2fed96fd85e1a026ab75df9f",
+        "modality": "may",
+        "operation": "process.exec",
+        "provenance": [
+          0
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "argv": [
+              {
+                "expr": "literal",
+                "value": "install"
+              }
+            ],
+            "cwd": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/work"
+              }
+            },
+            "executable": "bun",
+            "family": "process"
+          }
+        }
+      },
+      {
+        "execution": 0,
+        "id": "effect:blake3:3974bacf11b47990f4e5f0c2c2032d3322d1bde5b6b43692978e04edf87fb0de",
+        "modality": "may",
+        "operation": "network.download",
+        "provenance": [
+          0,
+          1
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "unresolved",
+          "family": "network"
+        }
+      },
+      {
+        "execution": 0,
+        "id": "effect:blake3:a70045dfe7c0fa4cdaabccfd649b41262d5b3fa98ccd806e2756d2c63ef399c5",
+        "modality": "may",
+        "operation": "filesystem.write",
+        "provenance": [
+          0,
+          1
+        ],
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "pattern",
+          "pattern": {
+            "family": "fs_path",
+            "glob": "/work/dependency-tree"
+          }
+        }
+      }
+    ],
+    "execution_graph": {
+      "edges": [
+        {
+          "from": 0,
+          "kind": "package_hook",
+          "to": 1
+        },
+        {
+          "from": 0,
+          "kind": "package_hook",
+          "to": 2
+        }
+      ],
+      "entry": 0,
+      "nodes": [
+        {
+          "argv": [
+            {
+              "expr": "literal",
+              "value": "bun"
+            },
+            {
+              "expr": "literal",
+              "value": "install"
+            }
+          ],
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/work"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "argv": [
+              "bun",
+              "install"
+            ],
+            "cwd": "/work",
+            "kind": "exec"
+          }
+        },
+        {
+          "assurance": "widened",
+          "boundary": 0,
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/work"
+            }
+          },
+          "input": {
+            "assurance": "widened",
+            "content": {
+              "kind": "unobserved",
+              "reason": {
+                "kind": "ambiguous"
+              }
+            },
+            "phase": "package_hook",
+            "requester": 0,
+            "requester_component": "bun",
+            "role": "unexpected_selected",
+            "selection": {
+              "kind": "direct",
+              "request": "package.json"
+            },
+            "selector": {
+              "kind": "runtime_option",
+              "option": "ignore-scripts"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "argv": [
+              "package.json"
+            ],
+            "kind": "exec"
+          }
+        },
+        {
+          "assurance": "exact",
+          "boundary": 1,
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/work"
+            }
+          },
+          "input": {
+            "assurance": "exact",
+            "content": {
+              "kind": "unobserved",
+              "reason": {
+                "kind": "resolver_unavailable"
+              }
+            },
+            "phase": "package_hook",
+            "requester": 0,
+            "requester_component": "bun",
+            "role": "unexpected_selected",
+            "selected": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/work/package.json"
+              }
+            },
+            "selection": {
+              "kind": "direct",
+              "request": "package.json"
+            },
+            "selector": {
+              "kind": "convention",
+              "name": "bun-install-lifecycle@1"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "argv": [
+              "/work/package.json"
+            ],
+            "kind": "exec"
+          }
+        }
+      ]
+    },
+    "provenance": [
+      {
+        "index": 0,
+        "kind": "argument"
+      },
+      {
+        "antecedents": [
+          0
+        ],
+        "kind": "model_application",
+        "model": "pkg/manager@v1"
+      }
+    ],
+    "schema": "effinterp/plan/v1",
+    "subject": {
+      "argv": [
+        "bun",
+        "install"
+      ],
+      "cwd": "/work",
+      "kind": "exec"
+    }
+  }
+]

@@ -1,0 +1,15 @@
+{
+  "command": "pulumi destroy",
+  "reviewed": "2026-09-22",
+  "sources": [
+    "https://www.pulumi.com/docs/iac/cli/commands/pulumi_destroy/",
+    "https://www.pulumi.com/docs/iac/cli/commands/pulumi/",
+    "https://github.com/pulumi/pulumi/blob/ceb2e86de7a3aaa97c4fd9592ec2f44cae8afc90/pkg/cmd/pulumi/operations/destroy.go",
+    "https://www.pulumi.com/docs/iac/operations/stack-management/targeted-updates/",
+    "https://github.com/spf13/cobra/blob/v1.10.2/flag_groups.go",
+    "https://github.com/pulumi/pulumi/blob/ceb2e86de7a3aaa97c4fd9592ec2f44cae8afc90/pkg/cmd/pulumi/pulumi.go",
+    "https://github.com/pulumi/pulumi/blob/ceb2e86de7a3aaa97c4fd9592ec2f44cae8afc90/pkg/cmd/pulumi/config/io.go",
+    "https://github.com/pulumi/pulumi/blob/ceb2e86de7a3aaa97c4fd9592ec2f44cae8afc90/pkg/cmd/pulumi/deployment/remote.go"
+  ],
+  "surface": "The complete documented destroy option set and the root command's persistent options, with reviewed Boolean controls, bounded integer flags, output and color enums, nonempty override assignments and stack/target/exclude/message/config/config-file values. Exact request shape remains separate from May effects and unresolved stack identity. Raw mutually exclusive flags reject even false-valued occurrences. Target/exclude/protected selection narrows whole-stack scope; refresh and suppress-permalink Boolean options use their no-value default without consuming a following token. Remove deletes the stack configuration file the run discovers. Remote deployment options are recognized; a remote run hands the operation to a Pulumi Cloud executor, so it keeps the process delegation and a remote_command boundary for the git source, executor image and pre-run commands rather than certifying this host's reviewed effects. A url operand stays unrecognized because remote support is environment-determined."
+}

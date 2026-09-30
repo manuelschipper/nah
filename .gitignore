@@ -19,3 +19,6 @@ __pycache__/
 /AGENTS.override.md
 /CLAUDE.local.md
 /.claude/settings.local.json
+
+# engine bench run records, kept as local evidence and never tracked
+/bench/runs/

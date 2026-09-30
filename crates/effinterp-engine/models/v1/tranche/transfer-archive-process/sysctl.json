@@ -1,0 +1,103 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:d8b1965b9d6223cdeed4d206361203bf2dc550ce164d5a9164465270d470f0fb",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/sysctl@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "sysctl",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/sysctl@v1",
+        "path": "../../tests/fixtures/model_tranche/sysctl.json",
+        "digest": "blake3:8952a450bfac119f3a00c3e968354b8051751279c025615069495a957cda76f0"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "sysctl-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "sysctl-not-the-command",
+            "-n",
+            "hw.ncpu"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [],
+    "expected_facts": [],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/sysctl@v1",
+      "commands": [
+        "sysctl"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-a",
+            "-n"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "keys",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

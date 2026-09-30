@@ -1,0 +1,222 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:32cb22def251718cda54560a69e860234c6e335c88220882c59384f33dc43420",
+  "provenance": {
+    "author": "llm_drafted",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/developer_commands_sources.json#p18b/devtools/comm@v2",
+        "digest": "blake3:1e67f4063405c6fa5b9f31c33aba5b36cc7d075892ad0b1f7195f46269b1670a"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "comm",
+        "requirement": "reviewed-exact-surface@2026-09-16"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/comm@v2",
+        "path": "../../tests/fixtures/model_tranche/comm.json",
+        "digest": "blake3:4a62c25253c026bc7555c89d3714daed8389cd92aab9d6b198f903fc937b9049"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "comm-near-name",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "comm-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write",
+          "network.listen"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/comm@v2-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/comm@v2",
+      "commands": [
+        "comm"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-1"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-2"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-3"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--check-order"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--nocheck-order"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--total"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-z"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--zero-terminated"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--output-delimiter"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "left",
+          "index": 0,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        },
+        {
+          "name": "right",
+          "index": 1,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "left"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "right"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

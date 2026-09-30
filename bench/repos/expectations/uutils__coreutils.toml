@@ -1,0 +1,60 @@
+# Ground-truth expectations for uutils/coreutils (holdout-hidden corpus).
+# Pinned SHA: 1a3674039f9997c1f7102d2a3d8d12580da0801c.
+# Real entries: the multiple-binaries workspace. src/bin/coreutils.rs is the
+#   multicall dispatcher (its utility map is build-script-generated:
+#   include!(OUT_DIR/uutils_map.rs), coreutils.rs:17, a function-pointer
+#   table). Each utility is its own bin whose main is the uucore::bin! macro
+#   expanding to uu_<util>::uumain (e.g. src/uu/cat/src/main.rs). Only the
+#   four utilities verified below are asserted (the ni multiple-bins lesson,
+#   scoped to what was hand-checked; the other ~90 utils are not asserted).
+# Derived from:
+#   src/uu/cat/src/cat.rs (uumain at cat.rs:212; File::open of each operand,
+#     cat.rs:379),
+#   src/uu/ls/src/ls.rs (uumain at ls.rs:119; fs::read_dir per directory,
+#     ls.rs:1219),
+#   src/uu/rm/src/rm.rs (uumain at rm.rs:236; fs::remove_dir, rm.rs:124, and
+#     file removal via platform safe_remove_file,
+#     src/uu/rm/src/platform/unix.rs:114/:298),
+#   src/uu/cp/src/cp.rs (uumain at cp.rs:790; destination writes via
+#     OpenOptions write, cp.rs:1770/:2441),
+#   src/uu/env/src/env.rs (uumain at env.rs:1290; program launch via
+#     nix execvp, env.rs:956).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the five utility facts: each is the utility's whole
+# purpose, reached from its bin main through the uucore::bin! macro expansion
+# and clap parsing (the macros shape). The multicall binary's dispatch table
+# is generated at build time and lives outside the source tree — see
+# known_hard. No utility in this workspace performs network, database,
+# cloud, or messaging I/O.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+
+# Fact-level assertions (per-utility bins; behind the uucore::bin! macro).
+[facts]
+op=filesystem.read origin=src/uu/cat/src/cat.rs realm=host
+op=filesystem.read origin=src/uu/ls/src/ls.rs realm=host
+op=filesystem.delete origin=src/uu/rm/src/rm.rs realm=host
+op=filesystem.write origin=src/uu/cp/src/cp.rs realm=host
+op=process.exec origin=src/uu/env/src/env.rs realm=host
+
+[forbidden]
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]
+# The multicall binary dispatches through a build-script-generated
+# function-pointer map (include! of OUT_DIR/uutils_map.rs), so nothing past
+# src/bin/coreutils.rs's argument juggling is statically visible from that
+# entry.
+op=filesystem. origin=src/uu/

@@ -10,7 +10,7 @@ use nah_proto::decision::{DecisionEnvelope, Verdict};
 use nah_proto::tool::ToolCallInput;
 
 use audit::{AuditError, DecisionLog, decision_log_path};
-pub(crate) use redaction::{field as detail_field, short_time, verdict_name};
+pub(crate) use redaction::presentation::{detail_field, short_time, verdict_name};
 
 use crate::pipeline::DecisionResult;
 use crate::runtime::Runtime;
@@ -82,23 +82,15 @@ pub(crate) fn append_decision(
         result.refusals()
     } else {
         &[]
-    });
-    #[cfg(feature = "effinterp")]
+    })
+    .with_producer(
+        result
+            .evidence_provenance()
+            .map(|provenance| provenance.producer.as_str()),
+    );
     let diagnostics = diagnostics.with_effinterp(result.effinterp());
-    #[cfg(not(feature = "effinterp"))]
     let record = redaction::AuditRecordV1::redact(
         tool_call,
-        result.action_stream(),
-        result.core(),
-        envelope,
-        runtime_name(runtime),
-        diagnostics,
-    );
-    #[cfg(feature = "effinterp")]
-    let record = redaction::AuditRecordV1::redact_with_plan(
-        tool_call,
-        result.action_stream(),
-        result.effinterp_action_stream(),
         result.core(),
         envelope,
         runtime_name(runtime),
@@ -151,6 +143,9 @@ pub(crate) fn append_unavailable(
     DecisionLog::new(decision_log_path(home, platform)).append(&record)
 }
 
+/// Explains one stored decision without recovery writes: an invalid record
+/// fails the lookup and leaves the corrupt log in place for diagnosis, unlike
+/// `recent_decisions` and `list_decisions`.
 pub(crate) fn explain_decision(
     home: &AbsolutePath,
     platform: Platform,
@@ -182,6 +177,11 @@ pub(crate) fn decision_log_size(home: &AbsolutePath, platform: Platform) -> Opti
 }
 
 /// Returns up to `limit` decisions, newest first.
+///
+/// This read can write: an invalid record makes it archive the live log and
+/// rewrite it with a bounded tail of valid records. `recovered_from` names the
+/// archive only when this call performed that recovery; it is `None` when the
+/// log was valid or a concurrent reader already repaired it.
 pub(crate) fn recent_decisions(
     home: &AbsolutePath,
     platform: Platform,
@@ -202,6 +202,11 @@ pub(crate) fn recent_decisions(
     })
 }
 
+/// Returns up to `limit` stored decisions, oldest first, as JSON lines or
+/// summaries, optionally only blocked decisions or effinterp gaps.
+///
+/// Like `recent_decisions`, this read archives and rewrites a log holding an
+/// invalid record, and reports the archive in `recovered_from`.
 pub(crate) fn list_decisions(
     home: &AbsolutePath,
     platform: Platform,

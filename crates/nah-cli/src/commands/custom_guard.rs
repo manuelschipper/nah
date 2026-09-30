@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use nah_proto::ctx::{ActivationProjection, GuardIdentity, GuardScope};
 
-use crate::catalog::reserved_shipped_names;
+use crate::catalog::reserved_guard_names;
 use crate::live_state::{home, host_platform};
 
 use super::{
@@ -17,7 +17,7 @@ pub(crate) fn new_guard(
     name: &str,
     selector: &GuardSelector,
 ) -> Result<std::path::PathBuf, String> {
-    if reserved_shipped_names().contains(&name) {
+    if reserved_guard_names().contains(&name) {
         return Err(format!(
             "guard name `{name}` is reserved; choose another name"
         ));
@@ -96,7 +96,7 @@ fn discovered_bundles() -> Result<Vec<nah_extensions::ExtensionBundle>, String> 
     let trust = nah_extensions::TrustDatabase::load(&trust_path, platform)
         .and_then(|database| database.projection())
         .map_err(|error| error.to_string())?;
-    let reserved_names = reserved_shipped_names();
+    let reserved_names = reserved_guard_names();
     nah_extensions::discover_bundles(&home, platform, &trust, &reserved_names)
         .map(|(bundles, _)| bundles)
         .map_err(|error| error.to_string())
@@ -182,6 +182,19 @@ pub(crate) fn disable_guard_identity(identity: &GuardIdentity) -> Result<(), Str
     .map_err(|error| error.to_string())
 }
 
+/// Custom-guard preflight: checks live disk state for a proposed change to
+/// `identity`; the identity itself is already well formed. `Some(hash)` is the
+/// enable check: it discovers bundles in the user guard directory and trusted
+/// project roots and requires this bundle's current hash to equal the reviewed
+/// bundle hash. `None` is the disable check: it requires an activation record
+/// for `identity` in the activation database, and deliberately does not
+/// require a discoverable bundle, so an activation can be removed after its
+/// bundle is gone.
+///
+/// Preflight writes nothing and reserves nothing; disk can change before the
+/// write. `enable_guard_identity` rediscovers and rechecks the reviewed hash,
+/// and `disable_guard_identity` rechecks the activation record, so keep those
+/// apply-time checks.
 pub(crate) fn validate_guard_identity(
     identity: &GuardIdentity,
     expected_hash: Option<&str>,
@@ -364,7 +377,7 @@ pub(crate) fn custom_guard_entries() -> Result<Vec<GuardEntry>, String> {
         &nah_extensions::activation_database_path(&home, platform),
     )
     .map_err(|error| error.to_string())?;
-    let reserved_names = reserved_shipped_names();
+    let reserved_names = reserved_guard_names();
     let (bundles, _) = nah_extensions::discover_bundles(&home, platform, &trust, &reserved_names)
         .map_err(|error| error.to_string())?;
 

@@ -1,0 +1,1580 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:058ed7dbcdf84b710dc477af158119d98d2aedb226fe9f9057902bc21eccbd7b",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/agents_selfprot_sources.json#selfprot/agents/droid@v1",
+        "digest": "blake3:8bab1c9cbbd0ed24f19c085e7f1dfdff7a16a16f858ccd9e628ba414b45e1b95"
+      },
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/agents/droid@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "droid",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/agents/droid@v1",
+        "path": "../../tests/fixtures/model_tranche/agents-droid.json",
+        "digest": "blake3:c797e9dc10d0ec916217f82ebcb40dce4155fa5031251e5c6bf933fe644ae35c"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "droid-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "droid-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "environment.read"
+        ],
+        "absent_boundaries": [
+          "unmodeled_dynamic"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/agents/droid@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "environment.read",
+      "filesystem.read",
+      "filesystem.write",
+      "network.connect"
+    ],
+    "expected_boundaries": [
+      "unmodeled_dynamic"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "protected_control": true,
+      "id": "p18b/agents/droid@v1",
+      "commands": [
+        "droid"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--continue"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--resume"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--settings"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "container",
+          "database",
+          "environment",
+          "filesystem",
+          "git",
+          "messaging",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [
+        {
+          "names": [
+            "exec"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "in_directory",
+                        "directory": {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        "entry": {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      },
+                      {
+                        "kind": "in_directory",
+                        "directory": {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        "entry": {
+                          "kind": "literal",
+                          "value": ".factory/mcp.json"
+                        }
+                      },
+                      {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      },
+                      {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "literal",
+                          "value": ".factory/mcp.json"
+                        }
+                      }
+                    ]
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "network_endpoint",
+                      "host_glob": {
+                        "kind": "literal",
+                        "value": "*.factory.ai"
+                      },
+                      "scheme": {
+                        "kind": "any"
+                      },
+                      "port": {
+                        "kind": "any"
+                      },
+                      "path_prefix": null
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "FACTORY_API_KEY"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "add"
+          ],
+          "index": 1,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "group",
+              "index": 0,
+              "allowed_literals": [
+                "mcp"
+              ],
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            },
+            {
+              "name": "arguments",
+              "index": 1,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "in_directory",
+                    "directory": {
+                      "kind": "environment",
+                      "name": "HOME"
+                    },
+                    "entry": {
+                      "kind": "literal",
+                      "value": ".factory/mcp.json"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "remove"
+          ],
+          "index": 1,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "group",
+              "index": 0,
+              "allowed_literals": [
+                "mcp"
+              ],
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            },
+            {
+              "name": "arguments",
+              "index": 1,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "in_directory",
+                    "directory": {
+                      "kind": "environment",
+                      "name": "HOME"
+                    },
+                    "entry": {
+                      "kind": "literal",
+                      "value": ".factory/mcp.json"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "remove",
+            "uninstall"
+          ],
+          "index": 1,
+          "flags": [
+            {
+              "names": [
+                "--scope"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--help",
+                "-h"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--version",
+                "-V"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "group",
+              "index": 0,
+              "allowed_literals": [
+                "plugin"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "plugin",
+              "index": 1,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--scope"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HOME",
+                          "default": {
+                            "kind": "environment",
+                            "name": "HOME"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HOME",
+                          "default": {
+                            "kind": "environment",
+                            "name": "HOME"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--scope"
+                    ],
+                    "allowed_literals": [
+                      "user"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HOME",
+                          "default": {
+                            "kind": "environment",
+                            "name": "HOME"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HOME",
+                          "default": {
+                            "kind": "environment",
+                            "name": "HOME"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--scope"
+                    ],
+                    "allowed_literals": [
+                      "project"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": ".factory/settings.json"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": ".factory/settings.json"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--scope"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HOME",
+                          "default": {
+                            "kind": "environment",
+                            "name": "HOME"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HOME",
+                          "default": {
+                            "kind": "environment",
+                            "name": "HOME"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--scope"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--scope"
+                    ],
+                    "allowed_literals": [
+                      "user"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HOME",
+                          "default": {
+                            "kind": "environment",
+                            "name": "HOME"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "environment_or",
+                          "name": "HOME",
+                          "default": {
+                            "kind": "environment",
+                            "name": "HOME"
+                          }
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      ],
+                      "separator": "/"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--scope"
+                    ],
+                    "allowed_literals": [
+                      "user"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--scope"
+                    ],
+                    "allowed_literals": [
+                      "project"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": ".factory/settings.json"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": ".factory/settings.json"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "plugin"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "plugin"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "nah",
+                        "nah.json",
+                        "nah.ts"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "flag_value_in": [
+                  {
+                    "flags": [
+                      "--scope"
+                    ],
+                    "allowed_literals": [
+                      "project"
+                    ]
+                  }
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": false,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "help"
+          ],
+          "index": 0,
+          "inert": true,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": [
+        {
+          "without_subcommand": true,
+          "name": "session",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "arguments",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--settings"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "in_directory",
+                        "directory": {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        "entry": {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      },
+                      {
+                        "kind": "in_directory",
+                        "directory": {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        "entry": {
+                          "kind": "literal",
+                          "value": ".factory/mcp.json"
+                        }
+                      },
+                      {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "literal",
+                          "value": ".factory/settings.json"
+                        }
+                      },
+                      {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "literal",
+                          "value": ".factory/mcp.json"
+                        }
+                      }
+                    ]
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "network.connect",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "network_endpoint",
+                      "host_glob": {
+                        "kind": "literal",
+                        "value": "*.factory.ai"
+                      },
+                      "scheme": {
+                        "kind": "any"
+                      },
+                      "port": {
+                        "kind": "any"
+                      },
+                      "path_prefix": null
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "FACTORY_API_KEY"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "container",
+              "database",
+              "environment",
+              "filesystem",
+              "git",
+              "messaging",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ]
+    }
+  ]
+}

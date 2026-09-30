@@ -1,0 +1,2170 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:4b1c3c5b4f8a9e26fd01e9796a5b2d6795e0f5aa3f3a44afcc7fbc21499300ab",
+  "provenance": {
+    "author": "llm_drafted",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/developer_commands_sources.json#p18b/devtools/js-toolchain@v2",
+        "digest": "blake3:1e67f4063405c6fa5b9f31c33aba5b36cc7d075892ad0b1f7195f46269b1670a"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "tsc",
+        "requirement": "reviewed-exact-surface@2026-09-16"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/js-toolchain@v2",
+        "path": "../../tests/fixtures/model_tranche/js-toolchain.json",
+        "digest": "blake3:843ef298a9eb0daf2cb9524f129c1f55c38a49d31f30ba12479e5cebb98ee885"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "js-toolchain-near-name",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "js-toolchain-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write",
+          "network.listen"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "js-toolchain-read-only-mode",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "tsc",
+            "--noEmit",
+            "-p",
+            "tsconfig.check.json"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/js-toolchain@v2-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "environment.write",
+      "filesystem.read",
+      "filesystem.write",
+      "network.listen",
+      "process.code_execution"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "options_before_operand": 0,
+      "id": "p18b/devtools/js-toolchain/cross-env@v2",
+      "commands": [
+        "cross-env"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [
+        {
+          "name": "arguments",
+          "index": 0,
+          "variadic": true,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [
+        {
+          "prefix_assignments": true,
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [],
+          "argv_tail": "arguments"
+        }
+      ],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "environment",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/js-toolchain/eslint@v2",
+      "commands": [
+        "eslint"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--fix"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--fix-dry-run"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--quiet"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-warn-ignored"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ext"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--config",
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--max-warnings"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--format",
+            "-f"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "glob_parent",
+                  "value": {
+                    "kind": "current"
+                  }
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [
+              "--fix"
+            ],
+            "flag_absent": [
+              "--fix-dry-run",
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "glob_parent",
+                  "value": {
+                    "kind": "current"
+                  }
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [
+              "--fix"
+            ],
+            "flag_absent": [
+              "--fix-dry-run"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "help-version",
+          "when": {
+            "flag_present": [
+              "--help",
+              "--version"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/js-toolchain/prettier@v2",
+      "commands": [
+        "prettier"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--write"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--check"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--list-different"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-l"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ignore-unknown"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--config"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--ignore-path"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--parser"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--tab-width"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--print-width"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "glob_parent",
+                  "value": {
+                    "kind": "current"
+                  }
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [
+              "--write"
+            ],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "glob_parent",
+                  "value": {
+                    "kind": "current"
+                  }
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "help-version",
+          "when": {
+            "flag_present": [
+              "--help",
+              "--version"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/js-toolchain/tsc@v2",
+      "commands": [
+        "tsc"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--noEmit"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--incremental"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--declaration"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--emitDeclarationOnly"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--watch"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-w"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--pretty"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--skipLibCheck"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--project",
+            "-p"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--outDir"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--target"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--module"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--lib"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-p",
+              "--project"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-p",
+              "--project"
+            ],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "literal",
+                  "value": "tsconfig.json"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--noEmit",
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [
+              "--outDir"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "join",
+                    "parts": [
+                      {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--outDir"
+                        ]
+                      },
+                      {
+                        "kind": "literal",
+                        "value": "**"
+                      }
+                    ],
+                    "separator": "/"
+                  }
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--noEmit",
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--outDir",
+              "-p",
+              "--project"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "join",
+                "parts": [
+                  {
+                    "kind": "property",
+                    "base": {
+                      "kind": "filesystem",
+                      "path": {
+                        "kind": "literal",
+                        "value": "tsconfig.json"
+                      }
+                    },
+                    "name": "compilerOptions.outDir"
+                  },
+                  {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "literal",
+                        "value": "**"
+                      }
+                    }
+                  }
+                ]
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--noEmit",
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [
+              "-p",
+              "--project"
+            ],
+            "flag_value_absent": [
+              "--outDir"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "join",
+                "parts": [
+                  {
+                    "kind": "property",
+                    "base": {
+                      "kind": "filesystem",
+                      "path": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "-p",
+                          "--project"
+                        ]
+                      }
+                    },
+                    "name": "compilerOptions.outDir"
+                  },
+                  {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "literal",
+                        "value": "**"
+                      }
+                    }
+                  }
+                ]
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "help-version",
+          "when": {
+            "flag_present": [
+              "--help",
+              "--version"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/js-toolchain/vite@v2",
+      "commands": [
+        "vite"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--strictPort"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--force"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--port"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--host"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--config",
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--mode",
+            "-m"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--base"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--outDir"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "subcommand_matched": false,
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version",
+              "--config",
+              "-c"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--host",
+              "--port"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "network.listen",
+              "resource": {
+                "kind": "network_url",
+                "url": {
+                  "kind": "join",
+                  "parts": [
+                    {
+                      "kind": "literal",
+                      "value": "tcp://"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": "localhost"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": ":"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": "5173"
+                    }
+                  ],
+                  "separator": ""
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "subcommand_matched": false,
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version",
+              "--config",
+              "-c"
+            ],
+            "flag_value_present": [
+              "--port"
+            ],
+            "flag_value_absent": [
+              "--host"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "network.listen",
+              "resource": {
+                "kind": "network_url",
+                "url": {
+                  "kind": "join",
+                  "parts": [
+                    {
+                      "kind": "literal",
+                      "value": "tcp://"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": "localhost"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": ":"
+                    },
+                    {
+                      "kind": "flag_value",
+                      "flags": [
+                        "--port"
+                      ]
+                    }
+                  ],
+                  "separator": ""
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "subcommand_matched": false,
+            "flag_present": [
+              "--host"
+            ],
+            "flag_absent": [
+              "--help",
+              "--version",
+              "--config",
+              "-c"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--port"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "network.listen",
+              "resource": {
+                "kind": "network_url",
+                "url": {
+                  "kind": "join",
+                  "parts": [
+                    {
+                      "kind": "literal",
+                      "value": "tcp://"
+                    },
+                    {
+                      "kind": "flag_value",
+                      "flags": [
+                        "--host"
+                      ]
+                    },
+                    {
+                      "kind": "literal",
+                      "value": ":"
+                    },
+                    {
+                      "kind": "literal",
+                      "value": "5173"
+                    }
+                  ],
+                  "separator": ""
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "subcommand_matched": false,
+            "flag_present": [
+              "--host"
+            ],
+            "flag_absent": [
+              "--help",
+              "--version",
+              "--config",
+              "-c"
+            ],
+            "flag_value_present": [
+              "--port"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "network.listen",
+              "resource": {
+                "kind": "network_url",
+                "url": {
+                  "kind": "join",
+                  "parts": [
+                    {
+                      "kind": "literal",
+                      "value": "tcp://"
+                    },
+                    {
+                      "kind": "flag_value",
+                      "flags": [
+                        "--host"
+                      ]
+                    },
+                    {
+                      "kind": "literal",
+                      "value": ":"
+                    },
+                    {
+                      "kind": "flag_value",
+                      "flags": [
+                        "--port"
+                      ]
+                    }
+                  ],
+                  "separator": ""
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "subcommand_matched": false,
+            "flag_present": [
+              "--config",
+              "-c"
+            ],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "network.listen",
+              "resource": {
+                "kind": "unresolved",
+                "family": "network"
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "network",
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "preview"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--host",
+                  "--port"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "localhost"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "4173"
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_present": [
+                  "--port"
+                ],
+                "flag_value_absent": [
+                  "--host"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "localhost"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "--port"
+                          ]
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--host"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--port"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "--host"
+                          ]
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "4173"
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--host"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_present": [
+                  "--port"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "--host"
+                          ]
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "--port"
+                          ]
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--config",
+                  "-c"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "names": [
+            "dev",
+            "serve"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--host",
+                  "--port"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "localhost"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "5173"
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_present": [
+                  "--port"
+                ],
+                "flag_value_absent": [
+                  "--host"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "localhost"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "--port"
+                          ]
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--host"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--port"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "--host"
+                          ]
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "literal",
+                          "value": "5173"
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--host"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_present": [
+                  "--port"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "network_url",
+                    "url": {
+                      "kind": "join",
+                      "parts": [
+                        {
+                          "kind": "literal",
+                          "value": "tcp://"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "--host"
+                          ]
+                        },
+                        {
+                          "kind": "literal",
+                          "value": ":"
+                        },
+                        {
+                          "kind": "flag_value",
+                          "flags": [
+                            "--port"
+                          ]
+                        }
+                      ],
+                      "separator": ""
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--config",
+                  "-c"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.listen",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "names": [
+            "build"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--outDir"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version"
+                ],
+                "flag_value_present": [
+                  "--outDir"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "join",
+                        "parts": [
+                          {
+                            "kind": "flag_value",
+                            "flags": [
+                              "--outDir"
+                            ]
+                          },
+                          {
+                            "kind": "literal",
+                            "value": "**"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        }
+      ],
+      "modes": [
+        {
+          "name": "help-version",
+          "when": {
+            "flag_present": [
+              "--help",
+              "--version"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/js-toolchain/vitest@v2",
+      "commands": [
+        "vitest"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--run"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--watch"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--coverage"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--passWithNoTests"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--config",
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--reporter"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--pool"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--testNamePattern",
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "process.code_execution",
+              "resource": {
+                "kind": "process",
+                "executable": {
+                  "kind": "literal",
+                  "value": "vitest"
+                },
+                "argv": []
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "help-version",
+          "when": {
+            "flag_present": [
+              "--help",
+              "--version"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    }
+  ]
+}

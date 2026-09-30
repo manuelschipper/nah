@@ -1,0 +1,417 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:e616cc41d1647ae7a5332324ec405755181383e4e819192bed251ec04992063e",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/database/django-admin@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "django-admin",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/database/django-admin@v1",
+        "path": "../../tests/fixtures/model_tranche/django-admin.json",
+        "digest": "blake3:4a9bc81c800c2ffe4cffb535d296caae49ac119b7c163e386eb56ec61f73c794"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "django-admin-flush---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "django-admin",
+            "flush",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "django-admin-migrate-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "django-admin",
+            "migrate"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "django-admin-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "django-admin-not-the-command",
+            "flush"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.truncate"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      },
+      {
+        "name": "django-admin-sqlflush-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "django-admin",
+            "sqlflush"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/database/django-admin@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "database.schema_drop",
+      "database.truncate"
+    ],
+    "expected_boundaries": [
+      "environment_configuration"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/database/django-admin@v1",
+      "commands": [
+        "django-admin"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--settings"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--pythonpath"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--traceback"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-color"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--force-color"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbosity",
+            "-v"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--skip-checks"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-input",
+            "--noinput"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--database"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "database",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "flush"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.truncate",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "the settings module selects the database, and management commands and installed apps are project code"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "reset_db"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "-R",
+                "--router"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-D",
+                "--dbname"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-U",
+                "--user"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-O",
+                "--owner"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-P",
+                "--password"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "-c",
+                "--close-sessions"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--no-utf8"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "the settings module selects the database, and management commands and installed apps are project code; reset_db comes from django-extensions"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "relative-glob-with-cwd",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/work/a.rs"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "fs_path",
+          "glob": "*.rs"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": {
+        "value": "/work",
+        "source": {
+          "kind": "declared"
+        }
+      },
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        },
+        {
+          "kind": "binding",
+          "name": "cwd",
+          "source": {
+            "kind": "declared"
+          }
+        }
+      ]
+    }
+  }
+}

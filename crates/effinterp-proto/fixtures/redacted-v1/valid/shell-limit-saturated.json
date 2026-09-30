@@ -1,0 +1,437 @@
+{
+  "expected": {
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 1,
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_go_nodes": 20000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
+        "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
+        "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
+        "max_source_bytes": 4194304,
+        "max_value_cardinality": 64,
+        "max_value_depth": 24
+      },
+      "model_set": "builtin:blake3:412be1ea11cd035818957cfd02473da220c52267e7d6cd33761a51369229c197"
+    },
+    "boundaries": [
+      {
+        "class": "limit",
+        "domains": [
+          "artifact",
+          "filesystem",
+          "process",
+          "environment",
+          "network",
+          "database",
+          "container",
+          "git",
+          "cloud",
+          "messaging",
+          "system",
+          "credential"
+        ],
+        "limit": "max_analysis_steps",
+        "provenance": [
+          1
+        ],
+        "reason": "limit_saturated"
+      }
+    ],
+    "causality": {
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:7a51771c1ac4745252415a3da9549753472c31cb4e682ac4fb9f3c5268466c57",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "id": "occurrence:blake3:f19890726c449a26e93d79b86ea44b8a11e964fdc22c83a1cde7d099ac2a63cb",
+            "kind": "boundary",
+            "limit": "max_analysis_steps",
+            "modality": "may",
+            "order": 1,
+            "provenance": [
+              1
+            ],
+            "reason": "limit_saturated"
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "artifact": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "cloud": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "container": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "credential": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "database": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "environment": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "filesystem": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "git": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "messaging": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "network": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "process": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "system": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      }
+    },
+    "effects": [],
+    "execution_graph": {
+      "entry": 0,
+      "nodes": [
+        {
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "digest": "blake3:51adc52efe5df1b6",
+              "family": "fs_path"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "digest": "blake3:053761b284b2ca78242ae81753814dcafdbfb9c4886a992e0218b70e49c86267",
+            "kind": "shell"
+          }
+        }
+      ]
+    },
+    "provenance": [
+      {
+        "kind": "host_context",
+        "name": "HOME"
+      },
+      {
+        "end": 8,
+        "kind": "source_span",
+        "start": 0
+      }
+    ],
+    "schema": "effinterp/plan-redacted/v1",
+    "subject": {
+      "digest": "blake3:053761b284b2ca78242ae81753814dcafdbfb9c4886a992e0218b70e49c86267",
+      "kind": "shell"
+    }
+  },
+  "plan": {
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 1,
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_go_nodes": 20000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
+        "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
+        "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
+        "max_source_bytes": 4194304,
+        "max_value_cardinality": 64,
+        "max_value_depth": 24
+      },
+      "model_set": "builtin:blake3:412be1ea11cd035818957cfd02473da220c52267e7d6cd33761a51369229c197"
+    },
+    "boundaries": [
+      {
+        "class": "limit",
+        "domains": [
+          "artifact",
+          "filesystem",
+          "process",
+          "environment",
+          "network",
+          "database",
+          "container",
+          "git",
+          "cloud",
+          "messaging",
+          "system",
+          "credential"
+        ],
+        "limit": "max_analysis_steps",
+        "provenance": [
+          1
+        ],
+        "reason": "limit_saturated"
+      }
+    ],
+    "causality": {
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "edges": [],
+        "nodes": [
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 1
+            },
+            "execution": 0,
+            "id": "occurrence:blake3:7a51771c1ac4745252415a3da9549753472c31cb4e682ac4fb9f3c5268466c57",
+            "kind": "port",
+            "modality": "must-on-success",
+            "order": 0,
+            "port": "code"
+          },
+          {
+            "cardinality": {
+              "max": 1,
+              "min": 0
+            },
+            "id": "occurrence:blake3:f19890726c449a26e93d79b86ea44b8a11e964fdc22c83a1cde7d099ac2a63cb",
+            "kind": "boundary",
+            "limit": "max_analysis_steps",
+            "modality": "may",
+            "order": 1,
+            "provenance": [
+              1
+            ],
+            "reason": "limit_saturated"
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "artifact": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "cloud": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "container": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "credential": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "database": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "environment": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "filesystem": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "git": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "messaging": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "network": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "process": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      },
+      "system": {
+        "gaps": [
+          0
+        ],
+        "level": "partial"
+      }
+    },
+    "effects": [],
+    "execution_graph": {
+      "entry": 0,
+      "nodes": [
+        {
+          "assurance": "exact",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/workspace/project"
+            }
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "streams": {},
+          "subject": {
+            "context": {
+              "env": {
+                "HOME": "/home/test"
+              }
+            },
+            "cwd": "/workspace/project",
+            "kind": "shell",
+            "source": "rm -rf /"
+          }
+        }
+      ]
+    },
+    "provenance": [
+      {
+        "kind": "host_context",
+        "name": "HOME"
+      },
+      {
+        "end": 8,
+        "kind": "source_span",
+        "start": 0
+      }
+    ],
+    "schema": "effinterp/plan/v1",
+    "subject": {
+      "context": {
+        "env": {
+          "HOME": "/home/test"
+        }
+      },
+      "cwd": "/workspace/project",
+      "kind": "shell",
+      "source": "rm -rf /"
+    }
+  },
+  "schema": "effinterp/redacted-case/v1"
+}

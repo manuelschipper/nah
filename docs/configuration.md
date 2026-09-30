@@ -51,11 +51,10 @@ destruction protection after upgrading. Change or reset each by its own name.
 
 Global choices live in `~/.nah/built-ins.json`. V2 stores sorted explicit
 overrides; missing names use factory defaults. Nah reads v1 without rewriting
-and writes v2 on the next guard change. Registered old names work in saved
-v1/v2 state and `guard enable`, `disable`, or `reset`; Nah warns, preserves the
-choice under its current name, and rewrites only current names on the next
-change. Unknown saved names warn and are dropped alone. Malformed or conflicting
-state still fails. TUI `D` restores built-in defaults and disables custom guards.
+and writes v2 on the next guard change. Retired guard names are unknown names:
+saved ones are ignored with a warning, and guard commands reject them.
+Malformed or conflicting state still fails. TUI `D` restores built-in defaults
+and disables custom guards.
 
 Configuration can only add or remove blocks; it cannot authorize a tool call.
 
@@ -99,7 +98,7 @@ Activation pins the manifest, executable, and declared data. Changed bytes
 require re-enabling. An unreadable activation database, or an activated bundle
 that is missing, changed, untrusted, or cannot be cataloged, adds an evaluation
 failure. The decision still completes and delegates unless another guard or
-self-protection blocks. Malformed inactive proposals only warn. `nah nap --all`
+self-protection blocks. Malformed inactive proposals only warn. `nah nap all`
 skips custom guards with the rest of non-permanent enforcement.
 
 User guards live under `~/.nah/guards/<name>` and do not require project
@@ -112,16 +111,18 @@ changing it.
 Run `nah nap` in a separate interactive terminal when you intentionally want
 an agent to change protected nah configuration. It pauses self-protection
 globally for 10 minutes while guards remain active. Use
-`nah nap --all` only when every non-permanent intercepted call should delegate
-to the runtime, and use `nah wake` to resume immediately.
+`nah nap <guard>...` to pause only the named guards while self-protection and
+every other guard stay active, and `nah nap all` only when every non-permanent
+intercepted call should delegate to the runtime. Use `nah wake` to resume
+immediately.
 
 The window applies to every project and concurrent session using the same
 `~/.nah/`. Persistent changes are not rolled back at expiry. Invalid or
 tampered nap state fails awake; see `nah docs security` for the protection
 boundary.
 
-While a nap is active, `nah tui` banners every screen with which enforcement is
-paused and how long is left, and `w` there confirms the same wake. The TUI
+While a nap is active, `nah tui` banners every screen with which enforcement or
+guards are paused and how long is left, and `w` there confirms the same wake. The TUI
 cannot start or extend a nap.
 
 ## Runtime configuration

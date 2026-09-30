@@ -1,0 +1,4738 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:9d553f2cbd91ccebd0cb0c2973150cbf7d793d41b59ebc72cb8788d0bb3b5d26",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/pulumi_sources.json",
+        "digest": "blake3:b2f540acb14d59e0ba03871022e6a2192c8d202dc0e1bc073be411e865722317"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "pulumi",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/cloud/pulumi@v1",
+        "path": "../../tests/fixtures/model_tranche/pulumi.json",
+        "digest": "blake3:715413f4505db3db9bfa1548720b0fee54104d69cb404bbe9129714e3cdb6e81"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "pulumi-help-does-not-delete",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pulumi",
+            "down",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "pulumi-invalid-boolean-does-not-delete",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pulumi",
+            "destroy",
+            "--yes=bogus",
+            "--yes"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "pulumi-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pulumi-not-the-command",
+            "destroy"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      },
+      {
+        "name": "pulumi-preview-does-not-delete",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pulumi",
+            "destroy",
+            "--preview-only",
+            "--yes"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "pulumi-read-does-not-delete",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pulumi",
+            "stack",
+            "ls"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "pulumi-unknown-does-not-delete",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pulumi",
+            "destroy",
+            "--unknown"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/cloud/pulumi@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "cloud.resource.delete"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/cloud/pulumi@v1",
+      "commands": [
+        "pulumi"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--color"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--cwd",
+            "-C"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--disable-integrity-checking"
+          ],
+          "takes_value": false,
+          "boolean": true
+        },
+        {
+          "names": [
+            "--memprofilerate"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--otel-traces"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--profiling"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--tracing"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--tracing-header"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false,
+          "boolean": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "destroy",
+            "down",
+            "dn"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--client"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--config",
+                "-c"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--config-file"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--config-path"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--continue-on-error"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--copilot"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--debug",
+                "-d"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--diff"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--emoji",
+                "-e"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--exclude",
+                "-x"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--exclude-protected"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--exec-agent"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--exec-kind"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--fully-qualify-stack-names",
+                "-Q"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--help",
+                "-h"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--ignore-protect"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--json",
+                "-j"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--logflow"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--logtostderr"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--message",
+                "-m"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--neo"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--non-interactive"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--output"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--override-env"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--parallel",
+                "-p"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--preview-only"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--refresh",
+                "-r"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--remote"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--remote-agent-pool-id"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-env"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-env-secret"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-executor-image"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-executor-image-password"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-executor-image-username"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-git-auth-access-token"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-git-auth-password"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-git-auth-ssh-private-key"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-git-auth-ssh-private-key-path"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-git-auth-username"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-git-branch"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-git-commit"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-git-repo-dir"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-inherit-settings"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--remote-pre-run-command"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--remote-skip-install-dependencies"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--remove"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--run-program"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--show-config"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--show-full-output"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--show-replacement-steps"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--show-sames"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--skip-config-validation"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--skip-plugin-pre-install"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--skip-preview",
+                "-f"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--stack",
+                "-s"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--suppress-outputs"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--suppress-permalink"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--suppress-progress"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--suppress-stream-logs"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--target",
+                "-t"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--target-dependents"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--urns"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--yes",
+                "-y"
+              ],
+              "takes_value": false,
+              "boolean": true
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--exclude-protected",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target",
+                  "-t",
+                  "--exclude",
+                  "-x"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "cloud"
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "config_file": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--config-file"
+                        ]
+                      }
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "exclude_protected": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--exclude-protected"
+                      ]
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ignore_protect": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--ignore-protect"
+                      ]
+                    },
+                    "mode": {
+                      "kind": "constant_string",
+                      "value": "destroy"
+                    },
+                    "preview": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "provider": {
+                      "kind": "constant_string",
+                      "value": "pulumi"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    },
+                    "target_dependents": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--target-dependents"
+                      ]
+                    },
+                    "targeted": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "whole_stack": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--exclude-protected"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--ignore-protect",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target",
+                  "-t",
+                  "--exclude",
+                  "-x"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "cloud"
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "config_file": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--config-file"
+                        ]
+                      }
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "exclude_protected": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--exclude-protected"
+                      ]
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ignore_protect": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--ignore-protect"
+                      ]
+                    },
+                    "mode": {
+                      "kind": "constant_string",
+                      "value": "destroy"
+                    },
+                    "preview": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "provider": {
+                      "kind": "constant_string",
+                      "value": "pulumi"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    },
+                    "target_dependents": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--target-dependents"
+                      ]
+                    },
+                    "targeted": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "whole_stack": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--target",
+                  "-t"
+                ]
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--target",
+                        "-t"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--exclude-protected",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--exclude",
+                  "-x"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "cloud"
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "config_file": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--config-file"
+                        ]
+                      }
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "exclude_protected": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--exclude-protected"
+                      ]
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ignore_protect": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--ignore-protect"
+                      ]
+                    },
+                    "mode": {
+                      "kind": "constant_string",
+                      "value": "destroy"
+                    },
+                    "preview": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "provider": {
+                      "kind": "constant_string",
+                      "value": "pulumi"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    },
+                    "target": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "current"
+                      }
+                    },
+                    "target_dependents": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--target-dependents"
+                      ]
+                    },
+                    "targeted": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "whole_stack": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--exclude",
+                  "-x"
+                ]
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--exclude",
+                        "-x"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--exclude-protected",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target",
+                  "-t"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "cloud"
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "config_file": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--config-file"
+                        ]
+                      }
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "exclude": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "current"
+                      }
+                    },
+                    "exclude_protected": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--exclude-protected"
+                      ]
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ignore_protect": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--ignore-protect"
+                      ]
+                    },
+                    "mode": {
+                      "kind": "constant_string",
+                      "value": "destroy"
+                    },
+                    "preview": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "provider": {
+                      "kind": "constant_string",
+                      "value": "pulumi"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    },
+                    "target_dependents": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--target-dependents"
+                      ]
+                    },
+                    "targeted": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "whole_stack": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--exclude",
+                  "-x"
+                ]
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--exclude",
+                        "-x"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--exclude-protected"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--ignore-protect",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target",
+                  "-t"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "cloud"
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "config_file": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--config-file"
+                        ]
+                      }
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "exclude": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "current"
+                      }
+                    },
+                    "exclude_protected": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--exclude-protected"
+                      ]
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ignore_protect": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--ignore-protect"
+                      ]
+                    },
+                    "mode": {
+                      "kind": "constant_string",
+                      "value": "destroy"
+                    },
+                    "preview": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "provider": {
+                      "kind": "constant_string",
+                      "value": "pulumi"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    },
+                    "target_dependents": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--target-dependents"
+                      ]
+                    },
+                    "targeted": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "whole_stack": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": false,
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--exclude-protected",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target",
+                  "-t",
+                  "--exclude",
+                  "-x"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "cloud"
+                  },
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "config_file": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--config-file"
+                        ]
+                      }
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "exclude_protected": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--exclude-protected"
+                      ]
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ignore_protect": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--ignore-protect"
+                      ]
+                    },
+                    "mode": {
+                      "kind": "constant_string",
+                      "value": "destroy"
+                    },
+                    "preview": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "provider": {
+                      "kind": "constant_string",
+                      "value": "pulumi"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    },
+                    "target_dependents": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--target-dependents"
+                      ]
+                    },
+                    "targeted": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": false,
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--exclude-protected"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--ignore-protect",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target",
+                  "-t",
+                  "--exclude",
+                  "-x"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "cloud"
+                  },
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "config_file": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--config-file"
+                        ]
+                      }
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "exclude_protected": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--exclude-protected"
+                      ]
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ignore_protect": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--ignore-protect"
+                      ]
+                    },
+                    "mode": {
+                      "kind": "constant_string",
+                      "value": "destroy"
+                    },
+                    "preview": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "provider": {
+                      "kind": "constant_string",
+                      "value": "pulumi"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    },
+                    "target_dependents": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--target-dependents"
+                      ]
+                    },
+                    "targeted": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "whole_stack": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--target",
+                  "-t"
+                ]
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": false,
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--exclude-protected",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--exclude",
+                  "-x"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "cloud"
+                  },
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "config_file": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--config-file"
+                        ]
+                      }
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "exclude_protected": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--exclude-protected"
+                      ]
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ignore_protect": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--ignore-protect"
+                      ]
+                    },
+                    "mode": {
+                      "kind": "constant_string",
+                      "value": "destroy"
+                    },
+                    "preview": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "provider": {
+                      "kind": "constant_string",
+                      "value": "pulumi"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    },
+                    "target": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "current"
+                      }
+                    },
+                    "target_dependents": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--target-dependents"
+                      ]
+                    },
+                    "targeted": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "whole_stack": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--exclude",
+                  "-x"
+                ]
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": false,
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--exclude-protected",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target",
+                  "-t"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "cloud"
+                  },
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "config_file": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--config-file"
+                        ]
+                      }
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "exclude": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "current"
+                      }
+                    },
+                    "exclude_protected": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--exclude-protected"
+                      ]
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ignore_protect": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--ignore-protect"
+                      ]
+                    },
+                    "mode": {
+                      "kind": "constant_string",
+                      "value": "destroy"
+                    },
+                    "preview": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "provider": {
+                      "kind": "constant_string",
+                      "value": "pulumi"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    },
+                    "target_dependents": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--target-dependents"
+                      ]
+                    },
+                    "targeted": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "whole_stack": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--exclude",
+                  "-x"
+                ]
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": false,
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--exclude-protected"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--ignore-protect",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--target",
+                  "-t"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "cloud"
+                  },
+                  "attributes": {
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "config_file": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--config-file"
+                        ]
+                      }
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "exclude": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "current"
+                      }
+                    },
+                    "exclude_protected": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--exclude-protected"
+                      ]
+                    },
+                    "help": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ignore_protect": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--ignore-protect"
+                      ]
+                    },
+                    "mode": {
+                      "kind": "constant_string",
+                      "value": "destroy"
+                    },
+                    "preview": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "provider": {
+                      "kind": "constant_string",
+                      "value": "pulumi"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    },
+                    "target_dependents": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--target-dependents"
+                      ]
+                    },
+                    "targeted": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "whole_stack": {
+                      "kind": "constant_bool",
+                      "value": false
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--config-file"
+                ]
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "purpose": {
+                      "kind": "constant_string",
+                      "value": "stack_configuration"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_absent": [
+                  "--config-file"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "fs"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "purpose": {
+                      "kind": "constant_string",
+                      "value": "stack_configuration"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--config-file"
+                ]
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--remove"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [
+                  "--config-file"
+                ],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {
+                    "purpose": {
+                      "kind": "constant_string",
+                      "value": "stack_configuration"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--remove"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--config-file"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "fs"
+                  },
+                  "attributes": {
+                    "purpose": {
+                      "kind": "constant_string",
+                      "value": "stack_configuration"
+                    },
+                    "stack": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "flag_value",
+                        "flags": [
+                          "--stack",
+                          "-s"
+                        ]
+                      }
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi rejects json and output when both options are supplied"
+            },
+            {
+              "when": {
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi rejects json and output when both options are supplied"
+            },
+            {
+              "when": {
+                "arguments_literal": true,
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [
+                  "--target",
+                  "-t"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "live_inventory",
+              "class": "unresolved",
+              "scope": "environment",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi target selection requires stack state; selected URNs remain in invocation arguments"
+            },
+            {
+              "when": {
+                "arguments_literal": true,
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [
+                  "--exclude",
+                  "-x"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "live_inventory",
+              "class": "unresolved",
+              "scope": "environment",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi exclude selection requires stack state; selected URNs remain in invocation arguments"
+            },
+            {
+              "when": {
+                "flag_value_symbolic": [
+                  "--stack"
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "partial_analysis",
+              "class": "unresolved",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi stack selection is symbolic"
+            },
+            {
+              "when": {
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi rejects exclude-protected and ignore-protect when both options are supplied"
+            },
+            {
+              "when": {
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi rejects target and exclude when both options are supplied"
+            },
+            {
+              "when": {
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi rejects target and exclude when both options are supplied"
+            },
+            {
+              "when": {
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi rejects target and exclude when both options are supplied"
+            },
+            {
+              "when": {
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi rejects target and exclude when both options are supplied"
+            },
+            {
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_absent": [
+                  "--config-file"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "reason": "live_inventory",
+              "class": "unresolved",
+              "scope": "environment",
+              "domains": [
+                "filesystem"
+              ],
+              "detail": "Pulumi stack configuration path requires project discovery when --config-file is absent"
+            },
+            {
+              "when": {
+                "arguments_literal": false,
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [
+                  "--target",
+                  "-t"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "partial_analysis",
+              "class": "unresolved",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi target selection requires stack state; selected URNs remain in invocation arguments"
+            },
+            {
+              "when": {
+                "arguments_literal": false,
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [
+                  "--exclude",
+                  "-x"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "partial_analysis",
+              "class": "unresolved",
+              "domains": [
+                "cloud"
+              ],
+              "detail": "Pulumi exclude selection requires stack state; selected URNs remain in invocation arguments"
+            },
+            {
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--preview-only"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "reason": "provider_io",
+              "class": "unresolved",
+              "scope": "environment",
+              "domains": [
+                "cloud",
+                "process"
+              ],
+              "detail": "Pulumi destroy preview reads stack state and invokes providers without requesting resource deletion"
+            },
+            {
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--output"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "default",
+                        "json"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--override-env"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty_assignment"
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--verbose",
+                        "-v"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": 1
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--parallel",
+                        "-p"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "ascii_word",
+                      "max_bytes": 9
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--memprofilerate"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "go_integer",
+                      "min": null
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  },
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--color"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "always",
+                        "auto",
+                        "never",
+                        "raw"
+                      ]
+                    },
+                    "allow_missing": true,
+                    "matches": true
+                  }
+                ],
+                "raw_mutually_exclusive": [
+                  {
+                    "flags": [
+                      "--json",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-j",
+                      "--output"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--exclude-protected",
+                      "--ignore-protect"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "--target",
+                      "-x"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "--exclude"
+                    ],
+                    "matches": true
+                  },
+                  {
+                    "flags": [
+                      "-t",
+                      "-x"
+                    ],
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--remove"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--preview-only",
+                  "--version",
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--config-file"
+                ],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "reason": "live_inventory",
+              "class": "unresolved",
+              "scope": "environment",
+              "domains": [
+                "filesystem"
+              ],
+              "detail": "Pulumi stack configuration path requires project discovery when --config-file is absent"
+            },
+            {
+              "when": {
+                "flag_present": [
+                  "--remote"
+                ],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "remote_command",
+              "class": "unresolved",
+              "domains": [
+                "cloud",
+                "process"
+              ],
+              "detail": "Pulumi remote deployment runs the operation from a git source in a Pulumi Cloud executor; its pre-run commands and environment are unresolved"
+            },
+            {
+              "when": {
+                "arguments_literal": false,
+                "flag_present": [],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [
+                  "--config",
+                  "-c"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "partial_analysis",
+              "class": "unresolved",
+              "domains": [
+                "filesystem"
+              ],
+              "detail": "Pulumi stack configuration write is symbolic"
+            },
+            {
+              "when": {
+                "arguments_literal": false,
+                "flag_present": [
+                  "--remove"
+                ],
+                "flag_absent": [
+                  "--remote"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "partial_analysis",
+              "class": "unresolved",
+              "domains": [
+                "filesystem"
+              ],
+              "detail": "Pulumi stack configuration removal is symbolic"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

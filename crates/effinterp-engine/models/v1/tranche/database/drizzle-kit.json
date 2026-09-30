@@ -1,0 +1,241 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:0d752da35cc1a496f493d44b6ed979c7d0ce14b56840d4131e6d948be4b5fd69",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/database/drizzle-kit@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "drizzle-kit",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/database/drizzle-kit@v1",
+        "path": "../../tests/fixtures/model_tranche/drizzle-kit.json",
+        "digest": "blake3:532e8500e8948fda520882cfd102c1bcab044465b46e5e9d2a8645863a0b74eb"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "drizzle-kit-drop-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "drizzle-kit",
+            "drop"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "drizzle-kit-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "drizzle-kit-not-the-command",
+            "push"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_write"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/database/drizzle-kit@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "database.schema_write"
+    ],
+    "expected_boundaries": [
+      "environment_configuration"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/database/drizzle-kit@v1",
+      "commands": [
+        "drizzle-kit"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--config"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--dialect"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--schema"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--url"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--force"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--strict"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbose"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "database",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "push"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "drizzle.config is project code and selects the target database; the pushed schema diff, which --force applies without confirming data loss, is not observed"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

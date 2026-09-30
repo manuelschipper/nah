@@ -1,0 +1,68 @@
+# Ground-truth expectations for changesets/changesets (holdout-hidden corpus).
+# Pinned SHA: d0386b69c8a8bd14a702e7636ab01c1e83b1914e.
+# Real entry: packages/cli/src/index.ts (the `changeset` bin,
+#   packages/cli/package.json:18-20, is bin.js which `await import`s
+#   @changesets/cli — index.ts parses via the cac command tree in
+#   packages/cli/src/cli.ts and awaits cli.runMatchedCommand(), index.ts:28
+#   — the monorepo/workspaces CLI shape).
+# Derived from:
+#   packages/config/src/parse.ts (fs.readFile of .changeset/config.json,
+#     parse.ts:68-70),
+#   packages/read/src/index.ts (fs.readdir of the .changeset dir, index.ts:34,
+#     and fs.readFile of each changeset, index.ts:77),
+#   packages/write/src/index.ts (add: fs.writeFile of the new changeset,
+#     index.ts:60),
+#   packages/apply-release-plan/src/index.ts (version: fs.writeFile of each
+#     package.json, index.ts:72, and of changelogs, index.ts:343/350/370;
+#     fs.rm of pre.json, index.ts:115, and of consumed changesets,
+#     index.ts:226),
+#   packages/git/src/index.ts (git add/commit/tag through tinyexec's exec,
+#     index.ts:10/21/28/43),
+#   packages/cli/src/lib/npm.ts (publish: exec("npm", ["info"...]),
+#     npm.ts:201, exec("npm", ["publish"...]), npm.ts:365; OTP env read
+#     process.env.NPM_CONFIG_OTP/npm_config_otp, npm.ts:269).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH that these are the product's effects: reading/writing
+# .changeset files and package.jsons and spawning git/npm is what changesets
+# does. All command bodies run inside cac .action(async ...) callbacks, and
+# every fact lives in a sibling workspace package imported by @changesets/cli
+# (cross-package resolution is the main obstacle). Write/delete/spawn paths
+# are per-subcommand, hence modality=may. GitHub changelog enrichment is
+# config-selected at runtime — see known_hard.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+op=filesystem.write
+op=process.exec
+
+# Fact-level assertions (cac action callbacks + workspace packages; see header).
+[facts]
+op=filesystem.read res=config.json origin=packages/config/src/parse.ts realm=host
+op=filesystem.read origin=packages/read/src/index.ts realm=host
+op=filesystem.write origin=packages/write/src/index.ts realm=host modality=may
+op=filesystem.write origin=packages/apply-release-plan/src/index.ts realm=host modality=may
+op=filesystem.delete origin=packages/apply-release-plan/src/index.ts realm=host modality=may
+op=process.exec res=git origin=packages/git/src/index.ts realm=host modality=may
+op=process.exec res=npm origin=packages/cli/src/lib/npm.ts realm=host modality=may
+op=environment.read res=npm_config_otp origin=packages/cli/src/lib/npm.ts realm=host modality=may
+
+[forbidden]
+# changesets writes markdown and package.jsons and spawns git/npm; it opens
+# no database, cloud SDK, or message broker.
+op=database.
+op=cloud.
+op=messaging.
+
+[known_hard]
+# The GitHub changelog generator is selected by a config string at runtime
+# (the changelog module is loaded dynamically by apply-release-plan), so its
+# GraphQL fetch and token env reads sit behind a dynamic-module wall.
+op=network.
+op=environment.read res=GITHUB_TOKEN origin=packages/get-github-info/src/env.ts

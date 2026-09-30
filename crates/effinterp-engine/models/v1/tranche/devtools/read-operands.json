@@ -1,0 +1,2511 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:69bdae589ee6357cc71d1337d0961b96d39e2866d85250886fa784f1556e5c1a",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/devtools/read-operands@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "diff",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/read-operands@v1",
+        "path": "../../tests/fixtures/model_tranche/read-operands.json",
+        "digest": "blake3:1f24eb68dafce00e8c2c8c39c9a242e6a7d1616bae5e685f4069cad2d1496de3"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "read-operands-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "read-operands-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/read-operands@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": [
+      "input_determined_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/cmp@v1",
+      "commands": [
+        "cmp"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--quiet",
+            "--silent",
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbose",
+            "-l"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ignore-initial",
+            "-i"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/df@v1",
+      "commands": [
+        "df"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--all",
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--human-readable",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--inodes",
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--print-type",
+            "-T"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/diff@v1",
+      "commands": [
+        "diff"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--recursive",
+            "-r"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--brief",
+            "-q"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--unified",
+            "-u"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ignore-case",
+            "-i"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-r",
+                    "--recursive"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/du@v1",
+      "commands": [
+        "du"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--all",
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--human-readable",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--summarize",
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--max-depth",
+            "-d"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--one-file-system",
+            "-x"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "cwd"
+                }
+              },
+              "attributes": {
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/file@v1",
+      "commands": [
+        "file"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--brief",
+            "-b"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--dereference",
+            "-L"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--mime",
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--files-from",
+            "-f"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-f",
+              "--files-from"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-f",
+              "--files-from"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-f",
+              "--files-from"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "input_determined_arguments",
+          "class": "unresolved",
+          "domains": [
+            "filesystem"
+          ]
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/getent@v1",
+      "commands": [
+        "getent"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--service",
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--no-idn",
+            "-i"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "database",
+          "index": 0,
+          "allowed_literals": [
+            "passwd",
+            "group",
+            "hosts",
+            "services",
+            "shadow"
+          ],
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        },
+        {
+          "name": "keys",
+          "index": 1,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "database"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "join",
+                  "parts": [
+                    {
+                      "kind": "literal",
+                      "value": "/etc"
+                    },
+                    {
+                      "kind": "current"
+                    }
+                  ],
+                  "separator": "/"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/lsb-release@v1",
+      "commands": [
+        "lsb_release"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--all",
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--description",
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--id",
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--release",
+            "-r"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--codename",
+            "-c"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "literal",
+                  "value": "/etc/lsb-release"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "literal",
+                  "value": "/etc/os-release"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/nl@v1",
+      "commands": [
+        "nl"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--body-numbering",
+            "-b"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--number-format",
+            "-n"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--number-separator",
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--number-width",
+            "-w"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/od@v1",
+      "commands": [
+        "od"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--address-radix",
+            "-A"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--skip-bytes",
+            "-j"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--read-bytes",
+            "-N"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--format",
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-b"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-l"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-o"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-x"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--output-duplicates",
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--width",
+            "-w"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/realpath@v1",
+      "commands": [
+        "realpath"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--canonicalize-existing",
+            "-e"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--canonicalize-missing",
+            "-m"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--strip",
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--zero",
+            "-z"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/strings@v1",
+      "commands": [
+        "strings"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--all",
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--bytes",
+            "-n"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--radix",
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--encoding",
+            "-e"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--target",
+            "-T"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--output-separator",
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--unicode",
+            "-U"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--data",
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--print-file-name",
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--include-all-whitespace",
+            "-w"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-o"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version",
+            "-V",
+            "-v"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "-h",
+              "--version",
+              "-v",
+              "-V"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "-h",
+              "--version",
+              "-v",
+              "-V"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "-h",
+              "--version",
+              "-v",
+              "-V"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "name": "information",
+          "when": {
+            "flag_present": [
+              "--help",
+              "-h",
+              "--version",
+              "-v",
+              "-V"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/uniq@v1",
+      "commands": [
+        "uniq"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--skip-fields",
+            "-f"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--skip-chars",
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--check-chars",
+            "-w"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--count",
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--repeated",
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ignore-case",
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--unique",
+            "-u"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "input",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "output",
+          "index": 1,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "output"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "disclosure": {
+                  "kind": "constant_string",
+                  "value": "contents"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "positional_may_be_stdio": [
+              "output"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "positional_may_be_stdio": [
+              "input",
+              "output"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "positional_may_be_stdio": [
+              "input"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "effect",
+            "operation": "filesystem.write",
+            "selection": "all"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "standard-streams",
+          "when": {
+            "positional_may_be_stdio": [
+              "input",
+              "output"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "p18b/devtools/read-operands/xxd@v1",
+      "commands": [
+        "xxd"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--revert",
+            "-r"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--plain",
+            "-p"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--include",
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--cols",
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--len",
+            "-l"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--seek",
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--groupsize",
+            "-g"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--name",
+            "-n"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-o"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-R"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--autoskip",
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--bits",
+            "-b"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--capitalize",
+            "-C"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--EBCDIC",
+            "-E"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-e"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-u"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version",
+            "-v"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "input",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "output",
+          "index": 1,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "input"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "-h",
+              "--version",
+              "-v"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "output"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "-h",
+              "--version",
+              "-v"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "disclosure": {
+                  "kind": "constant_string",
+                  "value": "contents"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "positional_may_be_stdio": [
+              "output"
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "-h",
+              "--version",
+              "-v"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "positional_may_be_stdio": [
+              "input",
+              "output"
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "-h",
+              "--version",
+              "-v"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "positional_may_be_stdio": [
+              "input"
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "-h",
+              "--version",
+              "-v"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "port",
+            "port": "stdin"
+          },
+          "to": {
+            "kind": "effect",
+            "operation": "filesystem.write",
+            "selection": "all"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "standard-streams",
+          "when": {
+            "positional_may_be_stdio": [
+              "input",
+              "output"
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "name": "information",
+          "when": {
+            "flag_present": [
+              "--help",
+              "-h",
+              "--version",
+              "-v"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    }
+  ]
+}

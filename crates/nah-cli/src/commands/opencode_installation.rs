@@ -8,9 +8,11 @@ use nah_proto::ctx::AbsolutePath;
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_paths::reject_hook_path_symlink;
 use super::javascript_bridge::javascript_decision_bridge;
 use super::runtime::reject_unsupported_windows_runtime;
 use super::{RuntimeHookStatus, RuntimeMutation};
+use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 const MARKER: &str = "// Managed by nah.";
 
@@ -34,7 +36,9 @@ pub(crate) fn mutate_opencode_hook(
         install,
         "OpenCode plugin",
         path,
-        Some("Restart OpenCode before use."),
+        Some(
+            "Restart OpenCode before use. OpenCode 1.x does not load this plugin; nah is not active there.",
+        ),
     ))
 }
 
@@ -134,11 +138,13 @@ fn uninstall_plugin(home: &AbsolutePath) -> Result<PathBuf, String> {
         Ok(bytes) if owned(&bytes) => {
             std::fs::remove_file(&paths.plugin).map_err(|_| "opencode-plugin-remove-failed")?;
             if let Some(parent) = paths.plugin.parent() {
-                sync_parent(parent)?;
+                sync_parent_directory(parent)
+                    .map_err(|_| "opencode-plugin-sync-failed".to_owned())?;
                 match std::fs::remove_dir(parent) {
                     Ok(()) => {
                         if let Some(config) = parent.parent() {
-                            sync_parent(config)?;
+                            sync_parent_directory(config)
+                                .map_err(|_| "opencode-plugin-sync-failed".to_owned())?;
                         }
                     }
                     Err(error)
@@ -183,7 +189,7 @@ fn lock(paths: &OpenCodeHookPaths) -> Result<File, String> {
         .parent()
         .ok_or_else(|| "invalid-opencode-hook-lock-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "opencode-hook-lock-failed")?;
-    reject_symlink(&paths.lock, "opencode-hook-lock-failed")?;
+    reject_hook_path_symlink(&paths.lock, "opencode-hook-lock-failed")?;
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
@@ -194,35 +200,27 @@ fn lock(paths: &OpenCodeHookPaths) -> Result<File, String> {
     let file = options
         .open(&paths.lock)
         .map_err(|_| "opencode-hook-lock-failed")?;
-    protect_private(&file, "opencode-hook-permissions-failed")?;
+    restrict_file_to_owner(&file).map_err(|_| "opencode-hook-permissions-failed".to_owned())?;
     file.lock().map_err(|_| "opencode-hook-lock-failed")?;
     Ok(file)
 }
 
 fn reject_symlinks(paths: &OpenCodeHookPaths) -> Result<(), String> {
     for directory in &paths.checked_directories {
-        reject_symlink(directory, "opencode-plugin-symlink-unsupported")?;
+        reject_hook_path_symlink(directory, "opencode-plugin-symlink-unsupported")?;
     }
-    reject_symlink(&paths.plugin, "opencode-plugin-symlink-unsupported")
-}
-
-fn reject_symlink(path: &Path, error: &str) -> Result<(), String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(error.into()),
-        Ok(_) => Ok(()),
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(error.into()),
-    }
+    reject_hook_path_symlink(&paths.plugin, "opencode-plugin-symlink-unsupported")
 }
 
 fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    reject_symlink(path, "opencode-plugin-symlink-unsupported")?;
+    reject_hook_path_symlink(path, "opencode-plugin-symlink-unsupported")?;
     let parent = path
         .parent()
         .ok_or_else(|| "invalid-opencode-plugin-path".to_owned())?;
     let mut temporary =
         tempfile::NamedTempFile::new_in(parent).map_err(|_| "opencode-plugin-write-failed")?;
-    protect_private(temporary.as_file(), "opencode-plugin-permissions-failed")?;
+    restrict_file_to_owner(temporary.as_file())
+        .map_err(|_| "opencode-plugin-permissions-failed".to_owned())?;
     temporary
         .write_all(bytes)
         .map_err(|_| "opencode-plugin-write-failed")?;
@@ -233,7 +231,7 @@ fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
     temporary
         .persist(path)
         .map_err(|_| "opencode-plugin-write-failed")?;
-    sync_parent(parent)
+    sync_parent_directory(parent).map_err(|_| "opencode-plugin-sync-failed".to_owned())
 }
 
 fn plugin(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
@@ -246,50 +244,30 @@ fn plugin(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
     Ok(format!(
         r#"{MARKER}
 import {{ spawn }} from "node:child_process";
-import {{ resolve as resolvePath }} from "node:path";
 
 {bridge}
-export const NahPlugin = async ({{ directory, client }}) => ({{
-  "tool.execute.before": async (input, output) => {{
-    const args = output.args;
-    const workdir =
-      input.tool === "bash" && typeof args?.workdir === "string" && args.workdir.length
-        ? resolvePath(directory, args.workdir)
-        : directory;
-    let result;
-    try {{
-      result = await decide({{
-        tool_name: input.tool,
-        tool_input: args,
-        cwd: workdir,
-        session_id: input.sessionID,
-      }});
-    }} catch {{
+export default {{
+  id: "nah",
+  async setup(ctx) {{
+    await ctx.tool.hook("execute.before", async (event) => {{
+      let result;
       try {{
-        await client.tui.showToast({{
-          body: {{
-            message: "nah - evaluation failed; this call was delegated to the runtime",
-            variant: "warning",
-          }},
+        // The session's own location, not the plugin's, is where its relative
+        // paths and shell commands resolve.
+        const session = await ctx.session.get({{ sessionID: event.sessionID }});
+        result = await decide({{
+          tool_name: event.tool,
+          tool_input: event.input,
+          cwd: session.location.directory,
+          session_id: event.sessionID,
         }});
-      }} catch {{}}
-      return;
-    }}
-    if (result.evaluation_failed) {{
-      try {{
-        await client.tui.showToast({{
-          body: {{
-            message: result.block
-              ? "nah - evaluation was incomplete; another guard blocked this call"
-              : "nah - evaluation failed; this call was delegated to the runtime",
-            variant: "warning",
-          }},
-        }});
-      }} catch {{}}
-    }}
-    if (result.block) throw new Error(result.reason);
+      }} catch {{
+        return;
+      }}
+      if (result.block) throw new Error(result.reason);
+    }});
   }},
-}});
+}};
 "#
     ))
 }
@@ -297,28 +275,4 @@ export const NahPlugin = async ({{ directory, client }}) => ({{
 fn owned(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bytes);
     text.starts_with(MARKER) && text.contains(r#"["hook", "opencode", "run""#)
-}
-
-#[cfg(unix)]
-fn protect_private(file: &File, error: &str) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| error.into())
-}
-
-#[cfg(not(unix))]
-fn protect_private(_file: &File, _error: &str) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), String> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| "opencode-plugin-sync-failed".into())
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), String> {
-    Ok(())
 }

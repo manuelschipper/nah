@@ -1,0 +1,47 @@
+# Ground-truth expectations for fullstorydev/grpcurl (holdout-dev corpus).
+# Pinned SHA: 4bb0f337c70d5e220f98b27432539a998badd7ef.
+# Real entry: cmd/grpcurl/grpcurl.go (package main, func main at grpcurl.go:315;
+#   the root package is the library the command wires together).
+# Derived from:
+#   cmd/grpcurl/grpcurl.go (TLS setup closure reads os.Getenv("SSLKEYLOGFILE"),
+#     grpcurl.go:517, and os.OpenFile's it for appending TLS keys,
+#     grpcurl.go:519; writeProtoset os.Create(*protosetOut), grpcurl.go:936),
+#   grpcurl.go (ClientTLSConfig: os.ReadFile of the -cacert file,
+#     grpcurl.go:550/584; BlockingDial, grpcurl.go:613, dials the target —
+#     the custom dialer closure runs (&net.Dialer{}).DialContext,
+#     grpcurl.go:677, handed to grpc via WithContextDialer),
+#   desc_source.go (DescriptorSourceFromProtoSets os.ReadFile of each
+#     -protoset file, desc_source.go:46).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH that dialing the server is unconditional product behavior
+# (grpcurl is a network client; main always reaches BlockingDial), asserted as
+# a fact even though the raw DialContext runs inside a dialer closure invoked
+# by grpc internals. File reads/writes are flag-gated, hence modality=may.
+# grpcurl never spawns a process anywhere in product code.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=network.
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=SSLKEYLOGFILE origin=cmd/grpcurl/grpcurl.go realm=host modality=may
+op=filesystem.write origin=cmd/grpcurl/grpcurl.go realm=host modality=may
+op=filesystem.read origin=desc_source.go realm=host modality=may
+op=network. origin=grpcurl.go realm=host
+
+[forbidden]
+# A pure gRPC client: no subprocesses, no repo/database/cloud effects.
+op=process.exec
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]

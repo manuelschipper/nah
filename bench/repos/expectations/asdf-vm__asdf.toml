@@ -1,0 +1,62 @@
+# Ground-truth expectations for asdf-vm/asdf (holdout-hidden corpus).
+# Pinned SHA: f87a31efc67c041af49f0d3c566840e4f30a12cb.
+# Real entry: cmd/asdf/main.go (package main; cli.Execute(version),
+#   main.go:18, builds the urfave/cli/v3 command tree in
+#   internal/cli/cli.go:52+ — the Go env-manager shape).
+# Derived from:
+#   internal/config/config.go (LoadConfig env reads: ASDF_CONFIG_FILE,
+#     config.go:100; ASDF_DATA_DIR, :105; ASDF_TOOL_VERSIONS_FILENAME /
+#     ASDF_DEFAULT_TOOL_VERSIONS_FILENAME, :110/:116; ASDF_CONCURRENCY, :269;
+#     asdfrc read via ini.Load(asdfrcPath), :233),
+#   internal/cli/cli.go (PATH read while building the shim path, cli.go:569),
+#   internal/toolversions/toolversions.go (os.ReadFile of .tool-versions
+#     files, toolversions.go:29/80/92),
+#   internal/execute/execute.go (every plugin script, hook, and git command
+#     funnels into exec.Command("bash", "-c", command), execute.go:49 —
+#     internal/git/git.go's clone/rev-parse go through it via execute.New,
+#     git.go:164-171),
+#   internal/exec/exec.go (asdf exec replaces the process via syscall.Exec,
+#     exec.go:11),
+#   internal/shims/shims.go (shim generation os.WriteFile, shims.go:329, and
+#     MkdirAll, :344; reshim cleanup os.RemoveAll, :245).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. Config env reads and .tool-versions reads run in nearly
+# every subcommand; the bash -c funnel is how asdf runs everything external.
+# All bodies sit behind urfave/cli Action closures (cobra-like command-tree
+# dispatch). Shim writes/deletes and the syscall exec are per-subcommand,
+# hence modality=may. The asdf binary does no in-process network I/O (plugin
+# downloads happen inside the spawned git/plugin processes).
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=filesystem.read
+op=process.exec
+
+# Fact-level assertions (behind the urfave/cli Action dispatch; see header).
+[facts]
+op=environment.read res=ASDF_CONFIG_FILE origin=internal/config/config.go realm=host
+op=environment.read res=ASDF_DATA_DIR origin=internal/config/config.go realm=host
+op=environment.read res=PATH origin=internal/cli/cli.go realm=host
+op=filesystem.read origin=internal/toolversions/toolversions.go realm=host
+op=filesystem.read origin=internal/config/config.go realm=host modality=may
+op=process.exec res=bash origin=internal/execute/execute.go realm=host
+op=process.exec origin=internal/exec/exec.go realm=host modality=may
+op=filesystem.write origin=internal/shims/shims.go realm=host modality=may
+op=filesystem.delete origin=internal/shims/shims.go realm=host modality=may
+
+[forbidden]
+# No database, cloud SDK, or message-broker usage exists anywhere in
+# internal/. (network/git effects are not forbidden: plugin installs spawn
+# `git clone`, which a command model may legitimately surface.)
+op=database.
+op=cloud.
+op=messaging.
+
+[known_hard]

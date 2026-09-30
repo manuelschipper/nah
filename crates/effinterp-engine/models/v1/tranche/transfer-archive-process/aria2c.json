@@ -1,0 +1,409 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:acb440a528b3ee289002b0fe0ad574f4ac684e7319a2079784c58f13cee25096",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/aria2c@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "aria2c",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/aria2c@v1",
+        "path": "../../tests/fixtures/model_tranche/aria2c.json",
+        "digest": "blake3:e3eb8a1727e1b48c4ee2536c1ffcd9cdc41b9c30790a44f1d3ea7622b784efad"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "aria2c-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "aria2c-not-the-command",
+            "https://example.com/archive.bin"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write",
+          "network.download"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/transfer-archive-process/aria2c@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "filesystem.write",
+      "network.download"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/aria2c@v1",
+      "commands": [
+        "aria2c"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--out",
+            "-o"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--dir",
+            "-d"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "url",
+          "index": 0,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "url"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "exclude_suffixes": [
+            ".metalink",
+            ".torrent"
+          ],
+          "emit": [
+            {
+              "operation": "network.download",
+              "resource": {
+                "kind": "network_url",
+                "url": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "url"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "--out",
+              "-o",
+              "--dir",
+              "-d"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "exclude_suffixes": [
+            ".metalink",
+            ".torrent"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "basename_in_cwd",
+                "value": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "url"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "--out",
+              "-o"
+            ],
+            "flag_value_absent": [
+              "--dir",
+              "-d"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "exclude_suffixes": [
+            ".metalink",
+            ".torrent"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "flag_value",
+                  "flags": [
+                    "--out",
+                    "-o"
+                  ]
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "url"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "--dir",
+              "-d"
+            ],
+            "flag_value_absent": [
+              "--out",
+              "-o"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "exclude_suffixes": [
+            ".metalink",
+            ".torrent"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "in_directory",
+                "directory": {
+                  "kind": "flag_value",
+                  "flags": [
+                    "--dir",
+                    "-d"
+                  ]
+                },
+                "entry": {
+                  "kind": "basename",
+                  "value": {
+                    "kind": "current"
+                  }
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "url"
+          },
+          "when": {
+            "literal_values": [
+              {
+                "source": {
+                  "kind": "flag_values",
+                  "flags": [
+                    "--out",
+                    "-o"
+                  ]
+                },
+                "shape": {
+                  "kind": "nonempty"
+                },
+                "allow_missing": false,
+                "matches": true
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [
+              "--dir",
+              "-d"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "exclude_suffixes": [
+            ".metalink",
+            ".torrent"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "in_directory",
+                "directory": {
+                  "kind": "flag_value",
+                  "flags": [
+                    "--dir",
+                    "-d"
+                  ]
+                },
+                "entry": {
+                  "kind": "flag_value",
+                  "flags": [
+                    "--out",
+                    "-o"
+                  ]
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "positional",
+            "name": "url"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "include_suffixes": [
+            ".metalink",
+            ".torrent"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "network.download",
+              "resource": {
+                "kind": "unresolved",
+                "family": "network"
+              },
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "unresolved",
+                "family": "filesystem"
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "network.download",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "effect",
+            "operation": "filesystem.write",
+            "selection": "all"
+          }
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

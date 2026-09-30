@@ -1,0 +1,57 @@
+{
+  "models": [
+    {
+      "lang": "python",
+      "negative": "openish = \"/tmp/f\"",
+      "source": "open(\"/tmp/f\").read()",
+      "target": "open"
+    },
+    {
+      "lang": "js",
+      "negative": "const readFileSyncish = \"/tmp/f\";",
+      "source": "require(\"fs\").readFileSync(\"/tmp/f\")",
+      "target": "fs.readFileSync"
+    },
+    {
+      "lang": "ts",
+      "negative": "const readFileSyncish: string = \"/tmp/f\";",
+      "source": "import * as fs from \"fs\"; fs.readFileSync(\"/tmp/f\")",
+      "target": "fs.readFileSync"
+    },
+    {
+      "lang": "go",
+      "negative": "package main; var ReadFileish = \"/tmp/f\"",
+      "source": "package main; import \"os\"; func main(){ os.ReadFile(\"/tmp/f\") }",
+      "target": "os.ReadFile"
+    },
+    {
+      "lang": "ruby",
+      "negative": "readish = \"/tmp/f\"",
+      "source": "File.read(\"/tmp/f\")",
+      "target": "File.read"
+    },
+    {
+      "lang": "rust",
+      "negative": "fn main(){ let read_to_stringish = \"/tmp/f\"; }",
+      "source": "fn main(){ std::fs::read_to_string(\"/tmp/f\").unwrap(); }",
+      "target": "std::fs::read_to_string"
+    },
+    {
+      "lang": "java",
+      "negative": "class App { public static void main(String[] args) { String readAllBytesish = \"/tmp/f\"; } }",
+      "source": "class App { public static void main(String[] args) throws Exception { java.nio.file.Files.readAllBytes(java.nio.file.Path.of(\"/tmp/f\")); } }",
+      "target": "java.nio.file.Files.readAllBytes",
+      "aliases": [
+        "Files.readAllBytes"
+      ]
+    },
+    {
+      "lang": "php",
+      "negative": "<?php $file_get_contentsish = \"/tmp/f\";",
+      "source": "<?php file_get_contents(\"/tmp/f\");",
+      "target": "file_get_contents"
+    }
+  ],
+  "schema": "effinterp/library-api-source-review/v1",
+  "selection": "one effectful standard-library API for every supported frontend"
+}

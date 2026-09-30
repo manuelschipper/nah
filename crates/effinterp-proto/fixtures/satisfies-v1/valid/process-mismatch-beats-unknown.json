@@ -1,0 +1,47 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "process-mismatch-beats-unknown",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "process",
+        "executable": "cat",
+        "cwd": {
+          "expr": "parameter",
+          "name": "cwd"
+        }
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "process",
+          "executable": "rm",
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/work"
+            }
+          }
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "not_satisfied"
+  }
+}

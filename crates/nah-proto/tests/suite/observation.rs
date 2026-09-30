@@ -23,6 +23,7 @@ use nah_proto::observation::ProjectGuardObservation;
 use nah_proto::observation::Root;
 use nah_proto::observation::RootKind;
 use nah_proto::observation::SymlinkTraversal;
+use nah_proto::observation::UserHomeObservation;
 use serde_json::json;
 
 #[test]
@@ -382,6 +383,76 @@ fn observation_status_and_query_encodings_are_normative() {
         .unwrap(),
         json!({"kind":"path","status":"ok","value":{"resolved":"/repo/link","realpath":"/repo/file","kind":"symlink","target_kind":"file"}})
     );
+}
+
+#[test]
+fn user_home_queries_ride_the_spine_and_bind_only_their_own_kind() {
+    let user_home = ObservationQuery::UserHome {
+        key: "user".into(),
+        name: "test".into(),
+    };
+    assert_eq!(
+        serde_json::to_value(&user_home).unwrap(),
+        json!({"kind":"user-home","key":"user","name":"test"})
+    );
+    // Only environment queries may skip the cwd/roots/project-guards spine.
+    assert_eq!(
+        ObservationRequest::new(SchemaVersion::V1, "r1", vec![user_home.clone()]),
+        Err(BindingError::InvalidReference)
+    );
+    let mut queries = request().queries().to_vec();
+    queries.push(ObservationQuery::UserHome {
+        key: "user".into(),
+        name: String::new(),
+    });
+    assert_eq!(
+        ObservationRequest::new(SchemaVersion::V1, "r1", queries),
+        Err(BindingError::EmptyIdentifier)
+    );
+    let mut queries = request().queries().to_vec();
+    queries.push(user_home.clone());
+    let request = ObservationRequest::new(SchemaVersion::V1, "r1", queries).unwrap();
+
+    let home = ObservationValue::UserHome {
+        observed: Observed::Ok {
+            value: UserHomeObservation::Home {
+                path: absolute("/home/test"),
+            },
+        },
+    };
+    assert_eq!(
+        serde_json::to_value(&home).unwrap(),
+        json!({"kind":"user-home","status":"ok","value":{"kind":"home","path":"/home/test"}})
+    );
+    assert_eq!(
+        ObservationFact::new(
+            user_home.clone(),
+            ObservationValue::Env {
+                observed: Observed::Ok {
+                    value: EnvObservation::Unset,
+                },
+            },
+        ),
+        Err(BindingError::WrongValueKind)
+    );
+    for value in [
+        home,
+        ObservationValue::UserHome {
+            observed: Observed::Ok {
+                value: UserHomeObservation::NoSuchUser,
+            },
+        },
+    ] {
+        let mut facts = observation(ProjectGuardDeclaration::Absent)
+            .facts()
+            .to_vec();
+        facts.push(ObservationFact::new(user_home.clone(), value).unwrap());
+        let observed = Observation::new(SchemaVersion::V1, "r1", facts).unwrap();
+        assert_eq!(observed.bind(&request), Ok(()));
+        let round_trip: Observation =
+            serde_json::from_str(&serde_json::to_string(&observed).unwrap()).unwrap();
+        assert_eq!(round_trip, observed);
+    }
 }
 
 #[test]

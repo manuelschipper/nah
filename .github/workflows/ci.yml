@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
 
 permissions:
   contents: read
@@ -23,59 +25,51 @@ jobs:
       - name: Format
         run: |
           cargo fmt --all --check
-          cargo fmt --manifest-path spikes/p2-tree-sitter/Cargo.toml --all --check
           cargo fmt --manifest-path tools/gates/fixtures/impure-alias/Cargo.toml --check
       - name: Lint
         run: |
           cargo clippy --workspace --all-targets --locked -- -D warnings
-          cargo clippy --manifest-path spikes/p2-tree-sitter/Cargo.toml --workspace --all-targets --locked -- -D warnings
-      - name: Test (includes purity, dependency-direction, and corpus gates)
+      - name: Test (includes engine suites, purity, dependency-direction, and corpus gates)
         run: |
           cargo test --workspace --locked
-          cargo test --manifest-path spikes/p2-tree-sitter/Cargo.toml --workspace --locked
-      - name: Release KPIs and benches compile
+      - name: Bench tools
+        run: python3 -m unittest discover -s bench/tools -p 'test_*.py'
+      - name: Archive build
+        run: python3 tools/gates/verify_archive_build.py
+      - name: Correctness parity
         run: |
-          cargo test --release -p nah-cli --test suite latency::captured_walking_skeleton_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::captured_bash_spine_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::captured_ambient_preflight_p99_is_below_one_millisecond --locked -- --ignored --nocapture --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::captured_inline_signature_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-policy --test suite reducer::captured_policy_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-parse --test fork_bomb a_large_visible_function_graph_is_scanned_inside_its_documented_bound --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-parse a_long_pipeline_is_scanned_inside_its_documented_bound --locked -- --ignored --nocapture --test-threads=1
-          cargo test --release -p nah-cli --lib pipeline::performance_tests::performance_kpis --locked -- --ignored --nocapture --test-threads=1
-          cargo bench --workspace --no-run --locked
-          cargo bench --manifest-path spikes/p2-tree-sitter/Cargo.toml --workspace --no-run --locked
+          set -o pipefail
+          cargo run -p effinterp-bench --locked -- measure --group correctness | tee correctness-measure.txt
+          test "$(grep -c '^recorded ' correctness-measure.txt)" -eq 1
+          run_id="$(basename "$(sed -n 's/^recorded //p' correctness-measure.txt)")"
+          cargo run -p effinterp-bench --locked -- publish --dry-run "$run_id"
+          python3 - "$run_id" <<'PY'
+          import json
+          import pathlib
+          import sys
 
-  effinterp:
-    if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          persist-credentials: false
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          repository: manuelschipper/effectinterp
-          ref: 80ad17d8f48828565369c92a372b321c6124fc11
-          ssh-key: ${{ secrets.EFFECTINTERP_DEPLOY_KEY }}
-          fetch-depth: 0
-          path: effectinterp-src
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@ab40b01f54fe82bdf65693ea090a1e4942c136e7 # 1.91.1
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - name: Lint with effectinterp
-        run: >
-          cargo clippy --workspace --all-targets --features nah-cli/effinterp --locked
-          --config 'source.effinterp.replace-with="effinterp-sibling"'
-          --config 'source.effinterp-sibling.git="file://${{ github.workspace }}/effectinterp-src"'
-          -- -D warnings
-      - name: Test with effectinterp
-        run: >
-          cargo test --workspace --features nah-cli/effinterp --locked
-          --config 'source.effinterp.replace-with="effinterp-sibling"'
-          --config 'source.effinterp-sibling.git="file://${{ github.workspace }}/effectinterp-src"'
+          # The run record and the tracked scoreboard hold the same correctness
+          # object, so any parity drift shows up as differing canonical bytes.
+          # parity.nah_commit names the commit each was measured at, which a
+          # committed scoreboard can never equal, so it is left out.
+          canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"))
+          measured = json.loads(
+              (pathlib.Path("bench/runs") / sys.argv[1] / "correctness.json").read_text()
+          )["data"]["correctness"]
+          tracked = json.loads(pathlib.Path("bench/scoreboard.json").read_text())["correctness"]
+          del measured["parity"]["nah_commit"], tracked["parity"]["nah_commit"]
+          if canonical(measured) != canonical(tracked):
+              sys.exit("measured correctness differs from bench/scoreboard.json")
+          PY
+      - name: Release KPIs
+        run: |
+          cargo test --release -p nah-cli --test suite latency::captured_read_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_bash_pipeline_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_ambient_preflight_p99_is_below_one_millisecond --locked -- --ignored --nocapture --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_python_rmtree_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::a_cold_captured_git_force_push_decision_is_below_two_milliseconds --locked -- --ignored --nocapture --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_git_force_push_p99_is_below_one_millisecond --locked -- --ignored --nocapture --test-threads=1
+          cargo test --release -p nah-cli --lib pipeline::performance_tests::performance_kpis --locked -- --ignored --nocapture --test-threads=1
 
   windows:
     runs-on: windows-latest
@@ -87,16 +81,19 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      # effinterp-bench is Unix-only development tooling, not a shipped product.
       - name: Compile
-        run: cargo build --workspace --all-targets --locked
+        run: cargo build --workspace --exclude effinterp-bench --all-targets --locked
       - name: Lint
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --exclude effinterp-bench --all-targets --locked -- -D warnings
       - name: Test portable Windows semantics
-        run: cargo test -p nah-proto -p nah-inline -p nah-actions -p nah-policy --locked --no-fail-fast
+        run: cargo test -p nah-proto -p nah-policy --locked --no-fail-fast
       - name: Test native Windows state and extensions
         run: cargo test -p nah-observe -p nah-extensions --locked --no-fail-fast
       - name: Test native Windows CLI core
         run: cargo test -p nah-cli --lib --locked --no-fail-fast
+      - name: Test portable engine protocol
+        run: cargo test -p effinterp-proto -p effinterp-model-schema --locked
       - name: Test native Windows runtime integrations
         shell: pwsh
         run: |
@@ -133,16 +130,16 @@ jobs:
           if ($failed.Count -gt 0) {
             throw "Failed test modules: $($failed -join ', ')"
           }
-      - name: Build release artifact
-        run: cargo build --release --locked -p nah-cli
+      - name: Build smoke artifact
+        run: cargo build --locked -p nah-cli --bin nah
       - name: Install Pester
         shell: pwsh
         run: Install-Module Pester -Scope CurrentUser -Force -MinimumVersion 5.5.0
-      - name: Test installer and packaged product
+      - name: Test installer and packaged smoke artifact
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path pkg | Out-Null
-          Copy-Item target/release/nah.exe pkg/nah.exe
+          Copy-Item target/debug/nah.exe pkg/nah.exe
           Copy-Item LICENSE pkg/LICENSE
           Compress-Archive -Path pkg/nah.exe,pkg/LICENSE `
             -DestinationPath nah-x86_64-pc-windows-msvc.zip
@@ -177,7 +174,80 @@ jobs:
       - uses: dtolnay/rust-toolchain@ab40b01f54fe82bdf65693ea090a1e4942c136e7 # 1.91.1
         with:
           components: clippy
-      - name: Cross-platform native pipeline
-        run: cargo test -p nah-inline -p nah-actions -p nah-observe -p nah-extensions -p nah-cli --locked
-      - name: Cross-platform lint
-        run: cargo clippy -p nah-inline -p nah-actions -p nah-observe -p nah-extensions -p nah-cli --all-targets --locked -- -D warnings
+      - name: Full workspace tests
+        run: cargo test --workspace --locked
+      - name: Full workspace lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # The homepage demo compiles the decision pipeline, engine included, to
+  # wasm32-wasip1. tree-sitter's C sources need wasi-sdk's clang for that target.
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ab40b01f54fe82bdf65693ea090a1e4942c136e7 # 1.91.1
+        with:
+          targets: wasm32-wasip1
+      - name: Install wasi-sdk
+        run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar -xz -C "$RUNNER_TEMP"
+          echo "CC_wasm32_wasip1=$RUNNER_TEMP/wasi-sdk-34.0-x86_64-linux/bin/clang" >> "$GITHUB_ENV"
+          echo "AR_wasm32_wasip1=$RUNNER_TEMP/wasi-sdk-34.0-x86_64-linux/bin/llvm-ar" >> "$GITHUB_ENV"
+      - name: Build the homepage engine
+        run: cargo build --manifest-path homepage/wasm/Cargo.toml --lib --target wasm32-wasip1 --locked
+
+  # Releases ship statically linked Linux binaries; build one here so a musl
+  # break in the engine surfaces before a release tag does.
+  musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ab40b01f54fe82bdf65693ea090a1e4942c136e7 # 1.91.1
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Build the musl smoke artifact
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+        run: cargo build -p nah-cli --target x86_64-unknown-linux-musl --locked
+
+  # Coverage, repositories and performance take hours over the full published
+  # corpus, so they run weekly and on request rather than per pull request. Every plane is
+  # measured in sequence on this one runner to keep the timings comparable.
+  engine-periodic:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@ab40b01f54fe82bdf65693ea090a1e4942c136e7 # 1.91.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Measure and check the periodic planes
+        run: |
+          set -o pipefail
+          for plane in coverage repositories performance; do
+            cargo run -p effinterp-bench --locked -- measure --group "$plane" | tee "$plane-measure.txt"
+            test "$(grep -c '^recorded ' "$plane-measure.txt")" -eq 1
+            run_id="$(basename "$(sed -n 's/^recorded //p' "$plane-measure.txt")")"
+            cargo run -p effinterp-bench --locked -- publish --dry-run "$run_id"
+          done
+      - name: Upload run records
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: engine-periodic-run-records
+          path: |
+            bench/runs/
+            coverage-measure.txt
+            repositories-measure.txt
+            performance-measure.txt
+          if-no-files-found: warn

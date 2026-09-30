@@ -1,0 +1,65 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "git-relative-pathspec",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "git_repository",
+        "worktree": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/work"
+          }
+        },
+        "pathspec": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "a.rs"
+          }
+        }
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "git_repository",
+          "worktree": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/work"
+            }
+          },
+          "pathspec": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "a.rs"
+            }
+          }
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": []
+    }
+  }
+}

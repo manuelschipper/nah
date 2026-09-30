@@ -1,21 +1,14 @@
-use nah_proto::action::{ActionStream, Coverage, EffectKind};
+use nah_proto::action::Coverage;
 use nah_proto::decision::{
     Decision, DecisionCore, DecisionEnvelope, DecisionError, DecisionOutput, ExitCode,
     GuardAttribution, GuardContribution, Verdict,
 };
 
-fn decision_stream(coverage: Coverage, effect_count: usize) -> ActionStream {
-    let mut effects = vec![EffectKind::known("echo", "print").unwrap()];
-    effects.extend((1..effect_count).map(|_| EffectKind::network(None)));
-    ActionStream::new(coverage, vec![effects], vec![]).unwrap()
-}
-
 #[test]
 fn decision_wire_types_have_exact_v1_projection_and_round_trip() {
     let guard = GuardAttribution::shipped("fs-system-tree").unwrap();
-    let stream = decision_stream(Coverage::Full, 1);
-    let core = DecisionCore::new(
-        &stream,
+    let core = DecisionCore::new_with_coverage(
+        Coverage::Full,
         Verdict::Block,
         vec![GuardContribution::new(guard, "fs-system-tree blocked a root delete").unwrap()],
     )
@@ -116,8 +109,8 @@ fn decision_deserialization_rejects_noncanonical_and_invalid_envelopes() {
     });
     assert!(serde_json::from_value::<DecisionCore>(old_declines).is_err());
 
-    let structural = DecisionCore::structural_block(
-        &decision_stream(Coverage::Partial, 1),
+    let structural = DecisionCore::structural_block_with_coverage(
+        Coverage::Partial,
         "nah critical state is protected",
     )
     .unwrap();
@@ -170,9 +163,8 @@ fn machine_output_does_not_expose_extension_supplied_reasons() {
         }
     }))
     .unwrap();
-    let stream = decision_stream(Coverage::Full, 1);
-    let core = DecisionCore::new(
-        &stream,
+    let core = DecisionCore::new_with_coverage(
+        Coverage::Full,
         Verdict::Block,
         vec![GuardContribution::new(extension, "planted invocation secret").unwrap()],
     )

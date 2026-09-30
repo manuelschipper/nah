@@ -1,0 +1,112 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:2878d9ef5fd0571714fe5b044a677876a12019dd8b334a93c349ff81f90dee0e",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/ps@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "ps",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/ps@v1",
+        "path": "../../tests/fixtures/model_tranche/ps.json",
+        "digest": "blake3:d1231a21ac8e2c9e9dec41e0e0517b1c75081fee8359fa7016c46fc99e928b06"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "ps-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "ps-not-the-command",
+            "-e",
+            "-o",
+            "pid,ppid"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [],
+    "expected_facts": [],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/ps@v1",
+      "commands": [
+        "ps"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--pid",
+            "-p"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--format",
+            "-o"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-A",
+            "-a",
+            "-e",
+            "-x"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

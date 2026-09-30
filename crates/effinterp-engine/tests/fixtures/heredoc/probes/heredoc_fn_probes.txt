@@ -1,0 +1,49 @@
+### hd-fn-rm-after
+f() {
+cat <<EOF
+hi
+EOF
+rm -rf /tmp/x
+}
+f
+### hd-fn-stderr-dash-quoted
+f() {
+	cat >&2 <<-'EOF'
+		warning
+	EOF
+	rm -rf /tmp/x
+}
+f
+### hd-fn-then-second-fn
+f() {
+cat <<EOF
+hi
+EOF
+}
+g() { rm -rf /tmp/x; }
+f
+g
+### hd-toplevel-then-fn-def
+cat <<EOF
+hi
+EOF
+g() { rm -rf /tmp/x; }
+g
+### hd-in-if
+if true; then
+cat <<EOF
+hi
+EOF
+fi
+rm -rf /tmp/x
+### hd-pipe-then-rm
+cat <<EOF | tee /etc/motd
+hi
+EOF
+rm -rf /tmp/x
+### hd-toplevel-two-cmds-after
+cat <<EOF
+hi
+EOF
+rm -rf /tmp/x
+rm -rf /tmp/y

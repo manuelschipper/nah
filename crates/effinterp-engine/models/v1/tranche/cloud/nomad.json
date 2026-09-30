@@ -1,0 +1,215 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:a9f598ab6e71187f9ca086e893a4453c95e563c1c4b078d231a6ed32ebf2179f",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/cloud/nomad@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "nomad",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/cloud/nomad@v1",
+        "path": "../../tests/fixtures/model_tranche/nomad.json",
+        "digest": "blake3:b74c68922958d5b3e6b905432c8833f340c0046e2f275ef3a40546bb1c1a59a1"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "nomad-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "nomad-not-the-command",
+            "job",
+            "stop",
+            "example"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/cloud/nomad@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "cloud.resource.delete"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/cloud/nomad@v1",
+      "commands": [
+        "nomad"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "cloud",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "stop"
+          ],
+          "index": 1,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "job"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "resource",
+              "index": 1,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "resource"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "cloud",
+                    "scope": {
+                      "kind": "unsupported",
+                      "identity": {
+                        "partition": {
+                          "state": "unknown"
+                        },
+                        "account": {
+                          "state": "unknown"
+                        },
+                        "project": {
+                          "state": "unknown"
+                        },
+                        "subscription": {
+                          "state": "unknown"
+                        },
+                        "region": {
+                          "state": "unknown"
+                        },
+                        "zone": {
+                          "state": "unknown"
+                        },
+                        "storage_account": {
+                          "state": "unknown"
+                        },
+                        "resource_group": {
+                          "state": "unknown"
+                        },
+                        "cluster": {
+                          "state": "unknown"
+                        },
+                        "namespace": {
+                          "state": "unknown"
+                        }
+                      },
+                      "access": []
+                    },
+                    "provider": {
+                      "kind": "literal",
+                      "value": "nomad"
+                    },
+                    "service": {
+                      "kind": "literal",
+                      "value": "cli"
+                    },
+                    "resource_kind": {
+                      "kind": "literal",
+                      "value": "job"
+                    },
+                    "id": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

@@ -1,6 +1,8 @@
-//! Pure interactive state and confirmed configuration actions.
+//! Interactive TUI state and the confirmed configuration actions it runs.
+//! Staging, filtering, and selection are in-memory; loading, refreshing,
+//! reviewing custom guard files, and confirming read or write host state
+//! through the configuration commands and `host_state`.
 
-use nah_proto::ctx::AbsolutePath;
 use nah_proto::decision::Verdict;
 
 #[cfg(test)]
@@ -11,13 +13,14 @@ use crate::commands::{
     guard_source, runtime_entries, set_runtime_configured, trust_root, trusted_projects,
     untrust_root, validate_guard_change,
 };
-use crate::nap::{self, ActiveNap, NapMode};
-use crate::records::{DecisionLogView, DecisionRecord, FailureSummary};
+use crate::nap::{ActiveNap, NapMode};
+use crate::records::{DecisionRecord, FailureSummary};
 use crate::runtime::{FailurePolicy, Runtime};
-use crate::{live_state, records};
+use decision_log::recovered_log_message;
+use host_state::{current_project, log_size, nap_status, recent_log, wake_nap};
 
-/// Bounds the browsable window so huge audit logs stay responsive.
-const LOG_LIMIT: usize = 200;
+mod decision_log;
+mod host_state;
 
 /// Bounds the guard files rendered for review in the approval modal.
 const SOURCE_LIMIT: usize = 16 * 1024;
@@ -78,7 +81,7 @@ pub(crate) struct Message {
 
 /// An active nap as of the last read. Sampling the countdown here keeps the
 /// banner and its confirmation pure state, so tests never touch real nap files.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct NapStatus {
     pub(crate) mode: NapMode,
     /// Seconds left when the state was read.
@@ -88,23 +91,15 @@ pub(crate) struct NapStatus {
 impl NapStatus {
     fn of(active: ActiveNap) -> Self {
         Self {
-            mode: active.mode(),
+            mode: active.mode().clone(),
             remaining: active.remaining(),
         }
     }
 
-    /// What the nap paused, in the words `nah nap` confirms it with.
-    pub(crate) const fn scope(self) -> &'static str {
-        match self.mode {
-            NapMode::SelfProtection => "self-protection",
-            NapMode::All => "all enforcement",
-        }
-    }
-
-    pub(crate) fn banner(self) -> String {
+    pub(crate) fn banner(&self) -> String {
         format!(
             "NAP: {} paused \u{2014} {} left (w wake)",
-            self.scope(),
+            self.mode.scope(),
             remaining_text(self.remaining)
         )
     }
@@ -210,6 +205,8 @@ pub(crate) struct ProjectSelection<'a> {
 }
 
 impl App {
+    /// Reads every screen's host state: the decision log, current project,
+    /// guards, trusted projects, runtime wiring, and nap.
     pub(crate) fn load() -> Result<Self, String> {
         // Size first: a decision appended during the load then looks like drift
         // and is tailed, rather than being skipped until the next append.
@@ -320,17 +317,6 @@ impl App {
         self.message = None;
     }
 
-    pub(crate) fn scroll_log_detail(&mut self, down: bool) {
-        let max = self
-            .selected_log()
-            .map_or(0, |record| wrapped_lines(&record.explanation));
-        self.log_detail_scroll = if down {
-            self.log_detail_scroll.saturating_add(PAGE).min(max)
-        } else {
-            self.log_detail_scroll.saturating_sub(PAGE)
-        };
-    }
-
     pub(crate) fn scroll_confirmation(&mut self, down: bool, step: u16) {
         let max = match &self.confirmation {
             Some(
@@ -433,6 +419,8 @@ impl App {
             })
     }
 
+    /// Stages or unstages the selected guard without writing. Enabling an
+    /// unapproved custom guard instead reads its files for the approval modal.
     pub(crate) fn toggle_guard(&mut self) {
         let Some(entry) = self.selected_guard().cloned() else {
             return;
@@ -488,6 +476,7 @@ impl App {
         }
     }
 
+    /// Reads the selected custom guard's files into a read-only modal.
     pub(crate) fn view_guard(&mut self) {
         let Some(entry) = self.selected_guard().cloned() else {
             return;
@@ -577,6 +566,9 @@ impl App {
         }
     }
 
+    /// Writes the staged guard changes only after all of them validate. A
+    /// failed write keeps the unapplied remainder staged, and every attempt
+    /// ends in a refresh.
     pub(crate) fn apply_guards(&mut self) {
         if self.pending.is_empty() {
             self.info("no guard changes to apply");
@@ -638,6 +630,7 @@ impl App {
         }
     }
 
+    /// Counts the current project's guard bundles for the trust modal.
     pub(crate) fn request_trust_current(&mut self) {
         let Some(path) = self.current_project.clone() else {
             self.error("current project root cannot be resolved");
@@ -705,10 +698,12 @@ impl App {
     /// Offers to end the nap the banner is showing. Without one there is
     /// nothing to wake from, and the key does nothing.
     pub(crate) fn request_wake(&mut self) {
-        let Some(status) = self.nap else {
+        let Some(status) = &self.nap else {
             return;
         };
-        self.confirmation = Some(Confirmation::EndNap { mode: status.mode });
+        self.confirmation = Some(Confirmation::EndNap {
+            mode: status.mode.clone(),
+        });
     }
 
     pub(crate) fn cancel_confirmation(&mut self) {
@@ -716,6 +711,8 @@ impl App {
         self.confirmation_scroll = 0;
     }
 
+    /// Runs the open confirmation. Guard approval only stages; trusting,
+    /// untrusting, runtime wiring, and waking write host state immediately.
     pub(crate) fn confirm(&mut self) {
         let Some(confirmation) = self.confirmation.take() else {
             return;
@@ -781,6 +778,8 @@ impl App {
         }
     }
 
+    /// Re-reads guards, trusted projects, runtime wiring, the current project,
+    /// and, outside tests, the decision log.
     pub(crate) fn refresh(&mut self) {
         let mut refresh_error = None;
         let mut refresh_warning = None;
@@ -846,190 +845,6 @@ impl App {
     /// banner clears on expiry or on a `nah wake` run in another terminal.
     pub(crate) fn poll_nap(&mut self) {
         self.nap = nap_status();
-    }
-
-    /// Badges the log tab with blocks that arrived while another screen was
-    /// open. Records ahead of the last seen block are the new ones, so a
-    /// window that slid past its old contents is still counted once.
-    fn note_new_blocks(&mut self, blocked_log: &[DecisionRecord]) {
-        let new = self
-            .seen_block_id
-            .as_ref()
-            .map_or(blocked_log.len(), |seen| {
-                blocked_log
-                    .iter()
-                    .position(|record| &record.id == seen)
-                    .unwrap_or(blocked_log.len())
-            });
-        if self.screen != Screen::Log {
-            self.new_blocks += new;
-        }
-        self.seen_block_id = blocked_log.first().map(|record| record.id.clone());
-    }
-
-    /// Keeps the newest record selected while following, otherwise keeps the
-    /// selected decision under the cursor as new records push the list down.
-    #[cfg(test)]
-    pub(crate) fn apply_reloaded_log(&mut self, log: Vec<DecisionRecord>) {
-        let blocked_log = log
-            .iter()
-            .filter(|record| record.verdict == Some(Verdict::Block))
-            .cloned()
-            .collect();
-        self.apply_reloaded_logs(log, blocked_log);
-    }
-
-    fn apply_reloaded_logs(&mut self, log: Vec<DecisionRecord>, blocked_log: Vec<DecisionRecord>) {
-        self.note_new_blocks(&blocked_log);
-        let follow = self.log_index == 0;
-        let selected = self.selected_log().map(|record| record.id.clone());
-        self.log = log;
-        self.blocked_log = blocked_log;
-        let index = match (follow, &selected) {
-            (true, _) | (false, None) => 0,
-            (false, Some(id)) => self
-                .filtered_log()
-                .iter()
-                .position(|record| &record.id == id)
-                .unwrap_or_else(|| bounded(self.log_index, self.filtered_log().len())),
-        };
-        self.log_index = index;
-        if self.selected_log().map(|record| record.id.clone()) != selected {
-            self.log_detail_scroll = 0;
-        }
-    }
-
-    fn apply_reloaded_view(&mut self, view: DecisionLogView) {
-        let recovered_from = view.recovered_from;
-        self.failure_summary = view.failures;
-        self.apply_reloaded_logs(view.records, view.blocked_records);
-        if self.message.is_none()
-            && let Some(path) = recovered_from
-        {
-            self.warning(recovered_log_message(&path));
-        }
-    }
-
-    /// Verdict totals across the active recent or blocked history window.
-    pub(crate) fn verdict_counts(&self) -> [(Verdict, usize); 2] {
-        [Verdict::Delegate, Verdict::Block].map(|verdict| {
-            (
-                verdict,
-                self.log_window()
-                    .iter()
-                    .filter(|record| record.verdict == Some(verdict))
-                    .count(),
-            )
-        })
-    }
-
-    pub(crate) fn log_window(&self) -> &[DecisionRecord] {
-        if self.log_filter == Some(Verdict::Block) {
-            &self.blocked_log
-        } else {
-            &self.log
-        }
-    }
-
-    /// Rows the log screen browses: the verdict filter, the runtime filter, and
-    /// the query all apply, so live tail, pinning, and counts see the same
-    /// list. The explanation carries the decision id, command, and effects, so
-    /// one substring covers everything worth searching for.
-    pub(crate) fn filtered_log(&self) -> Vec<&DecisionRecord> {
-        let query = self.log_search.to_lowercase();
-        self.log_window()
-            .iter()
-            .filter(|record| {
-                self.log_filter
-                    .is_none_or(|verdict| record.verdict == Some(verdict))
-                    && self
-                        .log_runtime_filter
-                        .as_ref()
-                        .is_none_or(|runtime| &record.runtime == runtime)
-                    && (query.is_empty() || record.explanation.to_lowercase().contains(&query))
-            })
-            .collect()
-    }
-
-    pub(crate) fn cycle_log_filter(&mut self) {
-        self.log_filter = match self.log_filter {
-            None => Some(Verdict::Block),
-            Some(Verdict::Block) => Some(Verdict::Delegate),
-            Some(Verdict::Delegate) => None,
-        };
-        self.log_index = 0;
-        self.log_detail_scroll = 0;
-        self.message = None;
-    }
-
-    /// Runtimes present in the loaded window, sorted, which are the only ones
-    /// worth cycling through.
-    pub(crate) fn log_runtimes(&self) -> Vec<&str> {
-        let mut runtimes = self
-            .log_window()
-            .iter()
-            .map(|record| record.runtime.as_str())
-            .collect::<Vec<_>>();
-        runtimes.sort_unstable();
-        runtimes.dedup();
-        runtimes
-    }
-
-    /// Steps through the runtimes actually recorded in the window and back to
-    /// all, so the filter can never select rows that do not exist.
-    pub(crate) fn cycle_log_runtime_filter(&mut self) {
-        let runtimes = self.log_runtimes();
-        let next = match &self.log_runtime_filter {
-            None => runtimes.first(),
-            Some(current) => runtimes
-                .iter()
-                .position(|runtime| runtime == current)
-                .and_then(|index| runtimes.get(index + 1)),
-        };
-        self.log_runtime_filter = next.map(|runtime| (*runtime).to_owned());
-        self.restart_log_selection();
-        self.message = None;
-    }
-
-    /// Opens the query for editing, keeping an active search as the starting
-    /// text so a near miss can be corrected instead of retyped.
-    pub(crate) fn begin_log_search(&mut self) {
-        self.log_search_editing = true;
-        self.message = None;
-    }
-
-    pub(crate) fn push_log_search(&mut self, character: char) {
-        self.log_search.push(character);
-        self.restart_log_selection();
-    }
-
-    pub(crate) fn pop_log_search(&mut self) {
-        self.log_search.pop();
-        self.restart_log_selection();
-    }
-
-    /// Leaves the typed query as the active search. An empty one filters
-    /// nothing, so confirming it is how a search is cleared while typing.
-    pub(crate) const fn confirm_log_search(&mut self) {
-        self.log_search_editing = false;
-    }
-
-    /// Abandons the search entirely, so Esc always returns the whole window.
-    pub(crate) fn cancel_log_search(&mut self) {
-        self.log_search_editing = false;
-        self.log_search.clear();
-        self.restart_log_selection();
-    }
-
-    /// A changed query renumbers the rows, so the cursor returns to the newest
-    /// match rather than to whatever now sits at its old index.
-    fn restart_log_selection(&mut self) {
-        self.log_index = 0;
-        self.log_detail_scroll = 0;
-    }
-
-    pub(crate) fn selected_log(&self) -> Option<&DecisionRecord> {
-        self.filtered_log().get(self.log_index).copied()
     }
 
     pub(crate) fn selected_guard(&self) -> Option<&GuardEntry> {
@@ -1283,81 +1098,6 @@ impl App {
             explanation: format!("id: {id}\nstatus: unavailable\nreason: observation failed"),
         }
     }
-}
-
-fn recent_log() -> Result<DecisionLogView, String> {
-    let platform = live_state::host_platform();
-    let home = live_state::home(platform)?;
-    records::recent_decisions(&home, platform, LOG_LIMIT).map_err(|error| error.to_string())
-}
-
-fn recovered_log_message(path: &std::path::Path) -> String {
-    format!(
-        "decision log recovered; original archived to {}; showing latest readable decisions",
-        path.display()
-    )
-}
-
-/// Reads the same global nap state the decision path enforces, so an expired
-/// or absent nap reads as none without a write.
-fn nap_status() -> Option<NapStatus> {
-    let platform = live_state::host_platform();
-    let home = live_state::home(platform).ok()?;
-    nap::load(&home, platform).ok().flatten().map(NapStatus::of)
-}
-
-/// The mutation behind `nah wake`; it only ever restores enforcement.
-fn wake_nap() -> Result<(), String> {
-    let platform = live_state::host_platform();
-    let home = live_state::home(platform)?;
-    nap::wake(&home, platform).map_err(|error| error.to_string())
-}
-
-fn log_size() -> Option<u64> {
-    let platform = live_state::host_platform();
-    let home = live_state::home(platform).ok()?;
-    records::decision_log_size(&home, platform)
-}
-
-fn current_project() -> (Option<String>, Vec<String>) {
-    use nah_proto::ctx::SchemaVersion;
-    use nah_proto::observation::{ObservationQuery, ObservationRequest, ProjectGuardDeclaration};
-
-    let cwd = std::fs::canonicalize(".").ok();
-    let current = cwd.as_ref().map(|path| path.display().to_string());
-    let Some(declared) = (|| {
-        let platform = live_state::host_platform();
-        let cwd = AbsolutePath::new(platform, cwd?.to_str()?.to_owned()).ok()?;
-        let request = ObservationRequest::new(
-            SchemaVersion::V1,
-            "tui-project-guards",
-            vec![
-                ObservationQuery::Cwd {
-                    key: "cwd".into(),
-                    requested: cwd,
-                },
-                ObservationQuery::Roots {
-                    key: "roots".into(),
-                    cwd_key: "cwd".into(),
-                },
-                ObservationQuery::ProjectGuards {
-                    key: "project-guards".into(),
-                    roots_key: "roots".into(),
-                },
-            ],
-        )
-        .ok()?;
-        let observation = nah_observe::fulfill(&request).ok()?;
-        Some(match observation.project_guard_declaration().ok()? {
-            ProjectGuardDeclaration::Present { names } => names.clone(),
-            ProjectGuardDeclaration::Absent
-            | ProjectGuardDeclaration::Malformed
-            | ProjectGuardDeclaration::ReadFailure => Vec::new(),
-        })
-    })() else {
-        return (current, Vec::new());
-    };
-    (current, declared)
 }
 
 fn apply_project_declarations(guards: &mut [GuardEntry], declared: &[String]) {

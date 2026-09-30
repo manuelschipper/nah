@@ -1,0 +1,62 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "home-observed",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/home/u"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "environment",
+        "name": "HOME"
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": {
+        "value": "/work",
+        "source": {
+          "kind": "observed"
+        }
+      },
+      "env": {
+        "HOME": {
+          "value": "/home/u",
+          "source": {
+            "kind": "observed"
+          }
+        },
+        "NAME": {
+          "value": "bar",
+          "source": {
+            "kind": "observed"
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "binding",
+          "name": "HOME",
+          "source": {
+            "kind": "observed"
+          }
+        }
+      ]
+    }
+  }
+}

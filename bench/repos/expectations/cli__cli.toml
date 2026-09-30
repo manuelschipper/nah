@@ -1,0 +1,49 @@
+# Ground-truth expectations for cli/cli (gh).
+# Derived from: cmd/gh/main.go calls ghcmd.Main() (internal/ghcmd/cmd.go), which
+#   before any cobra subcommand dispatch reads a batch of environment variables:
+#   Main and its directly-called helpers do os.Getenv/os.LookupEnv on
+#   GH_TELEMETRY_SAMPLE_RATE, GH_PATH, PATH (executablePath/executable),
+#   GH_PROMPT_DISABLED, GH_ACCESSIBLE_PROMPTER, GH_EXPERIMENTAL_PROMPTER,
+#   GH_SPINNER_DISABLED, GH_PAGER, GH_COLOR_LABELS (newIOStreams),
+#   GH_HOST / GH_ENTERPRISE_TOKEN (mightBeGHESUser), GH_DEBUG + DEBUG
+#   (utils.IsDebugEnabled), and GITHUB_API_URL / GITHUB_SERVER_URL on reachable
+#   config paths.
+# Authored 2026-08-18 by reading product source, NOT EI output.
+# Confidence: HIGH that env reads are statically reachable — they sit at the top
+#   of Main, ahead of the cobra dispatch wall. gh's other real effects (GitHub
+#   API calls, ~/.config/gh reads/writes, git ops, the update-check network call,
+#   the Homebrew `brew --prefix` exec) all sit behind cross-module calls into
+#   external packages (go-gh, safeexec, telemetry) or cobra-dispatched
+#   subcommands, so they are documented in known_hard.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 1
+
+# v1 regression floor (domain-level).
+[should_find]
+op=environment.read
+
+# Fact-level assertions: named env families read ahead of the cobra dispatch
+# wall, tied to the files that perform the read.
+[facts]
+op=environment.read res=GH_PAGER origin=internal/ghcmd/cmd.go realm=host modality=may
+op=environment.read res=GH_PROMPT_DISABLED origin=internal/ghcmd/cmd.go realm=host
+op=environment.read res=GH_PATH origin=internal/ghcmd/cmd.go realm=host
+op=environment.read res=GH_HOST origin=internal/ghcmd/cmd.go realm=host
+op=environment.read res=GH_DEBUG origin=utils/utils.go realm=host
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+
+[known_hard]
+# Real gh effects, but reached only through cross-module/external calls or
+# cobra-dispatched subcommands.
+op=network.
+op=filesystem.
+op=git.
+op=process.

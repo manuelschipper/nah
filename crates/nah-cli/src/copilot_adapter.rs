@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
+    adapter_fields::runtime_field_names_covered,
     code_input::CodeInput,
     hook_adapter, live_state,
     runtime::{FailurePolicy, Runtime},
@@ -149,6 +150,26 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
     0
 }
 
+/// The tool call `run` hands the pipeline for this GitHub Copilot tool call.
+/// It takes the VS Code payload shape, whose tool input is a JSON object.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<(ToolCallInput, Option<CodeInput>), String> {
+    normalize(
+        CopilotHookInput::VsCode {
+            hook_event_name: "PreToolUse".into(),
+            session_id: None,
+            cwd: cwd.into(),
+            tool_name: tool_name.into(),
+            tool_input,
+        },
+        live_state::host_platform(),
+    )
+    .map(|(_, request, code)| (request, code))
+}
+
 fn normalize(
     input: CopilotHookInput,
     platform: nah_proto::ctx::Platform,
@@ -214,7 +235,7 @@ fn normalize(
         Ok((tool, input, cwd, code)) => {
             let normalization_complete = input_complete
                 && (code.is_some()
-                    || crate::adapter_fields::complete("copilot", &name, &original_input));
+                    || runtime_field_names_covered("copilot", &name, &original_input));
             (tool, input, cwd, code, normalization_complete)
         }
         Err(_) => (name.as_str(), original_input.clone(), cwd, None, false),

@@ -1,0 +1,58 @@
+# Ground-truth expectations for apache/maven-wrapper (holdout-dev corpus).
+# Pinned SHA: fa9728c30469fdf2d410acda8323f932d66ba288.
+# Real entry: maven-wrapper/src/main/java/org/apache/maven/wrapper/
+#   MavenWrapperMain.java (public static void main, MavenWrapperMain.java:59;
+#   the mvnw/mvnw.cmd scripts under maven-wrapper-distribution/src/resources
+#   are the shell half of the mixed-language shape and launch this main).
+# Derived from (all under maven-wrapper/src/main/java/org/apache/maven/wrapper):
+#   MavenWrapperMain.java (System.getenv(MAVEN_USER_HOME_ENV_KEY),
+#     MavenWrapperMain.java:141),
+#   WrapperExecutor.java (maven-wrapper.properties read via
+#     Files.newInputStream + properties.load, WrapperExecutor.java:135-136;
+#     getEnv -> System.getenv, :98, for MVNW_REPOURL, :110),
+#   DefaultDownloader.java (System.getenv(MVNW_USERNAME)/(MVNW_PASSWORD) for
+#     auth, DefaultDownloader.java:61-69/149; the distribution download
+#     url.openConnection(), :91, streamed to disk Files.copy + Files.move,
+#     :101-102, with temp cleanup Files.deleteIfExists, :104),
+#   Installer.java (unzip writes Files.createDirectories + Files.copy,
+#     Installer.java:194/197; stale-dist cleanup Files.delete, :162/171;
+#     Files.setPosixFilePermissions on the mvn launcher, :146).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the properties read and env reads (straight-line from
+# main). Download/unpack only runs when the pinned distribution is not already
+# installed, hence modality=may on network and write/delete. After install the
+# wrapper starts Maven in-process by reflection — see known_hard — so no OS
+# process is ever spawned by the Java code.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+op=environment.read
+
+# Fact-level assertions.
+[facts]
+op=filesystem.read origin=wrapper/WrapperExecutor.java realm=host
+op=environment.read res=MVNW_REPOURL origin=wrapper/WrapperExecutor.java realm=host
+op=environment.read res=MVNW_USERNAME origin=wrapper/DefaultDownloader.java realm=host modality=may
+op=network. origin=wrapper/DefaultDownloader.java realm=host modality=may
+op=filesystem.write origin=wrapper/DefaultDownloader.java realm=host modality=may
+op=filesystem.write origin=wrapper/Installer.java realm=host modality=may
+op=filesystem.delete origin=wrapper/Installer.java realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]
+# The downloaded Maven is launched in-process: URLClassLoader over the
+# installed jars + reflective Launcher.main invoke
+# (BootstrapMainStarter.java:40-52) — dynamic code loading, not a subprocess.
+op=process.code_execution origin=wrapper/BootstrapMainStarter.java

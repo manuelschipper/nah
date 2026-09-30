@@ -1,0 +1,72 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "process-relative-argv-pattern",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "process",
+        "executable": "cat",
+        "argv": [
+          {
+            "expr": "literal",
+            "value": "a.rs"
+          }
+        ],
+        "cwd": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/work"
+          }
+        }
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "process",
+          "executable": "cat",
+          "argv": [
+            {
+              "expr": "pattern",
+              "pattern": {
+                "family": "fs_path",
+                "glob": "*.rs"
+              }
+            }
+          ],
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/work"
+            }
+          }
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

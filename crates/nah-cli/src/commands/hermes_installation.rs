@@ -9,11 +9,11 @@ use serde_yaml_ng::{Mapping, Value};
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_paths::reject_hook_path_symlink;
 use super::runtime::reject_unsupported_windows_runtime;
+use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
 
-const COMMAND: &str = "nah hook hermes run";
-const FAIL_CLOSED_COMMAND: &str = "nah hook hermes run --fail-closed";
 const EVENT: &str = "pre_tool_call";
 
 pub(crate) fn mutate_hermes_hook(
@@ -26,7 +26,15 @@ pub(crate) fn mutate_hermes_hook(
         let configured = configured_hermes_home(&home);
         let home = resolve_hermes_home(&configured, platform)?;
         if install {
-            install_hook(&home, policy)
+            let executable = std::env::current_exe()
+                .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
+            let hook_command = command_for(&executable, policy)?;
+            // Self-protection recognizes only this form, so an executable
+            // under another name would install a hook it cannot protect.
+            if !is_nah_command(Some(&hook_command)) {
+                return Err("nah-executable-name-unsupported".into());
+            }
+            install_hook(&home, &hook_command, policy)
         } else {
             uninstall_hook(&home)
         }
@@ -59,32 +67,31 @@ pub(crate) fn hermes_hook_status() -> Result<RuntimeHookStatus, String> {
     let Some(entries) = hook_entries(&config)? else {
         return Ok(RuntimeHookStatus::NotConfigured);
     };
-    let owned = entries.iter().filter(|entry| owned_hook(entry)).count();
-    if owned == 0 {
-        return Ok(RuntimeHookStatus::NotConfigured);
-    }
-    if owned != 1 {
-        return Err("hermes-hook-ownership-ambiguous".into());
-    }
+    let owned = entries
+        .iter()
+        .filter(|entry| owned_hook(entry))
+        .collect::<Vec<_>>();
+    let owned = match owned.as_slice() {
+        [] => return Ok(RuntimeHookStatus::NotConfigured),
+        [entry] => *entry,
+        _ => return Err("hermes-hook-ownership-ambiguous".into()),
+    };
+    let executable =
+        std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
+    let delegate_command = command_for(&executable, FailurePolicy::Delegate)?;
+    let fail_closed_command = command_for(&executable, FailurePolicy::Block)?;
     Ok(
-        if entries
-            .iter()
-            .any(|entry| entry == &desired_hook(FailurePolicy::Delegate))
-            && allowlisted(&paths.allowlist, FailurePolicy::Delegate)?
+        if owned == &desired_hook(&delegate_command, FailurePolicy::Delegate)
+            && allowlisted(&paths.allowlist, &delegate_command)?
         {
             RuntimeHookStatus::WiringCurrent
-        } else if entries
-            .iter()
-            .any(|entry| entry == &desired_hook(FailurePolicy::Block))
-            && allowlisted(&paths.allowlist, FailurePolicy::Block)?
+        } else if owned == &desired_hook(&fail_closed_command, FailurePolicy::Block)
+            && allowlisted(&paths.allowlist, &fail_closed_command)?
         {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
             RuntimeHookStatus::stale(
-                if entries
-                    .iter()
-                    .any(|entry| command(entry) == Some(FAIL_CLOSED_COMMAND))
-                {
+                if command(owned).is_some_and(|command| command.ends_with(" --fail-closed")) {
                     FailurePolicy::Block
                 } else {
                     FailurePolicy::Delegate
@@ -126,7 +133,11 @@ fn resolve_hermes_home(
     AbsolutePath::new(platform, configured).map_err(|error| error.to_string())
 }
 
-fn install_hook(home: &AbsolutePath, policy: FailurePolicy) -> Result<PathBuf, String> {
+fn install_hook(
+    home: &AbsolutePath,
+    hook_command: &str,
+    policy: FailurePolicy,
+) -> Result<PathBuf, String> {
     let paths = HermesHookPaths::new(home);
     let lock = lock(&paths)?;
     reject_symlinks(&paths)?;
@@ -145,12 +156,12 @@ fn install_hook(home: &AbsolutePath, policy: FailurePolicy) -> Result<PathBuf, S
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
     match owned.as_slice() {
-        [] => entries.push(desired_hook(policy)),
-        [index] => entries[*index] = desired_hook(policy),
+        [] => entries.push(desired_hook(hook_command, policy)),
+        [index] => entries[*index] = desired_hook(hook_command, policy),
         _ => return Err("hermes-hook-ownership-ambiguous".into()),
     }
     save_config(&paths.config, &config)?;
-    approve_hook(&paths, policy)?;
+    approve_hook(&paths, hook_command)?;
     drop(lock);
     Ok(paths.config)
 }
@@ -209,7 +220,7 @@ fn lock(paths: &HermesHookPaths) -> Result<File, String> {
 }
 
 fn open_lock(path: &Path, error: &str) -> Result<File, String> {
-    reject_symlink(path, error)?;
+    reject_hook_path_symlink(path, error)?;
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
@@ -224,18 +235,9 @@ fn open_lock(path: &Path, error: &str) -> Result<File, String> {
 
 fn reject_symlinks(paths: &HermesHookPaths) -> Result<(), String> {
     for path in [&paths.config, &paths.allowlist, &paths.allowlist_lock] {
-        reject_symlink(path, "hermes-hook-symlink-unsupported")?;
+        reject_hook_path_symlink(path, "hermes-hook-symlink-unsupported")?;
     }
     Ok(())
-}
-
-fn reject_symlink(path: &Path, error: &str) -> Result<(), String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(error.into()),
-        Ok(_) => Ok(()),
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(error.into()),
-    }
 }
 
 fn load_config(path: &Path) -> Result<Mapping, String> {
@@ -324,26 +326,60 @@ fn remove_hook(config: &mut Mapping, index: usize) -> Result<(), String> {
     Ok(())
 }
 
-fn desired_hook(policy: FailurePolicy) -> Value {
+fn desired_hook(hook_command: &str, policy: FailurePolicy) -> Value {
     let mut hook = Mapping::new();
-    hook.insert(
-        yaml_key("command"),
-        Value::String(command_for(policy).into()),
-    );
+    hook.insert(yaml_key("command"), Value::String(hook_command.into()));
     hook.insert(yaml_key("timeout"), Value::Number(5.into()));
+    if policy == FailurePolicy::Block {
+        // Hermes otherwise ignores a hook that cannot start, times out, or
+        // prints invalid output.
+        hook.insert(yaml_key("fail_closed"), Value::Bool(true));
+    }
     hook.insert(yaml_key("managed_by"), Value::String("nah".into()));
     Value::Mapping(hook)
 }
 
-fn command_for(policy: FailurePolicy) -> &'static str {
-    match policy {
-        FailurePolicy::Delegate => COMMAND,
-        FailurePolicy::Block => FAIL_CLOSED_COMMAND,
-    }
+/// Hermes runs the hook without a shell and resolves a bare name through its
+/// own PATH, so the command names this executable by absolute path.
+fn command_for(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
+    let executable = executable
+        .to_str()
+        .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
+    Ok(format!(
+        "{} hook hermes run{}",
+        quote_posix_shell_word(executable),
+        policy.command_suffix()
+    ))
 }
 
+/// Whether `command` is a Hermes shell-hook command that runs Nah's Hermes
+/// adapter: `nah`, or one absolute path to an executable named `nah` quoted
+/// exactly as `command_for` writes it, then `hook hermes run`, optionally
+/// followed by `--fail-closed`. The Hermes model in the engine recognizes the
+/// same commands when `hermes hooks revoke` removes one.
 fn is_nah_command(command: Option<&str>) -> bool {
-    matches!(command, Some(COMMAND | FAIL_CLOSED_COMMAND))
+    let Some(command) = command else {
+        return false;
+    };
+    let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
+    let Some(executable) = command.strip_suffix(" hook hermes run") else {
+        return false;
+    };
+    if executable == "nah" {
+        return true;
+    }
+    let Some(path) = executable
+        .strip_prefix('\'')
+        .and_then(|word| word.strip_suffix('\''))
+        .map(|quoted| quoted.replace("'\"'\"'", "'"))
+    else {
+        return false;
+    };
+    // Requoting rejects anything but one word in the installer's quoting,
+    // such as `'/bin/echo' '/nah'`.
+    quote_posix_shell_word(&path) == executable
+        && path.starts_with('/')
+        && path.rsplit('/').next() == Some("nah")
 }
 
 fn owned_hook(value: &Value) -> bool {
@@ -365,7 +401,7 @@ fn yaml_key(value: &str) -> Value {
     Value::String(value.into())
 }
 
-fn allowlisted(path: &Path, policy: FailurePolicy) -> Result<bool, String> {
+fn allowlisted(path: &Path, hook_command: &str) -> Result<bool, String> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -380,20 +416,20 @@ fn allowlisted(path: &Path, policy: FailurePolicy) -> Result<bool, String> {
             approvals.iter().any(|entry| {
                 entry.get("event").and_then(serde_json::Value::as_str) == Some(EVENT)
                     && entry.get("command").and_then(serde_json::Value::as_str)
-                        == Some(command_for(policy))
+                        == Some(hook_command)
             })
         }))
 }
 
-fn approve_hook(paths: &HermesHookPaths, policy: FailurePolicy) -> Result<(), String> {
-    update_allowlist(paths, Some(policy))
+fn approve_hook(paths: &HermesHookPaths, hook_command: &str) -> Result<(), String> {
+    update_allowlist(paths, Some(hook_command))
 }
 
 fn revoke_hook(paths: &HermesHookPaths) -> Result<(), String> {
     update_allowlist(paths, None)
 }
 
-fn update_allowlist(paths: &HermesHookPaths, approve: Option<FailurePolicy>) -> Result<(), String> {
+fn update_allowlist(paths: &HermesHookPaths, approve: Option<&str>) -> Result<(), String> {
     let lock = open_lock(&paths.allowlist_lock, "hermes-hook-allowlist-lock-failed")?;
     let mut value = match std::fs::read_to_string(&paths.allowlist) {
         Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
@@ -412,11 +448,11 @@ fn update_allowlist(paths: &HermesHookPaths, approve: Option<FailurePolicy>) -> 
         entry.get("event").and_then(serde_json::Value::as_str) != Some(EVENT)
             || !is_nah_command(entry.get("command").and_then(serde_json::Value::as_str))
     });
-    if let Some(policy) = approve {
+    if let Some(hook_command) = approve {
         approvals.push(serde_json::json!({
             "event": EVENT,
-            "command": command_for(policy),
-            "approved_at": crate::dispatch::timestamp_rfc3339(),
+            "command": hook_command,
+            "approved_at": crate::dispatch::current_timestamp_rfc3339(),
             "script_mtime_at_approval": null
         }));
     }
@@ -445,4 +481,31 @@ fn save_allowlist(path: &Path, value: &serde_json::Value) -> Result<(), String> 
         .persist(path)
         .map_err(|_| "hermes-hook-allowlist-write-failed")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hermes_hook_command_is_one_installer_quoted_nah_executable() {
+        for command in [
+            "nah hook hermes run",
+            "'/opt/homebrew/bin/nah' hook hermes run --fail-closed",
+            "'/Users/o'\"'\"'neil/bin/nah' hook hermes run",
+        ] {
+            assert!(is_nah_command(Some(command)), "{command}");
+        }
+        for command in [
+            "'/bin/echo' '/nah' hook hermes run",
+            "'/tmp/example/nah-v1' hook hermes run --fail-closed",
+            "'nah' hook hermes run",
+            "'/opt/nah'x hook hermes run",
+            "'/opt/o'neil/nah' hook hermes run",
+            "/opt/homebrew/bin/nah hook hermes run",
+            "'/opt/homebrew/bin/nah' hook hermes run --verbose",
+        ] {
+            assert!(!is_nah_command(Some(command)), "{command}");
+        }
+    }
 }

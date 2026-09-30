@@ -1,0 +1,84 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "message-pattern",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "message_topic",
+        "scope": {
+          "kind": "kafka_topic",
+          "identity": {
+            "partition": {
+              "state": "not_applicable"
+            },
+            "account": {
+              "state": "not_applicable"
+            },
+            "project": {
+              "state": "not_applicable"
+            },
+            "subscription": {
+              "state": "not_applicable"
+            },
+            "region": {
+              "state": "not_applicable"
+            },
+            "zone": {
+              "state": "not_applicable"
+            },
+            "storage_account": {
+              "state": "not_applicable"
+            },
+            "resource_group": {
+              "state": "not_applicable"
+            },
+            "cluster": {
+              "state": "unknown"
+            },
+            "namespace": {
+              "state": "not_applicable"
+            }
+          },
+          "access": []
+        },
+        "system": "kafka",
+        "name": ".internal"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "message_topic",
+          "system": {
+            "kind": "exact",
+            "value": "kafka"
+          },
+          "name_glob": "*"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

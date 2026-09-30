@@ -1,0 +1,602 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:8257c1a48b31ae511526c2ba92e72d44dff67d280217858acf1cbe4789b263c2",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/command_frequency_sources.json",
+        "digest": "blake3:0c0eaf84695d55145b42382ae8afa009bf99cc4fc705ef495a28ac24d8ce1ee7"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "rimraf",
+        "requirement": "reviewed-exact-surface@2026-09-27"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/rimraf@v1",
+        "path": "../../tests/fixtures/model_tranche/rimraf.json",
+        "digest": "blake3:93e0e96b120db6f8c722eed492f2aae2a807c86910f7f89bcd559f5948937706"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "rimraf-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "rimraf-not-the-command",
+            "dist"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.delete"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/rimraf@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.delete"
+    ],
+    "expected_boundaries": [
+      "model_coverage"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "single_dash_long_flags": true,
+      "id": "p18b/devtools/rimraf@v1",
+      "commands": [
+        "rimraf"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--glob",
+            "-g"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-glob",
+            "-G"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--preserve-root"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-preserve-root"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-verbose",
+            "-V"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--interactive",
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-interactive",
+            "-I"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--impl"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--max-retries"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--retry-delay"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--backoff"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-rf"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-fr"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "flag_present": [],
+            "flag_absent": [
+              "-h",
+              "--help",
+              "-g",
+              "--glob"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            ""
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "force": {
+                  "kind": "flag_absent",
+                  "flags": [
+                    "-i",
+                    "--interactive"
+                  ]
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": true,
+            "flag_present": [],
+            "flag_absent": [
+              "-h",
+              "--help",
+              "-g",
+              "--glob"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            ""
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "force": {
+                  "kind": "flag_absent",
+                  "flags": [
+                    "-i",
+                    "--interactive"
+                  ]
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": false,
+            "flag_present": [
+              "-g",
+              "--glob"
+            ],
+            "flag_absent": [
+              "-h",
+              "--help",
+              "-G",
+              "--no-glob"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            ""
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "current"
+                  }
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "force": {
+                  "kind": "flag_absent",
+                  "flags": [
+                    "-i",
+                    "--interactive"
+                  ]
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "unknown_flags_present": true,
+            "flag_present": [
+              "-g",
+              "--glob"
+            ],
+            "flag_absent": [
+              "-h",
+              "--help",
+              "-G",
+              "--no-glob"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            ""
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "current"
+                  }
+                }
+              },
+              "attributes": {
+                "force": {
+                  "kind": "flag_absent",
+                  "flags": [
+                    "-i",
+                    "--interactive"
+                  ]
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "-G",
+                "--no-glob"
+              ],
+              "present": true
+            },
+            "flag_present": [
+              "-g",
+              "--glob"
+            ],
+            "flag_absent": [
+              "-h",
+              "--help"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            ""
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "force": {
+                  "kind": "flag_absent",
+                  "flags": [
+                    "-i",
+                    "--interactive"
+                  ]
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "-G",
+                "--no-glob"
+              ],
+              "present": true
+            },
+            "flag_present": [
+              "-g",
+              "--glob"
+            ],
+            "flag_absent": [
+              "-h",
+              "--help"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            ""
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "pattern",
+                "pattern": {
+                  "family": "fs_path",
+                  "glob": {
+                    "kind": "current"
+                  }
+                }
+              },
+              "attributes": {
+                "force": {
+                  "kind": "flag_absent",
+                  "flags": [
+                    "-i",
+                    "--interactive"
+                  ]
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-h",
+              "--help",
+              "-g",
+              "--glob",
+              "-G",
+              "--no-glob"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "min_operands": 1,
+            "reads_stdin": false
+          },
+          "reason": "model_coverage",
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "rimraf 3 and earlier expand glob characters in operands unless --no-glob is given; the installed rimraf version is not established"
+        },
+        {
+          "when": {
+            "flag_occurrence": {
+              "flags": [
+                "-G",
+                "--no-glob"
+              ],
+              "present": true
+            },
+            "flag_present": [
+              "-g",
+              "--glob"
+            ],
+            "flag_absent": [
+              "-h",
+              "--help"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "model_coverage",
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "the last of --glob and --no-glob applies; option order is not modeled"
+        },
+        {
+          "when": {
+            "unknown_flags_present": true,
+            "flag_present": [],
+            "flag_absent": [
+              "-h",
+              "--help"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "model_coverage",
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "rimraf 3 and earlier read an unrecognized argument as another path to delete, while rimraf 4 and later refuse it; the installed rimraf version is not established"
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": false,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "information",
+          "when": {
+            "flag_present": [
+              "-h",
+              "--help"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,976 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:93d139492d18a5ba7d021aa9d4f0052ac0cea7afb3345dd7f4c5141afc98c45f",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/agents_selfprot_sources.json#selfprot/devtools/printf@v1",
+        "digest": "blake3:8bab1c9cbbd0ed24f19c085e7f1dfdff7a16a16f858ccd9e628ba414b45e1b95"
+      },
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/devtools/prefix-wrappers@v1",
+        "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "time",
+        "requirement": "reviewed-exact-surface@2026-09-06"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/prefix-wrappers@v1",
+        "path": "../../tests/fixtures/model_tranche/prefix-wrappers.json",
+        "digest": "blake3:83e84fa7ac511a77fd26adc57789ae951532c055797f4f1767769dd3e268e7d9"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "prefix-wrappers-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "prefix-wrappers-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/prefix-wrappers@v1-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.delete",
+      "filesystem.read",
+      "filesystem.write"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "options_before_operand": 1,
+      "id": "p18b/devtools/prefix-wrappers/chrt@v1",
+      "commands": [
+        "chrt"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--all-tasks",
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--batch",
+            "-b"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--deadline",
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--fifo",
+            "-f"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--idle",
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--other",
+            "-o"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--rr",
+            "-r"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--pid",
+            "-p"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "preamble",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "command",
+          "index": 1,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "arguments",
+          "index": 2,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-p",
+              "--pid"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [
+            {
+              "kind": "positional",
+              "name": "command"
+            }
+          ],
+          "argv_tail": "arguments"
+        }
+      ],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "name": "query-p",
+          "when": {
+            "flag_present": [
+              "-p",
+              "--pid"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "options_before_operand": 0,
+      "id": "p18b/devtools/prefix-wrappers/fakeroot@v1",
+      "commands": [
+        "fakeroot"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-i"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-l"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-u"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "command",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "arguments",
+          "index": 1,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [
+            {
+              "kind": "positional",
+              "name": "command"
+            }
+          ],
+          "argv_tail": "arguments"
+        }
+      ],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process",
+          "filesystem"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "options_before_operand": 0,
+      "id": "p18b/devtools/prefix-wrappers/ionice@v1",
+      "commands": [
+        "ionice"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--class",
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--classdata",
+            "-n"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--ignore",
+            "-t"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--pid",
+            "-p"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "command",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "arguments",
+          "index": 1,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-p",
+              "--pid"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [
+            {
+              "kind": "positional",
+              "name": "command"
+            }
+          ],
+          "argv_tail": "arguments"
+        }
+      ],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "name": "query-p",
+          "when": {
+            "flag_present": [
+              "-p",
+              "--pid"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "options_before_operand": 0,
+      "id": "p18b/devtools/prefix-wrappers/setpriv@v1",
+      "commands": [
+        "setpriv"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--reuid"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--regid"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--groups"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--clear-groups"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-new-privs"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--inh-caps"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--bounding-set"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "command",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "arguments",
+          "index": 1,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [
+            {
+              "kind": "positional",
+              "name": "command"
+            }
+          ],
+          "argv_tail": "arguments"
+        }
+      ],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "options_before_operand": 1,
+      "id": "p18b/devtools/prefix-wrappers/taskset@v1",
+      "commands": [
+        "taskset"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--all-tasks",
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--cpu-list",
+            "-c"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--pid",
+            "-p"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "preamble",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "command",
+          "index": 1,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "arguments",
+          "index": 2,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-p",
+              "--pid"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [
+            {
+              "kind": "positional",
+              "name": "command"
+            }
+          ],
+          "argv_tail": "arguments"
+        }
+      ],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "name": "query-p",
+          "when": {
+            "flag_present": [
+              "-p",
+              "--pid"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "options_before_operand": 0,
+      "id": "p18b/devtools/prefix-wrappers/time@v1",
+      "commands": [
+        "time"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-p"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-a"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-o"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "command",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "arguments",
+          "index": 1,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "flag_values",
+            "flags": [
+              "-o"
+            ]
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.write",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [
+            {
+              "kind": "positional",
+              "name": "command"
+            }
+          ],
+          "argv_tail": "arguments"
+        }
+      ],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process",
+          "filesystem"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "options_before_operand": 0,
+      "id": "p18b/devtools/prefix-wrappers/unbuffer@v1",
+      "commands": [
+        "unbuffer"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-p"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "command",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        },
+        {
+          "name": "arguments",
+          "index": 1,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "argv": [
+            {
+              "kind": "positional",
+              "name": "command"
+            }
+          ],
+          "argv_tail": "arguments"
+        }
+      ],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "no-operands",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "id": "selfprot/devtools/printf@v1",
+      "commands": [
+        "printf"
+      ],
+      "fragments": [],
+      "inert": true,
+      "flags": [],
+      "positionals": [
+        {
+          "name": "format",
+          "index": 0,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        },
+        {
+          "name": "arguments",
+          "index": 1,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": false
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

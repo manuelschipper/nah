@@ -1,6 +1,8 @@
 //! The complete human and machine CLI grammar.
 
-use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
+
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 
 use crate::runtime::Runtime;
 
@@ -60,22 +62,32 @@ pub(crate) enum Command {
     /// `nah test <command>` instead.
     Decide(DecideArgs),
 
-    /// Pause nah self-protection globally for ten minutes.
+    /// Pause nah self-protection, all enforcement, or named guards globally
+    /// for ten minutes.
     ///
     /// By default, only self-protection pauses; guards continue normally.
-    /// `--all` pauses guards too, while `nah nap` and `nah wake` remain
-    /// protected. Starting or extending a nap requires an interactive
-    /// operator terminal.
+    /// `nah nap all` pauses guards too, while `nah nap` and `nah wake` remain
+    /// protected. `nah nap <guard>...` pauses only the named guards, as
+    /// `nah guards` lists them. A new nap replaces the active one and restarts
+    /// its timer. Starting a nap requires an interactive operator terminal.
     Nap(NapArgs),
 
     /// End the current global nap immediately.
     Wake,
 
-    /// Dry-run a shell command through the live guards.
+    /// Dry-run a shell command, agent tool call, or code through the live guards.
     ///
-    /// Writes no audit record. The human view shows verdict, coverage, guard
-    /// attributions, effects, and evaluation failures. `--json` also exposes
-    /// the exact exec/v1 request given to matching extensions.
+    /// Takes exactly one input: a shell command; `--tool` with a tool call as
+    /// the `--runtime` agent sends it; or `--source` with code, sent as the
+    /// runtime whose hook analyzes that language would send it. Each reaches
+    /// the decision that runtime's hook would, including its self-protection
+    /// of the agent's own configuration. The exception is code tools that the
+    /// hook identifies outside the tool input (Prime Agent's ipython, OpenClaw
+    /// code mode): `--tool` rejects them as a usage error; dry-run their code
+    /// with `--source`. Writes no audit record. The human view shows verdict,
+    /// coverage, guard attributions, evaluation failures, and the effects,
+    /// boundaries, and coverage the engine found. `--json` also exposes the
+    /// engine plan and the exact exec/v2 request given to matching extensions.
     Test(TestArgs),
 
     /// Trust a project root.
@@ -124,113 +136,82 @@ pub(crate) enum Command {
     /// for the full redacted explanation.
     Log(LogArgs),
 
-    // UNDOCUMENTED-EFFINTERP: hidden operator switch while shadowing is private.
-    #[cfg(feature = "effinterp")]
-    #[command(hide = true)]
-    Effinterp(EffinterpArgs),
-
     /// Read built-in documentation.
     ///
     /// With no topic, lists bounded documentation available without network
     /// access or configuration. Start with `start`; use `extending`
     /// for the complete extension recipe.
     Docs(DocsArgs),
-
-    // UNDOCUMENTED-EFFINTERP: private snapshot publisher; no public product surface yet.
-    #[cfg(feature = "effinterp")]
-    #[command(hide = true)]
-    Daemon(DaemonArgs),
-}
-
-// UNDOCUMENTED-EFFINTERP: hidden daemon subcommand grammar.
-#[cfg(feature = "effinterp")]
-#[derive(Debug, Args)]
-pub(crate) struct DaemonArgs {
-    #[command(subcommand)]
-    pub(crate) action: DaemonAction,
-}
-
-// UNDOCUMENTED-EFFINTERP: hidden daemon lifecycle operations.
-#[cfg(feature = "effinterp")]
-#[derive(Debug, Subcommand)]
-pub(crate) enum DaemonAction {
-    Run(DaemonRunArgs),
-    Status,
-    Stop,
-    #[command(hide = true)]
-    Build(DaemonBuildArgs),
-}
-
-// UNDOCUMENTED-EFFINTERP: bounded daemon runtime settings.
-#[cfg(feature = "effinterp")]
-#[derive(Clone, Copy, Debug, Args)]
-pub(crate) struct DaemonRunArgs {
-    #[arg(long, hide = true)]
-    pub(crate) once: bool,
-
-    #[arg(long, default_value_t = 30)]
-    pub(crate) poll: u64,
-
-    #[arg(long, default_value_t = 2_048)]
-    pub(crate) max_memory: u64,
-
-    #[arg(long, default_value_t = 5_000)]
-    pub(crate) max_files: u64,
-}
-
-// UNDOCUMENTED-EFFINTERP: child-only build invocation settings.
-#[cfg(feature = "effinterp")]
-#[derive(Debug, Args)]
-pub(crate) struct DaemonBuildArgs {
-    pub(crate) id: String,
-
-    #[arg(long)]
-    pub(crate) max_memory: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, Args)]
-pub(crate) struct DecideArgs {
-    // UNDOCUMENTED-EFFINTERP: force shadowing for this one call.
-    #[cfg(feature = "effinterp")]
-    #[arg(long, hide = true)]
-    pub(crate) effinterp: bool,
-}
-
-#[cfg(feature = "effinterp")]
-#[derive(Debug, Args)]
-pub(crate) struct EffinterpArgs {
-    #[command(subcommand)]
-    pub(crate) action: EffinterpAction,
-}
-
-#[cfg(feature = "effinterp")]
-#[derive(Clone, Copy, Debug, Subcommand)]
-pub(crate) enum EffinterpAction {
-    On,
-    Off,
-    Status,
-}
+pub(crate) struct DecideArgs {}
 
 #[derive(Debug, Args)]
+#[command(group(ArgGroup::new("test_input").required(true).args(["command", "tool", "source"])))]
 pub(crate) struct TestArgs {
-    /// Emit the `nah/test/v1` request, decision, and consultations.
+    /// Emit the `nah/test/v2` request, decision, consultations, and engine plan.
     #[arg(long)]
     pub(crate) json: bool,
 
-    // UNDOCUMENTED-EFFINTERP: hidden opt-in while the planner is private.
-    #[cfg(feature = "effinterp")]
-    #[arg(long, hide = true)]
-    pub(crate) effinterp: bool,
-
     /// Shell command to inspect.
-    pub(crate) command: String,
+    pub(crate) command: Option<String>,
+
+    /// Runtime whose hook receives the command or tool call. Its adapter
+    /// normalizes the tool name and input. Defaults to claude, whose tool
+    /// names (Bash, Read, Write, Edit, ...) are the canonical ones. `--source`
+    /// takes the runtime from the language: python is hermes, ipython is
+    /// prime-agent, js and ts are openclaw.
+    #[arg(long, value_enum, value_name = "RUNTIME", conflicts_with = "source")]
+    pub(crate) runtime: Option<Runtime>,
+
+    /// Agent tool name to inspect, as the runtime names it, such as Write,
+    /// read_file, or apply_patch.
+    #[arg(long, value_name = "NAME", requires = "tool_input")]
+    pub(crate) tool: Option<String>,
+
+    /// Tool input as a JSON object, in the shape the runtime sends.
+    #[arg(long, value_name = "JSON", group = "tool_input", requires = "tool")]
+    pub(crate) args_json: Option<String>,
+
+    /// Read the tool input JSON object from a file.
+    #[arg(long, value_name = "PATH", group = "tool_input", requires = "tool")]
+    pub(crate) args_file: Option<PathBuf>,
+
+    /// Language of the code to inspect.
+    #[arg(long, value_enum, value_name = "LANG", requires = "code_input")]
+    pub(crate) source: Option<TestSourceLanguage>,
+
+    /// Code to inspect.
+    #[arg(
+        short = 'c',
+        value_name = "CODE",
+        group = "code_input",
+        requires = "source",
+        allow_hyphen_values = true
+    )]
+    pub(crate) code: Option<String>,
+
+    /// Read the code to inspect from a file.
+    #[arg(long, value_name = "PATH", group = "code_input", requires = "source")]
+    pub(crate) file: Option<PathBuf>,
+}
+
+/// A code language the hooks analyze.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub(crate) enum TestSourceLanguage {
+    Python,
+    Ipython,
+    Js,
+    Ts,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct NapArgs {
-    /// Pause all non-permanent enforcement instead of self-protection only.
-    #[arg(long)]
-    pub(crate) all: bool,
+    /// `all` for all non-permanent enforcement, or guard names to pause only
+    /// those guards.
+    #[arg(value_name = "all | GUARD")]
+    pub(crate) guards: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -329,11 +310,6 @@ pub(crate) struct HookRunArgs {
     /// Block when required safety evaluation cannot finish.
     #[arg(long)]
     pub(crate) fail_closed: bool,
-
-    // UNDOCUMENTED-EFFINTERP: force shadowing for this one hook call.
-    #[cfg(feature = "effinterp")]
-    #[arg(long, hide = true)]
-    pub(crate) effinterp: bool,
 }
 
 #[derive(Debug, Args)]
@@ -356,8 +332,8 @@ pub(crate) struct LogArgs {
     #[arg(long)]
     pub(crate) json: bool,
 
-    // UNDOCUMENTED-EFFINTERP: show only shadow stream disagreements.
-    #[cfg(feature = "effinterp")]
+    // Show only decisions whose engine analysis had
+    // partial coverage or a refusal.
     #[arg(long, hide = true, conflicts_with = "blocked")]
     pub(crate) effinterp_gap: bool,
 }
@@ -366,6 +342,9 @@ pub(crate) struct LogArgs {
 pub(crate) struct DocsArgs {
     /// Exact documentation topic name.
     pub(crate) topic: Option<String>,
+
+    /// Built-in guard whose full description to print, after the `guards` topic.
+    pub(crate) guard: Option<String>,
 }
 
 #[cfg(test)]
@@ -402,9 +381,14 @@ mod tests {
             vec!["nah", "tui"],
             vec!["nah", "decide"],
             vec!["nah", "nap"],
-            vec!["nah", "nap", "--all"],
+            vec!["nah", "nap", "all"],
+            vec!["nah", "nap", "fs-home", "git-history"],
             vec!["nah", "wake"],
             vec!["nah", "test", "--json", "git status"],
+            vec!["nah", "test", "--tool", "Write", "--args-json", "{}"],
+            vec!["nah", "test", "--tool", "Write", "--args-file", "call.json"],
+            vec!["nah", "test", "--source", "python", "-c", "print(1)"],
+            vec!["nah", "test", "--source", "ts", "--file", "run.ts"],
             vec!["nah", "trust"],
             vec!["nah", "untrust", "/repo"],
             vec!["nah", "guards"],
@@ -428,6 +412,7 @@ mod tests {
             vec!["nah", "log", "--blocked", "--json", "-n", "5"],
             vec!["nah", "docs", "extending"],
             vec!["nah", "docs", "guards"],
+            vec!["nah", "docs", "guards", "fs-home"],
         ] {
             assert!(parse_from(arguments.clone()).is_ok(), "{arguments:?}");
         }
@@ -462,6 +447,42 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn test_takes_exactly_one_complete_input() {
+        for arguments in [
+            vec!["nah", "test"],
+            vec!["nah", "test", "ls", "--tool", "Write", "--args-json", "{}"],
+            vec!["nah", "test", "--tool", "Write"],
+            vec!["nah", "test", "--args-json", "{}"],
+            vec![
+                "nah",
+                "test",
+                "--tool",
+                "Write",
+                "--args-json",
+                "{}",
+                "--args-file",
+                "a",
+            ],
+            vec!["nah", "test", "--source", "python"],
+            vec!["nah", "test", "-c", "print(1)"],
+            vec!["nah", "test", "--source", "js", "-c", "1", "--file", "a.js"],
+            vec!["nah", "test", "--source", "ruby", "-c", "1"],
+            vec![
+                "nah",
+                "test",
+                "--runtime",
+                "claude",
+                "--source",
+                "python",
+                "-c",
+                "1",
+            ],
+        ] {
+            assert!(parse_from(arguments.clone()).is_err(), "{arguments:?}");
+        }
     }
 
     #[test]

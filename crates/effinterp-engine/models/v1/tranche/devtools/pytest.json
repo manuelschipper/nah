@@ -1,0 +1,325 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:23b9a8521a6e1ab8ca9866e8378e5bc6d28f651325dfc6806630c2d81a3e5b1b",
+  "provenance": {
+    "author": "llm_drafted",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/developer_commands_sources.json#p18b/devtools/pytest@v2",
+        "digest": "blake3:1e67f4063405c6fa5b9f31c33aba5b36cc7d075892ad0b1f7195f46269b1670a"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "pytest",
+        "requirement": "reviewed-exact-surface@2026-09-16"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/devtools/pytest@v2",
+        "path": "../../tests/fixtures/model_tranche/pytest.json",
+        "digest": "blake3:47f1fef228a267bfc3837ab4d089eb99713946c060c0ebf9570459a0a3e420e4"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "pytest-near-name",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pytest-not-the-command"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write",
+          "network.listen"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "pytest-read-only-mode",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pytest",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "process.code_execution",
+          "filesystem.read"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/devtools/pytest@v2-mutation",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "process.code_execution"
+    ],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/devtools/pytest@v2",
+      "commands": [
+        "pytest"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-x"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-q"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-s"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--collect-only"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--disable-warnings"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-k"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-m"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--maxfail"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--rootdir"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--tb"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--help"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "files",
+          "index": 0,
+          "variadic": true,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "files"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "before_delimiter",
+                  "value": {
+                    "kind": "current"
+                  },
+                  "delimiter": "::"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "literal",
+                  "value": "tests/"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "process.code_execution",
+              "resource": {
+                "kind": "process",
+                "executable": {
+                  "kind": "literal",
+                  "value": "pytest"
+                },
+                "argv": []
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "help-version",
+          "when": {
+            "flag_present": [
+              "--help",
+              "--version"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    }
+  ]
+}

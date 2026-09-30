@@ -10,19 +10,41 @@
   "diagnostics": [],
   "effects": [
     {
-      "description": "invoke Read read",
+      "description": "filesystem.read fs:<project>/src/lib.rs",
       "id": "e0"
-    },
-    {
-      "description": "read <project>/src/lib.rs",
-      "id": "e1"
     }
   ],
+  "effinterp": {
+    "annotations": [
+      {
+        "scope": "project",
+        "selects_home": false,
+        "selects_root": false,
+        "sensitivity": "none"
+      }
+    ],
+    "boundary_count": 0,
+    "coverage": [
+      {
+        "domain": "filesystem",
+        "level": "full"
+      }
+    ],
+    "effects": [
+      {
+        "operation": "filesystem.read",
+        "resource": "fs:<project>/src/lib.rs"
+      }
+    ],
+    "engine_time_us": 0,
+    "gap": false
+  },
   "envelope": {
     "duration_us": 0,
     "id": "<decision-id>",
     "timestamp_rfc3339": "<timestamp>"
   },
+  "producer": "<producer>",
   "runtime": "unknown",
   "schema": "nah/audit/v1",
   "status": "decision",

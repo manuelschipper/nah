@@ -1,0 +1,979 @@
+{
+  "sources": {
+    "beads": {
+      "url": "https://github.com/steveyegge/beads",
+      "commit": "3ecbf5bc9f5168a63fc9253ee1966adfa7e99ff4",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2025 Beads Contributors"
+    },
+    "hermes": {
+      "url": "https://github.com/NousResearch/hermes-agent",
+      "commit": "003af7f85ce2ebe24b38556d735a0d7678a4a8dd",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2025 Nous Research"
+    }
+  },
+  "cases": [
+    {
+      "id": "beads-dolt-config-global",
+      "evidence": {
+        "repository": "beads",
+        "path": ".github/workflows/main.yml",
+        "lines": [
+          358
+        ],
+        "excerpt": "          dolt config --global --add user.name \"CI Bot\""
+      },
+      "shape": "workflow_run",
+      "cwd": "",
+      "command": "dolt config --global --add user.name \"CI Bot\"",
+      "models": [
+        "p18b/database/dolt@v2"
+      ],
+      "effects": [
+        {
+          "operation": "filesystem.write",
+          "resource": {
+            "expr": "join",
+            "parts": [
+              {
+                "expr": "environment",
+                "name": "HOME"
+              },
+              {
+                "expr": "concrete",
+                "identity": {
+                  "family": "fs_path",
+                  "path": "/.dolt"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "beads-dolt-version",
+      "evidence": {
+        "repository": "beads",
+        "path": ".github/workflows/main.yml",
+        "lines": [
+          427
+        ],
+        "excerpt": "        run: dolt version"
+      },
+      "shape": "workflow_run",
+      "cwd": "",
+      "command": "dolt version",
+      "models": [
+        "p18b/database/dolt@v2"
+      ],
+      "effects": [],
+      "boundaries": [
+      ],
+      "inert": true
+    },
+    {
+      "id": "beads-dolt-sql-query-in-command-substitution",
+      "evidence": {
+        "repository": "beads",
+        "path": "scripts/test-git-remote.sh",
+        "lines": [
+          226
+        ],
+        "excerpt": "CLONED_ISSUES=$(cd \"$DOLT_DIR_B\" && dolt sql -q \"SELECT id FROM issues ORDER BY id\" -r csv 2>/dev/null | tail -n +2)"
+      },
+      "shape": "shell_script",
+      "cwd": "",
+      "command": "CLONED_ISSUES=$(cd \"$DOLT_DIR_B\" && dolt sql -q \"SELECT id FROM issues ORDER BY id\" -r csv 2>/dev/null | tail -n +2)",
+      "models": [
+        "p18b/database/dolt@v2"
+      ],
+      "effects": [
+        {
+          "operation": "database.read",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "database_table",
+              "table": "issues"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "id": "beads-dolt-sql-server-dynamic-port",
+      "evidence": {
+        "repository": "beads",
+        "path": "scripts/test.sh",
+        "lines": [
+          99,
+          100
+        ],
+        "excerpt": "        dolt sql-server -H 127.0.0.1 -P \"$SHARED_PORT\" --no-auto-commit \\\n            --data-dir \"$SHARED_DB_DIR\" &>/dev/null &"
+      },
+      "shape": "shell_script",
+      "cwd": "",
+      "command": "dolt sql-server -H 127.0.0.1 -P \"$SHARED_PORT\" --no-auto-commit \\\n            --data-dir \"$SHARED_DB_DIR\" &>/dev/null &",
+      "models": [
+        "p18b/database/dolt@v2"
+      ],
+      "effects": [
+        {
+          "operation": "network.listen",
+          "resource": {
+            "expr": "unresolved",
+            "family": "network"
+          }
+        }
+      ],
+      "boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "id": "beads-dolt-sql-client-dynamic-endpoint",
+      "evidence": {
+        "repository": "beads",
+        "path": "scripts/migrate-jsonl-to-dolt.sh",
+        "lines": [
+          109
+        ],
+        "excerpt": "        dolt sql-client -h \"$HOST\" -P \"$PORT\" -u \"$USER\" -d \"$DB\""
+      },
+      "shape": "shell_script",
+      "cwd": "",
+      "command": "dolt sql-client -h \"$HOST\" -P \"$PORT\" -u \"$USER\" -d \"$DB\"",
+      "models": [
+        "p18b/database/dolt@v2"
+      ],
+      "effects": [
+        {
+          "operation": "network.connect",
+          "resource": {
+            "expr": "unresolved",
+            "family": "network"
+          }
+        }
+      ],
+      "boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "id": "beads-dolt-add-all",
+      "evidence": {
+        "repository": "beads",
+        "path": "scripts/test-git-remote.sh",
+        "lines": [
+          156
+        ],
+        "excerpt": "dolt add -A 2>/dev/null || true"
+      },
+      "shape": "shell_script",
+      "cwd": "",
+      "command": "dolt add -A 2>/dev/null || true",
+      "models": [
+        "p18b/database/dolt@v2"
+      ],
+      "effects": [
+        {
+          "operation": "filesystem.write",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "beads-dolt-push",
+      "evidence": {
+        "repository": "beads",
+        "path": "scripts/test-git-remote.sh",
+        "lines": [
+          169
+        ],
+        "excerpt": "if dolt push origin main 2>&1; then"
+      },
+      "shape": "shell_script",
+      "cwd": "",
+      "command": "dolt push origin main 2>&1",
+      "models": [
+        "p18b/database/dolt@v2"
+      ],
+      "effects": [
+        {
+          "operation": "network.upload",
+          "resource": {
+            "expr": "unresolved",
+            "family": "network"
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "beads-gofmt-write-tree",
+      "evidence": {
+        "repository": "beads",
+        "path": "Makefile",
+        "lines": [
+          230
+        ],
+        "excerpt": "\t@gofmt -w ."
+      },
+      "shape": "makefile_recipe",
+      "cwd": "",
+      "command": "gofmt -w .",
+      "models": [
+        "p18b/devtools/gofmt@v2"
+      ],
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}"
+            }
+          }
+        },
+        {
+          "operation": "filesystem.write",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "beads-gofmt-list-tree",
+      "evidence": {
+        "repository": "beads",
+        "path": "Makefile",
+        "lines": [
+          236
+        ],
+        "excerpt": "\t@UNFORMATTED=$$(gofmt -l .); \\"
+      },
+      "shape": "makefile_recipe",
+      "cwd": "",
+      "command": "gofmt -l .",
+      "models": [
+        "p18b/devtools/gofmt@v2"
+      ],
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "beads-gofmt-stdin-operands",
+      "evidence": {
+        "repository": "beads",
+        "path": ".githooks/pre-commit",
+        "lines": [
+          17
+        ],
+        "excerpt": "    echo \"$staged_go_files\" | xargs gofmt -w"
+      },
+      "shape": "shell_script",
+      "cwd": "",
+      "command": "echo \"$staged_go_files\" | xargs gofmt -w",
+      "models": [
+        "p18b/devtools/gofmt@v2"
+      ],
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "unresolved",
+            "family": "filesystem"
+          }
+        },
+        {
+          "operation": "filesystem.write",
+          "resource": {
+            "expr": "unresolved",
+            "family": "filesystem"
+          }
+        }
+      ],
+      "boundaries": [
+      ],
+      "plan_boundaries": [
+        "input_determined_arguments"
+      ]
+    },
+    {
+      "id": "beads-comm-link-sets",
+      "evidence": {
+        "repository": "beads",
+        "path": ".github/scripts/docs-render-check.sh",
+        "lines": [
+          124
+        ],
+        "excerpt": "    comm -23 \"$HEAD_LINKS\" \"$BASE_LINKS\" >\"$NEW_LINKS\""
+      },
+      "shape": "shell_script",
+      "cwd": "",
+      "command": "comm -23 \"$HEAD_LINKS\" \"$BASE_LINKS\" >\"$NEW_LINKS\"",
+      "models": [
+        "p18b/devtools/comm@v2"
+      ],
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "environment",
+            "name": "BASE_LINKS"
+          }
+        },
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "environment",
+            "name": "HEAD_LINKS"
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "beads-pytest-unreviewed-flag",
+      "evidence": {
+        "repository": "beads",
+        "path": "scripts/ci/package-mcp.sh",
+        "lines": [
+          55
+        ],
+        "excerpt": "    uv run pytest --durations=50"
+      },
+      "shape": "shell_script",
+      "cwd": "integrations/beads-mcp",
+      "command": "uv run pytest --durations=50",
+      "models": [
+        "p18b/devtools/pytest@v2"
+      ],
+      "effects": [],
+      "boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "id": "beads-open-url",
+      "evidence": {
+        "repository": "beads",
+        "path": "RELEASING.md",
+        "lines": [
+          339
+        ],
+        "excerpt": "open https://pypi.org/project/beads-mcp/"
+      },
+      "shape": "documented_command",
+      "cwd": "",
+      "command": "open https://pypi.org/project/beads-mcp/",
+      "models": [
+        "p18b/devtools/open@v2"
+      ],
+      "effects": [
+        {
+          "operation": "network.request",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "network_endpoint",
+              "host": "pypi.org",
+              "path": "/project/beads-mcp/",
+              "scheme": "https"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "hermes-pytest-module-directory",
+      "evidence": {
+        "repository": "hermes",
+        "path": ".github/workflows/tests.yml",
+        "lines": [
+          245
+        ],
+        "excerpt": "          python -m pytest tests/e2e/ -v --tb=short"
+      },
+      "shape": "workflow_run",
+      "cwd": "",
+      "command": "python -m pytest tests/e2e/ -v --tb=short",
+      "models": [
+        "p18b/devtools/pytest@v2"
+      ],
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/tests/e2e"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+      ],
+      "plan_operations": [
+        "process.code_execution"
+      ]
+    },
+    {
+      "id": "hermes-s6-setuidgid-python-module",
+      "evidence": {
+        "repository": "hermes",
+        "path": "docker/cont-init.d/02-reconcile-profiles",
+        "lines": [
+          47
+        ],
+        "excerpt": "exec s6-setuidgid hermes /opt/hermes/.venv/bin/python -m hermes_cli.container_boot"
+      },
+      "shape": "shell_script",
+      "cwd": "",
+      "command": "exec s6-setuidgid hermes /opt/hermes/.venv/bin/python -m hermes_cli.container_boot",
+      "models": [
+        "p18b/devtools/s6-setuidgid@v2"
+      ],
+      "effects": [
+        {
+          "operation": "process.code_execution",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "cwd": {
+                "expr": "concrete",
+                "identity": {
+                  "family": "fs_path",
+                  "path": "{root}"
+                }
+              },
+              "executable": "python",
+              "family": "process",
+              "path": "/opt/hermes/.venv/bin/python"
+            }
+          }
+        },
+        {
+          "operation": "process.exec",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "argv": [
+                {
+                  "expr": "literal",
+                  "value": "-m"
+                },
+                {
+                  "expr": "literal",
+                  "value": "hermes_cli.container_boot"
+                }
+              ],
+              "cwd": {
+                "expr": "concrete",
+                "identity": {
+                  "family": "fs_path",
+                  "path": "{root}"
+                }
+              },
+              "executable": "python",
+              "family": "process",
+              "path": "/opt/hermes/.venv/bin/python"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+        "dynamic_source",
+        "environment_configuration",
+        "unrecoverable_source"
+      ]
+    },
+    {
+      "id": "hermes-s6-setuidgid-forwarded-arguments",
+      "evidence": {
+        "repository": "hermes",
+        "path": "docker/stage2-hook.sh",
+        "lines": [
+          24
+        ],
+        "excerpt": "as_hermes() { [ \"$(id -u)\" = 0 ] || { \"$@\"; return; }; s6-setuidgid hermes \"$@\"; }"
+      },
+      "shape": "shell_script",
+      "cwd": "",
+      "command": "s6-setuidgid hermes \"$@\"",
+      "models": [
+        "p18b/devtools/s6-setuidgid@v2"
+      ],
+      "effects": [
+        {
+          "operation": "process.exec",
+          "resource": {
+            "expr": "unresolved",
+            "family": "process"
+          }
+        }
+      ],
+      "boundaries": [
+        "unresolved_command"
+      ]
+    },
+    {
+      "id": "hermes-open-dynamic-operand",
+      "evidence": {
+        "repository": "hermes",
+        "path": "apps/desktop/electron/main.ts",
+        "lines": [
+          3546
+        ],
+        "excerpt": "/usr/bin/open \"$DST\""
+      },
+      "shape": "embedded_shell_script",
+      "cwd": "",
+      "command": "/usr/bin/open \"$DST\"",
+      "models": [
+        "p18b/devtools/open@v2"
+      ],
+      "effects": [],
+      "boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "id": "hermes-open-application",
+      "evidence": {
+        "repository": "hermes",
+        "path": "optional-skills/mlops/qdrant/references/troubleshooting.md",
+        "lines": [
+          15
+        ],
+        "excerpt": "open -a Docker"
+      },
+      "shape": "documented_command",
+      "cwd": "",
+      "command": "open -a Docker",
+      "models": [
+        "p18b/devtools/open@v2"
+      ],
+      "effects": [],
+      "boundaries": [
+        "unrecognized_arguments"
+      ]
+    },
+    {
+      "id": "hermes-vite-dev-listener",
+      "evidence": {
+        "repository": "hermes",
+        "path": "apps/bootstrap-installer/package.json",
+        "lines": [
+          8
+        ],
+        "excerpt": "    \"dev\": \"vite --host 127.0.0.1 --port 5175\","
+      },
+      "shape": "package_script",
+      "cwd": "apps/bootstrap-installer",
+      "command": "vite --host 127.0.0.1 --port 5175",
+      "models": [
+        "p18b/devtools/js-toolchain/vite@v2"
+      ],
+      "effects": [
+        {
+          "operation": "network.listen",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "network_endpoint",
+              "host": "127.0.0.1",
+              "port": 5175,
+              "scheme": "tcp"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "hermes-tsc-typecheck",
+      "evidence": {
+        "repository": "hermes",
+        "path": "apps/bootstrap-installer/package.json",
+        "lines": [
+          15
+        ],
+        "excerpt": "    \"typecheck\": \"tsc -p . --noEmit\","
+      },
+      "shape": "package_script",
+      "cwd": "apps/bootstrap-installer",
+      "command": "tsc -p . --noEmit",
+      "models": [
+        "p18b/devtools/js-toolchain/tsc@v2"
+      ],
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/apps/bootstrap-installer"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "hermes-eslint-fix-directories",
+      "evidence": {
+        "repository": "hermes",
+        "path": "apps/desktop/package.json",
+        "lines": [
+          50
+        ],
+        "excerpt": "    \"lint:fix\": \"eslint src/ electron/ --fix\","
+      },
+      "shape": "package_script",
+      "cwd": "apps/desktop",
+      "command": "eslint src/ electron/ --fix",
+      "models": [
+        "p18b/devtools/js-toolchain/eslint@v2"
+      ],
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/apps/desktop/electron"
+            }
+          }
+        },
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/apps/desktop/src"
+            }
+          }
+        },
+        {
+          "operation": "filesystem.write",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/apps/desktop/electron"
+            }
+          }
+        },
+        {
+          "operation": "filesystem.write",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/apps/desktop/src"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "hermes-prettier-write-globs",
+      "evidence": {
+        "repository": "hermes",
+        "path": "apps/desktop/package.json",
+        "lines": [
+          51
+        ],
+        "excerpt": "    \"fmt\": \"prettier --write 'src/**/*.{ts,tsx}' 'electron/**/*.ts' 'vite.config.ts'\","
+      },
+      "shape": "package_script",
+      "cwd": "apps/desktop",
+      "command": "prettier --write 'src/**/*.{ts,tsx}' 'electron/**/*.ts' 'vite.config.ts'",
+      "models": [
+        "p18b/devtools/js-toolchain/prettier@v2"
+      ],
+      "effects": [
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/apps/desktop/electron"
+            }
+          }
+        },
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/apps/desktop/src"
+            }
+          }
+        },
+        {
+          "operation": "filesystem.read",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/apps/desktop/vite.config.ts"
+            }
+          }
+        },
+        {
+          "operation": "filesystem.write",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/apps/desktop/electron"
+            }
+          }
+        },
+        {
+          "operation": "filesystem.write",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/apps/desktop/src"
+            }
+          }
+        },
+        {
+          "operation": "filesystem.write",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "{root}/apps/desktop/vite.config.ts"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "hermes-vitest-run",
+      "evidence": {
+        "repository": "hermes",
+        "path": "apps/desktop/package.json",
+        "lines": [
+          55
+        ],
+        "excerpt": "    \"test\": \"vitest run\","
+      },
+      "shape": "package_script",
+      "cwd": "apps/desktop",
+      "command": "vitest run",
+      "models": [
+        "p18b/devtools/js-toolchain/vitest@v2"
+      ],
+      "effects": [
+        {
+          "operation": "process.code_execution",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "cwd": {
+                "expr": "concrete",
+                "identity": {
+                  "family": "fs_path",
+                  "path": "{root}/apps/desktop"
+                }
+              },
+              "executable": "vitest",
+              "family": "process"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "hermes-cross-env-package-script",
+      "evidence": {
+        "repository": "hermes",
+        "path": "apps/desktop/package.json",
+        "lines": [
+          19
+        ],
+        "excerpt": "    \"dev:fake-boot\": \"cross-env HERMES_DESKTOP_BOOT_FAKE=1 HERMES_DESKTOP_BOOT_FAKE_STEP_MS=650 npm run dev\","
+      },
+      "shape": "package_script",
+      "cwd": "apps/desktop",
+      "command": "cross-env HERMES_DESKTOP_BOOT_FAKE=1 HERMES_DESKTOP_BOOT_FAKE_STEP_MS=650 npm run dev",
+      "models": [
+        "p18b/devtools/js-toolchain/cross-env@v2"
+      ],
+      "effects": [
+        {
+          "operation": "environment.write",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "environment_variable",
+              "name": "HERMES_DESKTOP_BOOT_FAKE"
+            }
+          }
+        },
+        {
+          "operation": "environment.write",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "environment_variable",
+              "name": "HERMES_DESKTOP_BOOT_FAKE_STEP_MS"
+            }
+          }
+        },
+        {
+          "operation": "process.exec",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "argv": [
+                {
+                  "expr": "literal",
+                  "value": "run"
+                },
+                {
+                  "expr": "literal",
+                  "value": "dev"
+                }
+              ],
+              "cwd": {
+                "expr": "concrete",
+                "identity": {
+                  "family": "fs_path",
+                  "path": "{root}/apps/desktop"
+                }
+              },
+              "executable": "npm",
+              "family": "process"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+        "unresolved_package_script"
+      ]
+    },
+    {
+      "id": "hermes-vite-preview-after-node",
+      "evidence": {
+        "repository": "hermes",
+        "path": "apps/desktop/package.json",
+        "lines": [
+          56
+        ],
+        "excerpt": "    \"preview\": \"node scripts/assert-root-install.mjs && vite preview --host 127.0.0.1 --port 4174\","
+      },
+      "shape": "package_script",
+      "cwd": "apps/desktop",
+      "command": "node scripts/assert-root-install.mjs && vite preview --host 127.0.0.1 --port 4174",
+      "models": [
+        "p18b/devtools/js-toolchain/vite@v2"
+      ],
+      "effects": [
+        {
+          "operation": "network.listen",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "network_endpoint",
+              "host": "127.0.0.1",
+              "port": 4174,
+              "scheme": "tcp"
+            }
+          }
+        }
+      ],
+      "boundaries": [
+      ]
+    },
+    {
+      "id": "hermes-tsc-build-mode-then-vite-build",
+      "evidence": {
+        "repository": "hermes",
+        "path": "web/package.json",
+        "lines": [
+          8
+        ],
+        "excerpt": "    \"build\": \"tsc -b && vite build\","
+      },
+      "shape": "package_script",
+      "cwd": "web",
+      "command": "tsc -b && vite build",
+      "models": [
+        "p18b/devtools/js-toolchain/tsc@v2",
+        "p18b/devtools/js-toolchain/vite@v2"
+      ],
+      "effects": [
+        {
+          "operation": "filesystem.write",
+          "resource": {
+            "expr": "unresolved",
+            "family": "filesystem"
+          }
+        }
+      ],
+      "boundaries": [
+        "unrecognized_arguments"
+      ]
+    }
+  ]
+}

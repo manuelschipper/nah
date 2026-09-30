@@ -1,0 +1,95 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:6ddcd0c31a5b05727d0505bd2708f10efe3e86ebbc9ee4ad0ff3cc58845ba8fe",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/transfer-archive-process/pmcycles@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "target",
+        "os": "aix",
+        "arch": null
+      }
+    ],
+    "versions": [
+      {
+        "target": "pmcycles",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/transfer-archive-process/pmcycles@v1",
+        "path": "../../tests/fixtures/model_tranche/pmcycles.json",
+        "digest": "blake3:292e00c90a94bc5cecbeb2248f3313aa532d821d052cecf2d57c097f6eb395e6"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "pmcycles-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "pmcycles-not-the-command",
+            "-m"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [],
+    "expected_facts": [],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/transfer-archive-process/pmcycles@v1",
+      "commands": [
+        "pmcycles"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-m"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

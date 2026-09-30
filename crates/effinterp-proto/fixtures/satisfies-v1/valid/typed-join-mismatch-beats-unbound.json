@@ -1,0 +1,45 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "typed-join-mismatch-beats-unbound",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "network_endpoint",
+        "host": "example.test"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "join",
+        "parts": [
+          {
+            "expr": "environment",
+            "name": "HOME"
+          },
+          {
+            "expr": "pattern",
+            "pattern": {
+              "family": "fs_path",
+              "glob": "/x*"
+            }
+          }
+        ]
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "not_satisfied"
+  }
+}

@@ -1,0 +1,1263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nahguard.ai/schema/analysis-v1.json",
+  "title": "Effect Interpreter repository query protocol v1",
+  "$comment": "Canonical JSON is pretty UTF-8 JSON with this schema's required field order, lexicographically sorted map keys, no duplicate object keys, no alternate whitespace, and exactly one trailing LF. Every nullable field is emitted explicitly; v1 has no omitted envelope fields or compatibility defaults. Unicode scalar values are preserved without normalization or host-locale rewriting. Identity paths use forward slashes, are repository-relative, and contain no empty, dot, or dot-dot segment. Stable hashes are BLAKE3 over 'effinterp/stable-id/v1\\0', the named domain, '\\0', and compact JSON with sorted object keys. Domains and inputs are: analysis-configuration/v1 over configuration; analysis-subject/v1 over the complete typed subject descriptor; analysis-occurrence/v1 over the occurrence descriptor; analysis-fact/v1 over operation, normalized resource identity, realm, modality, attributes, condition, provenance roots, and dispatch; analysis-boundary/v1 over class, reason, domains, detail, limit, provenance roots, and dispatch; repo-query-content/v1 over the complete envelope except content_hash. Snapshot IDs use effinterp/repo-snapshot/v1 over the key, kind, and prefixed digest of every dependency. None of these inputs contains absolute checkout location, host environment, insertion order, or renderer text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "snapshot_id",
+    "identity",
+    "subjects",
+    "status",
+    "coverage",
+    "boundaries",
+    "provenance",
+    "payload_kind",
+    "payload",
+    "content_hash"
+  ],
+  "properties": {
+    "schema": { "const": "effinterp/repo-query/v1" },
+    "snapshot_id": { "$ref": "#/$defs/digest" },
+    "identity": { "$ref": "#/$defs/identity" },
+    "subjects": {
+      "type": "array",
+      "$comment": "Strictly ordered by unique entrypoint identity. Every complete or partial payload entrypoint reference names one of these subjects; stale payloads may describe a subject removed from the current working tree.",
+      "items": { "$ref": "#/$defs/subject" }
+    },
+    "status": { "$ref": "#/$defs/status" },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "boundaries": {
+      "type": "array",
+      "$comment": "Strictly ordered by boundary id.",
+      "items": { "$ref": "#/$defs/boundary" }
+    },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "payload_kind": {
+      "enum": [
+        "effects",
+        "reach"
+      ]
+    },
+    "payload": { "type": "object" },
+    "content_hash": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    { "if": { "properties": { "payload_kind": { "const": "effects" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/effects_payload" } } } },
+    { "if": { "properties": { "payload_kind": { "const": "reach" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/reach_payload" } } } }
+  ],
+  "$defs": {
+    "patternField": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "any"}}}, {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "exact"}, "value": {"type": "string"}}}]},
+    "patternPort": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "any"}}}, {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "exact"}, "value": {"type": "integer", "minimum": 0, "maximum": 65535}}}]},
+    "patternText": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "any"}}}, {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "exact"}, "value": {"type": "string"}}}, {"type": "object", "additionalProperties": false, "required": ["kind", "glob"], "properties": {"kind": {"const": "glob"}, "glob": {"type": "string"}}}]},
+    "resourcePattern": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["family", "glob"], "properties": {"family": {"const": "artifact_field"}, "glob": {"type": "string", "minLength": 1}}}, {"type": "object", "additionalProperties": false, "required": ["family", "glob"], "properties": {"family": {"const": "fs_path"}, "glob": {"type": "string", "minLength": 1}}}, {"type": "object", "additionalProperties": false, "required": ["family", "name_glob"], "properties": {"family": {"const": "environment_variable"}, "name_glob": {"type": "string", "minLength": 1}}}, {"type": "object", "additionalProperties": false, "required": ["family", "host_glob", "scheme", "port"], "properties": {"family": {"const": "network_endpoint"}, "host_glob": {"type": "string", "minLength": 1}, "scheme": {"$ref": "#/$defs/patternField"}, "port": {"$ref": "#/$defs/patternPort"}, "path_prefix": {"type": ["string", "null"]}}}, {"type": "object", "additionalProperties": false, "required": ["family", "server", "database", "schema", "table"], "properties": {"family": {"const": "database_table"}, "server": {"$ref": "#/$defs/patternField"}, "database": {"$ref": "#/$defs/patternField"}, "schema": {"$ref": "#/$defs/patternField"}, "table": {"$ref": "#/$defs/patternField"}}}, {"type": "object", "additionalProperties": false, "required": ["family", "server", "database", "schema"], "properties": {"family": {"const": "database_schema"}, "server": {"$ref": "#/$defs/patternField"}, "database": {"$ref": "#/$defs/patternField"}, "schema": {"$ref": "#/$defs/patternField"}}}, {"type": "object", "additionalProperties": false, "required": ["family", "executable", "argv_prefix"], "properties": {"family": {"const": "process"}, "executable": {"$ref": "#/$defs/patternText"}, "argv_prefix": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/resource_expression"}}}}, {"type": "object", "additionalProperties": false, "required": ["family", "provider", "bucket"], "properties": {"family": {"const": "object_store"}, "provider": {"$ref": "#/$defs/patternField"}, "bucket": {"type": "string", "minLength": 1}, "key_prefix": {"type": ["string", "null"]}}}, {"type": "object", "additionalProperties": false, "required": ["family", "runtime"], "properties": {"family": {"const": "container"}, "runtime": {"$ref": "#/$defs/patternField"}, "name_glob": {"type": ["string", "null"]}, "image_glob": {"type": ["string", "null"]}}}, {"type": "object", "additionalProperties": false, "required": ["family"], "properties": {"family": {"const": "git_repository"}, "worktree": {"type": ["string", "null"]}, "git_dir": {"type": ["string", "null"]}, "pathspec_glob": {"type": ["string", "null"]}}}, {"type": "object", "additionalProperties": false, "required": ["family", "provider", "service", "kind", "id_glob"], "properties": {"family": {"const": "cloud_resource"}, "provider": {"$ref": "#/$defs/patternField"}, "service": {"$ref": "#/$defs/patternField"}, "kind": {"$ref": "#/$defs/patternField"}, "id_glob": {"type": "string", "minLength": 1}}}, {"type": "object", "additionalProperties": false, "required": ["family", "system", "name_glob"], "properties": {"family": {"const": "message_topic"}, "system": {"$ref": "#/$defs/patternField"}, "name_glob": {"type": "string", "minLength": 1}}}, {"type": "object", "additionalProperties": false, "required": ["family", "manager", "name_glob"], "properties": {"family": {"const": "service_unit"}, "manager": {"$ref": "#/$defs/patternField"}, "name_glob": {"type": "string", "minLength": 1}}}]},
+    "scope_value": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["state"], "properties": {"state": {"enum": ["unknown", "not_applicable"]}}}, {"type": "object", "additionalProperties": false, "required": ["state", "value"], "properties": {"state": {"const": "value"}, "value": {"$ref": "#/$defs/resource_expression"}}}]},
+    "resource_scope": {"type": "object", "additionalProperties": false, "required": ["kind", "identity", "access"], "properties": {"kind": {"enum": ["s3_bucket", "gcs_bucket", "azure_blob", "aws_regional", "gce_zonal", "gce_regional", "azure_vm", "kafka_topic", "rabbit_queue", "mqtt_topic", "nats_subject", "redis_channel", "redis_key", "unsupported"]}, "identity": {"type": "object", "additionalProperties": false, "required": ["partition", "account", "project", "subscription", "region", "zone", "storage_account", "resource_group", "cluster", "namespace"], "properties": {"partition": {"$ref": "#/$defs/scope_value"}, "account": {"$ref": "#/$defs/scope_value"}, "project": {"$ref": "#/$defs/scope_value"}, "subscription": {"$ref": "#/$defs/scope_value"}, "region": {"$ref": "#/$defs/scope_value"}, "zone": {"$ref": "#/$defs/scope_value"}, "storage_account": {"$ref": "#/$defs/scope_value"}, "resource_group": {"$ref": "#/$defs/scope_value"}, "cluster": {"$ref": "#/$defs/scope_value"}, "namespace": {"$ref": "#/$defs/scope_value"}}}, "access": {"type": "array", "maxItems": 64, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "value", "origin"], "properties": {"kind": {"enum": ["endpoint", "seed", "node", "profile", "context", "subscription_name", "request_region", "configuration_file", "unresolved_configuration"]}, "value": {"$ref": "#/$defs/resource_expression"}, "origin": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/realm"}]}}}}}},
+    "fact_id": {
+      "type": "string",
+      "pattern": "^fact:blake3:[0-9a-f]{64}$"
+    },
+    "resource_expression": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["expr", "identity"], "properties": { "expr": { "const": "concrete" }, "identity": { "$ref": "#/$defs/resource_identity" } } },
+        { "type": "object", "additionalProperties": false, "required": ["expr", "value"], "properties": { "expr": { "const": "literal" }, "value": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["expr", "name"], "properties": { "expr": { "const": "parameter" }, "name": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["expr", "name"], "properties": { "expr": { "const": "environment" }, "name": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["expr", "base", "name"], "properties": { "expr": { "const": "property" }, "base": { "$ref": "#/$defs/resource_expression" }, "name": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["expr", "parts"], "properties": { "expr": { "const": "join" }, "parts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/resource_expression" } } } },
+        { "type": "object", "additionalProperties": false, "required": ["expr", "alternatives"], "properties": { "expr": { "const": "union" }, "alternatives": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/resource_expression" } } } },
+        {"type": "object", "additionalProperties": false, "required": ["expr", "pattern"], "properties": {"expr": {"const": "pattern"}, "pattern": {"$ref": "#/$defs/resourcePattern"}}},
+        { "type": "object", "additionalProperties": false, "required": ["expr", "family"], "properties": { "expr": { "const": "unresolved" }, "family": { "type": "string" } } }
+      ],
+      "$comment": "A normalized Effect Interpreter resource expression. Union alternatives are strictly ordered by compact canonical JSON and duplicate-free; join parts retain semantic order."
+    },
+    "resource_identity": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["family", "api_group", "kind", "name", "namespace", "server", "context"], "properties": {"family": {"const": "kubernetes_resource"}, "api_group": {"type": "string"}, "kind": {"type": "string", "minLength": 1}, "name": {"$ref": "#/$defs/resource_expression"}, "namespace": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["scope"], "properties": {"scope": {"const": "cluster"}}}, {"type": "object", "additionalProperties": false, "required": ["scope", "namespace"], "properties": {"scope": {"const": "namespaced"}, "namespace": {"$ref": "#/$defs/resource_expression"}}}, {"type": "object", "additionalProperties": false, "required": ["scope", "namespace"], "properties": {"scope": {"const": "unknown"}, "namespace": {"$ref": "#/$defs/resource_expression"}}}]}, "server": {"$ref": "#/$defs/resource_expression"}, "context": {"$ref": "#/$defs/resource_expression"}}},
+        {"type": "object", "additionalProperties": false, "required": ["family", "tool", "configuration_root", "workspace", "resource_type", "address", "instance"], "properties": {"family": {"const": "managed_infrastructure"}, "tool": {"enum": ["terraform", "tofu"]}, "configuration_root": {"$ref": "#/$defs/resource_expression"}, "workspace": {"$ref": "#/$defs/resource_expression"}, "resource_type": {"type": ["string", "null"], "minLength": 1}, "address": {"type": ["string", "null"], "minLength": 1}, "instance": {"$ref": "#/$defs/resource_expression"}}},
+        {"type": "object", "additionalProperties": false, "required": ["family", "manager", "name"], "properties": {"family": {"const": "service_unit"}, "manager": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}},
+        {"type": "object", "additionalProperties": false, "required": ["family", "scheduler"], "properties": {"family": {"const": "scheduled_job"}, "scheduler": {"type": "string", "minLength": 1}, "owner": {"type": "string"}}},
+        {"type": "object", "additionalProperties": false, "required": ["family", "manager", "name"], "properties": {"family": {"const": "storage_volume"}, "manager": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}},
+        {"type": "object", "additionalProperties": false, "required": ["family", "device"], "properties": {"family": {"const": "block_device"}, "device": {"type": "string", "minLength": 1}}},
+        {"type": "object", "additionalProperties": false, "required": ["family", "provider"], "properties": {"family": {"const": "credential_store"}, "provider": {"type": "string"}, "store": {"type": "string"}, "path": {"type": "string"}}},
+        {"type": "object", "additionalProperties": false, "required": ["family"], "properties": {"family": {"const": "host_system"}}},
+        { "type": "object", "additionalProperties": false, "required": ["family", "path"], "properties": { "family": { "const": "fs_path" }, "path": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["family", "user"], "properties": { "family": { "const": "user_home" }, "user": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["family", "executable"], "properties": { "family": { "const": "process" }, "executable": { "type": "string", "minLength": 1 }, "path": { "type": "string" }, "argv": { "type": "array", "items": { "$ref": "#/$defs/resource_expression" } }, "cwd": { "$ref": "#/$defs/resource_expression" } } },
+        { "type": "object", "additionalProperties": false, "required": ["family", "host"], "properties": { "family": { "const": "network_endpoint" }, "host": { "type": "string", "minLength": 1 }, "scheme": { "type": "string" }, "port": { "type": "integer", "minimum": 0, "maximum": 65535 }, "path": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["family", "runtime"], "anyOf": [{ "required": ["name"] }, { "required": ["image"] }], "properties": { "family": { "const": "container" }, "runtime": { "type": "string", "minLength": 1 }, "name": { "type": "string" }, "image": { "type": "string" }, "storage": { "type": "array", "items": { "$ref": "#/$defs/container_storage" } } } },
+        { "type": "object", "additionalProperties": false, "required": ["family", "table"], "properties": { "family": { "const": "database_table" }, "server": { "type": "string" }, "database": { "type": "string" }, "schema": { "type": "string" }, "table": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["family"], "anyOf": [{ "required": ["server"] }, { "required": ["database"] }, { "required": ["schema"] }], "properties": { "family": { "const": "database_schema" }, "server": { "type": "string" }, "database": { "type": "string" }, "schema": { "type": "string" } } },
+        {"type": "object", "additionalProperties": false, "required": ["family", "bucket", "scope"], "properties": {"family": {"const": "object_store"}, "provider": {"type": "string"}, "bucket": {"type": "string", "minLength": 1}, "key": {"type": "string"}, "scope": {"$ref": "#/$defs/resource_scope"}}},
+        {"type": "object", "additionalProperties": false, "required": ["family", "service", "kind", "scope"], "properties": {"family": {"const": "cloud_resource"}, "provider": {"type": "string"}, "service": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "scope": {"$ref": "#/$defs/resource_scope"}}},
+        {"type": "object", "additionalProperties": false, "required": ["family", "ecosystem", "endpoint", "name", "reference"], "properties": {"family": {"const": "artifact"}, "ecosystem": {"enum": ["oci", "npm", "github-release"]}, "endpoint": {"$ref": "#/$defs/resource_expression"}, "name": {"$ref": "#/$defs/resource_expression"}, "reference": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "version"}, "value": {"$ref": "#/$defs/resource_expression"}}}, {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "tag"}, "value": {"$ref": "#/$defs/resource_expression"}}}, {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "digest"}, "value": {"$ref": "#/$defs/resource_expression"}}}, {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "whole"}}}]}}},
+        {"type": "object", "additionalProperties": false, "required": ["family", "name", "scope"], "properties": {"family": {"const": "message_topic"}, "system": {"type": "string"}, "name": {"type": "string", "minLength": 1}, "scope": {"$ref": "#/$defs/resource_scope"}}}
+      ]
+    },
+    "realm": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["realm"], "properties": { "realm": { "const": "host" } } },
+        { "type": "object", "additionalProperties": false, "required": ["realm", "runtime", "name"], "properties": { "realm": { "const": "container" }, "runtime": { "type": "string", "minLength": 1 }, "name": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["realm", "pod"], "properties": { "realm": { "const": "kubernetes" }, "namespace": { "type": "string" }, "pod": { "type": "string", "minLength": 1 }, "container": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["realm"], "properties": { "realm": { "const": "chroot" }, "host_root": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["realm", "endpoint"], "properties": { "realm": { "const": "remote" }, "endpoint": { "type": "string", "minLength": 1 } } }
+      ]
+    },
+    "condition": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/condition_node"
+        }
+      ]
+    },
+    "condition_node": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "atom"
+          ],
+          "properties": {
+            "kind": {
+              "const": "atom"
+            },
+            "atom": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "origin",
+                "arm",
+                "arms",
+                "exhaustive",
+                "polarity",
+                "evidence"
+              ],
+              "properties": {
+                "origin": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "source_digest",
+                    "span",
+                    "kind",
+                    "ordinal",
+                    "call_instance"
+                  ],
+                  "properties": {
+                    "source_digest": {
+                      "type": "string",
+                      "pattern": "^blake3:[0-9a-f]{64}$"
+                    },
+                    "span": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "start",
+                        "end"
+                      ],
+                      "properties": {
+                        "start": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 4294967295
+                        },
+                        "end": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 4294967295
+                        }
+                      }
+                    },
+                    "kind": {
+                      "enum": [
+                        "branch",
+                        "short_circuit",
+                        "loop",
+                        "dispatch",
+                        "unresolved_execution"
+                      ]
+                    },
+                    "ordinal": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4294967295
+                    },
+                    "call_instance": {
+                      "oneOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^blake3:[0-9a-f]{64}$"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "arm": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "arms": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "exhaustive": {
+                  "type": "boolean"
+                },
+                "polarity": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "evidence": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "path",
+                        "excerpt"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "source"
+                        },
+                        "path": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "excerpt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "maxLength": 256
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "path",
+                        "excerpt"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "redacted"
+                        },
+                        "path": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "excerpt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "maxLength": 256
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "widened"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "conditions"
+          ],
+          "properties": {
+            "kind": {
+              "const": "all"
+            },
+            "conditions": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 63,
+              "items": {
+                "$ref": "#/$defs/condition_node"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "conditions"
+          ],
+          "properties": {
+            "kind": {
+              "const": "any"
+            },
+            "conditions": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 63,
+              "items": {
+                "$ref": "#/$defs/condition_node"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          { "type": ["boolean", "integer", "string"] },
+          { "type": "array", "items": { "type": ["boolean", "integer", "string"] } }
+        ]
+      }
+    },
+    "effect_origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_file", "execution_node"],
+      "properties": {
+        "source_file": { "$ref": "#/$defs/canonical_path" },
+        "execution_node": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "fact_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["occurrences", "exemplar_paths", "fact_id", "entrypoint", "operation", "resource", "realm", "modality", "request_assurance", "attributes", "condition", "provenance_roots"],
+      "properties": {
+        "occurrences": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "exemplar_paths": { "type": "array", "maxItems": 4, "uniqueItems": true, "items": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } } },
+        "fact_id": { "$ref": "#/$defs/fact_id" },
+        "entrypoint": { "type": "string", "minLength": 1 },
+        "operation": { "type": "string", "pattern": "^[a-z0-9_]+(?:\\.[a-z0-9_]+)+$" },
+        "resource": { "$ref": "#/$defs/resource_expression" },
+        "realm": { "$ref": "#/$defs/realm" },
+        "modality": { "enum": ["may", "must-on-success"] },
+        "request_assurance": { "enum": ["conservative", "exact"] },
+        "attributes": { "$ref": "#/$defs/attributes" },
+        "condition": { "$ref": "#/$defs/condition" },
+        "origin": { "$ref": "#/$defs/effect_origin" },
+        "assurance": { "enum": ["exact", "alternatives", "heuristic"] },
+        "dispatch": { "$ref": "#/$defs/dispatch_identity" },
+        "provenance_roots": { "type": "array", "items": { "$ref": "#/$defs/occurrence_id" }, "uniqueItems": true }
+      }
+    },
+    "payload_boundary_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["occurrences", "exemplar_paths", "boundary_id", "reason", "domains", "affected_resource", "provenance_roots"],
+      "properties": {
+        "occurrences": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "exemplar_paths": { "type": "array", "maxItems": 4, "uniqueItems": true, "items": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } } },
+        "boundary_id": { "type": "string", "pattern": "^boundary:blake3:[0-9a-f]{64}$" },
+        "reason": { "$ref": "#/$defs/boundary_reason" },
+        "domains": { "type": "array", "$comment": "Strict lexicographic order; duplicates are forbidden.", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "affected_resource": { "oneOf": [{ "$ref": "#/$defs/resource_expression" }, { "type": "null" }] },
+        "detail": { "type": "string" },
+        "limit": { "type": "string" },
+        "dispatch": { "$ref": "#/$defs/dispatch_identity" },
+        "provenance_roots": { "type": "array", "$comment": "Duplicates are forbidden; order retains the semantic provenance path.", "items": { "$ref": "#/$defs/occurrence_id" }, "uniqueItems": true }
+      },
+      "$comment": "Every field restated here equals the identity-bearing top-level boundary selected by boundary_id."
+    },
+    "effects_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint", "effects", "coverage", "boundaries"],
+      "properties": {
+        "entrypoint": { "type": "string", "minLength": 1 },
+        "effects": { "type": "array", "uniqueItems": true, "$comment": "Strictly ordered by the canonical fact value; duplicate facts and duplicate fact ids are forbidden.", "items": { "$ref": "#/$defs/fact_payload" } },
+        "coverage": { "type": "object", "additionalProperties": { "$ref": "#/$defs/coverage_claim" } },
+        "boundaries": { "type": "array", "uniqueItems": true, "$comment": "Strictly ordered by reason, domains, detail, limit, and dispatch; duplicates are forbidden.", "items": { "$ref": "#/$defs/payload_boundary_row" } }
+      }
+    },
+    "reach_hit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fact", "match"],
+      "properties": {
+        "fact": { "$ref": "#/$defs/fact_payload" },
+        "match": { "$ref": "#/$defs/satisfied_match" }
+      }
+    },
+    "boundary_indeterminate_hit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["row_kind", "boundary_id", "entrypoint", "domain", "coverage", "boundary_reason", "affected_resource", "source_file", "provenance_roots"],
+      "properties": {
+        "row_kind": { "const": "boundary" },
+        "boundary_id": { "type": "string", "pattern": "^boundary:blake3:[0-9a-f]{64}$" },
+        "entrypoint": { "type": "string", "minLength": 1 },
+        "domain": { "type": "string", "minLength": 1 },
+        "coverage": { "$ref": "#/$defs/coverage_level" },
+        "boundary_reason": { "$ref": "#/$defs/boundary_reason" },
+        "affected_resource": { "oneOf": [{ "$ref": "#/$defs/resource_expression" }, { "type": "null" }] },
+        "boundary_detail": { "type": "string" },
+        "limit": { "type": "string" },
+        "dispatch": { "$ref": "#/$defs/dispatch_identity" },
+        "source_file": { "$ref": "#/$defs/canonical_path", "$comment": "Names a source_module dependency in identity.dependencies." },
+        "provenance_roots": { "type": "array", "$comment": "Duplicates are forbidden; order retains the semantic provenance path.", "items": { "$ref": "#/$defs/occurrence_id" }, "uniqueItems": true }
+      },
+      "$comment": "boundary_reason, boundary_detail, limit, dispatch, and provenance_roots equal the top-level boundary selected by boundary_id; domain is one of that record's domains."
+    },
+    "proof_step": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name",
+            "source"
+          ],
+          "properties": {
+            "kind": {
+              "const": "binding"
+            },
+            "name": {
+              "type": "string"
+            },
+            "source": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "declared",
+                    "observed"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "pattern",
+                "recursive_extent"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "index"
+          ],
+          "properties": {
+            "kind": {
+              "const": "alternative"
+            },
+            "index": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "satisfied_match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "proof"
+      ],
+      "properties": {
+        "kind": {
+          "const": "satisfied"
+        },
+        "proof": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "steps"
+          ],
+          "properties": {
+            "steps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/proof_step"
+              }
+            }
+          }
+        }
+      }
+    },
+    "unknown_match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "properties": {
+        "kind": {
+          "const": "indeterminate"
+        },
+        "reason": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "names"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "unbound"
+                },
+                "names": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "unresolved_family",
+                    "unsupported_shape",
+                    "underqualified_fields",
+                    "underqualified_realm",
+                    "truncated_argv",
+                    "invalid_input",
+                    "limit"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "indeterminate_hit": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/boundary_indeterminate_hit"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "row_kind",
+            "fact",
+            "domain",
+            "coverage",
+            "match"
+          ],
+          "properties": {
+            "row_kind": {
+              "const": "effect"
+            },
+            "fact": {
+              "$ref": "#/$defs/fact_payload"
+            },
+            "domain": {
+              "type": "string",
+              "minLength": 1
+            },
+            "coverage": {
+              "$ref": "#/$defs/coverage_level"
+            },
+            "match": {
+              "$ref": "#/$defs/unknown_match"
+            }
+          }
+        }
+      ]
+    },
+    "reach_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector", "domain", "matches", "indeterminate"],
+      "properties": {
+        "selector": { "type": "string", "minLength": 1 },
+        "domain": { "type": "string", "minLength": 1 },
+        "operation": { "type": "string", "minLength": 1 },
+        "matches": { "type": "array", "uniqueItems": true, "$comment": "Strictly ordered by the complete canonical row value; duplicates are forbidden.", "items": { "$ref": "#/$defs/reach_hit" } },
+        "indeterminate": { "type": "array", "uniqueItems": true, "$comment": "Strictly ordered by the complete canonical row value; duplicates are forbidden.", "items": { "$ref": "#/$defs/indeterminate_hit" } }
+      }
+    },
+    "container_storage": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "host_path", "container_path", "read_only"],
+          "properties": {
+            "kind": { "const": "bind_mount" },
+            "host_path": { "$ref": "#/$defs/resource_expression" },
+            "container_path": { "$ref": "#/$defs/resource_expression" },
+            "read_only": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name", "container_path"],
+          "properties": {
+            "kind": { "const": "volume" },
+            "name": { "type": "string", "minLength": 1 },
+            "container_path": { "$ref": "#/$defs/resource_expression" }
+          }
+        }
+      ]
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^blake3:[0-9a-f]{64}$"
+    },
+    "canonical_path": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        { "not": { "pattern": "^(?:/|[A-Za-z]:[\\\\/])" } },
+        { "not": { "pattern": "\\\\|(?:^|/)(?:\\.|\\.\\.)(?:/|$)|//" } }
+      ]
+    },
+    "dependency_kind": {
+      "enum": [
+        "source_module",
+        "skipped_source",
+        "entrypoint_discovery",
+        "resolver_config",
+        "parser_frontend",
+        "analyzer",
+        "model_set",
+        "limit"
+      ]
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "kind", "digest"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/dependency_kind" },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "analyzer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "build_digest"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "build_digest": { "$ref": "#/$defs/digest", "$comment": "Content identity of the protocol, engine, and repository analyzer sources and their locked build inputs; it is not derived from the analyzer version string." }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analyzer",
+        "configuration_digest",
+        "model_set_digest",
+        "dependencies"
+      ],
+      "properties": {
+        "analyzer": { "$ref": "#/$defs/analyzer" },
+        "configuration_digest": { "$ref": "#/$defs/digest" },
+        "model_set_digest": { "$ref": "#/$defs/digest" },
+        "dependencies": {
+          "type": "array",
+          "$comment": "Strictly ordered by key; keys are unique and their namespace must match kind.",
+          "items": { "$ref": "#/$defs/dependency" }
+        }
+      }
+    },
+    "host_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "env_unset": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "user_homes": { "type": "object", "additionalProperties": { "type": "string" } },
+        "os_dialect": { "enum": ["unknown", "linux", "macos", "windows"], "default": "unknown" }
+      }
+    },
+    "subject_descriptor": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "argv"], "properties": { "kind": { "const": "exec" }, "argv": { "type": "array", "items": { "type": "string" } }, "cwd": { "type": "string" }, "context": { "$ref": "#/$defs/host_context" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "source"], "properties": { "kind": { "const": "shell" }, "source": { "type": "string" }, "cwd": { "type": "string" }, "context": { "$ref": "#/$defs/host_context" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "source", "dialect"], "properties": { "kind": { "const": "sql" }, "source": { "type": "string" }, "dialect": { "enum": ["postgres", "mysql", "sqlite", "generic", "tsql", "snowflake", "bigquery", "clickhouse", "cql"] }, "connection": { "type": "object", "additionalProperties": false, "properties": { "server": { "type": "string" }, "database": { "type": "string" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "language", "source"], "properties": { "kind": { "const": "source" }, "language": { "enum": ["python", "js", "go", "ruby", "php", "java", "rust"] }, "source": { "type": "string" }, "cwd": { "type": "string" }, "context": { "$ref": "#/$defs/host_context" }, "dialect": { "enum": ["js", "ts", "ipython", "prime_agent"] } }, "if": { "properties": { "language": { "const": "js" } } }, "then": { "required": ["dialect"], "properties": { "dialect": { "enum": ["js", "ts"] } } }, "else": { "if": { "properties": { "language": { "const": "python" } } }, "then": { "properties": { "dialect": { "enum": ["ipython", "prime_agent"] } } }, "else": { "not": { "required": ["dialect"] } } } }
+      ]
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint", "source_path", "subject", "subject_digest"],
+      "properties": {
+        "entrypoint": { "type": "string", "minLength": 1 },
+        "source_path": { "$ref": "#/$defs/canonical_path" },
+        "subject": { "$ref": "#/$defs/subject_descriptor", "$comment": "The complete preimage of subject_digest under effinterp/analysis-subject/v1." },
+        "subject_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "analysis_graph": {
+      "enum": [
+        "effects",
+        "execution",
+        "occurrences",
+        "resource_state",
+        "causality",
+        "provenance"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["all_entrypoints", "entrypoints", "graphs"],
+      "properties": {
+        "all_entrypoints": { "type": "boolean" },
+        "entrypoints": {
+          "type": "array",
+          "$comment": "Strict lexicographic order; empty exactly when all_entrypoints is true.",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "graphs": {
+          "type": "array",
+          "minItems": 1,
+          "$comment": "Strict enum order: effects, execution, occurrences, resource_state, causality, provenance.",
+          "items": { "$ref": "#/$defs/analysis_graph" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "occurrence_id": {
+      "type": "string",
+      "pattern": "^occurrence:blake3:[0-9a-f]{64}$"
+    },
+    "coverage_claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level"],
+      "properties": {
+        "level": { "$ref": "#/$defs/coverage_level" },
+        "gaps": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^boundary:blake3:[0-9a-f]{64}$" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "level": { "const": "full" } } }, "then": { "not": { "required": ["gaps"] } }, "else": { "required": ["gaps"] } }
+      ]
+    },
+    "coverage_level": { "enum": ["full", "partial", "none"] },
+    "boundary_reason": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$" },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domains", "causality"],
+      "properties": {
+        "domains": {
+          "type": "object",
+          "propertyNames": { "minLength": 1, "not": { "const": "dataflow" } },
+          "additionalProperties": { "$ref": "#/$defs/coverage_claim" }
+        },
+        "causality": {
+          "oneOf": [
+            { "$ref": "#/$defs/coverage_claim" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "partial_reason": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "boundary_id", "scope"],
+          "properties": {
+            "kind": { "const": "unsupported_evidence" },
+            "boundary_id": { "type": "string", "minLength": 1 },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path", "scope"],
+          "properties": {
+            "kind": { "const": "unanalyzed_input" },
+            "path": { "$ref": "#/$defs/canonical_path" },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "entrypoint", "scope"],
+          "properties": {
+            "kind": { "const": "analysis_failure" },
+            "entrypoint": { "type": "string", "minLength": 1 },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "limit", "scope"],
+          "properties": {
+            "kind": { "const": "limit_reached" },
+            "limit": { "type": "string", "minLength": 1 },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "collection", "limit", "scope"],
+          "properties": {
+            "kind": { "const": "truncated" },
+            "collection": { "type": "string", "minLength": 1 },
+            "limit": { "type": "integer", "minimum": 0 },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        }
+      ]
+    },
+    "stale_reason": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "current_snapshot_id", "scope"],
+          "properties": {
+            "kind": { "const": "snapshot_superseded" },
+            "current_snapshot_id": { "$ref": "#/$defs/digest" },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "dependency", "path", "scope"],
+          "properties": {
+            "kind": { "const": "input_changed" },
+            "dependency": { "type": "string", "minLength": 1 },
+            "path": { "$ref": "#/$defs/canonical_path" },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "dependency", "path", "scope"],
+          "properties": {
+            "kind": { "const": "input_missing" },
+            "dependency": { "type": "string", "minLength": 1 },
+            "path": { "$ref": "#/$defs/canonical_path" },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "key", "scope"],
+          "properties": {
+            "kind": { "const": "unknown_dependency" },
+            "key": { "type": "string", "minLength": 1 },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "dependency", "current_analyzer_version", "scope"],
+          "properties": {
+            "kind": { "const": "analyzer_changed" },
+            "dependency": { "type": "string", "minLength": 1 },
+            "current_analyzer_version": { "type": "string", "minLength": 1 },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "dependency", "current_model_set_digest", "scope"],
+          "properties": {
+            "kind": { "const": "model_set_changed" },
+            "dependency": { "type": "string", "minLength": 1 },
+            "current_model_set_digest": { "$ref": "#/$defs/digest" },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "dependency", "parser", "scope"],
+          "properties": {
+            "kind": { "const": "parser_changed" },
+            "dependency": { "type": "string", "minLength": 1 },
+            "parser": { "type": "string", "minLength": 1 },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "dependency", "path", "scope"],
+          "properties": {
+            "kind": { "const": "config_changed" },
+            "dependency": { "type": "string", "minLength": 1 },
+            "path": { "$ref": "#/$defs/canonical_path" },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "dependency", "limit", "scope"],
+          "properties": {
+            "kind": { "const": "limits_changed" },
+            "dependency": { "type": "string", "minLength": 1 },
+            "limit": { "type": "string", "minLength": 1 },
+            "scope": { "$ref": "#/$defs/scope" }
+          }
+        }
+      ]
+    },
+    "status": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "complete" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "reasons"],
+          "properties": {
+            "kind": { "const": "partial" },
+            "reasons": {
+              "type": "array",
+              "minItems": 1,
+              "$comment": "Strictly ordered by compact canonical JSON; duplicates are forbidden.",
+              "items": { "$ref": "#/$defs/partial_reason" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "reasons"],
+          "properties": {
+            "kind": { "const": "stale" },
+            "reasons": {
+              "type": "array",
+              "minItems": 1,
+              "$comment": "Strictly ordered by compact canonical JSON; duplicates are forbidden.",
+              "items": { "$ref": "#/$defs/stale_reason" }
+            }
+          }
+        }
+      ]
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "id", "reason", "domains", "affected_resource", "detail", "limit", "dispatch", "provenance_roots"],
+      "properties": {
+        "class": { "enum": ["unmodeled", "unresolved", "limit", "parse_failure", "unsupported"] },
+        "id": { "type": "string", "minLength": 1 },
+        "reason": { "$ref": "#/$defs/boundary_reason" },
+        "domains": {
+          "type": "array",
+          "minItems": 1,
+          "$comment": "Strict lexicographic order.",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "affected_resource": {
+          "oneOf": [
+            { "$ref": "#/$defs/resource_expression" },
+            { "type": "null" }
+          ]
+        },
+        "detail": { "type": ["string", "null"] },
+        "limit": { "type": ["string", "null"] },
+        "dispatch": {
+          "oneOf": [
+            { "$ref": "#/$defs/dispatch_identity" },
+            { "type": "null" }
+          ]
+        },
+        "provenance_roots": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/occurrence_id" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "dispatch_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "registration_roots", "dispatch_roots"],
+      "properties": {
+        "model": { "type": "string", "minLength": 1 },
+        "registration_roots": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/occurrence_id" },
+          "uniqueItems": true
+        },
+        "dispatch_roots": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/occurrence_id" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "occurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_digest", "origin", "span", "semantic_kind", "local_ordinal"],
+      "properties": {
+        "input_digest": { "$ref": "#/$defs/digest" },
+        "origin": { "$ref": "#/$defs/canonical_path" },
+        "span": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end"],
+          "properties": {
+            "start": { "type": "integer", "minimum": 0 },
+            "end": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "semantic_kind": { "type": "string", "minLength": 1 },
+        "local_ordinal": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "provenance_node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "occurrence", "evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/occurrence_id" },
+        "occurrence": { "$ref": "#/$defs/occurrence" },
+        "evidence": { "$ref": "#/$defs/provenance_evidence" }
+      }
+    },
+    "source_evidence": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "start", "end"],
+          "properties": {
+            "kind": { "const": "span" },
+            "start": { "type": "integer", "minimum": 0 },
+            "end": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "index"],
+          "properties": {
+            "kind": { "const": "argument" },
+            "index": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "const": "function" },
+            "name": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "node", "origin"],
+          "properties": {
+            "kind": { "const": "execution" },
+            "node": { "type": "integer", "minimum": 0 },
+            "origin": {
+              "oneOf": [
+                { "$ref": "#/$defs/canonical_path" },
+                { "type": "null" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "provenance_evidence": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "entrypoint"],
+          "properties": {
+            "kind": { "const": "entrypoint" },
+            "entrypoint": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "evidence"],
+          "properties": {
+            "kind": { "const": "source" },
+            "evidence": { "$ref": "#/$defs/source_evidence" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "declaration_id", "declaration_digest"],
+          "properties": {
+            "kind": { "const": "model_application" },
+            "declaration_id": { "type": "string", "minLength": 1 },
+            "declaration_digest": {
+              "oneOf": [
+                { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                { "type": "null" }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "from", "into"],
+          "properties": {
+            "kind": { "const": "cross_file_call" },
+            "from": { "type": "string", "minLength": 1 },
+            "into": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "model", "registration_roots", "dispatch_roots"],
+          "properties": {
+            "kind": { "const": "dispatch" },
+            "model": { "type": "string", "minLength": 1 },
+            "registration_roots": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/occurrence_id" },
+              "uniqueItems": true
+            },
+            "dispatch_roots": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/occurrence_id" },
+              "uniqueItems": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "reason"],
+          "properties": {
+            "kind": { "const": "boundary" },
+            "reason": { "$ref": "#/$defs/boundary_reason" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "entrypoint", "semantic_kind"],
+          "properties": {
+            "kind": { "const": "causal_occurrence" },
+            "entrypoint": { "type": "string", "minLength": 1 },
+            "semantic_kind": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "provenance_edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "kind", "to"],
+      "properties": {
+        "from": { "$ref": "#/$defs/occurrence_id" },
+        "kind": {
+          "enum": ["derived_from", "calls", "applies_model", "dispatches", "supports"]
+        },
+        "to": { "$ref": "#/$defs/occurrence_id" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "$comment": "Strictly ordered by occurrence id.",
+          "items": { "$ref": "#/$defs/provenance_node" }
+        },
+        "edges": {
+          "type": "array",
+          "$comment": "Strictly ordered by from, then kind enum order (derived_from, calls, applies_model, dispatches, supports), then to.",
+          "items": { "$ref": "#/$defs/provenance_edge" }
+        }
+      }
+    }
+  }
+}

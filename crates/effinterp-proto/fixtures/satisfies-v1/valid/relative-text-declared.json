@@ -1,0 +1,78 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "relative-text-declared",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/work/foobar"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "join",
+        "parts": [
+          {
+            "expr": "literal",
+            "value": "foo"
+          },
+          {
+            "expr": "environment",
+            "name": "NAME"
+          }
+        ]
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": {
+        "value": "/work",
+        "source": {
+          "kind": "declared"
+        }
+      },
+      "env": {
+        "HOME": {
+          "value": "/home/u",
+          "source": {
+            "kind": "declared"
+          }
+        },
+        "NAME": {
+          "value": "bar",
+          "source": {
+            "kind": "declared"
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "binding",
+          "name": "NAME",
+          "source": {
+            "kind": "declared"
+          }
+        },
+        {
+          "kind": "binding",
+          "name": "cwd",
+          "source": {
+            "kind": "declared"
+          }
+        }
+      ]
+    }
+  }
+}

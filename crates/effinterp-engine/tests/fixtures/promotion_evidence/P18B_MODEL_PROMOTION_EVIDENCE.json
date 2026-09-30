@@ -1,0 +1,4663 @@
+{
+  "schema": "effinterp/model-promotion-evidence/v1",
+  "catalog": {
+    "promoted_documents": 136,
+    "new_tranche_models": 122,
+    "catalog_model_set_digest": "blake3:b580eb9de213775cd3c34c0b24ccd9b3bde65a2958dfbea7a3a199f6126d4821",
+    "new_models_by_family": {
+      "package-build-vcs": 22,
+      "interpreters": 15,
+      "transfer-archive-process": 37,
+      "containers": 10,
+      "database": 10,
+      "cloud": 10,
+      "messaging": 10,
+      "standard-library-api": 8
+    }
+  },
+  "selection": {
+    "command_model_basis": "all exact executable names in P11 unmodeled_command misses plus representative declaration capability coverage",
+    "p11_runs": [
+      {
+        "label": "p11b_v1",
+        "kind": "checkpoint",
+        "report": "stress_test_runs/RUN_p11b_v1.json",
+        "output_schema": "effinterp/evaluation-report/v1",
+        "evaluation_class": "observed-regression",
+        "semantic_identity": "blake3:6749ff4d256eb9952f391ffa5ef2450f27823b228e657353be0073f79e34e78a"
+      }
+    ],
+    "p11_selector": "all exact executable names in unmodeled_command entries",
+    "reviewed_source_record": "crates/effinterp-engine/tests/fixtures/model_tranche/tranche_sources.json",
+    "selected_command_models": 114,
+    "direct_p11_models": 16,
+    "representative_command_models": 98,
+    "representative_supported_language_apis": 8
+  },
+  "factory_throughput": {
+    "command": "target/debug/effinterp-model-factory verify crates/effinterp-engine/models/v1 --min-promoted 100",
+    "verified_documents": 123,
+    "elapsed_seconds": 26.243,
+    "documents_per_second": 4.69
+  },
+  "review_effort": {
+    "accepted_candidates": 122,
+    "rejected_candidates": 3,
+    "required_checks_per_candidate": [
+      "pinned provenance",
+      "exact applicability",
+      "canonical positive and boundary fixtures",
+      "semantic negative surface",
+      "behavioral mutation sensitivity"
+    ]
+  },
+  "rejected_candidates": [
+    {
+      "name": "kubectl exec arbitrary argv",
+      "reason": "candidate could not preserve nested argv with reviewed flag coverage"
+    },
+    {
+      "name": "dynamic cloud plugin commands",
+      "reason": "plugin-owned surfaces could not be pinned to one executable grammar"
+    },
+    {
+      "name": "read-only aliases",
+      "reason": "candidate added no independent effect or mutation evidence"
+    }
+  ],
+  "mutation_sensitivity": {
+    "documents_exercised": 123,
+    "mutation_tests_exercised": 125,
+    "mutations_rejected": 125,
+    "mutations_accepted": 0,
+    "comparison": "canonical plans with model-set and model-revision identity erased; effects, boundaries, coverage, resources, and provenance structure remain compared"
+  },
+  "observed_blind_v2": {
+    "baseline": {
+      "label": "p16_blind_v2_observed",
+      "semantic_identity": "blake3:cfbef41dc6aab871e96b67d2756b87913db840fa3419c3b19fc409c2b94284f0",
+      "totals": {
+        "repositories": 16,
+        "domain_matched": 28,
+        "domain_total": 31,
+        "facts_matched": 64,
+        "facts_total": 102,
+        "forbidden_hits": 0,
+        "analysis_failures": 0
+      }
+    },
+    "candidate": {
+      "label": "p18b_models",
+      "semantic_identity": "blake3:e774c3ac4a7becc9fd5a8953afa43d9377cc01c4fce7fa178d883afcfae8ec00",
+      "totals": {
+        "repositories": 16,
+        "domain_matched": 28,
+        "domain_total": 31,
+        "facts_matched": 64,
+        "facts_total": 102,
+        "forbidden_hits": 0,
+        "analysis_failures": 0
+      }
+    },
+    "fact_changes": [],
+    "attributed_model_revisions": [],
+    "attribution_result": "none of the 122 promoted revisions changed a scored blind-v2 fact or forbidden assertion",
+    "precision_preserved": true
+  },
+  "model_revisions": [
+    {
+      "id": "p18b/package-build-vcs/brew@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:d30cbb280581f97fcde562a00d4c2777efdd4a345946b1ebd4de37b9d8480880",
+      "revision": "p18b/package-build-vcs/brew@v1#blake3:81ae5d8793005124c5ea1929b9816b7c523723ff68b7ac7581a0ddd239601093",
+      "selection_basis": "cross-fixture-unmodeled-command",
+      "p11_observations": []
+    },
+    {
+      "id": "p18b/stdlib/go-filesystem-read@v1",
+      "family": "standard-library-api",
+      "document_identity": "blake3:154446393b7480e257b21568b48217b228acbfa0e25dee072d986227d4f82b6c",
+      "revision": "p18b/stdlib/go-filesystem-read@v1#blake3:36d448ac1debc5515a574ac1fdc57e4619be70f3fe69d5f59d53f85d80707051",
+      "selection_basis": "representative-supported-language-api",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/stdlib/java-filesystem-read@v1",
+      "family": "standard-library-api",
+      "document_identity": "blake3:d3a7d800944a5ea11806aa6f4ab01e5793de9576f6aace978347828b9abba65b",
+      "revision": "p18b/stdlib/java-filesystem-read@v1#blake3:fa65b03e9deb33fd4dc1485f11ec67841ece5c4c8824852384a88dd8b54bbfb1",
+      "selection_basis": "representative-supported-language-api",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/stdlib/js-filesystem-read@v1",
+      "family": "standard-library-api",
+      "document_identity": "blake3:2abbe19c757e4c4cd59700985f3ba7e2d9fce6272bb10f4691fd657d8ea34572",
+      "revision": "p18b/stdlib/js-filesystem-read@v1#blake3:3cfae186d9a7893533c18f79714c66885b224238e38c730cdb9914d1c10ee7f5",
+      "selection_basis": "representative-supported-language-api",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/stdlib/php-filesystem-read@v1",
+      "family": "standard-library-api",
+      "document_identity": "blake3:2956ed9c13e36fd046b16f9fc1f121283928121028fe09f262a92d2ea3543328",
+      "revision": "p18b/stdlib/php-filesystem-read@v1#blake3:2b45c6a0f1c6cf06a75ddd88fa69d1f6c18e842c85c03e4c6c71e672935253ca",
+      "selection_basis": "representative-supported-language-api",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/stdlib/python-filesystem-read@v1",
+      "family": "standard-library-api",
+      "document_identity": "blake3:cdb2b65e5c39c0c9f320f046702ef0bdd672262e30678d62e38380a15e8f9e8e",
+      "revision": "p18b/stdlib/python-filesystem-read@v1#blake3:e548f3c8b333d26f7360d56bc24600d6ac25582bc6f11a3c45c292ba040bb0fe",
+      "selection_basis": "representative-supported-language-api",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 25,
+        "repositories": [
+          "ansible",
+          "black",
+          "ripgrep"
+        ],
+        "entrypoints": [
+          {
+            "repo": "ansible",
+            "entrypoint": "hacking/azp/incidental.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "hacking/return_skeleton_generator.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/assemble.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/async_status.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/file.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/find.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/get_url.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/git.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/group.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/known_hosts.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/lineinfile.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/replace.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/rpm_key.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/slurp.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/unarchive.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/uri.py"
+          },
+          {
+            "repo": "ansible",
+            "entrypoint": "lib/ansible/modules/wait_for.py"
+          },
+          {
+            "repo": "black",
+            "entrypoint": "scripts/check_pre_commit_rev_in_example.py"
+          },
+          {
+            "repo": "black",
+            "entrypoint": "scripts/check_version_in_basics_example.py"
+          },
+          {
+            "repo": "black",
+            "entrypoint": "src/black/__init__.py"
+          },
+          {
+            "repo": "black",
+            "entrypoint": "src/blib2to3/pgen2/tokenize.py"
+          },
+          {
+            "repo": "ripgrep",
+            "entrypoint": "benchsuite/benchsuite"
+          }
+        ],
+        "facts": [
+          {
+            "entrypoint": "benchsuite/benchsuite",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ripgrep",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "unresolved",
+                  "family": "filesystem"
+                },
+                {
+                  "expr": "parameter",
+                  "name": "cwd"
+                },
+                {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "subtitles"
+                  }
+                },
+                {
+                  "expr": "unresolved",
+                  "family": "filesystem"
+                },
+                {
+                  "expr": "parameter",
+                  "name": "cwd"
+                },
+                {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "subtitles"
+                  }
+                },
+                {
+                  "expr": "parameter",
+                  "name": "cwd"
+                },
+                {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "en.sample.txt"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "entrypoint": "benchsuite/benchsuite",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ripgrep",
+            "resource": {
+              "expr": "unresolved",
+              "family": "filesystem"
+            }
+          },
+          {
+            "entrypoint": "hacking/azp/incidental.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "parameter",
+                  "name": "output_path"
+                },
+                {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "combined.json"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "entrypoint": "hacking/azp/incidental.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "unresolved",
+                  "family": "filesystem"
+                },
+                {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "run.json"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "entrypoint": "hacking/azp/incidental.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "unresolved",
+                  "family": "filesystem"
+                },
+                {
+                  "expr": "unresolved",
+                  "family": "filesystem"
+                }
+              ]
+            }
+          },
+          {
+            "entrypoint": "hacking/return_skeleton_generator.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "unresolved",
+              "family": "filesystem"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/assemble.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "parameter",
+                  "name": "src"
+                },
+                {
+                  "expr": "parameter",
+                  "name": "f"
+                }
+              ]
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/async_status.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "parameter",
+                  "name": "async_dir"
+                },
+                {
+                  "expr": "parameter",
+                  "name": "jid"
+                }
+              ]
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/file.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "parameter",
+              "name": "b_path"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/find.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "parameter",
+              "name": "fsname"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/get_url.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "parameter",
+              "name": "checksum_tmpsrc"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/git.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "parameter",
+                  "name": "dest"
+                },
+                {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": ".gitmodules"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/git.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "unresolved",
+              "family": "filesystem"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/group.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "unresolved",
+              "family": "filesystem"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/known_hosts.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "parameter",
+              "name": "path"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/lineinfile.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "parameter",
+              "name": "b_dest"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/replace.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "parameter",
+              "name": "path"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/rpm_key.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "parameter",
+              "name": "key"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/rpm_key.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "parameter",
+              "name": "tmpname"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/rpm_key.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "unresolved",
+              "family": "filesystem"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/slurp.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "parameter",
+              "name": "source"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/unarchive.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "unresolved",
+                  "family": "filesystem"
+                },
+                {
+                  "expr": "unresolved",
+                  "family": "filesystem"
+                }
+              ]
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/uri.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "parameter",
+              "name": "src"
+            }
+          },
+          {
+            "entrypoint": "lib/ansible/modules/wait_for.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "ansible",
+            "resource": {
+              "expr": "parameter",
+              "name": "b_path"
+            }
+          },
+          {
+            "entrypoint": "scripts/check_pre_commit_rev_in_example.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "black",
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "docs/guides/using_black_with_jupyter_notebooks.md"
+              }
+            }
+          },
+          {
+            "entrypoint": "scripts/check_pre_commit_rev_in_example.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "black",
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "docs/integrations/source_version_control.md"
+              }
+            }
+          },
+          {
+            "entrypoint": "scripts/check_pre_commit_rev_in_example.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "black",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "parameter",
+                  "name": "cwd"
+                },
+                {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "CHANGES.md"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "entrypoint": "scripts/check_version_in_basics_example.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "black",
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "docs/usage_and_configuration/the_basics.md"
+              }
+            }
+          },
+          {
+            "entrypoint": "scripts/check_version_in_basics_example.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "black",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "parameter",
+                  "name": "cwd"
+                },
+                {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "CHANGES.md"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "entrypoint": "src/black/__init__.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "black",
+            "resource": {
+              "expr": "parameter",
+              "name": "src"
+            }
+          },
+          {
+            "entrypoint": "src/blib2to3/pgen2/tokenize.py",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "black",
+            "resource": {
+              "expr": "unresolved",
+              "family": "filesystem"
+            }
+          }
+        ],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "representative model exercised incidentally by P11; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/stdlib/ruby-filesystem-read@v1",
+      "family": "standard-library-api",
+      "document_identity": "blake3:2349ea08215e5b284046a5950949163ea1532e92e14ea1086289191e60aed507",
+      "revision": "p18b/stdlib/ruby-filesystem-read@v1#blake3:02da12cc88054ee00ad33987388f3225a65fb28f2bdb338b975445e88625403e",
+      "selection_basis": "representative-supported-language-api",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/stdlib/rust-filesystem-read@v1",
+      "family": "standard-library-api",
+      "document_identity": "blake3:9d0f599916f0dc9083ae47afeb0eec91f28da66b5357f43c299e7b7b87f24bf3",
+      "revision": "p18b/stdlib/rust-filesystem-read@v1#blake3:a24e769bc9c00312ba140caa343a5e0b7164173c3586baf69cfdcaead4d1a508",
+      "selection_basis": "representative-supported-language-api",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/stdlib/ts-filesystem-read@v1",
+      "family": "standard-library-api",
+      "document_identity": "blake3:5142f2a74c9d0fd5e6604172c2aaa182a0f027a4cbeb3fe3e287018595d2ce62",
+      "revision": "p18b/stdlib/ts-filesystem-read@v1#blake3:4a7dd75e9669395a1045b60619a0a75ec4938832ee7cf6416fce2f9efeeed86d",
+      "selection_basis": "representative-supported-language-api",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/cloud/ansible-playbook@v1",
+      "family": "cloud",
+      "document_identity": "blake3:aa9b78bc3d80350356de184cd3c998a8720d81c134b54eb49c32832908e98e72",
+      "revision": "p18b/cloud/ansible-playbook@v1#blake3:84369deed6ee27741bf60d9d2d4c01c8bd07982141b93e090cc41e75a30aa977",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/cloud/ansible@v1",
+      "family": "cloud",
+      "document_identity": "blake3:737bde6a5c0bac9f037921d6950a097f06a16e945bb257b3e561317f9b9b8545",
+      "revision": "p18b/cloud/ansible@v1#blake3:455600e3e361779cf6efb01d6a0ad5fa60cb29a3a20daad637334f64f84daf9f",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/cloud/consul@v1",
+      "family": "cloud",
+      "document_identity": "blake3:4e1d16f4bcf8655be303d42421e246ead78d2f1b09cb93e7c588ec86f969c3fa",
+      "revision": "p18b/cloud/consul@v1#blake3:7ca495e09719e0cc241d757a3a4aa36e54eb643e8368bf00c8306a32bdcd52f4",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/cloud/doctl@v1",
+      "family": "cloud",
+      "document_identity": "blake3:9e9a3fce65be45c869935b099528c92e326bc45d0f298443690aff958e9d1054",
+      "revision": "p18b/cloud/doctl@v1#blake3:c8c0f078332b5c73bf0dc8568deaae053c5806436e2d0a959e18627b67a366a0",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/cloud/ibmcloud@v1",
+      "family": "cloud",
+      "document_identity": "blake3:2e1ac4c8bfee7d246a5d58086079aecb6c968079c1f61eb22046e7fe270ef999",
+      "revision": "p18b/cloud/ibmcloud@v1#blake3:a1ccacdcbbc6b7f8e4b32570cfcf68534d6dfc7643ee3ac709274e62b4898aab",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/cloud/nomad@v1",
+      "family": "cloud",
+      "document_identity": "blake3:a9f598ab6e71187f9ca086e893a4453c95e563c1c4b078d231a6ed32ebf2179f",
+      "revision": "p18b/cloud/nomad@v1#blake3:f47f91d3e0b7b955aed591c04afc1700c3acd60c10542a7b6b39201a18cb4303",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/cloud/pulumi@v1",
+      "family": "cloud",
+      "document_identity": "blake3:9d553f2cbd91ccebd0cb0c2973150cbf7d793d41b59ebc72cb8788d0bb3b5d26",
+      "revision": "p18b/cloud/pulumi@v1#blake3:301223eb211c57b179f42d324a887fe9deb194cf3884c0b4e359e4ef88fa5f8d",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/containers/buildah@v1",
+      "family": "containers",
+      "document_identity": "blake3:4dc830ec1ca13d7f77d05af4874501882e169ef4e270a27d54ce9ea69109111b",
+      "revision": "p18b/containers/buildah@v1#blake3:bbde29b00376d993c4a50d87a541e50f04e8b215b1d44b3063d2688ad08a2b8d",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/containers/crictl@v1",
+      "family": "containers",
+      "document_identity": "blake3:b31a9de57b4163398aa9a54cc2475bbf0f0f8c6d562ff037a7a6f7ab811fc89a",
+      "revision": "p18b/containers/crictl@v1#blake3:f8a76742e3f1f202629571b64ceb47b58b0ac7455490fd8f0b23e4b52abb0d41",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/containers/ctr@v1",
+      "family": "containers",
+      "document_identity": "blake3:b23fc1c5dc1335ae2ccdfe40a841d1046125633ebe27ca605a60ac31359fdf13",
+      "revision": "p18b/containers/ctr@v1#blake3:df2dd7152b2dae9a1bc409dc33d99c0147678e442f0c5ec154cfb03620dcecf9",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/containers/helm@v1",
+      "family": "containers",
+      "document_identity": "blake3:2182dfc1ace05d3844de8c3314126c50881687b32437db0682e7fd8dd2985885",
+      "revision": "p18b/containers/helm@v1#blake3:a1111ce9df63cd93a9bbcae67f71c6595bc0af945761048dd6059c0ac8ff6fa4",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/containers/kind@v1",
+      "family": "containers",
+      "document_identity": "blake3:f2cdac25357611713c27848e1057c0b736e62d9e53b8a0eef8941f86033ef95a",
+      "revision": "p18b/containers/kind@v1#blake3:45dd6c35f2a49bacb1739939068638bff5532a8eb87fa50b0c08be0c3c4da429",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/containers/minikube@v1",
+      "family": "containers",
+      "document_identity": "blake3:6a179de3a6328352351e236e87b422f7f549840a4caa19b5af2d42ad67cf28a0",
+      "revision": "p18b/containers/minikube@v1#blake3:c842ba2b0f731c881db33d5aca450702925255074b23097f1cff547a359b0028",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/containers/nerdctl@v1",
+      "family": "containers",
+      "document_identity": "blake3:08bd1bab9eb6da4f38090ef8f88a909297e1bba8674601a570644e067d09fd14",
+      "revision": "p18b/containers/nerdctl@v1#blake3:9ebc2f80d7d109f201b94b75b49a45421d0f890067accdba6e1a52bb796a17c1",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/containers/skopeo@v1",
+      "family": "containers",
+      "document_identity": "blake3:6d92efb6d8f1557a8021b4a15c628b6482b5bfb7939c44d9f1fd29c48e13788d",
+      "revision": "p18b/containers/skopeo@v1#blake3:be814549865f124ec73444ac2b0cd97b7e50cd100413506f0c4621bdc9d02947",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/database/createdb@v1",
+      "family": "database",
+      "document_identity": "blake3:fc652559e743e6d8bfee318ef7e56836978f30ffe7ab3cae025ff7518bb7644c",
+      "revision": "p18b/database/createdb@v1#blake3:580797424b4c2e09babc9e42bc63bf8767d7cdc055e629f1200e7ef3d5100bef",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/database/etcdctl@v1",
+      "family": "database",
+      "document_identity": "blake3:99187dc8e65cc5a6ecaff7ce474dfc58d94557a1ba3983db3c46253c925c4f56",
+      "revision": "p18b/database/etcdctl@v1#blake3:5cba392ebca414f253020655b131268ccece969da93838f3b29c5f585a011dba",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/database/influx@v1",
+      "family": "database",
+      "document_identity": "blake3:0903749769ef5931c11ad20b8d9425fb38ab371b73c0cecc6b832bc7a44a0623",
+      "revision": "p18b/database/influx@v1#blake3:db5deb7d26f70a91c3e1ec6ea703ec2d549cfeafacc3a50a7e74db15da3139e1",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/clojure@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:d5bf1827bcb6a6db87d5bdca1dea837b4744151e1472770fcdbb16215c8b8f18",
+      "revision": "p18b/interpreters/clojure@v1#blake3:cee269d53e633738414a020b8ceae026342eb38824aab33a2b9c3c89bd04c433",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/csh@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:8ec7be358760a41172208708c2f65fc40407629680d6c676b3bbeb9b830eca73",
+      "revision": "p18b/interpreters/csh@v1#blake3:79d0333fc6dad7703c33c2d18df3d6efb9393c78444b0ac2d95e412464cbde8e",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/fish@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:308bcdd5767361bc28bc7752712c7846a916969f680c61ebe98f01ef9e888e89",
+      "revision": "p18b/interpreters/fish@v1#blake3:b84cadb5fe99bfb4ded94e5e4832348c2b01637e6f59fb87d18b8158bdec5145",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/groovy@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:6f2b9b4dabd98625da3903a3ae578ce170798e5c0592d72246ec8da0f2aec824",
+      "revision": "p18b/interpreters/groovy@v1#blake3:e2f7e76026a3fef6546791ab2deeda390119b7ba567e8b33da626de2580503de",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/julia@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:8f2a367563619b77474bfa10b93ade52cc7cea9bb4cca9b836480b022e4893c9",
+      "revision": "p18b/interpreters/julia@v1#blake3:89f66c087ad742b05376cb73e011cebfd6124d73e0346c203036f868ee8e1fdf",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/ksh@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:0225c9e5233c258b213e50cf7ae14a7c939489942c8691f4f334ba4583d98e85",
+      "revision": "p18b/interpreters/ksh@v1#blake3:dfa8345f645de153d3768b43d6589f7c40b4239756e82693fc6eb9bf788e6d24",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/lua@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:6c5a487584205e382dff59d6e220a762f2acbcf831bd73df798e7074dfbb77ce",
+      "revision": "p18b/interpreters/lua@v1#blake3:32e0473944ae7095c40c726a97fa634c62f3322c158f4214676cfa51379bbcc3",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/luajit@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:ca29f655a93cde41b81aa3c99cee772d80ed8ba6651dacbf2af5df2e7b3b8add",
+      "revision": "p18b/interpreters/luajit@v1#blake3:7e982e1e71c6966eb0f016318a50117c0408ead7b3d1f0218b93dcf19b7e0eab",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/powershell@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:c523d9d22f4008165b903f047f887a3df7852a50cbe9ae38ad5f15182af89119",
+      "revision": "p18b/interpreters/powershell@v1#blake3:a94fcf952c1d77779187940888e39ecae76098ed8318102ea949024b0f3a2808",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/pwsh@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:9f3f7b8c3c4c9e10a8a895e87147b7fbc72111cd8a702d78c5e04019fde6c12b",
+      "revision": "p18b/interpreters/pwsh@v1#blake3:e31ca1883ea0eb2224ad6442139f5436a478578eb2df3761e9bfecc9830fff82",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/rscript@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:433c3685fb5320267f149c36c50a6644063fa300dc19edffe3ea455d96064256",
+      "revision": "p18b/interpreters/rscript@v1#blake3:76951444d0b39fdca691f97dc6d0766308073208c5a73913d70b731463f74548",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/scala@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:15f180e422f1c8681d252556100b5b2fbdca8b0a09e218ea863a98ffc6d36b89",
+      "revision": "p18b/interpreters/scala@v1#blake3:b40a54d4c5c4888ece6d7584b773cc38289d15f76e01114747fc8a1fe56aa3a4",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/swift@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:e0692403e2673e5c11990bf3f7d02eb3168510c22580fde9f76b913430eb3514",
+      "revision": "p18b/interpreters/swift@v1#blake3:4b985f4482130b05aba3628a7db996a4ba5ed4de72b34e6ce55a25ad43c4f157",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/interpreters/tcsh@v1",
+      "family": "interpreters",
+      "document_identity": "blake3:5e2f10eb593e995d456fdb10b1e2f6b74a5d76b5d72b60cfbb18c24f7e4a5023",
+      "revision": "p18b/interpreters/tcsh@v1#blake3:7e64ec7609172d80b806168b898625df06bab65e712734d53ad06f42cdb67568",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/messaging/amqp-consume@v1",
+      "family": "messaging",
+      "document_identity": "blake3:d1d34af2003057ee39c19ced98775d7a60b9b515ee38106a39e5406ebfe9acfa",
+      "revision": "p18b/messaging/amqp-consume@v1#blake3:9558c443b9906b830323846d1d265c8b8b89a093e7d7fdf9de3101c54a0dd9d9",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/messaging/amqp-publish@v1",
+      "family": "messaging",
+      "document_identity": "blake3:536532e43e847ef96cce1832886aeea47453791970d0430e835ac57b2544cea9",
+      "revision": "p18b/messaging/amqp-publish@v1#blake3:b6aafaf4f91d1f817c1aac640f24861b30a467a69f5ac27704f32a381d73dbb6",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/messaging/celery@v1",
+      "family": "messaging",
+      "document_identity": "blake3:79da2d64a39c13e1fc4aa4829fa978c50bfa038cf6494082a896af46fc479682",
+      "revision": "p18b/messaging/celery@v1#blake3:44352b0514eb5ace19b229718187e3721aa462098063bf5e4557b736d3e20469",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/messaging/dramatiq@v1",
+      "family": "messaging",
+      "document_identity": "blake3:b6c3121dba253703048bdba2594a6b358fcf8cddd1b52faeb6993c353868dc53",
+      "revision": "p18b/messaging/dramatiq@v1#blake3:3894c922d0f8bcd2f08c6d98926eee8576b16bf77a82138fbf67fbd4c92f49df",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/messaging/kcat@v1",
+      "family": "messaging",
+      "document_identity": "blake3:e5ac4f0340a6ca55a525620509077a84f3e50d9081c431e9b2c9803b345ab781",
+      "revision": "p18b/messaging/kcat@v1#blake3:b6f2dbf978cec4a3fbac34a5c1b6dc031392318c0d4e5a958461fc16d48a3b4f",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/messaging/mosquitto-rr@v1",
+      "family": "messaging",
+      "document_identity": "blake3:505615b55400c3877290c4268ccc313933e03db8d0836088c3005a48451ec1a6",
+      "revision": "p18b/messaging/mosquitto-rr@v1#blake3:bf3391e2d518c16e5134a3a98b71a224636fdc36bfaa7ebd6618c3158937f892",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/messaging/nsq-pub@v1",
+      "family": "messaging",
+      "document_identity": "blake3:65b3afe690137c87e562dca1eda163ef87926fe9f85c5f30a678faca44db7b9c",
+      "revision": "p18b/messaging/nsq-pub@v1#blake3:0c2a09dc2a97b7e63abc0038e5923a024bb4bcdec0fcb71a0ec1c16bb523676e",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/messaging/pulsar-client@v1",
+      "family": "messaging",
+      "document_identity": "blake3:18579a227fbad127ae63661a48d0e704edb9b3b883dad7d00b561e0e065be9df",
+      "revision": "p18b/messaging/pulsar-client@v1#blake3:bb61c750f0d9c5133cc9d10ee6a10c5d1a8b2d50b85cfcd1635738a6914de767",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/messaging/rabbitmq-diagnostics@v1",
+      "family": "messaging",
+      "document_identity": "blake3:bcaf74295cdf88fe4f8122a9c57f1a4e1027e03be99a5c8ec6cc96fd5e87dd2f",
+      "revision": "p18b/messaging/rabbitmq-diagnostics@v1#blake3:bfafabc62324de48c894a18a4164803920e82df2a2b9758a31e04c0610f9646c",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/messaging/redis-benchmark@v1",
+      "family": "messaging",
+      "document_identity": "blake3:793ebabed38e2594bf665a2f35e93717698e11a9de6fa481b9c0b43eef85d397",
+      "revision": "p18b/messaging/redis-benchmark@v1#blake3:a4f1e348f64985ab0ede8a389c568df2b2310acd9b8f0705f0cd071c946eb31f",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/bazel@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:890f4c9e05f0b7fce3c598dcc56d77fddb02a9cc3f507cd6e229f8241401e374",
+      "revision": "p18b/package-build-vcs/bazel@v1#blake3:61ab9e3aa46ad712f8425e67c3503fd1c81671ddefe3322b4f4dc11dc0b3352a",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/bundle@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:90900a3837077ef41202edbf1e8a1658642b2af30d24c0c08a46109f5f176146",
+      "revision": "p18b/package-build-vcs/bundle@v1#blake3:da17180e6df2abdb2df5f583a884d1064764f097c26ff3899f0f00cc42a058a9",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/cmake@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:a22d9b6f258110567fbd29f4bc4f9fd130dfe748d97fd4ff78facb3e1c169b0b",
+      "revision": "p18b/package-build-vcs/cmake@v1#blake3:20f24d892564275b707a53ce234f9c9b0d6b3d841c9b452a5af78887866d7004",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/composer@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:42b4665cbf64fa295e323b0635fb37abcc02ed0abde3835fbb4afa5efd4921ce",
+      "revision": "p18b/package-build-vcs/composer@v1#blake3:6709bf9cd0d675db8fa6aa18746a840f4ad8bbc5a39d633d4643fad9f6fa3e5f",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:composer"
+      ],
+      "observed_p11": {
+        "applications": 2,
+        "repositories": [
+          "wp"
+        ],
+        "entrypoints": [
+          {
+            "repo": "wp",
+            "entrypoint": "utils/auto-composer-update.sh"
+          }
+        ],
+        "facts": [],
+        "boundaries": [
+          {
+            "detail": "unrecognized flags: --no-progress, --no-interaction; unrecognized operands: update",
+            "entrypoint": "utils/auto-composer-update.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "wp"
+          },
+          {
+            "detail": "unrecognized operands: install",
+            "entrypoint": "utils/auto-composer-update.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "wp"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/package-build-vcs/deno@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:feb2ea421710a2145228119809f29b7ef8dbcea2240aae6dba9f9d222944201a",
+      "revision": "p18b/package-build-vcs/deno@v1#blake3:16ea1f6d268554b8a554aaa5e5b4a6b5fadb5dedfe3404b3a317d35fa2c87e23",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/dotnet@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:e850d8d3682501844aa02062b80cbf1021cc92004e62ee6c07b9931bcb3dce7e",
+      "revision": "p18b/package-build-vcs/dotnet@v1#blake3:d707cc61a09039cc5a4b79aeb8ce2b7b1df6b77c9a9e508f98b506a26ddc3d5a",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/fossil@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:661fa1f40406d460480f68c7367d066507a54b3b472f916b930b87428002d3f3",
+      "revision": "p18b/package-build-vcs/fossil@v1#blake3:41b5753e4254025d54650eb1a5878fef4295007f123db3933ca478d366820a5a",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/gem@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:2eeecb275213db963dddf999e1baa339a87224d567f629c76c5044152526cd76",
+      "revision": "p18b/package-build-vcs/gem@v1#blake3:476bf93cb55a8390e45d1bde9c121bbab7a016e43f7e46374b8068b431409890",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 1,
+        "repositories": [
+          "httpie"
+        ],
+        "entrypoints": [
+          {
+            "repo": "httpie",
+            "entrypoint": ".github/workflows/docs-check-markdown.yml:run.1"
+          }
+        ],
+        "facts": [
+          {
+            "entrypoint": ".github/workflows/docs-check-markdown.yml:run.1",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "realm": {
+              "endpoint": "github-actions",
+              "realm": "remote"
+            },
+            "repo": "httpie",
+            "resource": {
+              "expr": "pattern",
+              "family": "filesystem",
+              "pattern": "gem-home"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/docs-check-markdown.yml:run.1",
+            "modality": "may",
+            "operation": "network.download",
+            "realm": {
+              "endpoint": "github-actions",
+              "realm": "remote"
+            },
+            "repo": "httpie",
+            "resource": {
+              "expr": "unresolved",
+              "family": "network"
+            }
+          }
+        ],
+        "boundaries": [
+          {
+            "detail": null,
+            "entrypoint": ".github/workflows/docs-check-markdown.yml:run.1",
+            "reason": "package_scripts",
+            "repo": "httpie"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "representative model exercised incidentally by P11; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/package-build-vcs/hg@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:c604a5372947fff8f72af376ce57ca635d63a0ce94e3133d43996b6ffd39b8e8",
+      "revision": "p18b/package-build-vcs/hg@v1#blake3:0fa76d5d82b8d7d19ff4b5ecc2335db2baa767be13662db22d7b5577b705f8b0",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/hub@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:bee092df00e27c3117076230a8c2a6298e8ac25d3f06a0ec84327176dc2b038d",
+      "revision": "p18b/package-build-vcs/hub@v1#blake3:29cb73c05e7859d4e7931e1ee677ff0ed4a1214fcb7a8c9b1d60ab66eb136385",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:hub"
+      ],
+      "observed_p11": {
+        "applications": 1,
+        "repositories": [
+          "wp"
+        ],
+        "entrypoints": [
+          {
+            "repo": "wp",
+            "entrypoint": "utils/auto-composer-update.sh"
+          }
+        ],
+        "facts": [
+          {
+            "entrypoint": "utils/auto-composer-update.sh",
+            "modality": "may",
+            "operation": "network.request",
+            "realm": null,
+            "repo": "wp",
+            "resource": {
+              "expr": "unresolved",
+              "family": "network"
+            }
+          }
+        ],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/package-build-vcs/install@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:e45c957f7e0731586a01f96db4ad787d7d2dc16270578d7281c5766252d1b041",
+      "revision": "p18b/package-build-vcs/install@v1#blake3:86ac6492eb1fb6a16b58c9aa90608858e44912512adc13552345fd3f66ca4323",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:cli/cli:all-entrypoints:unmodeled_command:install"
+      ],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/mix@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:187ab878141c82942c042190f65b69d5db9810488261b2a2a02431f4719390a9",
+      "revision": "p18b/package-build-vcs/mix@v1#blake3:66f4a49e9fbf2f017a442ad1b93fb8d65ae9c4d6473ca31688f9903c44ca2dc5",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/msbuild@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:e39cd1a147f3e8701cd3444129a85ca03b130a481c4192155e5cec6c4007c617",
+      "revision": "p18b/package-build-vcs/msbuild@v1#blake3:c1ebf01a449499b15d24650d02cbe2d93a4c14323543e0874928325491f0e752",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/ninja@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:94f26dff9a62b4098ecb19273aff360f165cd672cf829188da127721e4c9197c",
+      "revision": "p18b/package-build-vcs/ninja@v1#blake3:435742850a8e67cf0941037287b459287f7a32a662336905de98e3634746408f",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/npx@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:f4c679326ce527deb2a0bfe7cdcf45786ab1209b94f500f848c7c4b160627b8b",
+      "revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 5,
+        "repositories": [
+          "nvm"
+        ],
+        "entrypoints": [
+          {
+            "repo": "nvm",
+            "entrypoint": ".github/workflows/tests-installation-node.yml:run.3"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": ".github/workflows/tests-installation-node.yml:run.4"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": ".github/workflows/tests-xenial.yml:run.3"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": ".github/workflows/tests-xenial.yml:run.4"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": ".github/workflows/tests.yml:run.8"
+          }
+        ],
+        "facts": [
+          {
+            "entrypoint": ".github/workflows/tests-installation-node.yml:run.3",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "realm": {
+              "endpoint": "github-actions",
+              "realm": "remote"
+            },
+            "repo": "nvm",
+            "resource": {
+              "expr": "pattern",
+              "family": "filesystem",
+              "pattern": "node_modules"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/tests-installation-node.yml:run.3",
+            "modality": "may",
+            "operation": "network.download",
+            "realm": {
+              "endpoint": "github-actions",
+              "realm": "remote"
+            },
+            "repo": "nvm",
+            "resource": {
+              "expr": "unresolved",
+              "family": "network"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/tests-installation-node.yml:run.4",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "realm": {
+              "name": "ubuntu:16.04",
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "repo": "nvm",
+            "resource": {
+              "expr": "pattern",
+              "family": "filesystem",
+              "pattern": "node_modules"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/tests-installation-node.yml:run.4",
+            "modality": "may",
+            "operation": "network.download",
+            "realm": {
+              "name": "ubuntu:16.04",
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "repo": "nvm",
+            "resource": {
+              "expr": "unresolved",
+              "family": "network"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/tests-xenial.yml:run.3",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "realm": {
+              "endpoint": "github-actions",
+              "realm": "remote"
+            },
+            "repo": "nvm",
+            "resource": {
+              "expr": "pattern",
+              "family": "filesystem",
+              "pattern": "node_modules"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/tests-xenial.yml:run.3",
+            "modality": "may",
+            "operation": "network.download",
+            "realm": {
+              "endpoint": "github-actions",
+              "realm": "remote"
+            },
+            "repo": "nvm",
+            "resource": {
+              "expr": "unresolved",
+              "family": "network"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/tests-xenial.yml:run.4",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "realm": {
+              "name": "ubuntu:16.04",
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "repo": "nvm",
+            "resource": {
+              "expr": "pattern",
+              "family": "filesystem",
+              "pattern": "node_modules"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/tests-xenial.yml:run.4",
+            "modality": "may",
+            "operation": "network.download",
+            "realm": {
+              "name": "ubuntu:16.04",
+              "realm": "container",
+              "runtime": "docker"
+            },
+            "repo": "nvm",
+            "resource": {
+              "expr": "unresolved",
+              "family": "network"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/tests.yml:run.8",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "realm": {
+              "endpoint": "github-actions",
+              "realm": "remote"
+            },
+            "repo": "nvm",
+            "resource": {
+              "expr": "pattern",
+              "family": "filesystem",
+              "pattern": "node_modules"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/tests.yml:run.8",
+            "modality": "may",
+            "operation": "network.download",
+            "realm": {
+              "endpoint": "github-actions",
+              "realm": "remote"
+            },
+            "repo": "nvm",
+            "resource": {
+              "expr": "unresolved",
+              "family": "network"
+            }
+          }
+        ],
+        "boundaries": [
+          {
+            "detail": "unrecognized operands: urchin",
+            "entrypoint": ".github/workflows/tests-installation-node.yml:run.3",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: urchin",
+            "entrypoint": ".github/workflows/tests-installation-node.yml:run.4",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: urchin",
+            "entrypoint": ".github/workflows/tests-xenial.yml:run.3",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: urchin",
+            "entrypoint": ".github/workflows/tests-xenial.yml:run.4",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: urchin",
+            "entrypoint": ".github/workflows/tests.yml:run.8",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": null,
+            "entrypoint": ".github/workflows/tests-installation-node.yml:run.3",
+            "reason": "package_scripts",
+            "repo": "nvm"
+          },
+          {
+            "detail": null,
+            "entrypoint": ".github/workflows/tests-installation-node.yml:run.4",
+            "reason": "package_scripts",
+            "repo": "nvm"
+          },
+          {
+            "detail": null,
+            "entrypoint": ".github/workflows/tests-xenial.yml:run.3",
+            "reason": "package_scripts",
+            "repo": "nvm"
+          },
+          {
+            "detail": null,
+            "entrypoint": ".github/workflows/tests-xenial.yml:run.4",
+            "reason": "package_scripts",
+            "repo": "nvm"
+          },
+          {
+            "detail": null,
+            "entrypoint": ".github/workflows/tests.yml:run.8",
+            "reason": "package_scripts",
+            "repo": "nvm"
+          }
+        ]
+      },
+      "observed_fact_changes": [
+        {
+          "entrypoint": ".github/workflows/tests-installation-node.yml:run.3",
+          "modality": "may",
+          "operation": "filesystem.write",
+          "realm": {
+            "endpoint": "github-actions",
+            "realm": "remote"
+          },
+          "repo": "nvm",
+          "resource": {
+            "expr": "pattern",
+            "family": "filesystem",
+            "pattern": "node_modules"
+          }
+        },
+        {
+          "entrypoint": ".github/workflows/tests-installation-node.yml:run.3",
+          "modality": "may",
+          "operation": "network.download",
+          "realm": {
+            "endpoint": "github-actions",
+            "realm": "remote"
+          },
+          "repo": "nvm",
+          "resource": {
+            "expr": "unresolved",
+            "family": "network"
+          }
+        },
+        {
+          "entrypoint": ".github/workflows/tests-installation-node.yml:run.4",
+          "modality": "may",
+          "operation": "filesystem.write",
+          "realm": {
+            "name": "ubuntu:16.04",
+            "realm": "container",
+            "runtime": "docker"
+          },
+          "repo": "nvm",
+          "resource": {
+            "expr": "pattern",
+            "family": "filesystem",
+            "pattern": "node_modules"
+          }
+        },
+        {
+          "entrypoint": ".github/workflows/tests-installation-node.yml:run.4",
+          "modality": "may",
+          "operation": "network.download",
+          "realm": {
+            "name": "ubuntu:16.04",
+            "realm": "container",
+            "runtime": "docker"
+          },
+          "repo": "nvm",
+          "resource": {
+            "expr": "unresolved",
+            "family": "network"
+          }
+        },
+        {
+          "entrypoint": ".github/workflows/tests-xenial.yml:run.3",
+          "modality": "may",
+          "operation": "filesystem.write",
+          "realm": {
+            "endpoint": "github-actions",
+            "realm": "remote"
+          },
+          "repo": "nvm",
+          "resource": {
+            "expr": "pattern",
+            "family": "filesystem",
+            "pattern": "node_modules"
+          }
+        },
+        {
+          "entrypoint": ".github/workflows/tests-xenial.yml:run.3",
+          "modality": "may",
+          "operation": "network.download",
+          "realm": {
+            "endpoint": "github-actions",
+            "realm": "remote"
+          },
+          "repo": "nvm",
+          "resource": {
+            "expr": "unresolved",
+            "family": "network"
+          }
+        },
+        {
+          "entrypoint": ".github/workflows/tests-xenial.yml:run.4",
+          "modality": "may",
+          "operation": "filesystem.write",
+          "realm": {
+            "name": "ubuntu:16.04",
+            "realm": "container",
+            "runtime": "docker"
+          },
+          "repo": "nvm",
+          "resource": {
+            "expr": "pattern",
+            "family": "filesystem",
+            "pattern": "node_modules"
+          }
+        },
+        {
+          "entrypoint": ".github/workflows/tests-xenial.yml:run.4",
+          "modality": "may",
+          "operation": "network.download",
+          "realm": {
+            "name": "ubuntu:16.04",
+            "realm": "container",
+            "runtime": "docker"
+          },
+          "repo": "nvm",
+          "resource": {
+            "expr": "unresolved",
+            "family": "network"
+          }
+        },
+        {
+          "entrypoint": ".github/workflows/tests.yml:run.8",
+          "modality": "may",
+          "operation": "filesystem.write",
+          "realm": {
+            "endpoint": "github-actions",
+            "realm": "remote"
+          },
+          "repo": "nvm",
+          "resource": {
+            "expr": "pattern",
+            "family": "filesystem",
+            "pattern": "node_modules"
+          }
+        },
+        {
+          "entrypoint": ".github/workflows/tests.yml:run.8",
+          "modality": "may",
+          "operation": "network.download",
+          "realm": {
+            "endpoint": "github-actions",
+            "realm": "remote"
+          },
+          "repo": "nvm",
+          "resource": {
+            "expr": "unresolved",
+            "family": "network"
+          }
+        }
+      ],
+      "observation": "the repaired representative revision adds ten P11 facts and ten explicit boundaries where default npx forms were previously silent"
+    },
+    {
+      "id": "p18b/package-build-vcs/nuget@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:76508bac7636e93a15c7e4efcc2996a0fffba7778f263e60c5576478d4b66549",
+      "revision": "p18b/package-build-vcs/nuget@v1#blake3:fb3ad5225cbd97577d35744ea70b7c948389d916e3d0229d3fabf1d4b3a511a8",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/pipenv@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:99fea25de19458700a566016012982eece8c29b82900988af0b988f01ce5311c",
+      "revision": "p18b/package-build-vcs/pipenv@v1#blake3:6c11931533bdb968360ee099b5436a32adc9ca53cee81471c25e5bccbc3e6eed",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/poetry@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:3c188bfb8887cd9834c229cbb721beb2a54fa28fa514fe4bb0db807c729938dc",
+      "revision": "p18b/package-build-vcs/poetry@v1#blake3:36486a3218a9e26874b9d668f04f4efc54514e9a2e7eb49c51313e991ac11145",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/rebar3@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:6d48545412805d9c931b5cf589142780b32291a7b48f3082310bd6abdf83f3d3",
+      "revision": "p18b/package-build-vcs/rebar3@v1#blake3:ece5e7f2334c6380dc31b0261d01686a94676e56eeb9ffafdfaec1e630057b62",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/svn@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:723715c162c4e3f711eb2db35b5e5246608f40e8fd7aa9981535ecf41d8a8d2f",
+      "revision": "p18b/package-build-vcs/svn@v1#blake3:664500b80e67a15f561373bd438dca6308274016ca9cbe60d9c37acca04df221",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/uv@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:bf59f61d632fa0560b5f3763fdff140a8e6b996b8657d646855a3859873d2a24",
+      "revision": "p18b/package-build-vcs/uv@v1#blake3:6f9a7e1be96bf53acd42450c7327407e98ffdaa7a367a78787d191c24f128e35",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/7z@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:bf7d6d9dcc9445502c612831d4288c5a1462516c865254714605a35a8e6a8d2b",
+      "revision": "p18b/transfer-archive-process/7z@v1#blake3:df0628c6c929a75609a2eeeb1eefe561a1f1e515c5a9bcc6a4e141a1b1aa7751",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 1,
+        "repositories": [
+          "ripgrep"
+        ],
+        "entrypoints": [
+          {
+            "repo": "ripgrep",
+            "entrypoint": ".github/workflows/release.yml:run.16"
+          }
+        ],
+        "facts": [
+          {
+            "entrypoint": ".github/workflows/release.yml:run.16",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": {
+              "endpoint": "github-actions",
+              "realm": "remote"
+            },
+            "repo": "ripgrep",
+            "resource": {
+              "expr": "environment",
+              "name": "ARCHIVE"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/release.yml:run.16",
+            "modality": "may",
+            "operation": "filesystem.write",
+            "realm": {
+              "endpoint": "github-actions",
+              "realm": "remote"
+            },
+            "repo": "ripgrep",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "environment",
+                  "name": "ARCHIVE"
+                },
+                {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": ".zip"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "representative model exercised incidentally by P11; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/7za@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:6d0b72333c940966fda1bcb95e0474696afd96a4df0c9275b19af6d6bb297103",
+      "revision": "p18b/transfer-archive-process/7za@v1#blake3:3c60fed87849e122705becd66b2218456045d628d8fd0b6fe1d5c9339aaeb607",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/aria2c@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:acb440a528b3ee289002b0fe0ad574f4ac684e7319a2079784c58f13cee25096",
+      "revision": "p18b/transfer-archive-process/aria2c@v1#blake3:37f931e9872c3b77492fc756c2463d8d9e9db9505fda028377dcc2c98a6e4213",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/axel@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:01efb58e7417b926aab4e80a90d7dc09291f0252f5665da34a6aaa31d70ab7b2",
+      "revision": "p18b/transfer-archive-process/axel@v1#blake3:54d4f0f25950d7486f03fcc973f410a2b51a90d53258b05e895ee9b7780501ae",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/bunzip2@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:baf26543b896db071bd770daf75b12b287fafde1e897165b909727721a7ab0f7",
+      "revision": "p18b/transfer-archive-process/bunzip2@v1#blake3:d5db8ec3b5fd7542bd71e4fbf011417c2629fbf9f65e5c91dc52524dfcf61517",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/bzip2@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:bb465742ce7e7047363507d5b361f4750970fdb96501bf9fcbc350947567edb5",
+      "revision": "p18b/transfer-archive-process/bzip2@v1#blake3:10b74cbd508578f8f8f9f7350fdcd1ef342416a0783e95cf0729536f22b380b2",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/col@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:653694b373d19e282c86455fa7c2f2a9175129eea9f6ace3dcab147a014e6f10",
+      "revision": "p18b/transfer-archive-process/col@v1#blake3:1b6ac7f28514727126feab38b8d3d00f742e21c5b363c869896c825548943309",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:col"
+      ],
+      "observed_p11": {
+        "applications": 1,
+        "repositories": [
+          "wp"
+        ],
+        "entrypoints": [
+          {
+            "repo": "wp",
+            "entrypoint": "utils/auto-composer-update.sh"
+          }
+        ],
+        "facts": [],
+        "boundaries": [
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "utils/auto-composer-update.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "wp"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/cpio@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:f3f4e496187fdcd0ecd4e9f930bbbc3f6db77bcd2c6344427b9a508299236c3c",
+      "revision": "p18b/transfer-archive-process/cpio@v1#blake3:1bf1b73657d244865e91b3931a8a8932e225bb7105c2833b4ea384b743e40d07",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/cygpath@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:89d4a5c2e838b0306359baa2afc19c232ce8e85dbde23c4c2a622f79b3b6fe28",
+      "revision": "p18b/transfer-archive-process/cygpath@v1#blake3:d1603b201e408a6ef8c6bc2efe5443cd30ca3c60c377e86b1117d545f976b028",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:cygpath"
+      ],
+      "observed_p11": {
+        "applications": 1,
+        "repositories": [
+          "wp"
+        ],
+        "entrypoints": [
+          {
+            "repo": "wp",
+            "entrypoint": "bin/wp"
+          }
+        ],
+        "facts": [],
+        "boundaries": [
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "bin/wp",
+            "reason": "unrecognized_arguments",
+            "repo": "wp"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/ftp@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:695ae3962982bf5bace04b349cd21bcf28584051b8fcfcc890dee7dbb799ff4a",
+      "revision": "p18b/transfer-archive-process/ftp@v1#blake3:fd97192872ff698ec9d39db9023dd9aeb9412ed74a7306236d69e0ce1eee74ed",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/gtar@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:38f01cde3c90145b3632d1cdb61667e62285b0a10d91f4ccc395a7fc77cfee0d",
+      "revision": "p18b/transfer-archive-process/gtar@v1#blake3:a20a50f256cb4cf7aa3a21eda4f0957fc11eabbc516bd92e5fb2b05dd7efe725",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:all-entrypoints:unmodeled_command:gtar"
+      ],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/http@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:ec3d76e8f9910e7e79a75ecff9adc224e883bc6a3cadc8121695003eea818128",
+      "revision": "p18b/transfer-archive-process/http@v1#blake3:6b4c81fea7870418b14638924632cc5d217dbebf96b41a44fdad6fd5cc656d12",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 2,
+        "repositories": [
+          "httpie"
+        ],
+        "entrypoints": [
+          {
+            "repo": "httpie",
+            "entrypoint": ".github/workflows/docs-deploy.yml:run.2"
+          },
+          {
+            "repo": "httpie",
+            "entrypoint": "docs/packaging/brew/update.sh"
+          }
+        ],
+        "facts": [],
+        "boundaries": [
+          {
+            "detail": "unrecognized flags: --download",
+            "entrypoint": "docs/packaging/brew/update.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "httpie"
+          },
+          {
+            "detail": "unrecognized flags: --ignore-stdin; unrecognized operands: ?",
+            "entrypoint": ".github/workflows/docs-deploy.yml:run.2",
+            "reason": "unrecognized_arguments",
+            "repo": "httpie"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "representative model exercised incidentally by P11; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/jq@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:ba62148fd2a649aa742a97c4af95fa44862968d8c00253c3e78a621c06e1733b",
+      "revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:cli/cli:all-entrypoints:unmodeled_command:jq"
+      ],
+      "observed_p11": {
+        "applications": 23,
+        "repositories": [
+          "black",
+          "cli",
+          "httpie",
+          "nvm"
+        ],
+        "entrypoints": [
+          {
+            "repo": "black",
+            "entrypoint": ".github/workflows/fuzz.yml:run.3"
+          },
+          {
+            "repo": "cli",
+            "entrypoint": ".github/workflows/dependabot-triage.lock.yml:run.45"
+          },
+          {
+            "repo": "cli",
+            "entrypoint": ".github/workflows/issue-triage.lock.yml:run.43"
+          },
+          {
+            "repo": "cli",
+            "entrypoint": ".github/workflows/scripts/bump-go.sh"
+          },
+          {
+            "repo": "cli",
+            "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh"
+          },
+          {
+            "repo": "cli",
+            "entrypoint": "script/nolint-insert"
+          },
+          {
+            "repo": "httpie",
+            "entrypoint": ".github/workflows/release-linux-standalone.yml:run.2"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": ".github/workflows/nodejs-org.yml:run.3"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": ".github/workflows/nvm-install-test.yml:run.1"
+          }
+        ],
+        "facts": [
+          {
+            "entrypoint": ".github/workflows/fuzz.yml:run.3",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": {
+              "endpoint": "github-actions",
+              "realm": "remote"
+            },
+            "repo": "black",
+            "resource": {
+              "expr": "unresolved",
+              "family": "filesystem"
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "cli",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "unresolved",
+                  "family": "filesystem"
+                },
+                {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "/run.json"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "cli",
+            "resource": {
+              "expr": "join",
+              "parts": [
+                {
+                  "expr": "unresolved",
+                  "family": "filesystem"
+                },
+                {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "/selected.json"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "boundaries": [
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": ".github/workflows/nodejs-org.yml:run.3",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": ".github/workflows/nvm-install-test.yml:run.1",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": ".github/workflows/release-linux-standalone.yml:run.2",
+            "reason": "unrecognized_arguments",
+            "repo": "httpie"
+          },
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": ".github/workflows/scripts/bump-go.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "cli"
+          },
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "script/nolint-insert",
+            "reason": "unrecognized_arguments",
+            "repo": "cli"
+          },
+          {
+            "detail": "unrecognized flags: --arg, --arg, --arg, --argjson, --arg",
+            "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "cli"
+          },
+          {
+            "detail": "unrecognized flags: --arg, --arg, --argjson, --argjson, --arg",
+            "entrypoint": ".github/workflows/dependabot-triage.lock.yml:run.45",
+            "reason": "unrecognized_arguments",
+            "repo": "cli"
+          },
+          {
+            "detail": "unrecognized flags: --arg, --arg, --argjson, --argjson, --arg",
+            "entrypoint": ".github/workflows/issue-triage.lock.yml:run.43",
+            "reason": "unrecognized_arguments",
+            "repo": "cli"
+          },
+          {
+            "detail": "unrecognized flags: --arg, --argjson",
+            "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "cli"
+          },
+          {
+            "detail": "unrecognized flags: --slurpfile, --slurpfile",
+            "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "cli"
+          },
+          {
+            "detail": "unrecognized flags: -R",
+            "entrypoint": ".github/workflows/nvm-install-test.yml:run.1",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/launchctl@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:db2366df202fc05cb901346a48805cee6acd78de1b7a7cc99b2796171c8963ae",
+      "revision": "p18b/transfer-archive-process/launchctl@v1#blake3:0ca3fc23f0e9239892840bbc52aeebb1ec9d71a8588a1d43b8e251e28a9edd17",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/lftp@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:1c196d06734db0a8a6a641254b505f5e1dc8acd3dca38b844cf0330ebdacbe59",
+      "revision": "p18b/transfer-archive-process/lftp@v1#blake3:d05f21428c41ce86d7b00ef5cf22522c132aaef6f3a5de985c4244c6e65cc4c6",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/lz4@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:5804f56def520adfa0038a4d482671027af88c9eb1184da94777aa5c2b1c274c",
+      "revision": "p18b/transfer-archive-process/lz4@v1#blake3:991334b496b594bcbac66b0e0fa920a1346a308c7e1621aaa5786cd88c7d1815",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/pax@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:89eb261a6aaa1a47e29ba1621845901ebe3519f3591dea3b7cf0cc0993b478f3",
+      "revision": "p18b/transfer-archive-process/pax@v1#blake3:6942f7294b1756c7fe3f0d7d940fcdf19600bd177a846f71bd3a7c36805eaa31",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/pigz@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:d354c6a3b148087927fc6bcfd0f011516d8730285a23e6f130170be3b5893e26",
+      "revision": "p18b/transfer-archive-process/pigz@v1#blake3:2946b89ac0f46b990da74b6ba02db2d05dbec29e83ee2b6ec0eaf86466e5d8b7",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/pmcycles@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:6ddcd0c31a5b05727d0505bd2708f10efe3e86ebbc9ee4ad0ff3cc58845ba8fe",
+      "revision": "p18b/transfer-archive-process/pmcycles@v1#blake3:20e52c11b2d03471ae09204eb61026933ef97592a50f0abebac9328c89aa0bf0",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:all-entrypoints:unmodeled_command:pmcycles"
+      ],
+      "observed_p11": {
+        "applications": 3,
+        "repositories": [
+          "nvm"
+        ],
+        "entrypoints": [
+          {
+            "repo": "nvm",
+            "entrypoint": "nvm.sh"
+          }
+        ],
+        "facts": [],
+        "boundaries": [
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "nvm.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/print@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:43284cfb6c5ca15c901f9fb3f517fd586d5049578e6dd9ab3590e5148f8d7331",
+      "revision": "p18b/transfer-archive-process/print@v1#blake3:9bab9c95a3e2c5b35170ecb33a79a2db68f5b9c2a8ab9e3949b0866e0840dc53",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:BurntSushi/ripgrep:all-entrypoints:unmodeled_command:print"
+      ],
+      "observed_p11": {
+        "applications": 10,
+        "repositories": [
+          "ripgrep"
+        ],
+        "entrypoints": [
+          {
+            "repo": "ripgrep",
+            "entrypoint": "ci/test-complete"
+          }
+        ],
+        "facts": [],
+        "boundaries": [
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "ci/test-complete",
+            "reason": "unrecognized_arguments",
+            "repo": "ripgrep"
+          },
+          {
+            "detail": "unrecognized flags: -rlu2",
+            "entrypoint": "ci/test-complete",
+            "reason": "unrecognized_arguments",
+            "repo": "ripgrep"
+          },
+          {
+            "detail": "unrecognized flags: -ru2",
+            "entrypoint": "ci/test-complete",
+            "reason": "unrecognized_arguments",
+            "repo": "ripgrep"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/ps@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:2878d9ef5fd0571714fe5b044a677876a12019dd8b334a93c349ff81f90dee0e",
+      "revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:all-entrypoints:unmodeled_command:ps"
+      ],
+      "observed_p11": {
+        "applications": 16,
+        "repositories": [
+          "nvm",
+          "wp"
+        ],
+        "entrypoints": [
+          {
+            "repo": "nvm",
+            "entrypoint": "package.json:scripts.test"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": "package.json:scripts.test/fast"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": "package.json:scripts.test/install_script"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": "package.json:scripts.test/installation/iojs"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": "package.json:scripts.test/installation/node"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": "package.json:scripts.test/slow"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": "package.json:scripts.test/sourcing"
+          },
+          {
+            "repo": "wp",
+            "entrypoint": "bundle/rmccue/requests/scripts/proxy/start.sh"
+          }
+        ],
+        "facts": [],
+        "boundaries": [
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "package.json:scripts.test",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "package.json:scripts.test/fast",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "package.json:scripts.test/install_script",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "package.json:scripts.test/installation/iojs",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "package.json:scripts.test/installation/node",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "package.json:scripts.test/slow",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "package.json:scripts.test/sourcing",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: ?",
+            "entrypoint": "package.json:scripts.test",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: ?",
+            "entrypoint": "package.json:scripts.test/fast",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: ?",
+            "entrypoint": "package.json:scripts.test/install_script",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: ?",
+            "entrypoint": "package.json:scripts.test/installation/iojs",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: ?",
+            "entrypoint": "package.json:scripts.test/installation/node",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: ?",
+            "entrypoint": "package.json:scripts.test/slow",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: ?",
+            "entrypoint": "package.json:scripts.test/sourcing",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "unrecognized operands: u",
+            "entrypoint": "bundle/rmccue/requests/scripts/proxy/start.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "wp"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/psrinfo@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:79d5f4e9224171411dbc94349aa24fb4c1e4d7d0b0b234a5199dfea0e513e77e",
+      "revision": "p18b/transfer-archive-process/psrinfo@v1#blake3:202599aa48079d17e0c9abd2c4ab02f37918b18e605407cca91126e9b73ddc35",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:real-entrypoint:unmodeled_command:psrinfo"
+      ],
+      "observed_p11": {
+        "applications": 3,
+        "repositories": [
+          "nvm"
+        ],
+        "entrypoints": [
+          {
+            "repo": "nvm",
+            "entrypoint": "nvm.sh"
+          }
+        ],
+        "facts": [],
+        "boundaries": [
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "nvm.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/rar@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:4cb633c164d2371ae103ca159cd7e1700b942447d598fca09edbabcfff887e67",
+      "revision": "p18b/transfer-archive-process/rar@v1#blake3:538ecd50e22ea913ce4ea24599fef3ec7edabc895dad188f43d962372b0efb70",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/rclone@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:5f7468dff113936168c5feccb47fc86f8524fa3f68dbdad092de55cc5297e5e3",
+      "revision": "p18b/transfer-archive-process/rclone@v1#blake3:05d5a675bb9dbe16bcdc66be65351e08cabe855772e70b026fb3464cdc5f3955",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/readlink@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:6b43bf1f06de101d46dd0c017919c18dc63248ae9e641b2cd413ea34db22ad4d",
+      "revision": "p18b/transfer-archive-process/readlink@v1#blake3:6eab4d3788201af0077ac6af3d8b0202793da0b1125bb4b1186df3160a582d67",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:readlink"
+      ],
+      "observed_p11": {
+        "applications": 1,
+        "repositories": [
+          "wp"
+        ],
+        "entrypoints": [
+          {
+            "repo": "wp",
+            "entrypoint": "bin/wp"
+          }
+        ],
+        "facts": [
+          {
+            "entrypoint": "bin/wp",
+            "modality": "may",
+            "operation": "filesystem.metadata",
+            "realm": null,
+            "repo": "wp",
+            "resource": {
+              "expr": "unresolved",
+              "family": "filesystem"
+            }
+          }
+        ],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/sftp@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:0560be6f0e475bc11dc5ac657b0d1a945c89f1e5cfcd89edabb13f72e644771b",
+      "revision": "p18b/transfer-archive-process/sftp@v1#blake3:e07667a9bfba52330f9d55f9ca9a408103ef1d6bee92dcac634d71cb436a5129",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/start-stop-daemon@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:f6c347c11b0796e8899400baec968ba86584e55017fb524541db96db7a3db75c",
+      "revision": "p18b/transfer-archive-process/start-stop-daemon@v1#blake3:e214486fca07b31c0f71333c3c3e99d78eb11c7a311c85a0a096455f79f92ade",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:wp-cli/wp-cli:all-entrypoints:unmodeled_command:start-stop-daemon"
+      ],
+      "observed_p11": {
+        "applications": 2,
+        "repositories": [
+          "wp"
+        ],
+        "entrypoints": [
+          {
+            "repo": "wp",
+            "entrypoint": "bundle/rmccue/requests/scripts/proxy/start.sh"
+          },
+          {
+            "repo": "wp",
+            "entrypoint": "bundle/rmccue/requests/scripts/proxy/stop.sh"
+          }
+        ],
+        "facts": [
+          {
+            "entrypoint": "bundle/rmccue/requests/scripts/proxy/stop.sh",
+            "modality": "may",
+            "operation": "filesystem.read",
+            "realm": null,
+            "repo": "wp",
+            "resource": {
+              "expr": "unresolved",
+              "family": "filesystem"
+            }
+          }
+        ],
+        "boundaries": [
+          {
+            "detail": "unrecognized flags: --background, --make-pidfile",
+            "entrypoint": "bundle/rmccue/requests/scripts/proxy/start.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "wp"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/strace@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:1cfac0f8e1316f08825f6261cb28905986c31b5478c3afee26eb47a71f4ffa0c",
+      "revision": "p18b/transfer-archive-process/strace@v1#blake3:b291d32a5b49c98bca6c0ea51182cc10ac221e6db94c32f18ab56718b91bc0e1",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/sw_vers@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:5bccaae76e86e12910608e352ea9b536123f85cf10fdf4e85ee9e16522b02fc8",
+      "revision": "p18b/transfer-archive-process/sw_vers@v1#blake3:c84d1d76ce46a06cf222f501310c2dccd396f6b47de5740f42a0322aabbf7ab5",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:real-entrypoint:unmodeled_command:sw_vers"
+      ],
+      "observed_p11": {
+        "applications": 3,
+        "repositories": [
+          "cli",
+          "nvm"
+        ],
+        "entrypoints": [
+          {
+            "repo": "cli",
+            "entrypoint": "script/pkgmacos"
+          },
+          {
+            "repo": "nvm",
+            "entrypoint": "nvm.sh"
+          }
+        ],
+        "facts": [],
+        "boundaries": [
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "nvm.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          },
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "script/pkgmacos",
+            "reason": "unrecognized_arguments",
+            "repo": "cli"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/sysctl@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:d8b1965b9d6223cdeed4d206361203bf2dc550ce164d5a9164465270d470f0fb",
+      "revision": "p18b/transfer-archive-process/sysctl@v1#blake3:bbc13ae7d809ef3a4564544e2dd69b1d70d8d29e602e7dbfe0ca43b76d0df2ad",
+      "selection_basis": "p11-unmodeled-command-miss",
+      "p11_observations": [
+        "p11b_v1:nvm-sh/nvm:real-entrypoint:unmodeled_command:sysctl"
+      ],
+      "observed_p11": {
+        "applications": 3,
+        "repositories": [
+          "nvm"
+        ],
+        "entrypoints": [
+          {
+            "repo": "nvm",
+            "entrypoint": "nvm.sh"
+          }
+        ],
+        "facts": [],
+        "boundaries": [
+          {
+            "detail": "recognized command form has no reviewed behavior",
+            "entrypoint": "nvm.sh",
+            "reason": "unrecognized_arguments",
+            "repo": "nvm"
+          }
+        ]
+      },
+      "observed_fact_changes": [],
+      "observation": "direct P11 miss exercised at this exact revision; attributed facts and boundaries are recorded"
+    },
+    {
+      "id": "p18b/transfer-archive-process/unrar@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:0fce5bdb0cf899e14f664160607282a82cd9dd7d1c178c4e76d8085ad95ea34c",
+      "revision": "p18b/transfer-archive-process/unrar@v1#blake3:271e12b7357166326ac83815f3de9a9de9ede844ae940287eb77331bca687239",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/unxz@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:139b52f12417e2ec836ce15d7f68fc68ee867c717e3e3a33bf87e8f44f560f12",
+      "revision": "p18b/transfer-archive-process/unxz@v1#blake3:4a9070b7837bd28deb7d8605c85d1ed2a44fc5ba2a39e80e0901eb2786a116e9",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/xz@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:70f852ff2296977c9d954ec336d93eab9cb8f705528b1ca9649a440e0a22e03f",
+      "revision": "p18b/transfer-archive-process/xz@v1#blake3:03de63872a123ba3f46aefda3d2c7fe4df6822cd757ecb6970168857f850645a",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/transfer-archive-process/zstd@v1",
+      "family": "transfer-archive-process",
+      "document_identity": "blake3:53e2e5beaee68421e14e4eed66a3504495fd6cd54dcb96b04208d49729f961f7",
+      "revision": "p18b/transfer-archive-process/zstd@v1#blake3:614f78d88a2b6c3b4bcd1b87d826d30fa4985e60bf35eb321691fdd0fb7aee53",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/package-build-vcs/pipx@v1",
+      "family": "package-build-vcs",
+      "document_identity": "blake3:cd87c2306a1b86dafa48ba356648207d216347a8c9fef6ea5309c9b436ce95cc",
+      "revision": "p18b/package-build-vcs/pipx@v1#blake3:546bf76fa56fa162c7aa7222c0aea08f2b8e4c36d5161f4cefff38c41d505769",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/devtools/inert/id@v1",
+      "family": "devtools",
+      "document_identity": "blake3:ddd3bbeb53526d9793117556942dbaed5ee6e496be636914685b82caab141c77",
+      "revision": "p18b/devtools/inert/id@v1#blake3:fb3ae75a2d8561aa8bb310ab94188a75e7cdef4253772cc03d5794f55f6d39d7",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/devtools/read-operands/cmp@v1",
+      "family": "devtools",
+      "document_identity": "blake3:69bdae589ee6357cc71d1337d0961b96d39e2866d85250886fa784f1556e5c1a",
+      "revision": "p18b/devtools/read-operands/cmp@v1#blake3:4313ce1aeb6a0c2f4a75166521613f32695e4f852863456ef1bb17e36f1e58c7",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/devtools/checksums@v1",
+      "family": "devtools",
+      "document_identity": "blake3:dfd784af9197e9357dddf30f8fd122b20c0d471d635865177361c698c7125aa5",
+      "revision": "p18b/devtools/checksums@v1#blake3:e2cd94cdd8f2db6aa2eb73dd627763931c690aed861b904dc75d22de7236a215",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/devtools/rg@v1",
+      "family": "devtools",
+      "document_identity": "blake3:3cb24511faf5ffebf3f2bc676dd165f9f46037a3cd13a0c65903a49e21cc0515",
+      "revision": "p18b/devtools/rg@v1#blake3:31b2f90d43acd4d72e394a54756da02a647fbec582242d5dba0b58e0638146ca",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/devtools/mktemp@v1",
+      "family": "devtools",
+      "document_identity": "blake3:e16a81ac714e6991cf3fd63828492832c1c99c9b204d000493cc51a88302cbfe",
+      "revision": "p18b/devtools/mktemp@v1#blake3:bd4ce98cb3ee90a521ccb5db833eda8fdcc9f3cbc392ad3ae777ceabc4daa002",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/devtools/prefix-wrappers/time@v1",
+      "family": "devtools",
+      "document_identity": "blake3:93d139492d18a5ba7d021aa9d4f0052ac0cea7afb3345dd7f4c5141afc98c45f",
+      "revision": "p18b/devtools/prefix-wrappers/time@v1#blake3:ff84bed50a7c02e3963bd4cc410e5ea34487ff30f824ba74a9287085583a21cc",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/devtools/rust-tools/rustc@v1",
+      "family": "devtools",
+      "document_identity": "blake3:f064839799a446e13ce682be89a86c4c94da118ffe02a2e8e8f2ee0c9dc05734",
+      "revision": "p18b/devtools/rust-tools/rustc@v1#blake3:eacc49127af38efaa4882e9207eb8fef776fbf8252e3418a755769ee4b6a7779",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/devtools/which@v1",
+      "family": "devtools",
+      "document_identity": "blake3:57db6e1ec4d6dab91c992157af06e583d7fd790484c8b0e4f183cab2b8624a46",
+      "revision": "p18b/devtools/which@v1#blake3:2266286f6e3d817e769345d7de08db24a5d712269ad3cfcacbf2be53ca6a5e66",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/devtools/gh@v1",
+      "family": "devtools",
+      "document_identity": "blake3:1b15aeef124c326823f9b98794ec90225516808936e846fb2ed7e0fdb131a714",
+      "revision": "p18b/devtools/gh@v1#blake3:8b2239c8a236581dd885c9e0dd78526cab493b033ec866736082fc0d3de6b4b6",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/devtools/glab@v1",
+      "family": "devtools",
+      "document_identity": "blake3:fa92eb88c74348853bc2b50210eaa5837e909bad6fcf709352f43106a6eae303",
+      "revision": "p18b/devtools/glab@v1#blake3:f156d911dca53345a2f8d93119ddb698caced5511d040329712a834668776671",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/agents/amp@v1",
+      "family": "agents",
+      "document_identity": "blake3:b4e31465d61851c16b1db7450efb19c5aab71dda007692382f9058c7c923991e",
+      "revision": "p18b/agents/amp@v1#blake3:99fead86d772b9ae665d38599ed26ca231632b046ca3a0eb5cfae22e9a0baeb9",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/agents/claude@v1",
+      "family": "agents",
+      "document_identity": "blake3:0ddae912c4e65f08b109d1ba3101876a5dce04795787f3f0cc974ee3dd85fd13",
+      "revision": "p18b/agents/claude@v1#blake3:1c470f029e503cdfaee9996b40d82c222a096bf676f3f746ed37687acef3d04f",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/agents/codex@v1",
+      "family": "agents",
+      "document_identity": "blake3:e051a8675a86b3f14c3cc516312494e1f3d0088aa755a3acfd643a55301aaba5",
+      "revision": "p18b/agents/codex@v1#blake3:b50b74cfd2884e4578759fd65b8b7ed27ea50a8ac249f40ee986ddacc0f76041",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/agents/cursor-agent@v1",
+      "family": "agents",
+      "document_identity": "blake3:d643cd215a246cd199f89498e0942de208cc0cf31d6c383f4c1b786cb69a4697",
+      "revision": "p18b/agents/cursor-agent@v1#blake3:565ba6979ad4b32b5dd2cccd691566d3d801b8f5ae44958f3fe80484d2349189",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/agents/droid@v1",
+      "family": "agents",
+      "document_identity": "blake3:058ed7dbcdf84b710dc477af158119d98d2aedb226fe9f9057902bc21eccbd7b",
+      "revision": "p18b/agents/droid@v1#blake3:b53adc2c12091b3e849fa1513a9b575929c2a28cdee3c37bd3ee3c11a942471d",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/agents/hermes@v1",
+      "family": "agents",
+      "document_identity": "blake3:3ba5442c88ad60424a3d2fafa54df09083861d4b452e2b39bc5fd480ba74247e",
+      "revision": "p18b/agents/hermes@v1#blake3:ebb4c6f0cc1018072a87ba5292567706aac07a85d6f26276f668e363a7ac3779",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/agents/pi@v1",
+      "family": "agents",
+      "document_identity": "blake3:ef7001ff706be0fbb31299a3cebe677eb9b2932df5607a3eb791da2c9cbae57d",
+      "revision": "p18b/agents/pi@v1#blake3:9af9a0f8fea5bd653e699e73159946c0f377323ba4b5f71b579e66c78d53cafe",
+      "selection_basis": "representative-declaration-capability",
+      "p11_observations": [],
+      "observed_p11": {
+        "applications": 0,
+        "repositories": [],
+        "entrypoints": [],
+        "facts": [],
+        "boundaries": []
+      },
+      "observed_fact_changes": [],
+      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
+    },
+    {
+      "id": "p18b/devtools/unlink@v1",
+      "family": "devtools",
+      "document_identity": "blake3:495217b188d14e504329125b88ab6da8d818714d9f17fa6d388a4a4a2363399a",
+      "revision": "p18b/devtools/unlink@v1#blake3:65e51b4c9bcbe66aefe9215c6c342e05390b5ff48a56ea9af0edd589c8caa72c",
+      "selection_basis": "corpus-unmodeled-command",
+      "p11_observations": []
+    },
+    {
+      "id": "p18b/devtools/rimraf@v1",
+      "family": "devtools",
+      "document_identity": "blake3:8257c1a48b31ae511526c2ba92e72d44dff67d280217858acf1cbe4789b263c2",
+      "revision": "p18b/devtools/rimraf@v1#blake3:8a80a81af2ae6a6b8365f2de951e9f4504ec12647ea70accaae2c0d851905eae",
+      "selection_basis": "corpus-unmodeled-command",
+      "p11_observations": []
+    },
+    {
+      "id": "p18b/devtools/content-readers/column@v1",
+      "family": "devtools",
+      "document_identity": "blake3:162a9e52296ba12294d309a6598beb7a7d44b61d1f1f6d7f40e71d33695e3c9c",
+      "revision": "p18b/devtools/content-readers/column@v1#blake3:f638611a8e292c1d46d060fe3a6a444c9a2ffce8eff4a87e1df15b76fe4130bc",
+      "selection_basis": "corpus-unmodeled-command",
+      "p11_observations": []
+    },
+    {
+      "id": "p18b/devtools/content-readers/expand@v1",
+      "family": "devtools",
+      "document_identity": "blake3:162a9e52296ba12294d309a6598beb7a7d44b61d1f1f6d7f40e71d33695e3c9c",
+      "revision": "p18b/devtools/content-readers/expand@v1#blake3:476700912a5444b04a580a76bb3e9228e10f69e819f448cbe111eeba398672de",
+      "selection_basis": "corpus-unmodeled-command",
+      "p11_observations": []
+    },
+    {
+      "id": "p18b/devtools/content-readers/fmt@v1",
+      "family": "devtools",
+      "document_identity": "blake3:162a9e52296ba12294d309a6598beb7a7d44b61d1f1f6d7f40e71d33695e3c9c",
+      "revision": "p18b/devtools/content-readers/fmt@v1#blake3:2d7148ffaf4d307515eea19b2ca739d584e6cd0c1f588bd3b4a2f4588c13d482",
+      "selection_basis": "corpus-unmodeled-command",
+      "p11_observations": []
+    },
+    {
+      "id": "p18b/devtools/content-readers/fold@v1",
+      "family": "devtools",
+      "document_identity": "blake3:162a9e52296ba12294d309a6598beb7a7d44b61d1f1f6d7f40e71d33695e3c9c",
+      "revision": "p18b/devtools/content-readers/fold@v1#blake3:415eb00497ae623cc1add8c95eccbcb9adf5f657ebdfd235cee81d0b3533a4b3",
+      "selection_basis": "corpus-unmodeled-command",
+      "p11_observations": []
+    },
+    {
+      "id": "p18b/devtools/content-readers/hd@v1",
+      "family": "devtools",
+      "document_identity": "blake3:162a9e52296ba12294d309a6598beb7a7d44b61d1f1f6d7f40e71d33695e3c9c",
+      "revision": "p18b/devtools/content-readers/hd@v1#blake3:48c4b69d5757a4c9d604187e351f6b48a47c4bcd2c59ab4c81027c53a6e26424",
+      "selection_basis": "corpus-unmodeled-command",
+      "p11_observations": []
+    },
+    {
+      "id": "p18b/devtools/content-readers/hexdump@v1",
+      "family": "devtools",
+      "document_identity": "blake3:162a9e52296ba12294d309a6598beb7a7d44b61d1f1f6d7f40e71d33695e3c9c",
+      "revision": "p18b/devtools/content-readers/hexdump@v1#blake3:942386ef407414c7031649ac38a66400f149d550a14384d28e959a7a651a1921",
+      "selection_basis": "corpus-unmodeled-command",
+      "p11_observations": []
+    },
+    {
+      "id": "p18b/devtools/content-readers/paste@v1",
+      "family": "devtools",
+      "document_identity": "blake3:162a9e52296ba12294d309a6598beb7a7d44b61d1f1f6d7f40e71d33695e3c9c",
+      "revision": "p18b/devtools/content-readers/paste@v1#blake3:6c68b86b0426c84a28d6ca102ff0bfb9519eeecdb43c57f35724cfd4f1d402f7",
+      "selection_basis": "corpus-unmodeled-command",
+      "p11_observations": []
+    },
+    {
+      "id": "p18b/devtools/content-readers/shuf@v1",
+      "family": "devtools",
+      "document_identity": "blake3:162a9e52296ba12294d309a6598beb7a7d44b61d1f1f6d7f40e71d33695e3c9c",
+      "revision": "p18b/devtools/content-readers/shuf@v1#blake3:7a1eb0c6513b11cd7e6305d7c184d3acd86e012e93a6229b075bac95417aa42a",
+      "selection_basis": "corpus-unmodeled-command",
+      "p11_observations": []
+    },
+    {
+      "id": "p18b/devtools/content-readers/tac@v1",
+      "family": "devtools",
+      "document_identity": "blake3:162a9e52296ba12294d309a6598beb7a7d44b61d1f1f6d7f40e71d33695e3c9c",
+      "revision": "p18b/devtools/content-readers/tac@v1#blake3:8f9f917da6266643f3aacae5682d7c0b2f54d3d964b665e3866c42ff8d78730b",
+      "selection_basis": "corpus-unmodeled-command",
+      "p11_observations": []
+    }
+  ],
+  "observed_p11_v1": {
+    "baseline": {
+      "label": "p11b_v1",
+      "semantic_identity": "blake3:6749ff4d256eb9952f391ffa5ef2450f27823b228e657353be0073f79e34e78a",
+      "totals": {
+        "repositories": 7,
+        "domain_matched": 12,
+        "domain_total": 12,
+        "facts_matched": 25,
+        "facts_total": 25,
+        "forbidden_hits": 0,
+        "analysis_failures": 0
+      }
+    },
+    "pre_tranche_replay": {
+      "label": "qa5_base_p11",
+      "source_commit": "c1897ac49b16798221f434588f3a07ca0c8cd9a3",
+      "semantic_identity": "blake3:7e42697491e846a0e7c528f2b47662d5093bdc2c8691b91f3eaad5e0fe42b59f",
+      "totals": {
+        "repositories": 7,
+        "domain_matched": 12,
+        "domain_total": 12,
+        "facts_matched": 24,
+        "facts_total": 25,
+        "forbidden_hits": 0,
+        "analysis_failures": 0
+      }
+    },
+    "candidate": {
+      "label": "p18b_p11_models",
+      "semantic_identity": "blake3:aa299f593c86006bd72a29b2caf48affc7214bbda839eb98be9701900b078a16",
+      "totals": {
+        "repositories": 7,
+        "domain_matched": 12,
+        "domain_total": 12,
+        "facts_matched": 24,
+        "facts_total": 25,
+        "forbidden_hits": 0,
+        "analysis_failures": 0
+      }
+    },
+    "direct_revisions_selected": 16,
+    "direct_revisions_observed": 14,
+    "direct_revisions_with_facts": 4,
+    "model_attributed_fact_count": 16,
+    "model_attributed_boundary_count": 55,
+    "attributed_model_revisions": [
+      "p18b/package-build-vcs/composer@v1#blake3:6709bf9cd0d675db8fa6aa18746a840f4ad8bbc5a39d633d4643fad9f6fa3e5f",
+      "p18b/package-build-vcs/hub@v1#blake3:29cb73c05e7859d4e7931e1ee677ff0ed4a1214fcb7a8c9b1d60ab66eb136385",
+      "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+      "p18b/transfer-archive-process/col@v1#blake3:1b6ac7f28514727126feab38b8d3d00f742e21c5b363c869896c825548943309",
+      "p18b/transfer-archive-process/cygpath@v1#blake3:d1603b201e408a6ef8c6bc2efe5443cd30ca3c60c377e86b1117d545f976b028",
+      "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+      "p18b/transfer-archive-process/pmcycles@v1#blake3:20e52c11b2d03471ae09204eb61026933ef97592a50f0abebac9328c89aa0bf0",
+      "p18b/transfer-archive-process/print@v1#blake3:9bab9c95a3e2c5b35170ecb33a79a2db68f5b9c2a8ab9e3949b0866e0840dc53",
+      "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+      "p18b/transfer-archive-process/psrinfo@v1#blake3:202599aa48079d17e0c9abd2c4ab02f37918b18e605407cca91126e9b73ddc35",
+      "p18b/transfer-archive-process/readlink@v1#blake3:6eab4d3788201af0077ac6af3d8b0202793da0b1125bb4b1186df3160a582d67",
+      "p18b/transfer-archive-process/start-stop-daemon@v1#blake3:e214486fca07b31c0f71333c3c3e99d78eb11c7a311c85a0a096455f79f92ade",
+      "p18b/transfer-archive-process/sw_vers@v1#blake3:c84d1d76ce46a06cf222f501310c2dccd396f6b47de5740f42a0322aabbf7ab5",
+      "p18b/transfer-archive-process/sysctl@v1#blake3:bbc13ae7d809ef3a4564544e2dd69b1d70d8d29e602e7dbfe0ca43b76d0df2ad"
+    ],
+    "fact_changes": [
+      {
+        "model_id": "p18b/package-build-vcs/hub@v1",
+        "model_revision": "p18b/package-build-vcs/hub@v1#blake3:29cb73c05e7859d4e7931e1ee677ff0ed4a1214fcb7a8c9b1d60ab66eb136385",
+        "entrypoint": "utils/auto-composer-update.sh",
+        "modality": "may",
+        "operation": "network.request",
+        "realm": null,
+        "repo": "wp",
+        "resource": {
+          "expr": "unresolved",
+          "family": "network"
+        }
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "entrypoint": ".github/workflows/fuzz.yml:run.3",
+        "modality": "may",
+        "operation": "filesystem.read",
+        "realm": {
+          "endpoint": "github-actions",
+          "realm": "remote"
+        },
+        "repo": "black",
+        "resource": {
+          "expr": "unresolved",
+          "family": "filesystem"
+        }
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
+        "modality": "may",
+        "operation": "filesystem.read",
+        "realm": null,
+        "repo": "cli",
+        "resource": {
+          "expr": "join",
+          "parts": [
+            {
+              "expr": "unresolved",
+              "family": "filesystem"
+            },
+            {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/run.json"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
+        "modality": "may",
+        "operation": "filesystem.read",
+        "realm": null,
+        "repo": "cli",
+        "resource": {
+          "expr": "join",
+          "parts": [
+            {
+              "expr": "unresolved",
+              "family": "filesystem"
+            },
+            {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/selected.json"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/readlink@v1",
+        "model_revision": "p18b/transfer-archive-process/readlink@v1#blake3:6eab4d3788201af0077ac6af3d8b0202793da0b1125bb4b1186df3160a582d67",
+        "entrypoint": "bin/wp",
+        "modality": "may",
+        "operation": "filesystem.metadata",
+        "realm": null,
+        "repo": "wp",
+        "resource": {
+          "expr": "unresolved",
+          "family": "filesystem"
+        }
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/start-stop-daemon@v1",
+        "model_revision": "p18b/transfer-archive-process/start-stop-daemon@v1#blake3:e214486fca07b31c0f71333c3c3e99d78eb11c7a311c85a0a096455f79f92ade",
+        "entrypoint": "bundle/rmccue/requests/scripts/proxy/stop.sh",
+        "modality": "may",
+        "operation": "filesystem.read",
+        "realm": null,
+        "repo": "wp",
+        "resource": {
+          "expr": "unresolved",
+          "family": "filesystem"
+        }
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "entrypoint": ".github/workflows/tests-installation-node.yml:run.3",
+        "modality": "may",
+        "operation": "filesystem.write",
+        "realm": {
+          "endpoint": "github-actions",
+          "realm": "remote"
+        },
+        "repo": "nvm",
+        "resource": {
+          "expr": "pattern",
+          "family": "filesystem",
+          "pattern": "node_modules"
+        }
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "entrypoint": ".github/workflows/tests-installation-node.yml:run.3",
+        "modality": "may",
+        "operation": "network.download",
+        "realm": {
+          "endpoint": "github-actions",
+          "realm": "remote"
+        },
+        "repo": "nvm",
+        "resource": {
+          "expr": "unresolved",
+          "family": "network"
+        }
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "entrypoint": ".github/workflows/tests-installation-node.yml:run.4",
+        "modality": "may",
+        "operation": "filesystem.write",
+        "realm": {
+          "name": "ubuntu:16.04",
+          "realm": "container",
+          "runtime": "docker"
+        },
+        "repo": "nvm",
+        "resource": {
+          "expr": "pattern",
+          "family": "filesystem",
+          "pattern": "node_modules"
+        }
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "entrypoint": ".github/workflows/tests-installation-node.yml:run.4",
+        "modality": "may",
+        "operation": "network.download",
+        "realm": {
+          "name": "ubuntu:16.04",
+          "realm": "container",
+          "runtime": "docker"
+        },
+        "repo": "nvm",
+        "resource": {
+          "expr": "unresolved",
+          "family": "network"
+        }
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "entrypoint": ".github/workflows/tests-xenial.yml:run.3",
+        "modality": "may",
+        "operation": "filesystem.write",
+        "realm": {
+          "endpoint": "github-actions",
+          "realm": "remote"
+        },
+        "repo": "nvm",
+        "resource": {
+          "expr": "pattern",
+          "family": "filesystem",
+          "pattern": "node_modules"
+        }
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "entrypoint": ".github/workflows/tests-xenial.yml:run.3",
+        "modality": "may",
+        "operation": "network.download",
+        "realm": {
+          "endpoint": "github-actions",
+          "realm": "remote"
+        },
+        "repo": "nvm",
+        "resource": {
+          "expr": "unresolved",
+          "family": "network"
+        }
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "entrypoint": ".github/workflows/tests-xenial.yml:run.4",
+        "modality": "may",
+        "operation": "filesystem.write",
+        "realm": {
+          "name": "ubuntu:16.04",
+          "realm": "container",
+          "runtime": "docker"
+        },
+        "repo": "nvm",
+        "resource": {
+          "expr": "pattern",
+          "family": "filesystem",
+          "pattern": "node_modules"
+        }
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "entrypoint": ".github/workflows/tests-xenial.yml:run.4",
+        "modality": "may",
+        "operation": "network.download",
+        "realm": {
+          "name": "ubuntu:16.04",
+          "realm": "container",
+          "runtime": "docker"
+        },
+        "repo": "nvm",
+        "resource": {
+          "expr": "unresolved",
+          "family": "network"
+        }
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "entrypoint": ".github/workflows/tests.yml:run.8",
+        "modality": "may",
+        "operation": "filesystem.write",
+        "realm": {
+          "endpoint": "github-actions",
+          "realm": "remote"
+        },
+        "repo": "nvm",
+        "resource": {
+          "expr": "pattern",
+          "family": "filesystem",
+          "pattern": "node_modules"
+        }
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "entrypoint": ".github/workflows/tests.yml:run.8",
+        "modality": "may",
+        "operation": "network.download",
+        "realm": {
+          "endpoint": "github-actions",
+          "realm": "remote"
+        },
+        "repo": "nvm",
+        "resource": {
+          "expr": "unresolved",
+          "family": "network"
+        }
+      }
+    ],
+    "boundary_changes": [
+      {
+        "model_id": "p18b/package-build-vcs/composer@v1",
+        "model_revision": "p18b/package-build-vcs/composer@v1#blake3:6709bf9cd0d675db8fa6aa18746a840f4ad8bbc5a39d633d4643fad9f6fa3e5f",
+        "detail": "unrecognized flags: --no-progress, --no-interaction; unrecognized operands: update",
+        "entrypoint": "utils/auto-composer-update.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "wp"
+      },
+      {
+        "model_id": "p18b/package-build-vcs/composer@v1",
+        "model_revision": "p18b/package-build-vcs/composer@v1#blake3:6709bf9cd0d675db8fa6aa18746a840f4ad8bbc5a39d633d4643fad9f6fa3e5f",
+        "detail": "unrecognized operands: install",
+        "entrypoint": "utils/auto-composer-update.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "wp"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/col@v1",
+        "model_revision": "p18b/transfer-archive-process/col@v1#blake3:1b6ac7f28514727126feab38b8d3d00f742e21c5b363c869896c825548943309",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "utils/auto-composer-update.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "wp"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/cygpath@v1",
+        "model_revision": "p18b/transfer-archive-process/cygpath@v1#blake3:d1603b201e408a6ef8c6bc2efe5443cd30ca3c60c377e86b1117d545f976b028",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "bin/wp",
+        "reason": "unrecognized_arguments",
+        "repo": "wp"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": ".github/workflows/nodejs-org.yml:run.3",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": ".github/workflows/nvm-install-test.yml:run.1",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": ".github/workflows/release-linux-standalone.yml:run.2",
+        "reason": "unrecognized_arguments",
+        "repo": "httpie"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": ".github/workflows/scripts/bump-go.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "cli"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "script/nolint-insert",
+        "reason": "unrecognized_arguments",
+        "repo": "cli"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "detail": "unrecognized flags: --arg, --arg, --arg, --argjson, --arg",
+        "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "cli"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "detail": "unrecognized flags: --arg, --arg, --argjson, --argjson, --arg",
+        "entrypoint": ".github/workflows/dependabot-triage.lock.yml:run.45",
+        "reason": "unrecognized_arguments",
+        "repo": "cli"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "detail": "unrecognized flags: --arg, --arg, --argjson, --argjson, --arg",
+        "entrypoint": ".github/workflows/issue-triage.lock.yml:run.43",
+        "reason": "unrecognized_arguments",
+        "repo": "cli"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "detail": "unrecognized flags: --arg, --argjson",
+        "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "cli"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "detail": "unrecognized flags: --slurpfile, --slurpfile",
+        "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "cli"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/jq@v1",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:c8c12ed12f69f916bb4281fe0cb2bb927827e143995154ef97108a63b3035b9b",
+        "detail": "unrecognized flags: -R",
+        "entrypoint": ".github/workflows/nvm-install-test.yml:run.1",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/pmcycles@v1",
+        "model_revision": "p18b/transfer-archive-process/pmcycles@v1#blake3:20e52c11b2d03471ae09204eb61026933ef97592a50f0abebac9328c89aa0bf0",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "nvm.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/print@v1",
+        "model_revision": "p18b/transfer-archive-process/print@v1#blake3:9bab9c95a3e2c5b35170ecb33a79a2db68f5b9c2a8ab9e3949b0866e0840dc53",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "ci/test-complete",
+        "reason": "unrecognized_arguments",
+        "repo": "ripgrep"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/print@v1",
+        "model_revision": "p18b/transfer-archive-process/print@v1#blake3:9bab9c95a3e2c5b35170ecb33a79a2db68f5b9c2a8ab9e3949b0866e0840dc53",
+        "detail": "unrecognized flags: -rlu2",
+        "entrypoint": "ci/test-complete",
+        "reason": "unrecognized_arguments",
+        "repo": "ripgrep"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/print@v1",
+        "model_revision": "p18b/transfer-archive-process/print@v1#blake3:9bab9c95a3e2c5b35170ecb33a79a2db68f5b9c2a8ab9e3949b0866e0840dc53",
+        "detail": "unrecognized flags: -ru2",
+        "entrypoint": "ci/test-complete",
+        "reason": "unrecognized_arguments",
+        "repo": "ripgrep"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "package.json:scripts.test",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "package.json:scripts.test/fast",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "package.json:scripts.test/install_script",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "package.json:scripts.test/installation/iojs",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "package.json:scripts.test/installation/node",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "package.json:scripts.test/slow",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "package.json:scripts.test/sourcing",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "unrecognized operands: ?",
+        "entrypoint": "package.json:scripts.test",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "unrecognized operands: ?",
+        "entrypoint": "package.json:scripts.test/fast",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "unrecognized operands: ?",
+        "entrypoint": "package.json:scripts.test/install_script",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "unrecognized operands: ?",
+        "entrypoint": "package.json:scripts.test/installation/iojs",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "unrecognized operands: ?",
+        "entrypoint": "package.json:scripts.test/installation/node",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "unrecognized operands: ?",
+        "entrypoint": "package.json:scripts.test/slow",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "unrecognized operands: ?",
+        "entrypoint": "package.json:scripts.test/sourcing",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/ps@v1",
+        "model_revision": "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
+        "detail": "unrecognized operands: u",
+        "entrypoint": "bundle/rmccue/requests/scripts/proxy/start.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "wp"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/psrinfo@v1",
+        "model_revision": "p18b/transfer-archive-process/psrinfo@v1#blake3:202599aa48079d17e0c9abd2c4ab02f37918b18e605407cca91126e9b73ddc35",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "nvm.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/start-stop-daemon@v1",
+        "model_revision": "p18b/transfer-archive-process/start-stop-daemon@v1#blake3:e214486fca07b31c0f71333c3c3e99d78eb11c7a311c85a0a096455f79f92ade",
+        "detail": "unrecognized flags: --background, --make-pidfile",
+        "entrypoint": "bundle/rmccue/requests/scripts/proxy/start.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "wp"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/sw_vers@v1",
+        "model_revision": "p18b/transfer-archive-process/sw_vers@v1#blake3:c84d1d76ce46a06cf222f501310c2dccd396f6b47de5740f42a0322aabbf7ab5",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "nvm.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/sw_vers@v1",
+        "model_revision": "p18b/transfer-archive-process/sw_vers@v1#blake3:c84d1d76ce46a06cf222f501310c2dccd396f6b47de5740f42a0322aabbf7ab5",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "script/pkgmacos",
+        "reason": "unrecognized_arguments",
+        "repo": "cli"
+      },
+      {
+        "model_id": "p18b/transfer-archive-process/sysctl@v1",
+        "model_revision": "p18b/transfer-archive-process/sysctl@v1#blake3:bbc13ae7d809ef3a4564544e2dd69b1d70d8d29e602e7dbfe0ca43b76d0df2ad",
+        "detail": "recognized command form has no reviewed behavior",
+        "entrypoint": "nvm.sh",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "detail": "unrecognized operands: urchin",
+        "entrypoint": ".github/workflows/tests-installation-node.yml:run.3",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "detail": "unrecognized operands: urchin",
+        "entrypoint": ".github/workflows/tests-installation-node.yml:run.4",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "detail": "unrecognized operands: urchin",
+        "entrypoint": ".github/workflows/tests-xenial.yml:run.3",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "detail": "unrecognized operands: urchin",
+        "entrypoint": ".github/workflows/tests-xenial.yml:run.4",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "detail": "unrecognized operands: urchin",
+        "entrypoint": ".github/workflows/tests.yml:run.8",
+        "reason": "unrecognized_arguments",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "detail": null,
+        "entrypoint": ".github/workflows/tests-installation-node.yml:run.3",
+        "reason": "package_scripts",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "detail": null,
+        "entrypoint": ".github/workflows/tests-installation-node.yml:run.4",
+        "reason": "package_scripts",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "detail": null,
+        "entrypoint": ".github/workflows/tests-xenial.yml:run.3",
+        "reason": "package_scripts",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "detail": null,
+        "entrypoint": ".github/workflows/tests-xenial.yml:run.4",
+        "reason": "package_scripts",
+        "repo": "nvm"
+      },
+      {
+        "model_id": "p18b/package-build-vcs/npx@v1",
+        "model_revision": "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
+        "detail": null,
+        "entrypoint": ".github/workflows/tests.yml:run.8",
+        "reason": "package_scripts",
+        "repo": "nvm"
+      }
+    ],
+    "scored_fact_changes": [
+      {
+        "change": "historical-baseline-difference",
+        "repo": "nvm",
+        "operation": "process.exec",
+        "resource": "proc:tar",
+        "origin": "nvm.sh",
+        "attribution": "the exact pre-tranche replay at c1897ac49b16798221f434588f3a07ca0c8cd9a3 reproduced the same value-propagation miss at 24/25; no promoted model revision caused it"
+      }
+    ],
+    "unexercised_direct_revisions": [
+      "p18b/package-build-vcs/install@v1#blake3:86ac6492eb1fb6a16b58c9aa90608858e44912512adc13552345fd3f66ca4323",
+      "p18b/transfer-archive-process/gtar@v1#blake3:a20a50f256cb4cf7aa3a21eda4f0957fc11eabbc516bd92e5fb2b05dd7efe725"
+    ],
+    "attribution_result": "14 of 16 directly selected revisions activated; 4 emitted 6 unique attributed facts, and the repaired representative npx revision added 10 facts plus 10 explicit boundaries without changing the scored totals",
+    "model_attributed_precision_preserved": true
+  }
+}

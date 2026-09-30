@@ -10,11 +10,11 @@ mod cursor_installation;
 mod custom_guard;
 mod devin_installation;
 mod droid_installation;
-#[cfg(feature = "effinterp")]
-mod effinterp;
+mod engine_plan_rendering;
 mod guard_config;
 mod hermes_installation;
 mod hook_config;
+mod hook_paths;
 mod javascript_bridge;
 mod kiro_installation;
 mod openclaw_installation;
@@ -22,6 +22,7 @@ mod opencode_installation;
 mod pi_installation;
 mod prime_agent_installation;
 mod runtime;
+mod shell_word;
 mod shipped_guard;
 mod test;
 mod trust;
@@ -58,12 +59,9 @@ pub(crate) use devin_installation::{
 pub(crate) use droid_installation::{
     droid_hook_status, droid_self_protection_paths, mutate_droid_hook,
 };
-#[cfg(feature = "effinterp")]
-pub(crate) use effinterp::{configure as configure_effinterp, status as effinterp_status};
 pub(crate) use guard_config::{
-    GuardChange, GuardEntry, GuardMutation, GuardSelector, GuardStatus, GuardTarget,
-    apply_guard_change, guard_entries, reset_guard, scope_name, set_guard_enabled,
-    validate_guard_change,
+    GuardChange, GuardEntry, GuardSelector, GuardStatus, GuardTarget, apply_guard_change,
+    guard_entries, reset_guard, scope_name, set_guard_enabled, validate_guard_change,
 };
 pub(crate) use hermes_installation::{
     hermes_hook_status, hermes_self_protection_paths, mutate_hermes_hook,
@@ -85,10 +83,11 @@ pub(crate) use runtime::{
     RuntimeEntry, RuntimeHookStatus, RuntimeMutation, runtime_entries, runtime_entry,
     runtime_self_protection, set_runtime_configured,
 };
+pub(crate) use shell_word::quote_posix_shell_word;
 pub(crate) use shipped_guard::{
     list_shipped_guards, reset_shipped_guard, set_shipped_guard, shipped_guard_entries,
 };
-pub(crate) use test::test_command;
+pub(crate) use test::{TestError, test_command};
 pub(crate) use trust::{
     GuardProposals, TrustedProject, canonical_project_root, guard_proposals, trust_root,
     trusted_projects, untrust_root,

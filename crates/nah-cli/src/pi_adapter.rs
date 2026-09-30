@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
+    adapter_fields::runtime_field_names_covered,
     hook_adapter,
     runtime::{FailurePolicy, Runtime},
 };
@@ -75,6 +76,19 @@ fn unavailable(
     )
 }
 
+/// The tool call `run` hands the pipeline for this Pi tool call.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<ToolCallInput, String> {
+    normalize(PiHookInput {
+        tool_name: tool_name.into(),
+        tool_input,
+        cwd: cwd.into(),
+    })
+}
+
 fn normalize(input: PiHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_input.clone();
     let lowered = input
@@ -86,7 +100,7 @@ fn normalize(input: PiHookInput) -> Result<ToolCallInput, String> {
         Ok((tool, tool_input)) => (
             tool,
             tool_input,
-            crate::adapter_fields::complete("pi", &input.tool_name, &original_input),
+            runtime_field_names_covered("pi", &input.tool_name, &original_input),
         ),
         Err(_) => (input.tool_name.as_str(), original_input.clone(), false),
     };

@@ -50,25 +50,9 @@ pub(crate) enum Runtime {
 
 impl Runtime {
     /// The CLI spelling is also the adapter name stamped into the audit log.
+    /// Variants follow `HOOK_RUNTIME_NAMES`, which spells them.
     pub(crate) const fn cli_name(self) -> &'static str {
-        match self {
-            Self::Amp => "amp",
-            Self::Antigravity => "antigravity",
-            Self::Claude => "claude",
-            Self::Cline => "cline",
-            Self::Codex => "codex",
-            Self::Copilot => "copilot",
-            Self::Cursor => "cursor",
-            Self::Devin => "devin",
-            Self::Droid => "droid",
-            Self::Hermes => "hermes",
-            Self::Kiro => "kiro",
-            Self::OpenClaw => "openclaw",
-            Self::OpenCode => "opencode",
-            Self::Pi => "pi",
-            Self::PrimeAgent => "prime-agent",
-            Self::Xi => "xi",
-        }
+        nah_proto::runtime::HOOK_RUNTIME_NAMES[self as usize]
     }
 
     pub(crate) const fn display_name(self) -> &'static str {

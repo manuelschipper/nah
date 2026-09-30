@@ -29,6 +29,21 @@ fn nah(home: &std::path::Path, args: &[&str], stdin: Option<&str>) -> std::proce
     child.wait_with_output().unwrap()
 }
 
+/// Runs a freshly written guard executable once to exit. macOS XProtect gates
+/// the first exec of a newly written file at about 100 ms, serialized across
+/// processes, which would otherwise land inside the consultation's
+/// `EXEC_TIMEOUT`. The throwaway working directory keeps any cwd-relative side
+/// effects out of the directories the test inspects.
+fn warm_up(run: &std::path::Path) {
+    let cwd = tempfile::tempdir().unwrap();
+    let _ = Command::new(run)
+        .current_dir(cwd.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 #[test]
 fn policy_catalogs_explain_empty_custom_sections() {
     let home_temp = tempfile::tempdir().unwrap();
@@ -51,12 +66,17 @@ fn custom_policy_names_cannot_shadow_built_ins_or_each_other() {
     // resolves paths before matching them
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let home = home.as_path();
-    let reserved = nah(home, &["guard", "new", "fs-system-tree"], None);
-    assert_eq!(reserved.status.code(), Some(2));
-    assert!(
-        String::from_utf8_lossy(&reserved.stderr)
-            .contains("guard name `fs-system-tree` is reserved; choose another name")
-    );
+    // `all` is reserved so a custom guard can never shadow `nah nap all`.
+    for name in ["fs-system-tree", "all"] {
+        let reserved = nah(home, &["guard", "new", name], None);
+        assert_eq!(reserved.status.code(), Some(2), "{name}");
+        assert!(
+            String::from_utf8_lossy(&reserved.stderr).contains(&format!(
+                "guard name `{name}` is reserved; choose another name"
+            )),
+            "{name}"
+        );
+    }
     for invalid in ["FS-ROOT", &"a".repeat(65)] {
         let output = nah(home, &["guard", "new", invalid], None);
         assert_eq!(output.status.code(), Some(2), "{invalid}");
@@ -198,6 +218,46 @@ fn project_templates_and_scope_flags_select_one_exact_guard() {
 }
 
 #[test]
+fn guard_new_template_example_blocks_its_example_command() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home_temp.path()).unwrap();
+    let home = home.as_path();
+    assert!(nah(home, &["guard", "new", "tool"], None).status.success());
+    warm_up(&home.join(".nah/guards/tool/run"));
+    assert!(
+        nah(home, &["guard", "enable", "tool"], None)
+            .status
+            .success()
+    );
+    let input = serde_json::json!({
+        "v": 1,
+        "tool": "Bash",
+        "input": {"command": "tool destroy --all"},
+        "cwd": home,
+        "session": "test"
+    })
+    .to_string();
+    let decided = nah(home, &["decide"], Some(&input));
+    assert_eq!(decided.status.code(), Some(1), "{decided:?}");
+}
+
+/// A guard that blocks on the matched program's identity, which exec/v2
+/// publishes for every visible call.
+const IDENTITY_GUARD: &str = r#"#!/usr/bin/env python3
+import json
+import sys
+
+request = json.load(sys.stdin)
+response = {"abstain": True}
+for call in request["evidence"]["calls"]:
+    identity = call["identity"]
+    if isinstance(identity, dict) and identity.get("Known") == "tool":
+        response = {"block": True, "reason": "blocked the example program"}
+        break
+print(json.dumps(response))
+"#;
+
+#[test]
 fn guard_new_enable_and_live_decide_form_one_working_slice() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
@@ -206,6 +266,8 @@ fn guard_new_enable_and_live_decide_form_one_working_slice() {
     let home = home.as_path();
     let created = nah(home, &["guard", "new", "tool"], None);
     assert!(created.status.success(), "{created:?}");
+    fs::write(home.join(".nah/guards/tool/run"), IDENTITY_GUARD).unwrap();
+    warm_up(&home.join(".nah/guards/tool/run"));
     let enabled = nah(home, &["guard", "enable", "tool"], None);
     assert!(enabled.status.success(), "{enabled:?}");
 
@@ -340,7 +402,7 @@ fn bare_selector_matches_standard_path_but_not_an_arbitrary_lookalike() {
     );
     fs::write(
         home.join(".nah/guards/aws-guard/policy.toml"),
-        "name = \"aws-guard\"\nmatch = [\"aws\"]\nprotocol = \"exec/v1\"\nprovenance = \"user\"\n",
+        "name = \"aws-guard\"\nmatch = [\"aws\"]\nprotocol = \"exec/v2\"\nprovenance = \"user\"\n",
     )
     .unwrap();
     fs::write(
@@ -348,6 +410,7 @@ fn bare_selector_matches_standard_path_but_not_an_arbitrary_lookalike() {
         "#!/bin/sh\nprintf '%s\\n' '{\"block\":true,\"reason\":\"aws guard\"}'\n",
     )
     .unwrap();
+    warm_up(&home.join(".nah/guards/aws-guard/run"));
     assert!(
         nah(home, &["guard", "enable", "aws-guard"], None)
             .status
@@ -386,8 +449,11 @@ fn bare_selector_matches_standard_path_but_not_an_arbitrary_lookalike() {
     );
 }
 
+/// Engine boundary: a command launched from interpreter source (here
+/// `python3 -c`) is not a public exec/v2 call, so a custom guard matching `rm`
+/// never receives the nested `rm`. This fails once the engine publishes it.
 #[test]
-fn custom_guards_receive_original_interpreter_and_proven_nested_command_effects() {
+fn custom_guards_do_not_receive_commands_launched_from_interpreter_source() {
     let home_temp = tempfile::tempdir().unwrap();
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let home = home.as_path();
@@ -398,7 +464,7 @@ fn custom_guards_receive_original_interpreter_and_proven_nested_command_effects(
     );
     fs::write(
         home.join(".nah/guards/nested-rm/policy.toml"),
-        "name = \"nested-rm\"\nmatch = [\"rm\"]\nprotocol = \"exec/v1\"\nprovenance = \"user\"\n",
+        "name = \"nested-rm\"\nmatch = [\"rm\"]\nprotocol = \"exec/v2\"\nprovenance = \"user\"\n",
     )
     .unwrap();
     fs::write(
@@ -409,8 +475,8 @@ import sys
 
 request = json.load(sys.stdin)
 programs = [
-    effect["kind"].get("invocation", {}).get("program")
-    for effect in request["action_stream"]["effects"]
+    call["identity"].get("Known")
+    for call in request["evidence"]["calls"]
 ]
 if "python3" in programs and "rm" in programs:
     print(json.dumps({"block": True, "reason": "nested rm is visible"}))
@@ -419,6 +485,7 @@ else:
 "#,
     )
     .unwrap();
+    warm_up(&home.join(".nah/guards/nested-rm/run"));
     assert!(
         nah(home, &["guard", "enable", "nested-rm"], None)
             .status
@@ -434,16 +501,10 @@ else:
 
     let decided = nah(home, &["decide"], Some(&input));
 
-    assert_eq!(decided.status.code(), Some(1), "{decided:?}");
+    assert_eq!(decided.status.code(), Some(2), "{decided:?}");
     let output: serde_json::Value = serde_json::from_slice(&decided.stdout).unwrap();
-    assert_eq!(output["verdict"], "block");
-    assert!(
-        output["policy_attributions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|attribution| attribution["activation"]["identity"]["name"] == "nested-rm")
-    );
+    assert_eq!(output["verdict"], "delegate");
+    assert!(output["policy_attributions"].as_array().unwrap().is_empty());
 }
 
 #[test]
@@ -461,7 +522,7 @@ fn project_guard_selection_follows_the_matching_invocations_cwd() {
     fs::create_dir_all(&guard).unwrap();
     fs::write(
         guard.join("policy.toml"),
-        "name = \"deploy-guard\"\nmatch = [\"deploy\"]\nprotocol = \"exec/v1\"\nprovenance = \"agent\"\n",
+        "name = \"deploy-guard\"\nmatch = [\"deploy\"]\nprotocol = \"exec/v2\"\nprovenance = \"agent\"\n",
     )
     .unwrap();
     let run = guard.join("run");
@@ -471,6 +532,7 @@ fn project_guard_selection_follows_the_matching_invocations_cwd() {
     )
     .unwrap();
     fs::set_permissions(&run, fs::Permissions::from_mode(0o700)).unwrap();
+    warm_up(&run);
 
     let trusted = nah(home.as_path(), &["trust", project.to_str().unwrap()], None);
     assert!(trusted.status.success(), "{trusted:?}");
@@ -531,7 +593,7 @@ fn stale_project_activation_without_its_trust_is_unavailable() {
     fs::create_dir_all(&guard).unwrap();
     fs::write(
         guard.join("policy.toml"),
-        "name = \"deploy-guard\"\nmatch = [\"deploy\"]\nprotocol = \"exec/v1\"\nprovenance = \"agent\"\n",
+        "name = \"deploy-guard\"\nmatch = [\"deploy\"]\nprotocol = \"exec/v2\"\nprovenance = \"agent\"\n",
     )
     .unwrap();
     let run = guard.join("run");
@@ -591,6 +653,7 @@ fn valid_custom_guard_abstention_delegates() {
         "#!/bin/sh\nprintf '%s\\n' '{\"abstain\":true}'\n",
     )
     .unwrap();
+    warm_up(&home.join(".nah/guards/tool/run"));
     assert!(
         nah(home, &["guard", "enable", "tool"], None)
             .status
@@ -608,7 +671,15 @@ fn valid_custom_guard_abstention_delegates() {
     assert_eq!(decided.status.code(), Some(2), "{decided:?}");
     let output: serde_json::Value = serde_json::from_slice(&decided.stdout).unwrap();
     assert_eq!(output["verdict"], "delegate");
-    assert!(String::from_utf8_lossy(&decided.stderr).is_empty());
+    // `tool` is no modeled program, so the engine warns that its analysis is
+    // incomplete; the abstaining guard itself adds nothing.
+    let stderr = String::from_utf8_lossy(&decided.stderr);
+    assert!(
+        stderr
+            .lines()
+            .all(|line| line.contains("analysis is incomplete")),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -622,20 +693,17 @@ fn cold_agent_surface_builds_and_observes_an_extension_without_source_access() {
     let docs = nah(home, &["docs", "extending"], None);
     assert!(docs.status.success(), "{docs:?}");
     let docs = String::from_utf8(docs.stdout).unwrap();
-    assert!(docs.contains("Exact exec/v1 request"));
+    assert!(docs.contains("Exact exec/v2 request"));
     assert!(docs.contains("Exact responses"));
     assert!(docs.contains("Human boundary"));
 
     let preview = nah(home, &["test", "--json", "cold-guard"], None);
     assert!(preview.status.success(), "{preview:?}");
     let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
-    assert_eq!(preview["schema"], "nah/test/v1");
-    assert_eq!(preview["v"], 1);
-    assert_eq!(preview["exec_request"]["v"], 1);
-    assert_eq!(
-        preview["exec_request"]["action_stream"]["effects"][0]["id"],
-        "e0"
-    );
+    assert_eq!(preview["schema"], "nah/test/v2");
+    assert_eq!(preview["v"], 2);
+    assert_eq!(preview["exec_request"]["v"], 2);
+    assert_eq!(preview["exec_request"]["evidence"]["calls"][0]["id"], 0);
     assert!(preview["consultations"].as_array().unwrap().is_empty());
 
     let created = nah(home, &["guard", "new", "cold-guard"], None);
@@ -653,15 +721,16 @@ import sys
 
 request = json.load(sys.stdin)
 programs = [
-    effect["kind"].get("invocation", {}).get("program")
-    or effect["kind"].get("invocation", {}).get("tool")
-    for effect in request["action_stream"]["effects"]
+    call["identity"].get("Known")
+    for call in request["evidence"]["calls"]
+    if isinstance(call["identity"], dict)
 ]
 if "cold-guard" in programs:
     print(json.dumps({"block": True, "reason": "cold agent contract works"}))
 "#,
     )
     .unwrap();
+    warm_up(&home.join(".nah/guards/cold-guard/run"));
 
     let listed = nah(home, &["guards"], None);
     assert!(listed.status.success(), "{listed:?}");
@@ -756,6 +825,7 @@ fn extension_failures_and_redacted_stderr_are_persisted() {
         "#!/bin/sh\nprintf 'planted-stderr\\033[31m' >&2\nexit 1\n",
     )
     .unwrap();
+    warm_up(&home.join(".nah/guards/tool/run"));
     assert!(
         nah(home, &["guard", "enable", "tool"], None)
             .status
@@ -824,6 +894,6 @@ fn extension_failures_and_redacted_stderr_are_persisted() {
     let why = nah(home, &["why", id], None);
     assert!(why.status.success(), "{why:?}");
     let why = String::from_utf8(why.stdout).unwrap();
-    assert!(why.contains("verdict: delegate"), "{why}");
+    assert!(why.contains("verdict:  delegate"), "{why}");
     assert!(why.contains("failure: custom-guard/tool/crash"), "{why}");
 }

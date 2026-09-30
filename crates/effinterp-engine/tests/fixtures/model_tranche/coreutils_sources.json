@@ -1,0 +1,29 @@
+[
+  {
+    "id": "coreutils/cat@v1",
+    "reviewed_surface": "No operands or - consume stdin without a filesystem read; file operands retain filesystem.read.",
+    "positive_argv": [
+      [
+        "cat"
+      ],
+      [
+        "cat",
+        "-"
+      ],
+      [
+        "cat",
+        "file"
+      ]
+    ],
+    "negative_argv": [
+      "cat",
+      "--unreviewed-option"
+    ],
+    "expected_facts": [
+      "filesystem.read"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  }
+]

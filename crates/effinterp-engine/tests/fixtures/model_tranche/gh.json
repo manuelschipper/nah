@@ -1,0 +1,7317 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "pr",
+          "list"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "issue",
+          "create"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "repo",
+          "clone",
+          "owner/name"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "config",
+          "set",
+          "editor",
+          "vim"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "one_of(join($GH_CONFIG_DIR, /config.yml), join($HOME, /.config/gh/config.yml), join($XDG_CONFIG_HOME, /gh/config.yml))"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "release",
+          "download",
+          "--dir",
+          "/srv/artifacts"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "run",
+          "download",
+          "-D",
+          "/srv/artifacts"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "-X",
+          "HEAD",
+          "repos/o/r"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "customverb",
+          "foo"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "--input",
+          "/srv/body.json",
+          "endpoint"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "--input",
+          "-",
+          "endpoint"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "-F",
+          "body=@/srv/body.json",
+          "endpoint"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "release",
+          "upload",
+          "v1",
+          "/srv/artifact"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh gist create /srv/secret",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/srv/secret"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh gist edit 123 /srv/secret",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "PATCH"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unrecognized_arguments",
+                "detail": {
+                  "equals": "Payload file and stdin reads and upload bindings are not modeled"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh ssh-key add /srv/key.pub",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unrecognized_arguments",
+                "detail": {
+                  "equals": "Payload file and stdin reads and upload bindings are not modeled"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh gpg-key add /srv/key.pub",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unrecognized_arguments",
+                "detail": {
+                  "equals": "Payload file and stdin reads and upload bindings are not modeled"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh release create v1 /srv/artifact",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/srv/artifact"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "artifact.publish"
+                  },
+                  "resource": {
+                    "variant": {
+                      "variant": "artifact"
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "artifact"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "environment_configuration",
+                "detail": {
+                  "equals": "GitHub CLI configuration may read additional environment inputs"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "environment"
+          ]
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "model_coverage",
+                "detail": {
+                  "equals": "GitHub repository evidence is missing or symbolic"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "network"
+          ]
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "model_coverage",
+                "detail": {
+                  "equals": "gh may create a remote Git tag; GitRepository cannot locate remote refs"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "git"
+          ]
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "environment_configuration",
+                "detail": {
+                  "equals": "publication authentication, configuration and transport details are unmodeled"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "network",
+            "filesystem"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            3
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            2
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            1,
+            3
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "cat secret | gh gist create -",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/secret"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "cat secret | gh secret set TOKEN",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/secret"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "cat secret | gh variable set TOKEN",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/secret"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh gist create \"$PAYLOAD\"",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_dynamic",
+                "detail": {
+                  "equals": "gist file operand is symbolic or selects stdin"
+                }
+              }
+            }
+          },
+          "class": "unresolved",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh pr comment 1 -F /srv/body",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/srv/body"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh workflow run build -F data=@/srv/secret",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unrecognized_arguments",
+                "detail": {
+                  "equals": "Payload option semantics outside api are not modeled"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh variable set -f /srv/vars",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unrecognized_arguments",
+                "detail": {
+                  "equals": "Secret payload file reads are not modeled"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "repo",
+          "delete"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "-X",
+          "DELETE",
+          "repos/owner/project"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "-X",
+          "DELETE",
+          "repos/{owner}/{repo}/hooks/123"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "-X",
+          "DELETE",
+          "projects/123/variables/DEPLOY_ENV"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "release",
+          "upload",
+          "v1",
+          "artifact",
+          "--clobber"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/artifact"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "endpoint",
+          "--input",
+          "body.json"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/body.json"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "run",
+          "download",
+          "1",
+          "--pattern",
+          "x",
+          "--dir",
+          "d"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.download"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.write"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/d"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "endpoint",
+          "-F",
+          "body=@payload.json"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work/payload.json"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "graphql",
+          "-F",
+          "number=1"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "endpoint",
+          "-F",
+          "body=@-"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_dynamic",
+                "detail": {
+                  "equals": "API field input is symbolic or selects stdin"
+                }
+              }
+            }
+          },
+          "class": "unresolved",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "run",
+          "list",
+          "--branch",
+          "main",
+          "--status",
+          "completed"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh api \"$ENDPOINT\"",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unrecognized_arguments",
+                "detail": {
+                  "equals": "API endpoint or options are symbolic; DELETE request route is unresolved"
+                }
+              }
+            }
+          },
+          "class": "unresolved",
+          "domains": [
+            "network",
+            "git"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh pr \"$ACTION\"",
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unrecognized_arguments",
+                "detail": {
+                  "equals": "symbolic subcommand may select unmodeled behavior"
+                }
+              }
+            }
+          },
+          "class": "unresolved",
+          "domains": [
+            "environment",
+            "filesystem",
+            "git",
+            "network",
+            "process"
+          ]
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_subcommand",
+                "detail": {
+                  "equals": "extension execution is dynamically selected"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "network",
+            "process"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh api endpoint -F body=@\"$FILE\"",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "$FILE"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_dynamic",
+                "detail": {
+                  "equals": "API field input is symbolic or selects stdin"
+                }
+              }
+            }
+          },
+          "class": "unresolved",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unrecognized_arguments",
+                "detail": {
+                  "equals": "API endpoint or options are symbolic; DELETE request route is unresolved"
+                }
+              }
+            }
+          },
+          "class": "unresolved",
+          "domains": [
+            "network",
+            "git"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh api endpoint -F number=\"$NUMBER\"",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.upload"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "POST"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_dynamic",
+                "detail": {
+                  "equals": "API field input is symbolic or selects stdin"
+                }
+              }
+            }
+          },
+          "class": "unresolved",
+          "domains": [
+            "filesystem",
+            "network"
+          ]
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unrecognized_arguments",
+                "detail": {
+                  "equals": "API endpoint or options are symbolic; DELETE request route is unresolved"
+                }
+              }
+            }
+          },
+          "class": "unresolved",
+          "domains": [
+            "network",
+            "git"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "repo",
+          "delete",
+          "owner/repo",
+          "--yes"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "release",
+          "delete",
+          "v1",
+          "--cleanup-tag",
+          "-y"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "secret",
+          "remove",
+          "TOKEN",
+          "--org",
+          "team"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "variable",
+          "delete",
+          "KEY",
+          "--env",
+          "prod",
+          "-R",
+          "owner/repo"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "cache",
+          "delete",
+          "cache-key",
+          "--ref",
+          "refs/heads/main"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "cache",
+          "delete",
+          "--all"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "ssh-key",
+          "delete",
+          "42",
+          "-y"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "repo",
+          "delete",
+          "owner/repo",
+          "--cleanup-tag=false"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "cache",
+          "delete",
+          "42",
+          "--ref",
+          "refs/heads/main"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "release",
+          "delete",
+          ""
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "endpoint"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "environment.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "env:GH_TOKEN"
+                      }
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "environment"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "repo",
+          "delete",
+          "owner/repo",
+          "--yes"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "confirmation_requested",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "github"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "owner/repo"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "must-on-success"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "repo",
+          "delete",
+          "owner/repo"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "confirmation_requested",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "github"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "owner/repo"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "release",
+          "delete",
+          "v1",
+          "--yes"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "cleanup_tag",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "confirmation_requested",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "release"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "github"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "v1"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "resource"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "must-on-success"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "artifact.delete"
+                  },
+                  "resource": {
+                    "variant": {
+                      "variant": "artifact"
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "artifact"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "model_coverage",
+                "detail": {
+                  "equals": "GitHub release endpoint requires repository or host context"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "release",
+          "delete",
+          "v1",
+          "--yes",
+          "--yes=false"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "cleanup_tag",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "confirmation_requested",
+                      "test": {
+                        "equals": false
+                      }
+                    },
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "release"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "github"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "v1"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "resource"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "artifact.delete"
+                  },
+                  "resource": {
+                    "variant": {
+                      "variant": "artifact"
+                    }
+                  }
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "artifact"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "may"
+        }
+      ],
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "model_coverage",
+                "detail": {
+                  "equals": "GitHub release endpoint requires repository or host context"
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "--hostname",
+          "ghe.example",
+          "-X",
+          "DELETE",
+          "repos/owner/project"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "ghe.example"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "github"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "repos/owner/project"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "must-on-success"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "--hostname",
+          "bad#host",
+          "-X",
+          "DELETE",
+          "repos/owner/project"
+        ],
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unrecognized_arguments",
+                "detail": {
+                  "equals": "API hostname is outside the reviewed DNS hostname grammar; request routing is unresolved"
+                }
+              }
+            }
+          },
+          "class": "unresolved",
+          "domains": [
+            "network",
+            "git"
+          ]
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "git": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "network": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "--template",
+          "{{break}}",
+          "-X",
+          "DELETE",
+          "repos/owner/project"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "--template",
+          "{{08}}",
+          "-X",
+          "DELETE",
+          "repos/owner/project"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "-f",
+          "a=1",
+          "-f",
+          "a=2",
+          "-X",
+          "DELETE",
+          "repos/owner/project"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "gh",
+          "api",
+          "--template",
+          "{{range .}}{{break}}{{end}}",
+          "-X",
+          "DELETE",
+          "repos/owner/project"
+        ],
+        "cwd": "/work",
+        "context": {
+          "env": {
+            "PATH": "/bin"
+          }
+        }
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "boundary": {
+                "reason": "unmodeled_command",
+                "detail": {
+                  "equals": "no model for command \"gh\""
+                }
+              }
+            }
+          },
+          "class": "unmodeled",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential",
+            "dataflow"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "cloud": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "container": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "credential": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "database": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "environment": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "filesystem": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "git": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "messaging": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "network": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "process": {
+          "level": "partial",
+          "gaps": [
+            0,
+            1
+          ]
+        },
+        "system": {
+          "level": "none",
+          "gaps": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh api -ip corsair -X DELETE repos/owner/project",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "github"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "repos/owner/project"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "must-on-success"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh repo delete 'bücher.invalid:9/owner/project' --yes",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "confirmation_requested",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "github"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "bücher.invalid:9/owner/project"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "must-on-success"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh secret delete DEPLOY_TOKEN --app actions",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_app",
+                      "test": {
+                        "equals": "actions"
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "secret"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "github"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_target",
+                      "test": {
+                        "equals": "DEPLOY_TOKEN"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "resource"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "must-on-success"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "shell",
+        "source": "gh cache delete --all",
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "schema_version": 2,
+            "assertion": {
+              "effect": {
+                "selector": {
+                  "operation": {
+                    "exact": "network.delete_request"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<network:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "all",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "delete",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hosted_object_kind",
+                      "test": {
+                        "equals": "cache"
+                      }
+                    },
+                    {
+                      "name": "hosted_provider",
+                      "test": {
+                        "equals": "github"
+                      }
+                    },
+                    {
+                      "name": "hosted_scope",
+                      "test": {
+                        "equals": "repository"
+                      }
+                    },
+                    {
+                      "name": "hosted_target_kind",
+                      "test": {
+                        "equals": "resource"
+                      }
+                    },
+                    {
+                      "name": "method",
+                      "test": {
+                        "equals": "DELETE"
+                      }
+                    }
+                  ]
+                },
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "network"
+                  }
+                }
+              }
+            }
+          },
+          "modality": "must-on-success"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "filesystem": {
+          "level": "full"
+        },
+        "network": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    }
+  ]
+}

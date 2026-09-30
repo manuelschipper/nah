@@ -1,0 +1,62 @@
+# Ground-truth expectations for ohmyzsh/ohmyzsh (holdout-hidden corpus).
+# Pinned SHA: 97e11051e2f8053b1d694788d1cb4b0dbb1e2365.
+# Real entry: tools/install.sh (the curl|sh installer; main "$@" at the tail,
+#   install.sh:581 — the shell installer shape; oh-my-zsh.sh is the sourced
+#   runtime and is not asserted here).
+# Derived from tools/install.sh:
+#   env reads: zdot="${ZDOTDIR:-$HOME}" (install.sh:62), ZSH default from
+#     $ZDOTDIR/$HOME (:67-70), REPO/REMOTE/BRANCH (:73-75), CHSH/RUNZSH/
+#     KEEP_ZSHRC (:78-80),
+#   process execs: ostype=$(uname) (:300); the manual clone runs git
+#     init/config/remote add/fetch --depth=1/checkout (:308-318 — the
+#     network-via-git shape, like Homebrew/install); chsh -s, optionally via
+#     sudo (:477/:480); the finale exec zsh -l (:578),
+#   filesystem: setup_zshrc backs up an existing .zshrc via mv (:372/:378),
+#     renders the template with sed into "$zdot/.zshrc-omztemp" (:390) and
+#     mv -f's it to "$zdot/.zshrc" (:391); mkdir -p "$ZDOTDIR" (:564),
+#   error path: rm -rf "$ZSH" when the clone fails (:321) — a delete on the
+#     failure path (the http-server lesson: checked before any forbidden).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. The installer is one script of straight-line functions
+# called from main; the only walls are prompt-gated branches. chsh/sudo and
+# the final exec zsh depend on CHSH/RUNZSH and tty state; the rm -rf runs
+# only when the git fetch fails — all modality=may. The network effect rides
+# the spawned git subprocess, not a direct download command.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=process.exec
+op=filesystem.write
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=ZDOTDIR origin=tools/install.sh realm=host
+op=environment.read res=HOME origin=tools/install.sh realm=host
+op=environment.read res=REMOTE origin=tools/install.sh realm=host
+op=environment.read res=CHSH origin=tools/install.sh realm=host
+op=process.exec res=git origin=tools/install.sh realm=host
+op=process.exec res=uname origin=tools/install.sh realm=host
+op=process.exec res=chsh origin=tools/install.sh realm=host modality=may
+op=process.exec res=zsh origin=tools/install.sh realm=host modality=may
+op=filesystem.write res=.zshrc origin=tools/install.sh realm=host
+op=filesystem.delete origin=tools/install.sh realm=host modality=may
+
+[forbidden]
+# The installer clones and rewrites dotfiles; it touches no database, cloud
+# service, or message broker, and rewrites no git history.
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]
+# The clone's network transfer happens inside the spawned git subprocess
+# rather than a direct download command.
+op=network.

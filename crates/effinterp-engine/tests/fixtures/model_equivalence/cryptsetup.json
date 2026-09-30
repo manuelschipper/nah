@@ -1,0 +1,761 @@
+[
+  {
+    "schema": "effinterp/plan/v1",
+    "subject": {
+      "kind": "shell",
+      "source": "cryptsetup erase /dev/sda",
+      "cwd": "/workspace/project",
+      "context": {
+        "env": {
+          "HOME": "/home/test"
+        }
+      }
+    },
+    "analysis": {
+      "engine_version": "0.1.0",
+      "limits": {
+        "max_analysis_bytes": 33554432,
+        "max_analysis_steps": 32768,
+        "max_boundaries": 4096,
+        "max_causal_depth": 256,
+        "max_causal_edges": 32768,
+        "max_causal_nodes": 16384,
+        "max_causal_pairs": 32768,
+        "max_effects": 4096,
+        "max_execution_depth": 8,
+        "max_execution_fanout": 256,
+        "max_execution_nodes": 4096,
+        "max_go_nodes": 80000,
+        "max_heredoc_expansions": 4096,
+        "max_java_nodes": 30000,
+        "max_js_nodes": 20000,
+        "max_patch_bytes": 4194304,
+        "max_patch_files": 2048,
+        "max_php_nodes": 20000,
+        "max_provenance_nodes": 65536,
+        "max_python_nodes": 80000,
+        "max_resolved_source_files": 64,
+        "max_ruby_nodes": 20000,
+        "max_rust_nodes": 20000,
+        "max_shell_function_depth": 8,
+        "max_shell_words": 4096,
+        "max_source_bytes": 4194304,
+        "max_value_cardinality": 64,
+        "max_value_depth": 24
+      }
+    },
+    "effects": [
+      {
+        "id": "effect:blake3:8f968da6fac6ed860eed203d5676e534cb57d3309d673588bb3c057395cf841d",
+        "operation": "process.exec",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "process",
+            "executable": "cryptsetup",
+            "argv": [
+              {
+                "expr": "literal",
+                "value": "erase"
+              },
+              {
+                "expr": "literal",
+                "value": "/dev/sda"
+              }
+            ],
+            "cwd": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/workspace/project"
+              }
+            }
+          }
+        },
+        "modality": "may",
+        "request_assurance": "conservative",
+        "execution": 1,
+        "provenance": [
+          3,
+          4,
+          5
+        ]
+      },
+      {
+        "id": "effect:blake3:3fe03dc83e858516965948b30fa1b12d0dd8bdde94eae420dae2544d4435092e",
+        "operation": "filesystem.write",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/dev/sda"
+          }
+        },
+        "attributes": {
+          "keyslots_erased": true,
+          "raw_device": true
+        },
+        "modality": "must-on-success",
+        "request_assurance": "exact",
+        "execution": 1,
+        "provenance": [
+          5,
+          6
+        ]
+      }
+    ],
+    "execution_graph": {
+      "entry": 0,
+      "nodes": [
+        {
+          "subject": {
+            "kind": "shell",
+            "source": "cryptsetup erase /dev/sda",
+            "cwd": "/workspace/project",
+            "context": {
+              "env": {
+                "HOME": "/home/test"
+              }
+            }
+          },
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/workspace/project"
+            }
+          },
+          "streams": {},
+          "realm": {
+            "realm": "host"
+          },
+          "assurance": "exact"
+        },
+        {
+          "subject": {
+            "kind": "exec",
+            "argv": [
+              "cryptsetup",
+              "erase",
+              "/dev/sda"
+            ],
+            "cwd": "/workspace/project"
+          },
+          "argv": [
+            {
+              "expr": "literal",
+              "value": "cryptsetup"
+            },
+            {
+              "expr": "literal",
+              "value": "erase"
+            },
+            {
+              "expr": "literal",
+              "value": "/dev/sda"
+            }
+          ],
+          "cwd": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/workspace/project"
+            }
+          },
+          "environment": {
+            "HOME": {
+              "expr": "literal",
+              "value": "/home/test"
+            }
+          },
+          "streams": {
+            "stdin": {
+              "node": 0,
+              "stream": "stdin"
+            },
+            "stdout": {
+              "node": 0,
+              "stream": "stdout"
+            },
+            "stderr": {
+              "node": 0,
+              "stream": "stderr"
+            }
+          },
+          "source_span": {
+            "start": 0,
+            "end": 25
+          },
+          "realm": {
+            "realm": "host"
+          },
+          "assurance": "exact",
+          "evidence": [
+            1,
+            0
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": 0,
+          "to": 1,
+          "kind": "launch",
+          "evidence": [
+            1,
+            0
+          ]
+        }
+      ]
+    },
+    "provenance": [
+      {
+        "kind": "host_context",
+        "name": "HOME"
+      },
+      {
+        "kind": "source_span",
+        "start": 0,
+        "end": 25
+      },
+      {
+        "kind": "execution",
+        "node": 1,
+        "antecedents": [
+          1
+        ]
+      },
+      {
+        "kind": "argument",
+        "index": 0,
+        "antecedents": [
+          2
+        ]
+      },
+      {
+        "kind": "argument",
+        "index": 1,
+        "antecedents": [
+          2
+        ]
+      },
+      {
+        "kind": "argument",
+        "index": 2,
+        "antecedents": [
+          2
+        ]
+      },
+      {
+        "kind": "model_application",
+        "model": "cryptsetup/erase@v1#blake3:a4a3c2a6c9fa50cfa08454b5322e43766fd851e0a4fd5caccd625563b57682cf",
+        "antecedents": [
+          3
+        ]
+      }
+    ],
+    "coverage": {
+      "filesystem": {
+        "level": "full"
+      },
+      "process": {
+        "level": "full"
+      }
+    },
+    "causality": {
+      "coverage": {
+        "level": "full"
+      },
+      "graph": {
+        "nodes": [
+          {
+            "id": "occurrence:blake3:a0021bab8764861e643a0e9d9ec469873b7090cdc95030833fc3a4f8fc912982",
+            "kind": "port",
+            "port": "code",
+            "execution": 0,
+            "modality": "may",
+            "order": 0,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            }
+          },
+          {
+            "id": "occurrence:blake3:997d49e907c9fd961218e7eb0e2c7fb660e95b689ad357d95da33d89eaaee8b9",
+            "kind": "port",
+            "port": "code",
+            "execution": 1,
+            "modality": "may",
+            "order": 1,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "id": "occurrence:blake3:b39b6ecee419a4b8e8843b75edd60fd98895120119bac645415fce957fb78308",
+            "kind": "value",
+            "value": {
+              "expr": "literal",
+              "value": "cryptsetup"
+            },
+            "execution": 1,
+            "modality": "may",
+            "order": 2,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "id": "occurrence:blake3:25a040917f056bdcc7b60a7105269dd884e2e8a8227ad8c803108ae5084b46a0",
+            "kind": "port",
+            "port": {
+              "arg": 0
+            },
+            "execution": 1,
+            "modality": "may",
+            "order": 3,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "id": "occurrence:blake3:69e99a121c2d6a6dd9a3ae0c08f3844844f565eb039e5d63249315977dfa4b9b",
+            "kind": "value",
+            "value": {
+              "expr": "literal",
+              "value": "erase"
+            },
+            "execution": 1,
+            "modality": "may",
+            "order": 4,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "id": "occurrence:blake3:962521726e544e480ba6b4792405ce04f73124d6548925af4e9cce544d518174",
+            "kind": "port",
+            "port": {
+              "arg": 1
+            },
+            "execution": 1,
+            "modality": "may",
+            "order": 5,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "id": "occurrence:blake3:5760203b3527e5941d59d2c181a6749e0627f223caa1f4124c41f352e3a22915",
+            "kind": "value",
+            "value": {
+              "expr": "literal",
+              "value": "/dev/sda"
+            },
+            "execution": 1,
+            "modality": "may",
+            "order": 6,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "id": "occurrence:blake3:e4e41e292a4ea4de91f42c8a1195d10fcd263027d3b62acbfd81f5eb9d5cb5bb",
+            "kind": "port",
+            "port": {
+              "arg": 2
+            },
+            "execution": 1,
+            "modality": "may",
+            "order": 7,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "id": "occurrence:blake3:0560350d3e989c28cdc8ce0b0dac73f0596e472e82edc82a640db827acc58bda",
+            "kind": "port",
+            "port": "stdin",
+            "execution": 0,
+            "modality": "may",
+            "order": 8,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            }
+          },
+          {
+            "id": "occurrence:blake3:45f29ea94130c13f5ddec159551dcd39b06c44622f1ede7ef464f6fd9d2d7327",
+            "kind": "port",
+            "port": "stdout",
+            "execution": 0,
+            "modality": "may",
+            "order": 9,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            }
+          },
+          {
+            "id": "occurrence:blake3:cd8166375e9abf6126c9f99387ea8748494a0a12437f3d716bfc206a27952bd1",
+            "kind": "port",
+            "port": "stderr",
+            "execution": 0,
+            "modality": "may",
+            "order": 10,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            }
+          },
+          {
+            "id": "occurrence:blake3:4b51b2bcbf93726ebe7207c8b2338b36a9aeccb2f49531fa75fdb056532348dc",
+            "kind": "port",
+            "port": "stdin",
+            "execution": 1,
+            "modality": "may",
+            "order": 11,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "id": "occurrence:blake3:16ccdb083c95c2fa55fe3bff05ca6acfb6f4736b125ae9e02854411167fa2e11",
+            "kind": "port",
+            "port": "stdout",
+            "execution": 1,
+            "modality": "may",
+            "order": 12,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "id": "occurrence:blake3:c2dae294cd8a3eb8526b3c9b89286e0d9b850b511c7d3f3c5e8ea793ae449e32",
+            "kind": "port",
+            "port": "stderr",
+            "execution": 1,
+            "modality": "may",
+            "order": 13,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "id": "occurrence:blake3:1a7d12a6cc4a393b5630a110605acef095f233422f1e054352d0d75050cb098f",
+            "kind": "resource_interaction",
+            "operation": "process.exec",
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "process",
+                "executable": "cryptsetup",
+                "argv": [
+                  {
+                    "expr": "literal",
+                    "value": "erase"
+                  },
+                  {
+                    "expr": "literal",
+                    "value": "/dev/sda"
+                  }
+                ],
+                "cwd": {
+                  "expr": "concrete",
+                  "identity": {
+                    "family": "fs_path",
+                    "path": "/workspace/project"
+                  }
+                }
+              }
+            },
+            "execution": 1,
+            "modality": "may",
+            "order": 14,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "id": "occurrence:blake3:4148e0a052033b2e96b5679192eeb8b5c701103d024b430af13f811d3dfe158a",
+            "kind": "resource_interaction",
+            "operation": "filesystem.write",
+            "resource": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/dev/sda"
+              }
+            },
+            "attributes": {
+              "keyslots_erased": true,
+              "raw_device": true
+            },
+            "execution": 1,
+            "modality": "must-on-success",
+            "order": 15,
+            "cardinality": {
+              "min": 1,
+              "max": null
+            },
+            "provenance": [
+              5,
+              6
+            ]
+          }
+        ],
+        "edges": [
+          {
+            "from": "occurrence:blake3:0560350d3e989c28cdc8ce0b0dac73f0596e472e82edc82a640db827acc58bda",
+            "to": "occurrence:blake3:4b51b2bcbf93726ebe7207c8b2338b36a9aeccb2f49531fa75fdb056532348dc",
+            "reason": "value_dependency",
+            "assurance": "exact",
+            "modality": "may",
+            "order": 0,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              0,
+              1
+            ]
+          },
+          {
+            "from": "occurrence:blake3:16ccdb083c95c2fa55fe3bff05ca6acfb6f4736b125ae9e02854411167fa2e11",
+            "to": "occurrence:blake3:45f29ea94130c13f5ddec159551dcd39b06c44622f1ede7ef464f6fd9d2d7327",
+            "reason": "value_dependency",
+            "assurance": "exact",
+            "modality": "may",
+            "order": 1,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              0,
+              1
+            ]
+          },
+          {
+            "from": "occurrence:blake3:25a040917f056bdcc7b60a7105269dd884e2e8a8227ad8c803108ae5084b46a0",
+            "to": "occurrence:blake3:997d49e907c9fd961218e7eb0e2c7fb660e95b689ad357d95da33d89eaaee8b9",
+            "reason": "value_dependency",
+            "assurance": "conservative",
+            "modality": "may",
+            "order": 2,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "from": "occurrence:blake3:5760203b3527e5941d59d2c181a6749e0627f223caa1f4124c41f352e3a22915",
+            "to": "occurrence:blake3:e4e41e292a4ea4de91f42c8a1195d10fcd263027d3b62acbfd81f5eb9d5cb5bb",
+            "reason": "containment",
+            "assurance": "conservative",
+            "modality": "may",
+            "order": 3,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "from": "occurrence:blake3:69e99a121c2d6a6dd9a3ae0c08f3844844f565eb039e5d63249315977dfa4b9b",
+            "to": "occurrence:blake3:962521726e544e480ba6b4792405ce04f73124d6548925af4e9cce544d518174",
+            "reason": "containment",
+            "assurance": "conservative",
+            "modality": "may",
+            "order": 4,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "from": "occurrence:blake3:962521726e544e480ba6b4792405ce04f73124d6548925af4e9cce544d518174",
+            "to": "occurrence:blake3:997d49e907c9fd961218e7eb0e2c7fb660e95b689ad357d95da33d89eaaee8b9",
+            "reason": "value_dependency",
+            "assurance": "conservative",
+            "modality": "may",
+            "order": 5,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "from": "occurrence:blake3:997d49e907c9fd961218e7eb0e2c7fb660e95b689ad357d95da33d89eaaee8b9",
+            "to": "occurrence:blake3:1a7d12a6cc4a393b5630a110605acef095f233422f1e054352d0d75050cb098f",
+            "reason": "control_dependency",
+            "assurance": "conservative",
+            "modality": "may",
+            "order": 6,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "from": "occurrence:blake3:997d49e907c9fd961218e7eb0e2c7fb660e95b689ad357d95da33d89eaaee8b9",
+            "to": "occurrence:blake3:4148e0a052033b2e96b5679192eeb8b5c701103d024b430af13f811d3dfe158a",
+            "reason": "control_dependency",
+            "assurance": "conservative",
+            "modality": "must-on-success",
+            "order": 7,
+            "cardinality": {
+              "min": 1,
+              "max": null
+            },
+            "provenance": [
+              5,
+              6
+            ]
+          },
+          {
+            "from": "occurrence:blake3:a0021bab8764861e643a0e9d9ec469873b7090cdc95030833fc3a4f8fc912982",
+            "to": "occurrence:blake3:997d49e907c9fd961218e7eb0e2c7fb660e95b689ad357d95da33d89eaaee8b9",
+            "reason": "launch",
+            "assurance": "conservative",
+            "modality": "may",
+            "order": 8,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "from": "occurrence:blake3:b39b6ecee419a4b8e8843b75edd60fd98895120119bac645415fce957fb78308",
+            "to": "occurrence:blake3:25a040917f056bdcc7b60a7105269dd884e2e8a8227ad8c803108ae5084b46a0",
+            "reason": "containment",
+            "assurance": "conservative",
+            "modality": "may",
+            "order": 9,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          },
+          {
+            "from": "occurrence:blake3:c2dae294cd8a3eb8526b3c9b89286e0d9b850b511c7d3f3c5e8ea793ae449e32",
+            "to": "occurrence:blake3:cd8166375e9abf6126c9f99387ea8748494a0a12437f3d716bfc206a27952bd1",
+            "reason": "value_dependency",
+            "assurance": "exact",
+            "modality": "may",
+            "order": 10,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              0,
+              1
+            ]
+          },
+          {
+            "from": "occurrence:blake3:e4e41e292a4ea4de91f42c8a1195d10fcd263027d3b62acbfd81f5eb9d5cb5bb",
+            "to": "occurrence:blake3:997d49e907c9fd961218e7eb0e2c7fb660e95b689ad357d95da33d89eaaee8b9",
+            "reason": "value_dependency",
+            "assurance": "conservative",
+            "modality": "may",
+            "order": 11,
+            "cardinality": {
+              "min": 0,
+              "max": null
+            },
+            "provenance": [
+              1,
+              0
+            ]
+          }
+        ]
+      }
+    }
+  }
+]

@@ -29,11 +29,12 @@ nah installs, inspects, removes, and protects the extension there instead.
 
 The extension invokes nah without a shell before each tool executes. A
 provenance-verified built-in `ipython` call with a nonblank string `code` field
-uses the Python side of nah's bounded effect interpreter in a persistent-kernel
-profile. An extension override named `ipython` stays opaque. The pinned Prime
-CLI registers no other built-in tool. Every custom, SDK, or future tool uses one
-Prime-specific opaque identity, including tools named `bash`, `Read`, `Write`,
-or `Edit`, so a native-looking name cannot select Nah's unrelated tool schemas.
+uses the Python side of nah's bounded effect interpreter in a Prime Agent
+kernel profile. The cell runs as plain Python, not IPython; `!cmd` and magics
+fail to parse. An extension override named `ipython` stays opaque. The pinned
+Prime CLI registers no other built-in tool. Every custom, SDK, or future tool
+uses one Prime-specific opaque identity, including tools named `bash`, `Read`,
+`Write`, or `Edit`, so a native-looking name cannot select Nah's unrelated tool schemas.
 
 Current-cell constants, control flow, definitions, reviewed builtins, and
 imports use normal Python semantics. Visible rebinding, mutation, or escape
@@ -48,21 +49,25 @@ discover hidden state.
 
 ## Shell boundary
 
-At Prime Agent commit `b817a089`, `tool_call` receives raw IPython before
-configured shell settings apply. Nah owns IPython's
-syntactic boundary: `!`, `!!`, `%%bash`, and `%%sh` lower to shell effects
-without trusting spoofable runtime method names. Exact simple `$name` and
-`{name}` interpolation is resolved from current-cell values; unresolved
-interpolation makes the affected shell execution partial. `%%capture`, `%time`,
-and `%%time` preserve effects from the code they execute; `%%capture` contains
-IPython-routed output; inherited child stdout remains visible. Bare escapes use
-the hook process's observed `SHELL`; unsupported shells stay partial.
+Prime Agent 0.9.6 (live-verified 2026-09-27) runs shell commands through the
+`bash(command)` helper its kernel injects, which emits no hook event.
 
-The visible body of a Bash or sh cell is analyzed. Prime Agent's configured
-`commandPrefix`, final shell-path rewrite, and prior in-kernel environment
-mutations are not present in the hook input and remain outside the adapter
-contract. IPython state-changing or file-loading forms such as `%cd`, `%run`,
-and `%%writefile` also remain outside the current effect contract.
+A direct `bash(<command>)` or `await bash(<command>)` call with one
+positional argument is analyzed like `os.system`: a literal command reaches
+the shell guards; a computed one stays partial. The name is the helper only if every
+NFKC-normalized reference to `bash` calls it, and the cell has no star import,
+no name or import (even aliased) of `globals`, `locals`, `vars`, `exec`,
+`eval`, `compile`, `getattr`, `setattr`, `delattr`, `__import__`, `builtins`,
+`__builtins__`, or `__main__`, no `__dict__`, `__globals__`,
+`__getattribute__`, `__setattr__`, `__delattr__`, or frame-namespace
+attribute, no three-argument `type()`, and no class with class keywords or a
+base other than a class defined in the cell. Otherwise nah claims no shell
+effect; aliased (`run = bash`) and keyword calls are not covered.
+
+An earlier cell or imported module can rebind `bash` unseen, so a guarded
+command may block without a shell. Coverage stays partial. Prime Agent's
+`commandPrefix`, the kernel's cwd and environment, and changes to its
+`PRIME_AGENT_BASH_*` variables are not in the hook input.
 
 The package also exports Bash and edit tool factories, but the pinned CLI does
 not register them as base tools. SDK `baseToolsOverride` can supply arbitrary
@@ -80,7 +85,7 @@ siblings execute concurrently.
 Prime Agent has no approval prompt behind this extension, so delegates normally
 execute unless another extension blocks them. `--no-extensions` disables the
 global hook. Nah's self-protection policy still applies to effects the admitted
-IPython analysis proves, but opaque tools and hidden kernel state do not produce
+cell analysis proves, but opaque tools and hidden kernel state do not produce
 guessed file or shell effects. An operator can use `nah nap` from another
 terminal.
 

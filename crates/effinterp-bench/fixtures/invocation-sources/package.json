@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "pretest": "rm /package-pre",
+    "test": "rm /package-main; python3 scripts/helper.py",
+    "posttest": "rm /package-post",
+    "build": "rm /package-build"
+  }
+}

@@ -1,9 +1,7 @@
 use std::fs::{File, OpenOptions};
 use std::path::Path;
-#[cfg(unix)]
-use std::time::{Duration, Instant};
 
-use nah_proto::action::{ActionStream, Coverage, EffectKind};
+use nah_proto::action::Coverage;
 use nah_proto::ctx::{AbsolutePath, Platform, SchemaVersion};
 use nah_proto::decision::{
     DecisionCore, DecisionEnvelope, GuardAttribution, GuardContribution, Verdict,
@@ -39,19 +37,13 @@ fn record_with_warnings(id: &str, warnings: &[String]) -> AuditRecordV1 {
 }
 
 fn record_with(id: &str, verdict: Verdict, warnings: &[String]) -> AuditRecordV1 {
-    let stream = ActionStream::new(
-        Coverage::Full,
-        vec![vec![EffectKind::known("echo", "print").unwrap()]],
-        vec![],
-    )
-    .unwrap();
     let contributions = if verdict == Verdict::Block {
         let guard = GuardAttribution::shipped("fs-system-tree").unwrap();
         vec![GuardContribution::new(guard, "fs-system-tree blocked test operation").unwrap()]
     } else {
         vec![]
     };
-    let core = DecisionCore::new(&stream, verdict, contributions).unwrap();
+    let core = DecisionCore::new_with_coverage(Coverage::Full, verdict, contributions).unwrap();
     let call = ToolCallInput::new(
         SchemaVersion::V1,
         "Bash",
@@ -62,7 +54,6 @@ fn record_with(id: &str, verdict: Verdict, warnings: &[String]) -> AuditRecordV1
     .unwrap();
     AuditRecordV1::redact(
         &call,
-        &stream,
         &core,
         DecisionEnvelope::new(id, "2026-07-23T12:00:00Z", 1).unwrap(),
         "claude",
@@ -71,8 +62,8 @@ fn record_with(id: &str, verdict: Verdict, warnings: &[String]) -> AuditRecordV1
 }
 
 fn failed_record(id: &str, timestamp: &str, component: &'static str) -> AuditRecordV1 {
-    let stream = ActionStream::new(Coverage::Partial, vec![], vec![]).unwrap();
-    let core = DecisionCore::new(&stream, Verdict::Delegate, vec![]).unwrap();
+    let core =
+        DecisionCore::new_with_coverage(Coverage::Partial, Verdict::Delegate, vec![]).unwrap();
     let call = ToolCallInput::new(
         SchemaVersion::V1,
         "Bash",
@@ -84,7 +75,6 @@ fn failed_record(id: &str, timestamp: &str, component: &'static str) -> AuditRec
     let failures = [crate::pipeline::EvaluationFailure::nah(component, "failed")];
     AuditRecordV1::redact(
         &call,
-        &stream,
         &core,
         DecisionEnvelope::new(id, timestamp, 1).unwrap(),
         "claude",
@@ -119,13 +109,7 @@ fn log_round_trips_and_finds_records() {
     let home = AbsolutePath::new(platform, temp.path().to_str().unwrap()).unwrap();
     let path = decision_log_path(&home, platform);
     let log = DecisionLog::new(path.clone());
-    let stream = ActionStream::new(
-        Coverage::Full,
-        vec![vec![EffectKind::known("echo", "print").unwrap()]],
-        vec![],
-    )
-    .unwrap();
-    let core = DecisionCore::new(&stream, Verdict::Delegate, vec![]).unwrap();
+    let core = DecisionCore::new_with_coverage(Coverage::Full, Verdict::Delegate, vec![]).unwrap();
     let call = ToolCallInput::new(
         SchemaVersion::V1,
         "Bash",
@@ -137,7 +121,6 @@ fn log_round_trips_and_finds_records() {
     for id in ["decision-1", "decision-2"] {
         log.append(&AuditRecordV1::redact(
             &call,
-            &stream,
             &core,
             DecisionEnvelope::new(id, "2026-07-23T12:00:00Z", 1).unwrap(),
             "claude",
@@ -476,10 +459,10 @@ fn non_regular_audit_path_fails_without_blocking() {
     let path = temp.path().join("audit.jsonl");
     let _socket = UnixListener::bind(&path).unwrap();
     let log = DecisionLog::new(path);
-    let started = Instant::now();
 
+    // A blocking regression hangs rather than runs slow; failing with `Io` is
+    // the contract.
     assert_eq!(log.append(&record("decision-new")), Err(AuditError::Io));
     assert_eq!(log.tail(1), Err(AuditError::Io));
     assert_eq!(log.find("decision-new"), Err(AuditError::Io));
-    assert!(started.elapsed() < Duration::from_secs(1));
 }

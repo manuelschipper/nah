@@ -1,0 +1,819 @@
+{
+  "schema": "effinterp/bench-invocation/v1",
+  "corpus_digest": "768ecc8b0187a8cb9251a8654ac08a287c120ef1e41c41a2dc6a85ab6bcfb66c",
+  "files": [
+    "FIXTURES.json",
+    "adversarial.jsonl",
+    "swe.jsonl",
+    "wild.jsonl"
+  ],
+  "sources": {
+    "swe": {
+      "upstream": [
+        {
+          "id": "nebius/SWE-agent-trajectories",
+          "kind": "nebius-swe-agent",
+          "license": "CC-BY-4.0",
+          "url_or_path": "https://huggingface.co/datasets/nebius/SWE-agent-trajectories",
+          "revision_or_date": "68195a1450865274106246d0d0296a1d6807b88e"
+        },
+        {
+          "id": "SWE-bench/SWE-smith-trajectories",
+          "kind": "swesmith-tool",
+          "license": "MIT",
+          "url_or_path": "https://huggingface.co/datasets/SWE-bench/SWE-smith-trajectories",
+          "revision_or_date": "08e109b4a59eaeebf80e4675cd125d42e7ac99a4"
+        },
+        {
+          "id": "SWE-Gym/OpenHands-SFT-Trajectories",
+          "kind": "swegym-openhands-sft",
+          "license": "MIT",
+          "url_or_path": "https://huggingface.co/datasets/SWE-Gym/OpenHands-SFT-Trajectories",
+          "revision_or_date": "4aaa5a4a4b5861f4799d2336908760c190ac3b17"
+        },
+        {
+          "id": "nvidia/SWE-Hero-openhands-trajectories",
+          "kind": "swehero-openhands",
+          "license": "CC-BY-4.0",
+          "url_or_path": "https://huggingface.co/datasets/nvidia/SWE-Hero-openhands-trajectories",
+          "revision_or_date": "150bc119e52c647216fce285fd801f16b6fd745b"
+        },
+        {
+          "id": "yoonholee/terminalbench-trajectories",
+          "kind": "tbench2",
+          "license": "Apache-2.0",
+          "url_or_path": "https://huggingface.co/datasets/yoonholee/terminalbench-trajectories",
+          "revision_or_date": "04e8940f5b6736a7ce8d22224fe2f2af74163ed2"
+        }
+      ],
+      "row_count": 30052,
+      "weight_sum": 743963,
+      "sample_rule": "every unique command with count >= 20 (weight = count) + every 10th remaining row in upstream order (weight = count * 10) + the 300 slowest rows of the 09-06 run not already selected (weight 0)",
+      "excluded": [],
+      "source_digest": "f83a1ce02dadc3b5dcd0d8d1bdc2cf8ca32c5073cdd4970611d84e54baa3d37b"
+    },
+    "wild": {
+      "upstream": [
+        {
+          "id": "nodejs/node",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "LICENSE",
+          "url_or_path": "https://github.com/nodejs/node",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "vercel/next.js",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/vercel/next.js",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "pallets/flask",
+          "kind": "github-repo",
+          "license": "BSD-3-Clause",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/pallets/flask",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "psf/requests",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/psf/requests",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "django/django",
+          "kind": "github-repo",
+          "license": "BSD-3-Clause",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/django/django",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "rust-lang/cargo",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/rust-lang/cargo",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "tokio-rs/tokio",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/tokio-rs/tokio",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "kubernetes/kubernetes",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/kubernetes/kubernetes",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "docker/compose",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/docker/compose",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "rails/rails",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/rails/rails",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "laravel/framework",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/laravel/framework",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "spring-projects/spring-boot",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/spring-projects/spring-boot",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "apache/airflow",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/apache/airflow",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "home-assistant/core",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/home-assistant/core",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "pytorch/pytorch",
+          "kind": "github-repo",
+          "license": "BSD-3-Clause",
+          "license_evidence": "LICENSE",
+          "url_or_path": "https://github.com/pytorch/pytorch",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "huggingface/transformers",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/huggingface/transformers",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "microsoft/vscode",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/microsoft/vscode",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "denoland/deno",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/denoland/deno",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "oven-sh/bun",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "LICENSE",
+          "url_or_path": "https://github.com/oven-sh/bun",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "astral-sh/uv",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/astral-sh/uv",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "astral-sh/ruff",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/astral-sh/ruff",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "cli/cli",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/cli/cli",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "helm/helm",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/helm/helm",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "prometheus/prometheus",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/prometheus/prometheus",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "postgres/postgres",
+          "kind": "github-repo",
+          "license": "PostgreSQL",
+          "license_evidence": "LICENSE",
+          "url_or_path": "https://github.com/postgres/postgres",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "fastapi/fastapi",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/fastapi/fastapi",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "expressjs/express",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/expressjs/express",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "facebook/react",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/facebook/react",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "angular/angular",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/angular/angular",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "vitejs/vite",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/vitejs/vite",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "gohugoio/hugo",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/gohugoio/hugo",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "caddyserver/caddy",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/caddyserver/caddy",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "traefik/traefik",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/traefik/traefik",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "moby/moby",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/moby/moby",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "containerd/containerd",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/containerd/containerd",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "argoproj/argo-cd",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/argoproj/argo-cd",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "istio/istio",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/istio/istio",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "tailscale/tailscale",
+          "kind": "github-repo",
+          "license": "BSD-3-Clause",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/tailscale/tailscale",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "neovim/neovim",
+          "kind": "github-repo",
+          "license": "Apache-2.0",
+          "license_evidence": "LICENSE",
+          "url_or_path": "https://github.com/neovim/neovim",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "ohmyzsh/ohmyzsh",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/ohmyzsh/ohmyzsh",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "Homebrew/brew",
+          "kind": "github-repo",
+          "license": "BSD-2-Clause",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/Homebrew/brew",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "pyenv/pyenv",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/pyenv/pyenv",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "nvm-sh/nvm",
+          "kind": "github-repo",
+          "license": "MIT",
+          "license_evidence": "api",
+          "url_or_path": "https://github.com/nvm-sh/nvm",
+          "revision_or_date": "2026-08-31 shallow clone"
+        },
+        {
+          "id": "https://sh.rustup.rs",
+          "kind": "installer",
+          "license": "Apache-2.0",
+          "license_evidence": "api (rust-lang/rustup)",
+          "url_or_path": "https://sh.rustup.rs",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh",
+          "kind": "installer",
+          "license": "MIT",
+          "license_evidence": "api (nvm-sh/nvm)",
+          "url_or_path": "https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh",
+          "kind": "installer",
+          "license": "BSD-2-Clause",
+          "license_evidence": "api (Homebrew/install)",
+          "url_or_path": "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://astral.sh/uv/install.sh",
+          "kind": "installer",
+          "license": "Apache-2.0",
+          "license_evidence": "api (astral-sh/uv)",
+          "url_or_path": "https://astral.sh/uv/install.sh",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://get.docker.com",
+          "kind": "installer",
+          "license": "Apache-2.0",
+          "license_evidence": "api (docker/docker-install)",
+          "url_or_path": "https://get.docker.com",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://deb.nodesource.com/setup_22.x",
+          "kind": "installer",
+          "license": "MIT",
+          "license_evidence": "api (nodesource/distributions)",
+          "url_or_path": "https://deb.nodesource.com/setup_22.x",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh",
+          "kind": "installer",
+          "license": "MIT",
+          "license_evidence": "api (ohmyzsh/ohmyzsh)",
+          "url_or_path": "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://pyenv.run",
+          "kind": "installer",
+          "license": "MIT",
+          "license_evidence": "api (pyenv/pyenv-installer)",
+          "url_or_path": "https://pyenv.run",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://bun.sh/install",
+          "kind": "installer",
+          "license": "MIT",
+          "license_evidence": "LICENSE (oven-sh/bun)",
+          "url_or_path": "https://bun.sh/install",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://deno.land/install.sh",
+          "kind": "installer",
+          "license": "MIT",
+          "license_evidence": "api (denoland/deno_install)",
+          "url_or_path": "https://deno.land/install.sh",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3",
+          "kind": "installer",
+          "license": "Apache-2.0",
+          "license_evidence": "api (helm/helm)",
+          "url_or_path": "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://get.k3s.io",
+          "kind": "installer",
+          "license": "Apache-2.0",
+          "license_evidence": "api (k3s-io/k3s)",
+          "url_or_path": "https://get.k3s.io",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://starship.rs/install.sh",
+          "kind": "installer",
+          "license": "ISC",
+          "license_evidence": "api (starship/starship)",
+          "url_or_path": "https://starship.rs/install.sh",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://ollama.com/install.sh",
+          "kind": "installer",
+          "license": "MIT",
+          "license_evidence": "api (ollama/ollama)",
+          "url_or_path": "https://ollama.com/install.sh",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://tailscale.com/install.sh",
+          "kind": "installer",
+          "license": "BSD-3-Clause",
+          "license_evidence": "api (tailscale/tailscale)",
+          "url_or_path": "https://tailscale.com/install.sh",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://raw.githubusercontent.com/moovweb/gvm/master/binscripts/gvm-installer",
+          "kind": "installer",
+          "license": "MIT",
+          "license_evidence": "api (moovweb/gvm)",
+          "url_or_path": "https://raw.githubusercontent.com/moovweb/gvm/master/binscripts/gvm-installer",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://get.sdkman.io",
+          "kind": "installer",
+          "license": "Apache-2.0",
+          "license_evidence": "api (sdkman/sdkman-cli)",
+          "url_or_path": "https://get.sdkman.io",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://get.volta.sh",
+          "kind": "installer",
+          "license": "BSD-2-Clause",
+          "license_evidence": "LICENSE (volta-cli/volta)",
+          "url_or_path": "https://get.volta.sh",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://raw.githubusercontent.com/rbenv/rbenv-installer/main/bin/rbenv-installer",
+          "kind": "installer",
+          "license": "CC0-1.0",
+          "license_evidence": "api (rbenv/rbenv-installer)",
+          "url_or_path": "https://raw.githubusercontent.com/rbenv/rbenv-installer/main/bin/rbenv-installer",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://mise.run",
+          "kind": "installer",
+          "license": "MIT",
+          "license_evidence": "api (jdx/mise)",
+          "url_or_path": "https://mise.run",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://fly.io/install.sh",
+          "kind": "installer",
+          "license": "Apache-2.0",
+          "license_evidence": "api (superfly/flyctl)",
+          "url_or_path": "https://fly.io/install.sh",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "https://rye.astral.sh/get",
+          "kind": "installer",
+          "license": "MIT",
+          "license_evidence": "api (astral-sh/rye)",
+          "url_or_path": "https://rye.astral.sh/get",
+          "revision_or_date": "2026-08-31"
+        },
+        {
+          "id": "hand-oneliners",
+          "kind": "oneliner",
+          "license": "owner-authored",
+          "url_or_path": "bench/invocation/wild.jsonl",
+          "revision_or_date": "2026-08-31"
+        }
+      ],
+      "row_count": 7975,
+      "weight_sum": 7975,
+      "sample_rule": "every script from allowlisted upstreams, weight 1",
+      "excluded": [
+        {
+          "id": "elastic/elasticsearch",
+          "kind": "github-repo",
+          "license": "AGPL-3.0/SSPL-1.0/Elastic-2.0",
+          "reason": "license outside allowlist",
+          "rows": 38
+        },
+        {
+          "id": "grafana/grafana",
+          "kind": "github-repo",
+          "license": "AGPL-3.0",
+          "reason": "license outside allowlist",
+          "rows": 658
+        },
+        {
+          "id": "hashicorp/nomad",
+          "kind": "github-repo",
+          "license": "BUSL-1.1",
+          "reason": "license outside allowlist",
+          "rows": 183
+        },
+        {
+          "id": "hashicorp/terraform",
+          "kind": "github-repo",
+          "license": "BUSL-1.1",
+          "reason": "license outside allowlist",
+          "rows": 55
+        },
+        {
+          "id": "hashicorp/vault",
+          "kind": "github-repo",
+          "license": "BUSL-1.1",
+          "reason": "license outside allowlist",
+          "rows": 344
+        },
+        {
+          "id": "redis/redis",
+          "kind": "github-repo",
+          "license": "RSALv2/SSPL-1.0/AGPL-3.0",
+          "reason": "license outside allowlist",
+          "rows": 368
+        },
+        {
+          "id": "https://fnm.vercel.app/install",
+          "kind": "installer",
+          "license": "GPL-3.0",
+          "reason": "license outside allowlist",
+          "rows": 1
+        },
+        {
+          "id": "https://get.pnpm.io/install.sh",
+          "kind": "installer",
+          "license": null,
+          "reason": "no license",
+          "rows": 1
+        },
+        {
+          "id": "https://nixos.org/nix/install",
+          "kind": "installer",
+          "license": "LGPL-2.1",
+          "reason": "license outside allowlist",
+          "rows": 1
+        },
+        {
+          "id": "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh",
+          "kind": "installer",
+          "license": "GPL-3.0",
+          "reason": "license outside allowlist",
+          "rows": 1
+        },
+        {
+          "id": "https://get.wasmer.io",
+          "kind": "installer",
+          "license": null,
+          "reason": "no license",
+          "rows": 1
+        },
+        {
+          "id": "https://get-ghcup.haskell.org",
+          "kind": "installer",
+          "license": "LGPL-3.0",
+          "reason": "license outside allowlist",
+          "rows": 1
+        },
+        {
+          "id": "https://zed.dev/install.sh",
+          "kind": "installer",
+          "license": "GPL-3.0/AGPL-3.0",
+          "reason": "license outside allowlist",
+          "rows": 1
+        },
+        {
+          "id": "ansible/ansible",
+          "kind": "github-repo",
+          "license": "GPL-3.0",
+          "reason": "license outside allowlist",
+          "rows": 0
+        }
+      ],
+      "source_digest": "b34a6f9ddb4f7eec77dda3f8ca062d94cc4db7cb110ed7a49a5489024795c012"
+    },
+    "adversarial": {
+      "upstream": [
+        {
+          "id": "adversarial-cases",
+          "kind": "hand",
+          "license": "owner-authored",
+          "url_or_path": "bench/invocation/adversarial.jsonl",
+          "revision_or_date": "2026-08-31"
+        }
+      ],
+      "row_count": 326,
+      "weight_sum": 326,
+      "sample_rule": "every case, weight 1; `gen` cases materialised from their generator expression",
+      "excluded": [],
+      "source_digest": "d7fe14f90b400ab420b3893e428d0b25ade5168b34493dc36f3fdf2d264c9383"
+    }
+  },
+  "audit_allow": {
+    "swe-416": "variable, grep pattern or comment named token/password with no literal value",
+    "swe-2137": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-6264": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-8844": "documented placeholder value (<your_token_here>, YOUR_ACCESS_TOKEN, hf_xxxxx, K3S_TOKEN=xxx, POSTGRES_PASSWORD=secret)",
+    "swe-8882": "variable, grep pattern or comment named token/password with no literal value",
+    "swe-9588": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-12053": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-12168": "documented placeholder value (<your_token_here>, YOUR_ACCESS_TOKEN, hf_xxxxx, K3S_TOKEN=xxx, POSTGRES_PASSWORD=secret)",
+    "swe-12286": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-12314": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-12315": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-12316": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-12317": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-12369": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-12697": "benchmark task test value or brute-force wordlist, not a credential",
+    "swe-13953": "documented placeholder value (<your_token_here>, YOUR_ACCESS_TOKEN, hf_xxxxx, K3S_TOKEN=xxx, POSTGRES_PASSWORD=secret)",
+    "swe-20293": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-22575": "variable, grep pattern or comment named token/password with no literal value",
+    "swe-22590": "documented placeholder value (<your_token_here>, YOUR_ACCESS_TOKEN, hf_xxxxx, K3S_TOKEN=xxx, POSTGRES_PASSWORD=secret)",
+    "swe-22739": "benchmark task test value or brute-force wordlist, not a credential",
+    "swe-22740": "benchmark task test value or brute-force wordlist, not a credential",
+    "swe-22741": "benchmark task test value or brute-force wordlist, not a credential",
+    "swe-23054": "benchmark task test value or brute-force wordlist, not a credential",
+    "swe-23360": "variable, grep pattern or comment named token/password with no literal value",
+    "swe-24626": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-24920": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "swe-27630": "variable, grep pattern or comment named token/password with no literal value",
+    "swe-27632": "variable, grep pattern or comment named token/password with no literal value",
+    "swe-27740": "variable, grep pattern or comment named token/password with no literal value",
+    "wild-18": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "wild-60": "value generated at runtime (openssl rand, IMDS token fetch)",
+    "wild-97": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-110": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "wild-301": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "wild-331": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "wild-407": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "wild-460": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "wild-462": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "wild-479": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-538": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "wild-704": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "wild-711": "variable, grep pattern or comment named token/password with no literal value",
+    "wild-803": "value generated at runtime (openssl rand, IMDS token fetch)",
+    "wild-806": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-822": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-891": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-973": "PEM public key (signature verification), not a private key",
+    "wild-1276": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-1432": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-1433": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-1594": "value generated at runtime (openssl rand, IMDS token fetch)",
+    "wild-1595": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-1610": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-1631": "value generated at runtime (openssl rand, IMDS token fetch)",
+    "wild-1839": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-1874": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-1893": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-2163": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-2204": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-2208": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-2599": "value generated at runtime (openssl rand, IMDS token fetch)",
+    "wild-2600": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-2605": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-2696": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-2728": "variable, grep pattern or comment named token/password with no literal value",
+    "wild-2819": "documented placeholder value (<your_token_here>, YOUR_ACCESS_TOKEN, hf_xxxxx, K3S_TOKEN=xxx, POSTGRES_PASSWORD=secret)",
+    "wild-3155": "AWS documentation example access key (AKIAIOSFODNN7EXAMPLE / AKIAEXAMPLE1234)",
+    "wild-3352": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-3353": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-3371": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-3864": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-4010": "substring false positive (DISK---, task-env, vosk-model, task-sdk, cask-pr, disk-image, ...)",
+    "wild-4011": "variable, grep pattern or comment named token/password with no literal value",
+    "wild-4015": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-4043": "variable, grep pattern or comment named token/password with no literal value",
+    "wild-4044": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-4046": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-4176": "variable, grep pattern or comment named token/password with no literal value",
+    "wild-5087": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5096": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5098": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5099": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5103": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5105": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5106": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5107": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5108": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5109": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5242": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5259": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5978": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5979": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5980": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5981": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5982": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5983": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5984": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5985": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-5986": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-6073": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-6370": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-6371": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-6449": "value generated at runtime (openssl rand, IMDS token fetch)",
+    "wild-7711": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-7719": "documented placeholder value (<your_token_here>, YOUR_ACCESS_TOKEN, hf_xxxxx, K3S_TOKEN=xxx, POSTGRES_PASSWORD=secret)",
+    "wild-7732": "documented placeholder value (<your_token_here>, YOUR_ACCESS_TOKEN, hf_xxxxx, K3S_TOKEN=xxx, POSTGRES_PASSWORD=secret)",
+    "wild-7757": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-7862": "credential read from an env var, CI secret or ${{ }} template; no literal value",
+    "wild-7903": "AWS documentation example access key (AKIAIOSFODNN7EXAMPLE / AKIAEXAMPLE1234)",
+    "wild-7912": "credential read from an env var, CI secret or ${{ }} template; no literal value"
+  }
+}

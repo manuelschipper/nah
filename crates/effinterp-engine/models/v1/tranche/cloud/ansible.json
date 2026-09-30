@@ -1,0 +1,140 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:737bde6a5c0bac9f037921d6950a097f06a16e945bb257b3e561317f9b9b8545",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/cloud/ansible@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "ansible",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/cloud/ansible@v1",
+        "path": "../../tests/fixtures/model_tranche/ansible.json",
+        "digest": "blake3:c334a29971695e1f7b9ff41454d8e53c782f593411a7a9077fc7f2cf51534edd"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "ansible-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "ansible-not-the-command",
+            "web",
+            "--module-name",
+            "ping"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "network.request"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/cloud/ansible@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "network.request"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/cloud/ansible@v1",
+      "commands": [
+        "ansible"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--module-name",
+            "-m"
+          ],
+          "takes_value": true
+        }
+      ],
+      "positionals": [
+        {
+          "name": "host-pattern",
+          "index": 0,
+          "variadic": false,
+          "required": true,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "host-pattern"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "network.request",
+              "resource": {
+                "kind": "unresolved",
+                "family": "network"
+              },
+              "attributes": {},
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

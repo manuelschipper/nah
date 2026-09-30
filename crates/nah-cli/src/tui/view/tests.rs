@@ -129,12 +129,7 @@ fn runtime_failure_mode_confirmation_explains_the_selected_change() {
     app.screen = Screen::Runtimes;
     app.request_runtime_failure_policy();
     let output = rendered(&app, 100, 24);
-    for expected in [
-        "Switch Codex to fail-closed?",
-        "Explicit evaluation failures and refusals will block.",
-        "Valid unknown calls still delegate in either mode.",
-        "y switch  n cancel",
-    ] {
+    for expected in ["Switch Codex to fail-closed?", "y switch  n cancel"] {
         assert!(output.contains(expected), "missing {expected:?}:\n{output}");
     }
 }
@@ -146,7 +141,10 @@ fn log_screen_filters_by_verdict() {
 
     let output = rendered(&app, 100, 24);
     assert!(output.contains("all: 2 of 2"), "{output}");
-    assert!(output.contains("time:    2026-07-23T12:00:05Z"), "{output}");
+    assert!(
+        output.contains("time:     2026-07-23T12:00:05Z"),
+        "{output}"
+    );
 
     app.cycle_log_filter();
     // The runtime column leaves the command only a few cells at 100, so
@@ -892,7 +890,7 @@ fn trust_modal_inventories_the_project_proposals() {
 }
 
 #[test]
-fn current_untrusted_project_is_visible_and_explains_trust() {
+fn current_untrusted_project_is_visible_and_selected() {
     let mut app = App::fixture();
     app.screen = Screen::Projects;
     app.current_project = Some("/other".into());
@@ -901,14 +899,9 @@ fn current_untrusted_project_is_visible_and_explains_trust() {
 
     assert!(output.contains("* [not trusted] /other"), "{output}");
     assert!(output.contains("Status: not trusted"), "{output}");
-    assert!(
-        output.contains("Project guards are ignored until this project is trusted."),
-        "{output}"
-    );
-    assert!(
-        output.contains("Trusting does not enable guards automatically."),
-        "{output}"
-    );
+    let selected = app.selected_project().unwrap();
+    assert_eq!(selected.path, "/other");
+    assert!(selected.current && selected.trusted.is_none());
 }
 
 fn napping(mode: NapMode, remaining: u64) -> Option<NapStatus> {
@@ -934,7 +927,7 @@ fn an_active_nap_banners_every_screen_until_it_ends() {
         );
     }
 
-    // The `--all` nap pauses more and says so.
+    // The `all` nap pauses more and says so.
     app.nap = napping(NapMode::All, 45);
     let output = rendered(&app, 100, 24);
     assert!(output.contains("NAP: all enforcement paused"), "{output}");

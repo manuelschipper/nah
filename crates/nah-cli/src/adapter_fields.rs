@@ -6,7 +6,7 @@ use serde_json::Value;
 /// nested fields. Missing known fields are permitted; unlisted pairs return true.
 /// Adapters separately validate required fields and value types. This result alone
 /// does not establish that the input is a valid tool invocation.
-pub(crate) fn complete(runtime: &str, tool: &str, input: &Value) -> bool {
+pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Value) -> bool {
     let allowed: &[&str] = match (runtime, tool) {
         ("claude" | "codex", "Bash") => &["command", "description", "timeout", "run_in_background"],
         ("claude" | "codex", "Read") => &["file_path", "offset", "limit", "pages"],
@@ -112,9 +112,9 @@ pub(crate) fn complete(runtime: &str, tool: &str, input: &Value) -> bool {
         ("droid", "Grep") => &["pattern", "path", "output_mode"],
         ("droid", "Glob") => &["patterns", "folder", "excludePatterns"],
         ("droid", "LS") => &["directory_path", "ignorePatterns"],
-        ("hermes", "terminal") => &["command", "workdir"],
+        ("hermes", "terminal") => &["command", "timeout", "workdir"],
         ("hermes", "read_file") => &["path", "offset", "limit"],
-        ("hermes", "write_file") => &["path", "content"],
+        ("hermes", "write_file") => &["path", "content", "cross_profile"],
         ("hermes", "patch") => &[
             "mode",
             "path",
@@ -122,8 +122,19 @@ pub(crate) fn complete(runtime: &str, tool: &str, input: &Value) -> bool {
             "new_string",
             "replace_all",
             "patch",
+            "cross_profile",
         ],
-        ("hermes", "search_files") => &["target", "pattern", "path"],
+        ("hermes", "search_files") => &[
+            "target",
+            "pattern",
+            "path",
+            "file_glob",
+            "limit",
+            "offset",
+            "output_mode",
+            "context",
+            "order",
+        ],
         ("hermes", "execute_code") => &["code"],
         ("kiro", "shell" | "execute_bash" | "execute_cmd") => &["command"],
         ("openclaw", "exec") => &["command"],
@@ -133,12 +144,22 @@ pub(crate) fn complete(runtime: &str, tool: &str, input: &Value) -> bool {
         ("openclaw", "apply_patch") => &["input"],
         ("openclaw", "grep" | "find") => &["pattern", "path"],
         ("openclaw", "ls") => &["path", "depth"],
-        ("opencode", "bash") => &["command"],
-        ("opencode", "read") => &["filePath", "offset", "limit"],
-        ("opencode", "write") => &["filePath", "content"],
-        ("opencode", "edit") => &["filePath", "oldString", "newString", "replaceAll"],
-        ("opencode", "apply_patch") => &["patchText"],
-        ("opencode", "glob" | "grep") => &["pattern", "path"],
+        ("opencode", "shell") => &["command", "workdir", "timeout", "background"],
+        ("opencode", "read") => &["path", "offset", "limit"],
+        ("opencode", "write") => &["path", "content"],
+        ("opencode", "edit") => &["path", "oldString", "newString", "replaceAll"],
+        ("opencode", "patch") => &["patchText"],
+        // The lowering keeps only `pattern` and `path`. Dropping `include`
+        // widens the read, and the rest select matches or output, not files.
+        ("opencode", "glob") => &["pattern", "path", "hidden", "limit"],
+        ("opencode", "grep") => &[
+            "pattern",
+            "path",
+            "include",
+            "literal",
+            "caseSensitive",
+            "limit",
+        ],
         ("pi", "bash") => &["command"],
         ("pi", "read") => &["path", "offset", "limit"],
         ("pi", "write") => &["path", "content"],
@@ -158,6 +179,14 @@ pub(crate) fn complete(runtime: &str, tool: &str, input: &Value) -> bool {
             ("droid", "Edit") => {
                 array_fields(input.get("changes"), &["old_str", "new_str", "change_all"])
             }
+            // Nah reads a glob's leading `*` as skipping hidden entries, so
+            // `hidden: true` would select files Nah does not model.
+            // Neither option changes what the command does.
+            ("opencode", "shell") => {
+                input.get("timeout").is_none_or(Value::is_u64)
+                    && input.get("background").is_none_or(Value::is_boolean)
+            }
+            ("opencode", "glob") => matches!(input.get("hidden"), None | Some(Value::Bool(false))),
             ("openclaw" | "pi", "edit") => {
                 array_fields(input.get("edits"), &["oldText", "newText"])
             }
@@ -183,7 +212,7 @@ fn array_fields(input: Option<&Value>, allowed: &[&str]) -> bool {
 mod tests {
     use serde_json::json;
 
-    use super::complete;
+    use super::runtime_field_names_covered;
 
     #[test]
     fn every_runtime_rejects_an_unknown_field_for_a_documented_tool() {
@@ -204,14 +233,20 @@ mod tests {
             ("hermes", "terminal", json!({"command":"pwd"})),
             ("kiro", "execute_bash", json!({"command":"pwd"})),
             ("openclaw", "exec", json!({"command":"pwd"})),
-            ("opencode", "bash", json!({"command":"pwd"})),
+            ("opencode", "shell", json!({"command":"pwd"})),
             ("pi", "bash", json!({"command":"pwd"})),
             ("prime-agent", "ipython", json!({"code":"print('ok')"})),
         ] {
-            assert!(complete(runtime, tool, &input), "{runtime}");
+            assert!(
+                runtime_field_names_covered(runtime, tool, &input),
+                "{runtime}"
+            );
             let mut unknown = input;
             unknown["futureBehavior"] = json!("execute");
-            assert!(!complete(runtime, tool, &unknown), "{runtime}");
+            assert!(
+                !runtime_field_names_covered(runtime, tool, &unknown),
+                "{runtime}"
+            );
         }
     }
 }

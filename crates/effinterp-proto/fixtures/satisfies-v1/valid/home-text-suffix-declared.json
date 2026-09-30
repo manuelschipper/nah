@@ -1,0 +1,71 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "home-text-suffix-declared",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/home/ux"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "join",
+        "parts": [
+          {
+            "expr": "environment",
+            "name": "HOME"
+          },
+          {
+            "expr": "literal",
+            "value": "x"
+          }
+        ]
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": {
+        "value": "/work",
+        "source": {
+          "kind": "declared"
+        }
+      },
+      "env": {
+        "HOME": {
+          "value": "/home/u",
+          "source": {
+            "kind": "declared"
+          }
+        },
+        "NAME": {
+          "value": "bar",
+          "source": {
+            "kind": "declared"
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "binding",
+          "name": "HOME",
+          "source": {
+            "kind": "declared"
+          }
+        }
+      ]
+    }
+  }
+}

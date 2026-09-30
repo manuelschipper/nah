@@ -1,0 +1,8 @@
+{
+  "command": "gem owner",
+  "reviewed": "2026-09-18",
+  "sources": [
+    "https://guides.rubygems.org/command-reference/#gem-owner"
+  ],
+  "surface": "Named ownership boundary only; artifact ACL effects are not represented by the current vocabulary."
+}

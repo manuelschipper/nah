@@ -1,0 +1,58 @@
+# Ground-truth expectations for eza-community/eza (holdout-hidden corpus).
+# Pinned SHA: 471bfbc7b03cbac8c738e8d9050edb06ee79132a.
+# Real entry: src/main.rs (single bin crate; fn main at main.rs:38 parses clap
+#   matches and runs Exa — the trait-heavy Rust listing tool).
+# Derived from:
+#   src/main.rs (logger::configure reads EZA_DEBUG/EXA_DEBUG via env::var_os,
+#     main.rs:44; every other env lookup funnels through the LiveVars wrapper's
+#     env::var_os(name), main.rs:153 — COLUMNS/LS_COLORS/EZA_*/EXA_* names
+#     from src/options/vars.rs),
+#   src/fs/dir.rs (the core product read: fs::read_dir of each listed
+#     directory, dir.rs:54 and :71),
+#   src/fs/file.rs (symlink targets via std::fs::read_link, file.rs:471,
+#     plus cached metadata stat calls, file.rs:85),
+#   src/options/config.rs (theme file open, File::open(&self.location),
+#     config.rs:627),
+#   src/fs/feature/git.rs (--git status via the in-process git2/libgit2
+#     library, git.rs:63/81/183).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. Listing directories is the product; the env funnel and
+# read_dir are reached from main through direct calls. The symlink/theme
+# reads depend on flags and file types, hence modality=may. Git status runs
+# inside the git2 C library behind trait dispatch — see known_hard. eza
+# spawns no processes and never writes, deletes, or touches the network.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=filesystem.read
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=EZA_DEBUG origin=src/main.rs realm=host
+op=environment.read origin=src/main.rs realm=host
+op=filesystem.read origin=src/fs/dir.rs realm=host
+op=filesystem.read origin=src/fs/file.rs realm=host modality=may
+op=filesystem.read origin=src/options/config.rs realm=host modality=may
+
+[forbidden]
+# A pure lister: no writes, deletes, subprocesses, or I/O beyond reads.
+op=filesystem.write
+op=filesystem.delete
+op=process.exec
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]
+# Repository status for --git is read through the git2 (libgit2) dependency
+# behind trait-object dispatch.
+op=git.read origin=src/fs/feature/git.rs

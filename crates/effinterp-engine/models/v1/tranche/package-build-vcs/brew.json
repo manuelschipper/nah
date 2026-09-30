@@ -1,0 +1,510 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:d30cbb280581f97fcde562a00d4c2777efdd4a345946b1ebd4de37b9d8480880",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/command_frequency_sources.json",
+        "digest": "blake3:0c0eaf84695d55145b42382ae8afa009bf99cc4fc705ef495a28ac24d8ce1ee7"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "brew",
+        "requirement": "reviewed-exact-surface@05f17bafd849202efca55544c3312aae31a8fd23"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/package-build-vcs/brew@v1",
+        "path": "../../tests/fixtures/model_tranche/brew.json",
+        "digest": "blake3:f6d882e603cd51aba9e924f8550d87aa45909e537916225333c83ff20ea5abd7"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "brew-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "brew-not-the-command",
+            "install",
+            "ripgrep"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.write",
+          "network.download"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/package-build-vcs/brew@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.delete",
+      "filesystem.write",
+      "network.download",
+      "system.service_start",
+      "system.service_stop"
+    ],
+    "expected_boundaries": [
+      "package_scripts",
+      "unmodeled_subcommand"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/package-build-vcs/brew@v1",
+      "commands": [
+        "brew"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--cellar",
+            "--prefix"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unmodeled_subcommand",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process",
+          "system"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "install",
+            "reinstall",
+            "upgrade",
+            "tap",
+            "update",
+            "install-bundler-gems",
+            "bundle"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--groups"
+              ],
+              "takes_value": true
+            }
+          ],
+          "positionals": [
+            {
+              "name": "operands",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "in_directory",
+                    "directory": {
+                      "kind": "environment_default",
+                      "name": "HOMEBREW_PREFIX",
+                      "default": "/opt/homebrew"
+                    },
+                    "entry": {
+                      "kind": "literal",
+                      "value": "."
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "uninstall",
+            "untap",
+            "cleanup"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "operands",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.delete",
+                  "resource": {
+                    "kind": "in_directory",
+                    "directory": {
+                      "kind": "environment_default",
+                      "name": "HOMEBREW_PREFIX",
+                      "default": "/opt/homebrew"
+                    },
+                    "entry": {
+                      "kind": "literal",
+                      "value": "."
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "style",
+            "typecheck",
+            "audit",
+            "readall",
+            "config",
+            "list",
+            "info",
+            "deps"
+          ],
+          "index": 0,
+          "inert": true,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "operands",
+              "index": 0,
+              "variadic": true,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "subcommands": [
+            {
+              "names": [
+                "start"
+              ],
+              "index": 0,
+              "flags": [],
+              "positionals": [
+                {
+                  "name": "service",
+                  "index": 0,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
+                }
+              ],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "positional",
+                    "name": "service"
+                  },
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "system.service_start",
+                      "resource": {
+                        "kind": "unresolved",
+                        "family": "svc"
+                      },
+                      "attributes": {},
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "filesystem",
+                  "network",
+                  "process",
+                  "system"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            },
+            {
+              "names": [
+                "stop"
+              ],
+              "index": 0,
+              "flags": [],
+              "positionals": [
+                {
+                  "name": "service",
+                  "index": 0,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
+                }
+              ],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "positional",
+                    "name": "service"
+                  },
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "system.service_stop",
+                      "resource": {
+                        "kind": "unresolved",
+                        "family": "svc"
+                      },
+                      "attributes": {},
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "filesystem",
+                  "network",
+                  "process",
+                  "system"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            }
+          ],
+          "names": [
+            "services"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unmodeled_subcommand",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process",
+              "system"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": [
+        {
+          "without_subcommand": true,
+          "name": "prefix",
+          "when": {
+            "flag_present": [
+              "--prefix"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "without_subcommand": true,
+          "name": "cellar",
+          "when": {
+            "flag_present": [
+              "--cellar"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "inert": true,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    }
+  ]
+}

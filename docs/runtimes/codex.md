@@ -69,9 +69,10 @@ into Codex's normal flow. Under the default mode, evaluation failure delegates a
 
 While active, this adapter blocks visible lifecycle commands, mutations to
 `hooks.json` or the global `config.toml` hook setting, and child launches using
-an alternate `CODEX_HOME` or `--disable hooks`. `--yolo` does not disable
-hooks and is not a self-protection finding. The agent is told not to retry
-protected changes; an operator can use `nah nap` from another terminal.
+an alternate `CODEX_HOME`, `--disable hooks`, or `-c` turning hooks off
+(`codex_hooks` included). `--yolo` does not disable hooks and is not a
+self-protection finding. The agent is told not to retry protected changes; an
+operator can use `nah nap` from another terminal.
 
 This integration is best effort: runtime APIs and hook behavior can change.
 After upgrades, verify the latest official upstream documentation linked below,

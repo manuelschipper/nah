@@ -1,0 +1,904 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:c523d9d22f4008165b903f047f887a3df7852a50cbe9ae38ad5f15182af89119",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/interpreters/powershell@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "powershell",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/interpreters/powershell@v1",
+        "path": "../../tests/fixtures/model_tranche/powershell.json",
+        "digest": "blake3:e64a49825499d21cccf1f153a14b872fc0ce3ecd32b6cb9e45e3bc7d5f5a69ad"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "powershell-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "powershell-not-the-command",
+            "/work/program.src",
+            "arg"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/interpreters/powershell@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "process.code_execution"
+    ],
+    "expected_boundaries": [
+      "dynamic_source",
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "single_dash_long_flags": true,
+      "id": "p18b/interpreters/powershell@v1",
+      "commands": [
+        "powershell"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "-Command",
+            "-c",
+            "-co",
+            "-com",
+            "-comm",
+            "-comma",
+            "-comman"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-EncodedCommand",
+            "-e",
+            "-ec",
+            "-en",
+            "-enc",
+            "-enco",
+            "-encod",
+            "-encode",
+            "-encoded",
+            "-encodedc",
+            "-encodedco",
+            "-encodedcom",
+            "-encodedcomm",
+            "-encodedcomma",
+            "-encodedcomman"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-ConfigurationFile",
+            "-ConfigurationName",
+            "-CustomPipeName",
+            "-ExecutionPolicy",
+            "-InputFormat",
+            "-OutputFormat",
+            "-SettingsFile",
+            "-WindowStyle",
+            "-WorkingDirectory"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "-File"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-NoExit",
+            "-NoLogo",
+            "-NoProfile"
+          ],
+          "takes_value": false
+        }
+      ],
+      "positionals": [
+        {
+          "name": "script",
+          "index": 0,
+          "variadic": false,
+          "required": false,
+          "unless_value_flags": []
+        }
+      ],
+      "mutually_exclusive": [],
+      "effects": [
+        {
+          "source": {
+            "kind": "positional",
+            "name": "script"
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "-Command",
+              "-EncodedCommand",
+              "-File",
+              "-co",
+              "-com",
+              "-comm",
+              "-comma",
+              "-comman",
+              "-e",
+              "-ec",
+              "-en",
+              "-enc",
+              "-enco",
+              "-encod",
+              "-encode",
+              "-encoded",
+              "-encodedc",
+              "-encodedco",
+              "-encodedcom",
+              "-encodedcomm",
+              "-encodedcomma",
+              "-encodedcomman"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            "-"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {},
+              "modality": "may"
+            },
+            {
+              "operation": "process.code_execution",
+              "resource": {
+                "kind": "process",
+                "executable": {
+                  "kind": "argument",
+                  "index": 0
+                },
+                "argv": []
+              },
+              "attributes": {
+                "source": {
+                  "kind": "constant_string",
+                  "value": "file"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "argument",
+            "index": 0
+          },
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "-Command",
+              "-EncodedCommand",
+              "-File",
+              "-co",
+              "-com",
+              "-comm",
+              "-comma",
+              "-comman",
+              "-e",
+              "-ec",
+              "-en",
+              "-enc",
+              "-enco",
+              "-encod",
+              "-encode",
+              "-encoded",
+              "-encodedc",
+              "-encodedco",
+              "-encodedcom",
+              "-encodedcomm",
+              "-encodedcomma",
+              "-encodedcomman"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "process.code_execution",
+              "resource": {
+                "kind": "process",
+                "executable": {
+                  "kind": "argument",
+                  "index": 0
+                },
+                "argv": []
+              },
+              "attributes": {
+                "source": {
+                  "kind": "constant_string",
+                  "value": "stdin"
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        }
+      ],
+      "invocations": [],
+      "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "-Command",
+              "-EncodedCommand",
+              "-File",
+              "-co",
+              "-com",
+              "-comm",
+              "-comma",
+              "-comman",
+              "-e",
+              "-ec",
+              "-en",
+              "-enc",
+              "-enco",
+              "-encod",
+              "-encode",
+              "-encoded",
+              "-encodedc",
+              "-encodedco",
+              "-encodedcom",
+              "-encodedcomm",
+              "-encodedcomma",
+              "-encodedcomman"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "max_operands": 0,
+            "reads_stdin": false
+          },
+          "reason": "dynamic_source",
+          "class": "unresolved",
+          "domains": [
+            "filesystem",
+            "process"
+          ]
+        }
+      ],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [],
+      "modes": [
+        {
+          "name": "explicit-stdin",
+          "when": {
+            "flag_present": [],
+            "flag_absent": [
+              "-c",
+              "-Command",
+              "-EncodedCommand",
+              "-File",
+              "-co",
+              "-com",
+              "-comm",
+              "-comma",
+              "-comman",
+              "-e",
+              "-ec",
+              "-en",
+              "-enc",
+              "-enco",
+              "-encod",
+              "-encode",
+              "-encoded",
+              "-encodedc",
+              "-encodedco",
+              "-encodedcom",
+              "-encodedcomm",
+              "-encodedcomma",
+              "-encodedcomman"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "stdin",
+              "index": 0,
+              "allowed_literals": [
+                "-"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "stdin"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "argument",
+                      "index": 0
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "stdin"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "dynamic_source",
+              "class": "unresolved",
+              "domains": [
+                "filesystem",
+                "process"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "command",
+          "when": {
+            "flag_present": [
+              "-c",
+              "-Command",
+              "-co",
+              "-com",
+              "-comm",
+              "-comma",
+              "-comman"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "nested_source": [
+            {
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "-c",
+                        "-Command",
+                        "-co",
+                        "-com",
+                        "-comm",
+                        "-comma",
+                        "-comman"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "-"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "language": "powershell",
+              "from": {
+                "kind": "flag_tail",
+                "flags": [
+                  "-c",
+                  "-Command",
+                  "-co",
+                  "-com",
+                  "-comm",
+                  "-comma",
+                  "-comman"
+                ]
+              }
+            }
+          ],
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "-c",
+                  "-Command",
+                  "-co",
+                  "-com",
+                  "-comm",
+                  "-comma",
+                  "-comman"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [
+                "-"
+              ],
+              "emit": [
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "argument",
+                      "index": 0
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "argument"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        },
+        {
+          "name": "command-stdin",
+          "when": {
+            "flag_value_equals": [
+              {
+                "flags": [
+                  "-c",
+                  "-Command",
+                  "-co",
+                  "-com",
+                  "-comm",
+                  "-comma",
+                  "-comman"
+                ],
+                "value": "-"
+              }
+            ],
+            "flag_present": [],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "-c",
+                  "-Command",
+                  "-co",
+                  "-com",
+                  "-comm",
+                  "-comma",
+                  "-comman"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "argument",
+                      "index": 0
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "stdin"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "dynamic_source",
+              "class": "unresolved",
+              "domains": [
+                "filesystem",
+                "process"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "encoded-command",
+          "when": {
+            "flag_present": [
+              "-EncodedCommand",
+              "-e",
+              "-ec",
+              "-en",
+              "-enc",
+              "-enco",
+              "-encod",
+              "-encode",
+              "-encoded",
+              "-encodedc",
+              "-encodedco",
+              "-encodedcom",
+              "-encodedcomm",
+              "-encodedcomma",
+              "-encodedcomman"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "code",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "code"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "argument",
+                      "index": 0
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "encoding": {
+                      "kind": "constant_string",
+                      "value": "base64"
+                    },
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "argument"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "dynamic_source",
+              "class": "unresolved",
+              "domains": [
+                "filesystem",
+                "process"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "file",
+          "when": {
+            "flag_present": [
+              "-File"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "file",
+              "index": 0,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "file"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [
+                "-"
+              ],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "argument",
+                      "index": 0
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "file"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "dynamic_source",
+              "class": "unresolved",
+              "domains": [
+                "filesystem",
+                "process"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "file-stdin",
+          "when": {
+            "flag_present": [
+              "-File"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": true
+          },
+          "flags": [],
+          "positionals": [
+            {
+              "name": "stdin",
+              "index": 0,
+              "allowed_literals": [
+                "-"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "stdin"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "process.code_execution",
+                  "resource": {
+                    "kind": "process",
+                    "executable": {
+                      "kind": "argument",
+                      "index": 0
+                    },
+                    "argv": []
+                  },
+                  "attributes": {
+                    "source": {
+                      "kind": "constant_string",
+                      "value": "stdin"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": []
+        }
+      ]
+    }
+  ]
+}

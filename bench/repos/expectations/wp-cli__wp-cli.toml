@@ -1,0 +1,44 @@
+# Ground-truth expectations for wp-cli/wp-cli.
+# Derived from: php/wp-cli.php (top level: file_get_contents(WP_CLI_ROOT.'/VERSION'),
+#   getenv('WP_CLI_USER_AGENT') / getenv('WP_CLI_EARLY_REQUIRE'), require_once of
+#   bootstrap/autoload) and bin/wp (sh wrapper that resolves and execs the php
+#   interpreter on boot-fs.php).
+# Authored 2026-08-18 by reading product source, NOT EI output.
+# Confidence: HIGH. VERSION is read and env vars are consulted at the top of the
+#   PHP entrypoint; the shell wrapper execs php.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 1
+
+# v1 regression floor (domain-level).
+[should_find]
+op=filesystem.read
+op=environment.read
+op=process.exec
+
+# Fact-level assertions: the VERSION read and the WP_CLI_* env family sit at the
+# top of php/wp-cli.php; the shell wrapper execs the resolved php binary.
+[facts]
+op=filesystem.read res=/VERSION origin=php/wp-cli.php realm=host modality=may
+op=environment.read res=WP_CLI_USER_AGENT origin=php/wp-cli.php realm=host
+op=environment.read res=WP_CLI_EARLY_REQUIRE origin=php/wp-cli.php realm=host
+op=process.exec res=proc:php origin=bin/wp realm=host modality=may
+
+[forbidden]
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+op=database.truncate
+# The bootstrap only ever reads VERSION; writing or deleting it would be a
+# clear false positive.
+op=filesystem.write res=/VERSION
+op=filesystem.delete res=/VERSION
+
+[known_hard]
+# Subcommands are resolved by name from the command registry, and WP core /
+# db access happens through those dynamically dispatched commands.
+op=network.
+op=database.

@@ -1,0 +1,79 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "object-prefix-rejects-other-key",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "object_store",
+        "scope": {
+          "kind": "s3_bucket",
+          "identity": {
+            "partition": {
+              "state": "unknown"
+            },
+            "account": {
+              "state": "not_applicable"
+            },
+            "project": {
+              "state": "not_applicable"
+            },
+            "subscription": {
+              "state": "not_applicable"
+            },
+            "region": {
+              "state": "not_applicable"
+            },
+            "zone": {
+              "state": "not_applicable"
+            },
+            "storage_account": {
+              "state": "not_applicable"
+            },
+            "resource_group": {
+              "state": "not_applicable"
+            },
+            "cluster": {
+              "state": "not_applicable"
+            },
+            "namespace": {
+              "state": "not_applicable"
+            }
+          },
+          "access": []
+        },
+        "provider": "aws",
+        "bucket": "logs",
+        "key": "ab"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "object_store",
+          "provider": {
+            "kind": "exact",
+            "value": "aws"
+          },
+          "bucket": "logs",
+          "key_prefix": "a/"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "not_satisfied"
+  }
+}

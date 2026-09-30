@@ -1,0 +1,263 @@
+{
+  "total": {
+    "baseline_defect": 0,
+    "engine_error": 0,
+    "guard_silent": 2,
+    "missing_effect": 11,
+    "missing_flow": 5,
+    "regression": 0,
+    "unsupported": 0
+  },
+  "per_guard": {
+    "(structural)": {
+      "explained_partial": 163,
+      "missing_effect": 2,
+      "missing_flow": 0
+    },
+    "db-destroy": {
+      "explained_partial": 38,
+      "missing_effect": 5,
+      "missing_flow": 0
+    },
+    "exec-decoded": {
+      "explained_partial": 4,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "exec-network-shell": {
+      "explained_partial": 1,
+      "guard_silent": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "exec-obfuscated": {
+      "explained_partial": 1,
+      "guard_silent": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "exec-remote": {
+      "explained_partial": 4,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "fs-auth-identity": {
+      "explained_partial": 2,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "fs-forkbomb": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "fs-home": {
+      "explained_partial": 8,
+      "missing_effect": 1,
+      "missing_flow": 0
+    },
+    "fs-outside-workspace-delete": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "fs-permission-weaken": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "fs-project-root": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "fs-raw-device": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "fs-shell-profile": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "fs-startup-management": {
+      "explained_partial": 0,
+      "guard_silent": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "fs-startup-persistence": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "fs-system-tree": {
+      "explained_partial": 6,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "fs-volume-destroy": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-clean-force": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-force-push": {
+      "explained_partial": 1,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-hard-reset": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-history-rewrite": {
+      "explained_partial": 0,
+      "guard_silent": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-metadata": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-path-discard": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-protected-push": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-recovery-destroy": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-ref-delete": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-remote-repo-delete": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-remote-resource-delete": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-rewrite-force": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "git-worktree-discard": {
+      "explained_partial": 0,
+      "guard_silent": 1,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "infra-container-reset": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "infra-container-volume-delete": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "infra-iac-destroy": {
+      "explained_partial": 0,
+      "guard_silent": 1,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "infra-k8s-delete": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "registry-publish": {
+      "explained_partial": 0,
+      "guard_silent": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "registry-unpublish": {
+      "explained_partial": 0,
+      "guard_silent": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "secrets-credentials": {
+      "explained_partial": 6,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "secrets-env": {
+      "explained_partial": 0,
+      "guard_silent": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "secrets-exfil": {
+      "explained_partial": 3,
+      "guard_silent": 0,
+      "missing_effect": 3,
+      "missing_flow": 5
+    },
+    "secrets-store-delete": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "secrets-store-destroy": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "secrets-store-read": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "storage-backup-destroy": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "storage-recursive-delete": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "storage-snapshot-delete": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "sys-power": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
+    "sys-service-stop": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    }
+  }
+}

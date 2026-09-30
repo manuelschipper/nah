@@ -1,0 +1,789 @@
+{
+  "schema": "effinterp/fact-assertion-fixture/v1",
+  "cases": [
+    {
+      "subject": {
+        "kind": "tool_call",
+        "tool": "mcp.call",
+        "args": {
+          "server": {
+            "kind": "known",
+            "transport": {
+              "kind": "stdio",
+              "source": {
+                "kind": "npm",
+                "spec": "@supabase/mcp-server-supabase@latest"
+              },
+              "args": [
+                "--project-ref=abc"
+              ]
+            }
+          },
+          "tool": "execute_sql",
+          "arguments": {
+            "project_id": "abc",
+            "query": "DROP TABLE users; TRUNCATE orders"
+          }
+        },
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "database"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "database.schema_drop"
+                  },
+                  "resource": "any",
+                  "attributes": [
+                    {
+                      "name": "object_kind",
+                      "test": {
+                        "equals": "table"
+                      }
+                    }
+                  ],
+                  "realm": "remote"
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        },
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "database"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "database.truncate"
+                  },
+                  "resource": "any",
+                  "realm": "remote"
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "database": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "tool_call",
+        "tool": "mcp.call",
+        "args": {
+          "server": {
+            "kind": "known",
+            "transport": {
+              "kind": "http",
+              "host": "mcp.supabase.com",
+              "path": "/mcp",
+              "query": "project_ref=abc"
+            }
+          },
+          "tool": "apply_migration",
+          "arguments": {
+            "project_id": "abc",
+            "name": "drop_users",
+            "query": "DROP TABLE users"
+          }
+        },
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "database"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "database.schema_drop"
+                  },
+                  "resource": "any",
+                  "attributes": [
+                    {
+                      "name": "object_kind",
+                      "test": {
+                        "equals": "table"
+                      }
+                    }
+                  ],
+                  "realm": "remote"
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "database": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "tool_call",
+        "tool": "mcp.call",
+        "args": {
+          "server": {
+            "kind": "known",
+            "transport": {
+              "kind": "stdio",
+              "source": {
+                "kind": "npm",
+                "spec": "@supabase/mcp-server-supabase@latest"
+              },
+              "args": [
+                "--read-only"
+              ]
+            }
+          },
+          "tool": "execute_sql",
+          "arguments": {
+            "project_id": "abc",
+            "query": "SELECT * FROM users"
+          }
+        },
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "database"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "database.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<db:?>"
+                      }
+                    }
+                  },
+                  "realm": "remote"
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "forbidden_effects": [
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "database"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "database.schema_drop"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 7
+        },
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "database"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "database.write"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 7
+        },
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "database"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "database.truncate"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 7
+        }
+      ],
+      "coverage": {
+        "database": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "tool_call",
+        "tool": "mcp.call",
+        "args": {
+          "server": {
+            "kind": "known",
+            "transport": {
+              "kind": "http",
+              "host": "mcp.supabase.com",
+              "path": "/mcp"
+            }
+          },
+          "tool": "delete_branch",
+          "arguments": {
+            "branch_id": "br_1"
+          }
+        },
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:branches/branch/br_1"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "tool_call",
+        "tool": "mcp.call",
+        "args": {
+          "server": {
+            "kind": "known",
+            "transport": {
+              "kind": "stdio",
+              "source": {
+                "kind": "npm",
+                "spec": "@supabase/mcp-server-supabase@latest"
+              }
+            }
+          },
+          "tool": "reset_branch",
+          "arguments": {
+            "branch_id": "br_1",
+            "migration_version": "20240101000000"
+          }
+        },
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "database"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "database.schema_drop"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "<db:?>"
+                      }
+                    }
+                  },
+                  "attributes": [
+                    {
+                      "name": "object_kind",
+                      "test": {
+                        "equals": "database"
+                      }
+                    }
+                  ],
+                  "realm": "remote"
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "database": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "tool_call",
+        "tool": "mcp.call",
+        "args": {
+          "server": {
+            "kind": "known",
+            "transport": {
+              "kind": "http",
+              "host": "mcp.supabase.com",
+              "path": "/mcp"
+            }
+          },
+          "tool": "merge_branch",
+          "arguments": {
+            "branch_id": "br_1"
+          }
+        },
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "merge_branch applies the branch's migrations and edge functions to production; the call does not carry them"
+                },
+                "domains": {
+                  "all_of": [
+                    "cloud",
+                    "database"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unresolved_sql"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "cloud",
+            "database"
+          ]
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "gaps": [
+            0
+          ],
+          "level": "partial"
+        },
+        "database": {
+          "gaps": [
+            0
+          ],
+          "level": "partial"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "tool_call",
+        "tool": "mcp.call",
+        "args": {
+          "server": {
+            "kind": "known",
+            "transport": {
+              "kind": "stdio",
+              "source": {
+                "kind": "npm",
+                "spec": "@supabase/mcp-server-supabase@latest"
+              }
+            }
+          },
+          "tool": "rebase_branch",
+          "arguments": {
+            "branch_id": "br_1"
+          }
+        },
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "rebase_branch runs production's newer migrations on the branch; the call does not carry them"
+                },
+                "domains": {
+                  "all_of": [
+                    "database"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unresolved_sql"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "database"
+          ]
+        }
+      ],
+      "coverage": {
+        "database": {
+          "gaps": [
+            0
+          ],
+          "level": "partial"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "tool_call",
+        "tool": "mcp.call",
+        "args": {
+          "server": {
+            "kind": "known",
+            "transport": {
+              "kind": "stdio",
+              "source": {
+                "kind": "npm",
+                "spec": "@supabase/mcp-server-supabase@latest"
+              }
+            }
+          },
+          "tool": "pause_project",
+          "arguments": {
+            "project_id": "abc"
+          }
+        },
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "cloud.resource.stop"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:projects/project/abc"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 7
+          },
+          "modality": "may"
+        }
+      ],
+      "forbidden_effects": [
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "cloud"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "cloud.resource.delete"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 7
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "tool_call",
+        "tool": "mcp.call",
+        "args": {
+          "server": {
+            "kind": "known",
+            "transport": {
+              "kind": "stdio",
+              "source": {
+                "kind": "npm",
+                "spec": "@supabase/mcp-server-supabase@latest"
+              }
+            }
+          },
+          "tool": "execute_sql",
+          "arguments": {
+            "project_id": "abc"
+          }
+        },
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unresolved",
+                "detail": {
+                  "equals": "SQL argument $.query is missing or not a string"
+                },
+                "domains": {
+                  "all_of": [
+                    "database"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unrecoverable_source"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unresolved",
+          "domains": [
+            "database"
+          ]
+        }
+      ],
+      "coverage": {
+        "database": {
+          "gaps": [
+            0
+          ],
+          "level": "partial"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "tool_call",
+        "tool": "mcp.call",
+        "args": {
+          "server": {
+            "kind": "unknown"
+          },
+          "tool": "execute_sql",
+          "arguments": {
+            "project_id": "abc",
+            "query": "DROP TABLE users"
+          }
+        },
+        "cwd": "/work"
+      },
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unsupported",
+                "detail": {
+                  "equals": "mcp:execute_sql"
+                },
+                "domains": {
+                  "all_of": [
+                    "artifact",
+                    "filesystem",
+                    "process",
+                    "environment",
+                    "network",
+                    "database",
+                    "container",
+                    "git",
+                    "cloud",
+                    "messaging",
+                    "system",
+                    "credential"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unsupported_tool"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unsupported",
+          "domains": [
+            "artifact",
+            "filesystem",
+            "process",
+            "environment",
+            "network",
+            "database",
+            "container",
+            "git",
+            "cloud",
+            "messaging",
+            "system",
+            "credential"
+          ]
+        }
+      ],
+      "coverage": {
+        "artifact": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        },
+        "cloud": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        },
+        "container": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        },
+        "credential": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        },
+        "database": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        },
+        "environment": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        },
+        "filesystem": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        },
+        "git": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        },
+        "messaging": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        },
+        "network": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        },
+        "process": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        },
+        "system": {
+          "gaps": [
+            0
+          ],
+          "level": "none"
+        }
+      }
+    }
+  ]
+}

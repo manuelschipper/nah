@@ -1,0 +1,66 @@
+# Ground-truth expectations for jbangdev/jbang (holdout-hidden corpus).
+# Pinned SHA: ab1c0da5a7d3f4654a8c5dfdca9b550b9d08c1ee.
+# Real entry: src/main/java/dev/jbang/Main.java (public static void main;
+#   handles default-run rewriting, then dispatches the command tree through
+#   AeshRuntimeRunner.builder().command(JBang.class).execute(),
+#   Main.java:44-48).
+# Derived from:
+#   src/main/java/dev/jbang/Main.java (main() starts an async version check
+#     before dispatch, Main.java:42; applyJavaOptionsFromEnv reads
+#     JBANG_JAVA_OPTIONS in native-image mode, Main.java:127),
+#   src/main/java/dev/jbang/util/VersionChecker.java (shouldCheck reads
+#     JBANG_NO_VERSION_CHECK, VersionChecker.java:144; creates the cache
+#     version.txt stamp when absent, :156; reads the downloaded version file,
+#     :186),
+#   src/main/java/dev/jbang/Settings.java (cache paths read JBANG_DIR,
+#     Settings.java:55, and JBANG_CACHE_DIR, :111 — reached from
+#     Settings.getCacheDir() inside shouldCheck),
+#   src/main/java/dev/jbang/util/NetUtil.java (all downloads funnel through
+#     connect()'s url.openConnection(), NetUtil.java:205 — the version check
+#     and script/JDK downloads),
+#   src/main/java/dev/jbang/Cache.java (cache clearing Files.deleteIfExists /
+#     Util.deletePath, Cache.java:39/:46),
+#   src/main/java/dev/jbang/cli/Edit.java (editor ProcessBuilder, :283/:373),
+#   src/main/java/dev/jbang/source/buildsteps/CompileBuildStep.java (compiler
+#     spawn via asProcessBuilder, :121-125),
+#   src/main/java/dev/jbang/spi/IntegrationManager.java (integration
+#     subprocess, :272).
+# Authored 2026-08-19 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the version-check chain: it runs in main() before any
+# command dispatch, gated only by offline/quiet/env/file-age checks (hence
+# modality=may on its network/write legs). Everything a subcommand does —
+# compiling and running scripts, JDK downloads, cache deletes — sits behind
+# the aesh command-tree dispatch plus build-step class hierarchies — see
+# known_hard. No database/cloud/messaging use exists in src/main.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+
+# Fact-level assertions (the pre-dispatch version-check chain).
+[facts]
+op=environment.read res=JBANG_NO_VERSION_CHECK origin=util/VersionChecker.java realm=host
+op=environment.read res=JBANG_DIR origin=dev/jbang/Settings.java realm=host
+op=environment.read res=JBANG_CACHE_DIR origin=dev/jbang/Settings.java realm=host
+op=filesystem.write res=version.txt origin=util/VersionChecker.java realm=host modality=may
+op=filesystem.read origin=util/VersionChecker.java realm=host modality=may
+op=network. origin=util/NetUtil.java realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]
+# Subcommand bodies dispatch through the aesh command tree (JBang.class) and
+# build-step/base-class hierarchies: java/compiler/editor spawns and cache
+# deletes live there.
+op=process.exec
+op=filesystem.delete origin=dev/jbang/Cache.java

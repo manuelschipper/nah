@@ -1,4 +1,3 @@
-use nah_proto::action::{ActionStream, Coverage, EffectKind};
 use nah_proto::ctx::{
     AbsolutePath, ActivationProjection, ContentHash, Ctx, ExecProtocolVersion, GuardIdentity,
     Platform, TrustProjection,
@@ -106,12 +105,10 @@ fn consultation_outcomes_have_stable_tags() {
 fn validator_is_the_only_guard_response_boundary() {
     let activation = activation("guard");
     let ctx = ctx_with(activation.clone());
-    let stream = action_stream();
 
     let validated = validate_response(
         &ctx,
         &activation,
-        &stream,
         ExtensionResponse {
             block: Some(true),
             abstain: None,
@@ -131,7 +128,6 @@ fn validator_accepts_exact_abstention() {
     let validated = validate_response(
         &ctx_with(activation.clone()),
         &activation,
-        &action_stream(),
         ExtensionResponse {
             block: None,
             abstain: Some(true),
@@ -150,7 +146,6 @@ fn validator_rejects_inactive_ambiguous_and_shapeless_responses() {
     let guard = activation("guard");
     let inactive = activation("inactive");
     let ctx = ctx_with(guard.clone());
-    let stream = action_stream();
 
     let response = ExtensionResponse {
         block: Some(true),
@@ -158,14 +153,13 @@ fn validator_rejects_inactive_ambiguous_and_shapeless_responses() {
         reason: Some("reason".into()),
     };
     assert_eq!(
-        validate_response(&ctx, &inactive, &stream, response.clone()),
+        validate_response(&ctx, &inactive, response.clone()),
         Err(ExtensionValidationError::InactiveActivation)
     );
     assert_eq!(
         validate_response(
             &ctx,
             &guard,
-            &stream,
             ExtensionResponse {
                 block: Some(true),
                 abstain: Some(true),
@@ -178,7 +172,6 @@ fn validator_rejects_inactive_ambiguous_and_shapeless_responses() {
         validate_response(
             &ctx,
             &guard,
-            &stream,
             ExtensionResponse {
                 block: None,
                 abstain: Some(false),
@@ -191,7 +184,6 @@ fn validator_rejects_inactive_ambiguous_and_shapeless_responses() {
         validate_response(
             &ctx,
             &guard,
-            &stream,
             ExtensionResponse {
                 block: None,
                 abstain: Some(true),
@@ -206,7 +198,6 @@ fn validator_rejects_inactive_ambiguous_and_shapeless_responses() {
 fn validator_rejects_every_invalid_block_shape() {
     let guard = activation("guard");
     let ctx = ctx_with(guard.clone());
-    let stream = action_stream();
 
     let cases = [
         (
@@ -259,16 +250,13 @@ fn validator_rejects_every_invalid_block_shape() {
         ),
     ];
     for (response, expected) in cases {
-        assert_eq!(
-            validate_response(&ctx, &guard, &stream, response),
-            Err(expected)
-        );
+        assert_eq!(validate_response(&ctx, &guard, response), Err(expected));
     }
 }
 
 #[test]
-fn validator_rejects_unsupported_protocol_and_action_stream_rejects_duplicate_ids() {
-    let future_protocol = serde_json::from_value(serde_json::json!(2)).unwrap();
+fn validator_rejects_unsupported_protocol() {
+    let future_protocol = serde_json::from_value(serde_json::json!(3)).unwrap();
     let future_activation = ActivationProjection::new(
         GuardIdentity::user("future").unwrap(),
         ContentHash::new("b".repeat(64)).unwrap(),
@@ -277,28 +265,14 @@ fn validator_rejects_unsupported_protocol_and_action_stream_rejects_duplicate_id
     )
     .unwrap();
     let ctx = ctx_with(future_activation.clone());
-    let stream = action_stream();
     let response = ExtensionResponse {
         block: Some(true),
         abstain: None,
         reason: Some("reason".into()),
     };
     assert_eq!(
-        validate_response(&ctx, &future_activation, &stream, response.clone()),
+        validate_response(&ctx, &future_activation, response.clone()),
         Err(ExtensionValidationError::UnsupportedExecProtocol)
-    );
-
-    let mut duplicate_stream = serde_json::to_value(&stream).unwrap();
-    duplicate_stream["effects"][1]["id"] = serde_json::json!("e0");
-    assert!(serde_json::from_value::<ActionStream>(duplicate_stream).is_err());
-
-    let mut future_stream = serde_json::to_value(stream).unwrap();
-    future_stream["v"] = serde_json::json!(2);
-    assert!(
-        serde_json::from_value::<ActionStream>(future_stream)
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported-version")
     );
 }
 
@@ -306,7 +280,7 @@ fn activation(name: &str) -> ActivationProjection {
     ActivationProjection::new(
         GuardIdentity::user(name).unwrap(),
         ContentHash::new("a".repeat(64)).unwrap(),
-        ExecProtocolVersion::V1,
+        ExecProtocolVersion::V2,
         vec!["curl".into()],
     )
     .unwrap()
@@ -319,18 +293,6 @@ fn ctx_with(activation: ActivationProjection) -> Ctx {
         vec![],
         vec![activation],
         TrustProjection::new(vec![]).unwrap(),
-    )
-    .unwrap()
-}
-
-fn action_stream() -> ActionStream {
-    ActionStream::new(
-        Coverage::Full,
-        vec![vec![
-            EffectKind::known("curl", "request").unwrap(),
-            EffectKind::network(Some("example.com")),
-        ]],
-        vec![],
     )
     .unwrap()
 }

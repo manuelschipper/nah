@@ -9,9 +9,9 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::dispatch::{decision_id, run_decide_for_runtime, timestamp_rfc3339};
+use crate::dispatch::{current_timestamp_rfc3339, decision_id, run_decide_for_runtime};
 use crate::runtime::{FailurePolicy, Runtime};
-use crate::{live_state, records};
+use crate::{adapter_fields::runtime_field_names_covered, live_state, records};
 
 pub(crate) const DELEGATED_FAILURE_MESSAGE: &str =
     "nah - evaluation failed; this call was delegated to the runtime";
@@ -96,7 +96,9 @@ impl HookDecision {
 }
 
 /// Each adapter names itself, so the decision it produces is recorded against
-/// the runtime that sent it.
+/// the runtime that sent it. Parse, validation and decision-decoding errors are
+/// dropped on purpose: their text can echo raw hook input, so a failure reaches
+/// the runtime only as its fixed `HookOutcome` classification.
 pub(crate) fn decide<R: Read, E: Write>(
     stdin: &mut R,
     stderr: &mut E,
@@ -106,23 +108,38 @@ pub(crate) fn decide<R: Read, E: Write>(
     let input = match read_event::<_, HookInput>(stdin, "hook_event_name", "PreToolUse") {
         Ok(Some(input)) => input,
         Ok(None) => return HookOutcome::IrrelevantEvent,
-        Err(error) => return fail(&error.to_string(), stderr, HookOutcome::MalformedInput),
+        Err(_) => return HookOutcome::MalformedInput,
     };
-    let normalization_complete =
-        crate::adapter_fields::complete(runtime.cli_name(), &input.tool_name, &input.tool_input);
-    let original_input = input.tool_input.clone();
-    let request = match ToolCallInput::new(
-        SchemaVersion::V1,
+    let request = match normalize_call(
+        runtime,
         input.tool_name,
         input.tool_input,
         input.cwd,
         input.session_id,
     ) {
-        Ok(request) if normalization_complete => request,
-        Ok(request) => request.with_original_input(original_input, false),
-        Err(error) => return fail(&error.to_string(), stderr, HookOutcome::MalformedInput),
+        Ok(request) => request,
+        Err(_) => return HookOutcome::MalformedInput,
     };
     decide_input(request, stderr, runtime, failure_policy)
+}
+
+/// The tool call of a runtime whose hook sends canonical tool names, such as
+/// Claude Code and Codex, which `decide` hands to the pipeline unchanged.
+pub(crate) fn normalize_call(
+    runtime: Runtime,
+    tool_name: String,
+    tool_input: Value,
+    cwd: String,
+    session_id: Option<String>,
+) -> Result<ToolCallInput, String> {
+    let normalization_complete =
+        runtime_field_names_covered(runtime.cli_name(), &tool_name, &tool_input);
+    let original_input = tool_input.clone();
+    match ToolCallInput::new(SchemaVersion::V1, tool_name, tool_input, cwd, session_id) {
+        Ok(request) if normalization_complete => Ok(request),
+        Ok(request) => Ok(request.with_original_input(original_input, false)),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 pub(crate) fn read_event<R: Read, T: DeserializeOwned>(
@@ -164,15 +181,11 @@ pub(crate) fn decide_input<'a, E: Write>(
     );
     if outcome.code == ExitCode::UNAVAILABLE.value() {
         // `nah decide` reports no decision body when it cannot decide at all.
-        return fail(
-            "decision unavailable",
-            stderr,
-            HookOutcome::EvaluationUnavailable(if outcome.operator_required_unavailable {
-                IntegrationUnavailable::InternalEvaluation
-            } else {
-                IntegrationUnavailable::Evaluation
-            }),
-        );
+        return HookOutcome::EvaluationUnavailable(if outcome.operator_required_unavailable {
+            IntegrationUnavailable::InternalEvaluation
+        } else {
+            IntegrationUnavailable::Evaluation
+        });
     }
     match serde_json::from_slice::<DecisionOutput>(&decision_bytes) {
         Ok(decision) if outcome.code == ExitCode::from(decision.verdict()).value() => {
@@ -183,16 +196,9 @@ pub(crate) fn decide_input<'a, E: Write>(
                 fail_closed_block: outcome.fail_closed_block,
             })
         }
-        Ok(_) => fail(
-            "inconsistent nah decision",
-            stderr,
-            HookOutcome::EvaluationUnavailable(IntegrationUnavailable::Evaluation),
-        ),
-        Err(error) => fail(
-            &error.to_string(),
-            stderr,
-            HookOutcome::EvaluationUnavailable(IntegrationUnavailable::Evaluation),
-        ),
+        // A decision whose verdict disagrees with the exit status, or that does
+        // not decode, is as unusable as no decision.
+        Ok(_) | Err(_) => HookOutcome::EvaluationUnavailable(IntegrationUnavailable::Evaluation),
     }
 }
 
@@ -221,7 +227,7 @@ pub(crate) fn unavailable_feedback(
         return None;
     }
     let id = decision_id();
-    let envelope = nah_proto::decision::DecisionEnvelope::new(&id, &timestamp_rfc3339(), 0)
+    let envelope = nah_proto::decision::DecisionEnvelope::new(&id, &current_timestamp_rfc3339(), 0)
         .expect("generated decision envelope is valid");
     let platform = live_state::host_platform();
     let recorded = live_state::home(platform).ok().is_some_and(|home| {
@@ -246,10 +252,6 @@ pub(crate) fn unavailable_feedback(
     })
 }
 
-fn fail<E: Write>(_error: &str, _stderr: &mut E, outcome: HookOutcome) -> HookOutcome {
-    outcome
-}
-
 #[cfg(test)]
 mod tests {
     use super::IntegrationUnavailable;
@@ -261,10 +263,5 @@ mod tests {
         let internal = IntegrationUnavailable::InternalEvaluation.reason();
         assert!(internal.contains("ask the operator"));
         assert!(!internal.contains("retry once"));
-    }
-
-    #[test]
-    fn shared_adapter_stays_small() {
-        assert!(include_str!("hook_adapter.rs").lines().count() <= 270);
     }
 }

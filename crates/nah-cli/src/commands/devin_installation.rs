@@ -9,7 +9,11 @@ use serde_json::{Map, Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_config;
+use super::hook_paths::reject_hook_path_symlink;
+use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
+use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 const EVENTS: [&str; 3] = ["PreToolUse", "PermissionRequest", "PostToolUse"];
 
@@ -163,7 +167,7 @@ fn lock(paths: &DevinHookPaths) -> Result<File, String> {
         .parent()
         .ok_or_else(|| "invalid-devin-hook-lock-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "devin-hook-lock-failed")?;
-    reject_symlink(&paths.lock, "devin-hook-lock-failed")?;
+    reject_hook_path_symlink(&paths.lock, "devin-hook-lock-failed")?;
     let mut options = OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
@@ -174,13 +178,13 @@ fn lock(paths: &DevinHookPaths) -> Result<File, String> {
     let file = options
         .open(&paths.lock)
         .map_err(|_| "devin-hook-lock-failed")?;
-    protect_private(&file)?;
+    restrict_file_to_owner(&file).map_err(|_| "devin-hook-permissions-failed".to_owned())?;
     file.lock().map_err(|_| "devin-hook-lock-failed")?;
     Ok(file)
 }
 
 fn load(path: &Path) -> Result<Value, String> {
-    reject_symlink(path, "devin-config-symlink-unsupported")?;
+    reject_hook_path_symlink(path, "devin-config-symlink-unsupported")?;
     let file = match File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -289,15 +293,11 @@ fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, St
     } else {
         format!(
             "{} hook devin run{}",
-            shell_quote(executable),
+            quote_posix_shell_word(executable),
             policy.command_suffix()
         )
     };
     Ok(json!({"type":"command","command":command,"timeout":5}))
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn is_owned_handler(handler: &Value) -> bool {
@@ -312,31 +312,23 @@ fn is_owned_handler(handler: &Value) -> bool {
     let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
     command
         .strip_suffix(" hook devin run")
-        .is_some_and(is_nah_executable)
+        .is_some_and(hook_config::is_quoted_nah_hook_executable)
         || command
             .strip_suffix(" \"_devin-hook\"")
             .or_else(|| command.strip_suffix(" '_devin-hook'"))
-            .is_some_and(is_nah_executable)
-}
-
-fn is_nah_executable(executable: &str) -> bool {
-    let executable = executable.to_ascii_lowercase();
-    (executable.starts_with('\'') && executable.ends_with("/nah'"))
-        || (executable.starts_with('"')
-            && (executable.ends_with("/nah\"")
-                || executable.ends_with("\\nah.exe\"")
-                || executable.ends_with("/nah.exe\"")))
+            .is_some_and(hook_config::is_quoted_nah_hook_executable)
 }
 
 fn save(path: &Path, config: &Value) -> Result<(), String> {
-    reject_symlink(path, "devin-config-symlink-unsupported")?;
+    reject_hook_path_symlink(path, "devin-config-symlink-unsupported")?;
     let parent = path
         .parent()
         .ok_or_else(|| "invalid-devin-config-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "devin-config-write-failed")?;
     let mut temporary =
         tempfile::NamedTempFile::new_in(parent).map_err(|_| "devin-config-write-failed")?;
-    protect_private(temporary.as_file())?;
+    restrict_file_to_owner(temporary.as_file())
+        .map_err(|_| "devin-hook-permissions-failed".to_owned())?;
     serde_json::to_writer_pretty(&mut temporary, config)
         .map_err(|_| "devin-config-write-failed")?;
     temporary
@@ -349,45 +341,12 @@ fn save(path: &Path, config: &Value) -> Result<(), String> {
     temporary
         .persist(path)
         .map_err(|_| "devin-config-write-failed")?;
-    sync_parent(parent)
-}
-
-fn reject_symlink(path: &Path, error: &'static str) -> Result<(), String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(error.into()),
-        Ok(_) => Ok(()),
-        Err(found) if found.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(error.into()),
-    }
+    sync_parent_directory(parent).map_err(|_| "devin-hook-sync-failed".to_owned())
 }
 
 fn reject_symlinks(paths: &DevinHookPaths) -> Result<(), String> {
     for directory in &paths.directories {
-        reject_symlink(directory, "devin-config-symlink-unsupported")?;
+        reject_hook_path_symlink(directory, "devin-config-symlink-unsupported")?;
     }
-    reject_symlink(&paths.config, "devin-config-symlink-unsupported")
-}
-
-#[cfg(unix)]
-fn protect_private(file: &File) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-        .map_err(|_| "devin-hook-permissions-failed".into())
-}
-
-#[cfg(not(unix))]
-fn protect_private(_file: &File) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), String> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| "devin-hook-sync-failed".into())
-}
-
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), String> {
-    Ok(())
+    reject_hook_path_symlink(&paths.config, "devin-config-symlink-unsupported")
 }

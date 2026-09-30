@@ -1,0 +1,287 @@
+{
+  "schema": "effinterp/repo-query/v1",
+  "snapshot_id": "blake3:6b7676b3b529e159dc792a35ef120dec88dc03786f5418f14b0c7b3eb9baccae",
+  "identity": {
+    "analyzer": {
+      "name": "effinterp-fixture",
+      "version": "fixture-analyzer@1",
+      "build_digest": "blake3:45e62c443d22a3246930607f61ebe383873b6f1c039c70fd7fe8cc38fd3a813a"
+    },
+    "configuration_digest": "blake3:4dedbabfb3c13291cffbd869171cbf04b13df9b38e089349d9a6a1c55e470bc6",
+    "model_set_digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "dependencies": [
+      {
+        "key": "analyzer",
+        "kind": "analyzer",
+        "digest": "blake3:45e62c443d22a3246930607f61ebe383873b6f1c039c70fd7fe8cc38fd3a813a"
+      },
+      {
+        "key": "limit:analysis.max_effects",
+        "kind": "limit",
+        "digest": "blake3:c827da883b6cc26801e16589789e5099917440b5b52caa63b5248a7dd49128f9"
+      },
+      {
+        "key": "model-set",
+        "kind": "model_set",
+        "digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "key": "source:src/cli.py",
+        "kind": "source_module",
+        "digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      {
+        "key": "source:src/handlers.py",
+        "kind": "source_module",
+        "digest": "blake3:5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    ]
+  },
+  "subjects": [
+    {
+      "entrypoint": "src/cli.py",
+      "source_path": "src/cli.py",
+      "subject": {
+        "kind": "source",
+        "language": "python",
+        "source": "src/cli.py"
+      },
+      "subject_digest": "blake3:67753d5b6bd981ebf6cef629461245378773d3ba7d29e7e2adcd30128973f3f8"
+    },
+    {
+      "entrypoint": "src/handlers.py",
+      "source_path": "src/handlers.py",
+      "subject": {
+        "kind": "source",
+        "language": "python",
+        "source": "src/handlers.py"
+      },
+      "subject_digest": "blake3:59b248f1b9429228885743a40fb78ddf4ca9db1b562da2182e7ae6149554f89b"
+    }
+  ],
+  "status": {
+    "kind": "complete"
+  },
+  "coverage": {
+    "domains": {
+      "filesystem": {
+        "level": "full"
+      }
+    },
+    "causality": null
+  },
+  "boundaries": [],
+  "provenance": {
+    "nodes": [
+      {
+        "id": "occurrence:blake3:3a36831786f9609d3811a0d76a1a2e6ee3543766d12a93b36a33444999ad05c6",
+        "occurrence": {
+          "input_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+          "origin": "src/cli.py",
+          "span": {
+            "start": 0,
+            "end": 0
+          },
+          "semantic_kind": "entrypoint",
+          "local_ordinal": 1
+        },
+        "evidence": {
+          "kind": "entrypoint",
+          "entrypoint": "src/cli.py"
+        }
+      },
+      {
+        "id": "occurrence:blake3:4f49172492602681a301f18e33d39ab7edaed94e293f867cfc16f5c60723f941",
+        "occurrence": {
+          "input_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+          "origin": "src/cli.py",
+          "span": {
+            "start": 0,
+            "end": 0
+          },
+          "semantic_kind": "argument",
+          "local_ordinal": 2
+        },
+        "evidence": {
+          "kind": "source",
+          "evidence": {
+            "kind": "argument",
+            "index": 0
+          }
+        }
+      },
+      {
+        "id": "occurrence:blake3:aaddac701391d3a10097ef25efe95773fa0f8287a3bcd6e16a1a716fa1ebf81c",
+        "occurrence": {
+          "input_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+          "origin": "src/cli.py",
+          "span": {
+            "start": 0,
+            "end": 0
+          },
+          "semantic_kind": "dispatch",
+          "local_ordinal": 4
+        },
+        "evidence": {
+          "kind": "dispatch",
+          "model": "argparse",
+          "registration_roots": [
+            "occurrence:blake3:fd248377b96395701871bc4311ac7beeabd98d3f51b69c803ab5c63309b7702f"
+          ],
+          "dispatch_roots": [
+            "occurrence:blake3:fd248377b96395701871bc4311ac7beeabd98d3f51b69c803ab5c63309b7702f"
+          ]
+        }
+      },
+      {
+        "id": "occurrence:blake3:b74a69634a7104a4f7c8a4277e1c3c44befa8b6efb26d361e198f965ea6279a5",
+        "occurrence": {
+          "input_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+          "origin": "src/cli.py",
+          "span": {
+            "start": 0,
+            "end": 0
+          },
+          "semantic_kind": "execution",
+          "local_ordinal": 3
+        },
+        "evidence": {
+          "kind": "source",
+          "evidence": {
+            "kind": "execution",
+            "node": 0,
+            "origin": "src/handlers.py"
+          }
+        }
+      },
+      {
+        "id": "occurrence:blake3:cf96b988cea6261c6292c89509fe24d5df4b3c2a981a1119d86912f9f1320ec0",
+        "occurrence": {
+          "input_digest": "blake3:5555555555555555555555555555555555555555555555555555555555555555",
+          "origin": "src/handlers.py",
+          "span": {
+            "start": 0,
+            "end": 0
+          },
+          "semantic_kind": "cross_file_call",
+          "local_ordinal": 0
+        },
+        "evidence": {
+          "kind": "cross_file_call",
+          "from": "src/cli.py:main",
+          "into": "src/handlers.py:delete"
+        }
+      },
+      {
+        "id": "occurrence:blake3:fd248377b96395701871bc4311ac7beeabd98d3f51b69c803ab5c63309b7702f",
+        "occurrence": {
+          "input_digest": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+          "origin": "src/cli.py",
+          "span": {
+            "start": 0,
+            "end": 5
+          },
+          "semantic_kind": "model_application",
+          "local_ordinal": 0
+        },
+        "evidence": {
+          "kind": "model_application",
+          "declaration_id": "argparse/callback@v1",
+          "declaration_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "occurrence:blake3:3a36831786f9609d3811a0d76a1a2e6ee3543766d12a93b36a33444999ad05c6",
+        "kind": "derived_from",
+        "to": "occurrence:blake3:4f49172492602681a301f18e33d39ab7edaed94e293f867cfc16f5c60723f941"
+      },
+      {
+        "from": "occurrence:blake3:4f49172492602681a301f18e33d39ab7edaed94e293f867cfc16f5c60723f941",
+        "kind": "calls",
+        "to": "occurrence:blake3:b74a69634a7104a4f7c8a4277e1c3c44befa8b6efb26d361e198f965ea6279a5"
+      },
+      {
+        "from": "occurrence:blake3:b74a69634a7104a4f7c8a4277e1c3c44befa8b6efb26d361e198f965ea6279a5",
+        "kind": "calls",
+        "to": "occurrence:blake3:cf96b988cea6261c6292c89509fe24d5df4b3c2a981a1119d86912f9f1320ec0"
+      },
+      {
+        "from": "occurrence:blake3:b74a69634a7104a4f7c8a4277e1c3c44befa8b6efb26d361e198f965ea6279a5",
+        "kind": "applies_model",
+        "to": "occurrence:blake3:fd248377b96395701871bc4311ac7beeabd98d3f51b69c803ab5c63309b7702f"
+      },
+      {
+        "from": "occurrence:blake3:cf96b988cea6261c6292c89509fe24d5df4b3c2a981a1119d86912f9f1320ec0",
+        "kind": "supports",
+        "to": "occurrence:blake3:aaddac701391d3a10097ef25efe95773fa0f8287a3bcd6e16a1a716fa1ebf81c"
+      },
+      {
+        "from": "occurrence:blake3:fd248377b96395701871bc4311ac7beeabd98d3f51b69c803ab5c63309b7702f",
+        "kind": "calls",
+        "to": "occurrence:blake3:cf96b988cea6261c6292c89509fe24d5df4b3c2a981a1119d86912f9f1320ec0"
+      },
+      {
+        "from": "occurrence:blake3:fd248377b96395701871bc4311ac7beeabd98d3f51b69c803ab5c63309b7702f",
+        "kind": "dispatches",
+        "to": "occurrence:blake3:aaddac701391d3a10097ef25efe95773fa0f8287a3bcd6e16a1a716fa1ebf81c"
+      },
+      {
+        "from": "occurrence:blake3:4f49172492602681a301f18e33d39ab7edaed94e293f867cfc16f5c60723f941",
+        "kind": "supports",
+        "to": "occurrence:blake3:3a36831786f9609d3811a0d76a1a2e6ee3543766d12a93b36a33444999ad05c6"
+      }
+    ]
+  },
+  "payload_kind": "effects",
+  "payload": {
+    "boundaries": [],
+    "coverage": {
+      "filesystem": {
+        "level": "full"
+      }
+    },
+    "effects": [
+      {
+        "attributes": {},
+        "condition": null,
+        "dispatch": {
+          "dispatch_roots": [
+            "occurrence:blake3:fd248377b96395701871bc4311ac7beeabd98d3f51b69c803ab5c63309b7702f"
+          ],
+          "model": "argparse",
+          "registration_roots": [
+            "occurrence:blake3:fd248377b96395701871bc4311ac7beeabd98d3f51b69c803ab5c63309b7702f"
+          ]
+        },
+        "entrypoint": "src/cli.py",
+        "exemplar_paths": [],
+        "fact_id": "fact:blake3:ffa989bac614079efc87d4c04148597a380b0009163feb55f0788384df7dfcd0",
+        "modality": "may",
+        "occurrences": 1,
+        "operation": "filesystem.delete",
+        "origin": {
+          "execution_node": null,
+          "source_file": "src/cli.py"
+        },
+        "provenance_roots": [
+          "occurrence:blake3:aaddac701391d3a10097ef25efe95773fa0f8287a3bcd6e16a1a716fa1ebf81c"
+        ],
+        "realm": {
+          "realm": "host"
+        },
+        "request_assurance": "conservative",
+        "resource": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "cache.db"
+          }
+        }
+      }
+    ],
+    "entrypoint": "src/cli.py"
+  },
+  "content_hash": "blake3:69c0a0de6a0246f47b000f07ffb9cf681e2efc94504950ad3bb4fe38e24d7e49"
+}

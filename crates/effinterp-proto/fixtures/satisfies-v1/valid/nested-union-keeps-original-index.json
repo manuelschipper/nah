@@ -1,0 +1,98 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "nested-union-keeps-original-index",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "container",
+        "runtime": "docker",
+        "name": "app",
+        "storage": [
+          {
+            "kind": "bind_mount",
+            "host_path": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/a"
+              }
+            },
+            "container_path": {
+              "expr": "concrete",
+              "identity": {
+                "family": "fs_path",
+                "path": "/data"
+              }
+            },
+            "read_only": false
+          }
+        ]
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "container",
+          "runtime": "docker",
+          "name": "app",
+          "storage": [
+            {
+              "kind": "bind_mount",
+              "host_path": {
+                "expr": "union",
+                "alternatives": [
+                  {
+                    "expr": "concrete",
+                    "identity": {
+                      "family": "fs_path",
+                      "path": "/b"
+                    }
+                  },
+                  {
+                    "expr": "concrete",
+                    "identity": {
+                      "family": "fs_path",
+                      "path": "/a"
+                    }
+                  }
+                ]
+              },
+              "container_path": {
+                "expr": "concrete",
+                "identity": {
+                  "family": "fs_path",
+                  "path": "/data"
+                }
+              },
+              "read_only": false
+            }
+          ]
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "alternative",
+          "index": 1
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,55 @@
+# Ground-truth expectations for python-websockets/websockets (holdout-dev corpus).
+# Pinned SHA: caf5e15d7528e78e7709c96ea78a779a0da25847.
+# Real entry: src/websockets/cli.py (`websockets = "websockets.cli:main"`,
+#   pyproject.toml:37) — the interactive client; src/websockets/__main__.py.
+# Derived from:
+#   src/websockets/asyncio/client.py (import-time os.environ.get(
+#     "WEBSOCKETS_MAX_REDIRECTS"), client.py:38; the TCP dial:
+#     loop.create_connection inside connect, client.py:423/483 — reached from
+#     cli.main -> asyncio.run(interactive_client), cli.py:227, ->
+#     `await connect(uri)`, cli.py:111),
+#   src/websockets/http11.py (import-time os.environ.get("WEBSOCKETS_USER_AGENT"),
+#     http11.py:33, and ("WEBSOCKETS_SERVER"), http11.py:39),
+#   src/websockets/frames.py (class-body os.environ.get("WEBSOCKETS_MAX_LOG_SIZE"),
+#     frames.py:140),
+#   src/websockets/version.py (released = False in-repo, so import runs
+#     get_version, version.py:81, which may subprocess.run
+#     ["git", "describe", ...], version.py:53-60, when package metadata does not
+#     resolve — the http-server lesson: this repo DOES exec git at import time).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the import-time env reads (module level / class body in
+# modules cli.py imports). The connect() dial is the product's whole purpose but
+# runs behind asyncio.run + the awaitable connect object's __await_impl__ —
+# asserted as a fact anyway since it is unconditional product behavior.
+# No filesystem writes or deletes exist anywhere in product code.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=network.
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=WEBSOCKETS_MAX_REDIRECTS origin=src/websockets/asyncio/client.py realm=host
+op=environment.read res=WEBSOCKETS_USER_AGENT origin=src/websockets/http11.py realm=host
+op=environment.read res=WEBSOCKETS_SERVER origin=src/websockets/http11.py realm=host
+op=environment.read res=WEBSOCKETS_MAX_LOG_SIZE origin=src/websockets/frames.py realm=host
+op=network. origin=src/websockets/asyncio/client.py realm=host
+op=process.exec res=git origin=src/websockets/version.py realm=host modality=may
+
+[forbidden]
+# The client never touches the filesystem: no writes or deletes in product code.
+op=filesystem.write
+op=filesystem.delete
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]

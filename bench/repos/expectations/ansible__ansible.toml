@@ -1,0 +1,40 @@
+# Ground-truth expectations for ansible/ansible.
+# Derived from: lib/ansible/cli/playbook.py (run -> _play_prereqs builds a
+#   DataLoader/inventory, then PlaybookExecutor runs the parsed playbooks),
+#   lib/ansible/config/manager.py (reads $ANSIBLE_CONFIG, then opens the config
+#   yaml with open(..., 'rb')), and lib/ansible/parsing/dataloader.py
+#   (load_from_file -> _get_file_contents opens playbook/inventory YAML).
+# Authored 2026-08-18 by reading product source, NOT EI output.
+# Confidence: MODERATE for filesystem.read (the loader reads playbook/inventory
+#   YAML). Everything the tasks actually do runs through modules and connection
+#   plugins loaded by NAME at runtime -> those are the known_hard wall, not
+#   recall misses.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 1
+
+# v1 regression floor (domain-level).
+[should_find]
+op=filesystem.read
+
+# Fact-level assertions: config resolution reads $ANSIBLE_CONFIG and the config
+# yaml in config/manager.py; playbook/inventory content is read by the
+# DataLoader in parsing/dataloader.py.
+[facts]
+op=environment.read res=ANSIBLE_CONFIG origin=lib/ansible/config/manager.py realm=host
+op=filesystem.read origin=lib/ansible/config/manager.py realm=host modality=may
+op=filesystem.read origin=lib/ansible/parsing/dataloader.py realm=host
+
+[forbidden]
+op=git.history_rewrite
+op=database.truncate
+
+[known_hard]
+# Modules and connection plugins are imported by name (plugins.loader), so the
+# real work (SSH transport, per-module file/pkg/service/cloud actions) is behind
+# reflective dispatch we do not expect to follow yet.
+op=process.exec
+op=network.

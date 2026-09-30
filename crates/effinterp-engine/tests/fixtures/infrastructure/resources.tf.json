@@ -1,0 +1,6 @@
+{
+  "provider": {"aws": {"region": "${var.region}"}},
+  "data": {"external": {"lookup": {"program": "${var.program}"}}},
+  "module": {"child": {"source": "./child"}},
+  "resource": {"aws_instance": {"web": {"count": "${var.count}", "ami": "${data.external.lookup.result.ami}"}}}
+}

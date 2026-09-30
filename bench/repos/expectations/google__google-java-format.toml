@@ -1,0 +1,45 @@
+# Ground-truth expectations for google/google-java-format (holdout-dev corpus).
+# Pinned SHA: b291d957157c737ee6ac9574c1ea9c8c0ec077c2.
+# Real entry: core/src/main/java/com/google/googlejavaformat/java/Main.java
+#   (public static void main, Main.java:69 — plain Java main-class CLI in a
+#   Maven multi-module repo; eclipse_plugin/idea_plugin are separate surfaces).
+# Derived from:
+#   core/.../java/Main.java (each input file is read
+#     Files.readAllBytes(path), Main.java:149; `-i` in-place formatting writes
+#     back Files.write(path, formatted...), Main.java:192, only when the file
+#     changed),
+#   core/.../java/CommandLineOptionsParser.java (`@file` params files are read
+#     Files.readAllBytes, CommandLineOptionsParser.java:162).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. Reading .java files and (with -i) rewriting them is the
+# entire effect surface: a sweep of core/src/main finds no getenv, no process
+# spawning, no sockets, and no deletes. Formatting itself is pure computation
+# on javac's parser.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+
+# Fact-level assertions.
+[facts]
+op=filesystem.read origin=googlejavaformat/java/Main.java realm=host
+op=filesystem.write origin=googlejavaformat/java/Main.java realm=host modality=may
+op=filesystem.read origin=googlejavaformat/java/CommandLineOptionsParser.java realm=host modality=may
+
+[forbidden]
+# A local formatter: no subprocesses, sockets, or deletes anywhere in core.
+op=process.exec
+op=network.
+op=filesystem.delete
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]

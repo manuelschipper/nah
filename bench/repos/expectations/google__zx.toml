@@ -1,0 +1,60 @@
+# Ground-truth expectations for google/zx (holdout-dev corpus).
+# Pinned SHA: 65fc542d88baac578967e22bea28cb610976578c.
+# Real entry: package.json "bin" zx -> build/cli.js, built from src/cli.ts
+#   (ESM; autorun(import.meta) at cli.ts:57 calls main()).
+# Derived from:
+#   src/cli.ts (argv defaults via resolveDefaults('ZX_', process.env) — reads
+#     ZX_-prefixed vars, cli.ts:47; --env loads an env file via dotenv.config,
+#     cli.ts:113-115; rmrf cleanup of the temp script fs.unlinkSync/fs.rmSync,
+#     cli.ts:140-141; stdin/http/markdown scripts are written to a temp file
+#     fs.writeFile(tempPath, script), cli.ts:156; script file read
+#     fs.readFile(firstArg), cli.ts:228; remote scripts fetch(remote),
+#     cli.ts:252),
+#   src/deps.ts (--install runs `npm install` through the $ template,
+#     deps.ts:63),
+#   src/core.ts ($ executes the user's command via the vendored zurk exec with
+#     cp.spawn/cp.spawnSync, core.ts:334/344-345).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the cli.ts effects: they are straight-line in
+# main()/readScript()/runScript(). The script-file read is the unconditional
+# default path; temp-file write/delete and the remote fetch depend on how the
+# script is supplied, hence modality=may. Process exec — the product's whole
+# point — happens only after the dynamic `await import(scriptPath)` of the
+# user script, and the spawn itself lives in the vendored zurk dependency —
+# see known_hard.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=filesystem.read
+
+# Fact-level assertions.
+[facts]
+op=environment.read origin=src/cli.ts realm=host
+op=filesystem.read origin=src/cli.ts realm=host
+op=filesystem.write origin=src/cli.ts realm=host modality=may
+op=filesystem.delete origin=src/cli.ts realm=host modality=may
+# SOURCE CORRECTION (after RUN_holdout_dev_gen_wave): the network origin was
+# authored as src/cli.ts, the call site — but cli.ts:27 imports `fetch` from
+# ./index.ts, which re-exports goods.ts:120's `fetch`, whose nodeFetch call
+# (goods.ts:130) performs the request. The effect's origin is src/goods.ts;
+# the original entry conflated call site with effect site.
+op=network. origin=src/goods.ts realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]
+# $-template commands (including deps.ts's `npm install`) spawn through the
+# vendored zurk exec (core.ts:334) and only run once the user script is
+# dynamically imported.
+op=process.exec

@@ -1,0 +1,58 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "git-pattern",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "git_repository",
+        "worktree": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/work"
+          }
+        },
+        "pathspec": {
+          "expr": "concrete",
+          "identity": {
+            "family": "fs_path",
+            "path": "/work/a.rs"
+          }
+        }
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "host"
+      },
+      "expr": {
+        "expr": "pattern",
+        "pattern": {
+          "family": "git_repository",
+          "worktree": "/work",
+          "git_dir": null,
+          "pathspec_glob": "/work/*.rs"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "satisfied",
+    "proof": {
+      "steps": [
+        {
+          "kind": "pattern"
+        }
+      ]
+    }
+  }
+}

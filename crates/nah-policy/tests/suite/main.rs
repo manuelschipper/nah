@@ -5,14 +5,6 @@
 
 mod support;
 
-mod execution_guards;
-mod filesystem_guards;
-mod git;
-mod infrastructure_guards;
-mod inline_findings;
+mod guard_queries;
 mod reducer;
-mod registry_guards;
-mod secret_guards;
-mod storage_guards;
 mod structural;
-mod system_guards;

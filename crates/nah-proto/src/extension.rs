@@ -1,12 +1,10 @@
 //! Raw extension responses and their single semantic validation boundary.
 
-use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::action::{ActionStream, ActionStreamVersion};
 use crate::ctx::{ActivationProjection, Ctx, ExecProtocolVersion};
 
 /// The untrusted response decoded from an extension process or memo-cache entry.
@@ -41,6 +39,31 @@ pub enum ConsultationOutcome {
     Timeout,
     SpawnFailure,
     RejectedTransport { code: TransportRejectionCode },
+}
+
+impl ConsultationOutcome {
+    /// Consultation outcome code shown in live warnings and stored in audit
+    /// records. A transport rejection carries its rejection code after
+    /// `rejected-transport:`, unlike the bare code a consultation failure reports.
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::Response { .. } => "response",
+            Self::Silence => "silence",
+            Self::Crash => "crash",
+            Self::Timeout => "timeout",
+            Self::SpawnFailure => "spawn-failure",
+            Self::RejectedTransport { code } => match code {
+                TransportRejectionCode::Oversize => "rejected-transport:oversize",
+                TransportRejectionCode::InvalidUtf8 => "rejected-transport:invalid-utf8",
+                TransportRejectionCode::InvalidJson => "rejected-transport:invalid-json",
+                TransportRejectionCode::MultipleValues => "rejected-transport:multiple-values",
+                TransportRejectionCode::InvalidFraming => "rejected-transport:invalid-framing",
+                TransportRejectionCode::InvalidResponseFields => {
+                    "rejected-transport:invalid-response-fields"
+                }
+            },
+        }
+    }
 }
 
 /// Stable transport rejection codes. OS errors and process output never enter
@@ -97,8 +120,6 @@ impl ValidatedExtensionResponse {
 pub enum ExtensionValidationError {
     InactiveActivation,
     UnsupportedExecProtocol,
-    UnsupportedActionStreamVersion,
-    DuplicateActionStreamEffectId,
     AmbiguousResponse,
     MissingOutcome,
     BlockMustBeTrue,
@@ -114,8 +135,6 @@ impl ExtensionValidationError {
         match self {
             Self::InactiveActivation => "inactive-activation",
             Self::UnsupportedExecProtocol => "unsupported-exec-protocol",
-            Self::UnsupportedActionStreamVersion => "unsupported-action-stream-version",
-            Self::DuplicateActionStreamEffectId => "duplicate-action-stream-effect-id",
             Self::AmbiguousResponse => "ambiguous-response",
             Self::MissingOutcome => "missing-outcome",
             Self::BlockMustBeTrue => "block-must-be-true",
@@ -136,34 +155,19 @@ impl fmt::Display for ExtensionValidationError {
 
 impl Error for ExtensionValidationError {}
 
-/// Validates an untrusted response against the captured activation and current
-/// action stream. No transport, filesystem, environment, or clock access is
-/// performed here.
+/// Validates an untrusted response against the captured activation. No
+/// transport, filesystem, environment, or clock access is performed here.
 pub fn validate_response(
     ctx: &Ctx,
     activation: &ActivationProjection,
-    action_stream: &ActionStream,
     response: ExtensionResponse,
 ) -> Result<ValidatedExtensionResponse, ExtensionValidationError> {
     if !ctx.activations().contains(activation) {
         return Err(ExtensionValidationError::InactiveActivation);
     }
-    if activation.protocol() != ExecProtocolVersion::V1 {
+    if activation.protocol() != ExecProtocolVersion::V2 {
         return Err(ExtensionValidationError::UnsupportedExecProtocol);
     }
-    if action_stream.version() != ActionStreamVersion::V1 {
-        return Err(ExtensionValidationError::UnsupportedActionStreamVersion);
-    }
-
-    let effect_ids = action_stream
-        .effects()
-        .iter()
-        .map(|effect| effect.id().clone())
-        .collect::<BTreeSet<_>>();
-    if effect_ids.len() != action_stream.effects().len() {
-        return Err(ExtensionValidationError::DuplicateActionStreamEffectId);
-    }
-
     let ExtensionResponse {
         block,
         abstain,

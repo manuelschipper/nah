@@ -1,17 +1,30 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "crates/nah-proto",
-    "crates/nah-parse",
-    "crates/nah-inline",
-    "crates/nah-actions",
     "crates/nah-observe",
     "crates/nah-policy",
     "crates/nah-extensions",
     "crates/nah-effinterp",
     "crates/nah-cli",
     "crates/nah-corpus",
+    "crates/nah-corpus-schema",
     "tools/gates",
+    "crates/effinterp-proto",
+    "crates/effinterp-model-schema",
+    "crates/effinterp-engine",
+    "crates/effinterp-repo",
+    "crates/effinterp-conformance",
+    "crates/effinterp-bench",
+    "crates/effinterp-model-factory",
+    "crates/effinterp-trace",
+    "crates/effinterp-matcher",
+    "crates/effinterp-testkit",
+]
+exclude = [
+    "third_party/gosyn",
+    "homepage/wasm",
+    "tools/gates/fixtures/impure-alias",
 ]
 
 [workspace.package]
@@ -20,6 +33,10 @@ edition = "2024"
 rust-version = "1.91.1"
 license = "MIT"
 publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 # Keep dev and test identical so `cargo build`, `cargo run`, and `cargo test`
 # share one artifact set, and keep debuginfo off so linked test binaries stay
@@ -31,3 +48,7 @@ debug = 0
 
 [profile.test]
 debug = 0
+
+# The engine's Go frontend uses the vendored parser fork, not the registry copy.
+[patch.crates-io]
+gosyn = { path = "third_party/gosyn" }

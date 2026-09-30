@@ -1,54 +1,15 @@
-//! Decodes and validates corpus case contracts; it does not run decisions.
+//! Loads corpus case contracts for the gate: the shared row schema plus Nah's
+//! own checks (unique ids, shipped guard names); it does not run decisions.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use serde::Deserialize;
+use nah_corpus_schema::{
+    CorpusCase, Expectation, ExpectedVerdict, corpus_family_files, read_corpus_rows,
+};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CaseInput {
-    Command(String),
-    Tool {
-        tool: String,
-        input: serde_json::Value,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum ExpectedCoverage {
-    Full,
-    Partial,
-}
-
-/// nah has no allow verdict, so no case can expect one: `"verdict": "allow"`
-/// is rejected by the decoder.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum ExpectedVerdict {
-    Block,
-    Delegate,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Expectation {
-    Decision {
-        verdict: ExpectedVerdict,
-        guard: Option<String>,
-        coverage: Option<ExpectedCoverage>,
-    },
-    NoFlows,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CorpusCase {
-    pub id: String,
-    pub input: CaseInput,
-    pub ctx_fixture: String,
-    pub observation_fixture: String,
-    pub expected: Expectation,
-}
-
+/// File and case counts for a corpus directory, keeping malformed rows as
+/// diagnostics rather than failing.
 #[derive(Debug, Default)]
 pub struct CorpusSummary {
     pub files: usize,
@@ -58,81 +19,24 @@ pub struct CorpusSummary {
     pub malformed: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawCase {
-    v: u32,
-    id: String,
-    #[serde(default)]
-    command: Option<String>,
-    #[serde(default)]
-    tool: Option<String>,
-    #[serde(default)]
-    input: Option<serde_json::Value>,
-    ctx_fixture: String,
-    observation_fixture: String,
-    expected: RawExpectation,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawExpectation {
-    #[serde(default)]
-    verdict: Option<ExpectedVerdict>,
-    #[serde(default)]
-    guard: Option<String>,
-    #[serde(default)]
-    coverage: Option<ExpectedCoverage>,
-    #[serde(default)]
-    flows: Option<Vec<serde_json::Value>>,
-}
-
+/// Decodes every `*.jsonl` file in `dir` in path order; any malformed row,
+/// duplicate case id or unshipped block guard fails the whole load with every error.
 pub fn load_cases(dir: &Path) -> Result<Vec<CorpusCase>, Vec<String>> {
-    let entries = std::fs::read_dir(dir).map_err(|error| {
-        vec![format!(
-            "cannot read corpus directory {}: {error}",
-            dir.display()
-        )]
-    })?;
-    let mut paths = entries
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "jsonl")
-        })
-        .collect::<Vec<_>>();
-    paths.sort();
-
+    let rows = read_corpus_rows(dir)
+        .map_err(|error| vec![format!("cannot read corpus {}: {error}", dir.display())])?;
     let mut cases = Vec::new();
     let mut errors = Vec::new();
     let mut ids = BTreeSet::new();
-    for path in paths {
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(error) => {
-                errors.push(format!(
-                    "cannot read corpus file {}: {error}",
-                    path.display()
-                ));
-                continue;
-            }
-        };
-        for (line_index, line) in text.lines().enumerate() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            match decode_case(line) {
-                Ok(case) if ids.insert(case.id.clone()) => cases.push(case),
-                Ok(case) => errors.push(format!(
-                    "{}:{}: duplicate case id `{}`",
-                    path.display(),
-                    line_index + 1,
-                    case.id
-                )),
-                Err(error) => {
-                    errors.push(format!("{}:{}: {error}", path.display(), line_index + 1))
-                }
-            }
+    let shipped = nah_policy::ShippedGuards::new();
+    for row in rows {
+        let location = format!("{}:{}", row.file.display(), row.line);
+        match row
+            .case
+            .and_then(|case| require_shipped_block_guard(case, shipped.shipped_guard_ids()))
+        {
+            Ok(case) if ids.insert(case.id.clone()) => cases.push(case),
+            Ok(case) => errors.push(format!("{location}: duplicate case id `{}`", case.id)),
+            Err(error) => errors.push(format!("{location}: {error}")),
         }
     }
     if errors.is_empty() {
@@ -142,17 +46,11 @@ pub fn load_cases(dir: &Path) -> Result<Vec<CorpusCase>, Vec<String>> {
     }
 }
 
+/// Counts the corpus without failing on malformed rows.
 pub fn load_summary(dir: &Path) -> Result<CorpusSummary, String> {
-    let files = std::fs::read_dir(dir)
+    let files = corpus_family_files(dir)
         .map_err(|error| format!("cannot read corpus directory {}: {error}", dir.display()))?
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .is_some_and(|extension| extension == "jsonl")
-        })
-        .count();
+        .len();
     match load_cases(dir) {
         Ok(cases) => Ok(CorpusSummary {
             files,
@@ -168,95 +66,23 @@ pub fn load_summary(dir: &Path) -> Result<CorpusSummary, String> {
     }
 }
 
-fn decode_case(line: &str) -> Result<CorpusCase, String> {
-    let value: serde_json::Value =
-        serde_json::from_str(line).map_err(|error| format!("invalid case: {error}"))?;
-    reject_null_union_fields(&value)?;
-    let raw: RawCase =
-        serde_json::from_value(value).map_err(|error| format!("invalid case: {error}"))?;
-    if raw.v != 1 {
-        return Err("case version `v` is not 1".into());
+fn require_shipped_block_guard(
+    case: CorpusCase,
+    shipped_guard_ids: &[&str],
+) -> Result<CorpusCase, String> {
+    if let Expectation::Decision {
+        verdict: ExpectedVerdict::Block,
+        guard: Some(guard),
+        guards,
+        ..
+    } = &case.expected
+        && std::iter::once(guard)
+            .chain(guards.iter().flatten())
+            .any(|guard| !shipped_guard_ids.contains(&guard.as_str()))
+    {
+        return Err("block expectation guard must name a shipped guard".into());
     }
-    for (field, value) in [
-        ("id", raw.id.as_str()),
-        ("ctx_fixture", raw.ctx_fixture.as_str()),
-        ("observation_fixture", raw.observation_fixture.as_str()),
-    ] {
-        if value.is_empty() {
-            return Err(format!("case has empty `{field}`"));
-        }
-    }
-    let input = match (raw.command, raw.tool, raw.input) {
-        (Some(command), None, None) => CaseInput::Command(command),
-        (None, Some(tool), Some(input)) if !tool.is_empty() && input.is_object() => {
-            CaseInput::Tool { tool, input }
-        }
-        _ => return Err("case must contain exactly one command or typed tool input".into()),
-    };
-    Ok(CorpusCase {
-        id: raw.id,
-        input,
-        ctx_fixture: raw.ctx_fixture,
-        observation_fixture: raw.observation_fixture,
-        expected: decode_expectation(raw.expected)?,
-    })
-}
-
-fn reject_null_union_fields(value: &serde_json::Value) -> Result<(), String> {
-    let case = value
-        .as_object()
-        .ok_or_else(|| "case must be an object".to_owned())?;
-    for field in ["command", "tool", "input"] {
-        if case.get(field).is_some_and(serde_json::Value::is_null) {
-            return Err(format!("case `{field}` cannot be null"));
-        }
-    }
-    let expected = case
-        .get("expected")
-        .and_then(serde_json::Value::as_object)
-        .ok_or_else(|| "case `expected` must be an object".to_owned())?;
-    for field in ["verdict", "guard", "coverage", "flows"] {
-        if expected.get(field).is_some_and(serde_json::Value::is_null) {
-            return Err(format!("expectation `{field}` cannot be null"));
-        }
-    }
-    Ok(())
-}
-
-fn decode_expectation(raw: RawExpectation) -> Result<Expectation, String> {
-    if let Some(flows) = raw.flows {
-        if raw.verdict.is_some()
-            || raw.guard.is_some()
-            || raw.coverage.is_some()
-            || !flows.is_empty()
-        {
-            return Err("flow expectation must be exactly `{flows: []}`".into());
-        }
-        return Ok(Expectation::NoFlows);
-    }
-    let verdict = raw
-        .verdict
-        .ok_or_else(|| "decision expectation has no verdict".to_owned())?;
-    match verdict {
-        ExpectedVerdict::Block => {
-            if raw
-                .guard
-                .as_ref()
-                .is_some_and(|guard| !nah_cli::shipped_guards().contains(&guard.as_str()))
-            {
-                return Err("block expectation guard must name a shipped guard".into());
-            }
-        }
-        ExpectedVerdict::Delegate if raw.guard.is_some() => {
-            return Err("delegate expectation cannot name a guard".into());
-        }
-        ExpectedVerdict::Delegate => {}
-    }
-    Ok(Expectation::Decision {
-        verdict,
-        guard: raw.guard,
-        coverage: raw.coverage,
-    })
+    Ok(case)
 }
 
 #[cfg(test)]
@@ -264,21 +90,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn decoder_enforces_the_exact_input_and_expectation_unions() {
-        assert!(decode_case(r#"{"v":1,"id":"x","command":"echo ok","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate"}}"#).is_ok());
-        assert!(decode_case(r#"{"v":1,"id":"x","command":"date -s now","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate","coverage":"full"}}"#).is_ok());
-        for case in [
-            r#"{"v":1,"id":"x","command":"x","tool":"Read","input":{},"ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate"}}"#,
-            r#"{"v":1,"id":"x","command":null,"tool":"Read","input":{},"ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate"}}"#,
-            r#"{"v":1,"id":"x","tool":"Read","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate"}}"#,
-            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"flows":[],"verdict":"delegate"}}"#,
-            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"flows":null,"verdict":"delegate"}}"#,
-            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"allow"}}"#,
-            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate","claimers":["local-utilities"]}}"#,
-            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"block","guard":"unknown"}}"#,
-            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate","guard":"fs-system-tree"}}"#,
-        ] {
-            assert!(decode_case(case).is_err(), "accepted {case}");
-        }
+    fn block_expectations_must_name_a_shipped_guard() {
+        let shipped = nah_policy::ShippedGuards::new();
+        let ids = shipped.shipped_guard_ids();
+        let decode = |line| nah_corpus_schema::decode_corpus_case(line).unwrap();
+        assert!(require_shipped_block_guard(decode(r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"block","guard":"fs-system-tree"}}"#), ids).is_ok());
+        assert!(require_shipped_block_guard(decode(r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"block","guard":"unknown"}}"#), ids).is_err());
     }
 }

@@ -1,0 +1,160 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:4dc830ec1ca13d7f77d05af4874501882e169ef4e270a27d54ce9ea69109111b",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/containers/buildah@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "buildah",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/containers/buildah@v1",
+        "path": "../../tests/fixtures/model_tranche/buildah.json",
+        "digest": "blake3:e7fb9b0bad69c7695d1b404fefddc869e163379c637c9c531e33443cb7422c2d"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "buildah-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "buildah-not-the-command",
+            "rm",
+            "demo"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "container.remove"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/containers/buildah@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "container.remove"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/containers/buildah@v1",
+      "commands": [
+        "buildah"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "container",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "rm"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "name",
+              "index": 0,
+              "variadic": true,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "name"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "container.remove",
+                  "resource": {
+                    "kind": "container",
+                    "runtime": {
+                      "kind": "literal",
+                      "value": "buildah"
+                    },
+                    "name": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "container",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": false
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+# Ground-truth expectations for tmuxinator/tmuxinator (holdout-dev corpus).
+# Pinned SHA: 6d021f7befee0278155d16444bb8323008299997.
+# Real entry: bin/tmuxinator (gem executable; Tmuxinator::Cli.bootstrap ARGV,
+#   bin/tmuxinator:9, which routes into Thor's command dispatch via Cli.start,
+#   cli.rb:555-565 — the Thor command-tree shape).
+# Derived from:
+#   lib/tmuxinator/config.rb (ENV["HOME"] for ~/.tmuxinator, config.rb:23;
+#     ENV["TMUXINATOR_CONFIG"], config.rb:45, with FileUtils::mkdir_p of that
+#     directory, config.rb:48),
+#   lib/tmuxinator/doctor.rb (ENV["EDITOR"], doctor.rb:7; Kernel.system("type
+#     tmux > /dev/null"), doctor.rb:11; ENV["SHELL"], doctor.rb:15),
+#   lib/tmuxinator/project.rb (render_template File.read of the project
+#     YAML/ERB and templates, project.rb:133; `#{tmux} ls` backtick,
+#     project.rb:214),
+#   lib/tmuxinator/cli.rb (start: Kernel.exec(project.render) replaces the
+#     process with the generated tmux script, cli.rb:252; stop:
+#     Kernel.exec(project.kill), :271; new/edit run $EDITOR via Kernel.system,
+#     :135/:146/:451; `new` writes the project YAML File.open(path, "w"),
+#     :198-199, and the ERB copy, :223; delete: FileUtils.rm(config), :477,
+#     and FileUtils.remove_dir, :493).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH that these are the real effects: exec'ing tmux after
+# rendering the project config is the product. All subcommand bodies sit
+# behind Thor's Cli.start dispatch (bootstrap -> Thor), which is the main
+# analysis obstacle; the config.rb/doctor.rb env reads also run inside those
+# commands. Write/delete/editor paths are per-subcommand, hence modality=may.
+# No sockets and no database/cloud usage exist in lib/.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=process.exec
+op=filesystem.read
+op=environment.read
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=TMUXINATOR_CONFIG origin=lib/tmuxinator/config.rb realm=host
+op=environment.read res=HOME origin=lib/tmuxinator/config.rb realm=host
+op=filesystem.read origin=lib/tmuxinator/project.rb realm=host
+op=process.exec origin=lib/tmuxinator/cli.rb realm=host
+op=filesystem.write origin=lib/tmuxinator/cli.rb realm=host modality=may
+op=filesystem.delete origin=lib/tmuxinator/cli.rb realm=host modality=may
+op=process.exec origin=lib/tmuxinator/doctor.rb realm=host modality=may
+
+[forbidden]
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]

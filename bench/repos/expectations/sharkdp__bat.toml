@@ -1,0 +1,58 @@
+# Ground-truth expectations for sharkdp/bat (holdout-dev corpus).
+# Pinned SHA: b671e53c2cd0177beb357cf6cb997ee4215c7155.
+# Real entry: src/bin/bat/main.rs (Cargo `build = "build/main.rs"` build script is
+#   the repo's build-script shape; the product binary is src/bin/bat).
+# Derived from:
+#   src/bin/bat/config.rs (config_file(): env::var("BAT_CONFIG_PATH"), config.rs:26;
+#     generate_config_file(): fs::write(&config_file, ...), config.rs:89;
+#     fs::read_to_string of the system and user config files, config.rs:110/118;
+#     env::var("BAT_OPTS"), config.rs:134 — the fs::write calls at config.rs:237+
+#     are #[test] code, not product),
+#   src/bin/bat/app.rs (env::var("COLORTERM"), app.rs:32; env::var_os("NO_COLOR"),
+#     app.rs:38),
+#   src/bin/bat/directories.rs (env::var_os("BAT_CACHE_PATH"), directories.rs:20;
+#     env::var_os("BAT_CONFIG_DIR"), directories.rs:28),
+#   src/pager.rs (env::var("BAT_PAGER") / env::var("PAGER"), pager.rs:101-102),
+#   src/output.rs (OutputType::try_pager spawns the resolved pager,
+#     Command::new(resolved_path)...spawn(), output.rs:128/191),
+#   src/input.rs (File::open of each input path, input.rs:222),
+#   src/lessopen.rs (env::var("LESSOPEN")/env::var("LESSCLOSE"), lessopen.rs:83/118).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. bat's core behavior is reading input files and paging them;
+# config/env discovery runs ahead of clap parsing in the bin crate.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+op=environment.read
+op=process.exec
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=BAT_CONFIG_PATH origin=src/bin/bat/config.rs realm=host
+op=environment.read res=BAT_OPTS origin=src/bin/bat/config.rs realm=host
+op=environment.read res=NO_COLOR origin=src/bin/bat/app.rs realm=host
+op=environment.read res=COLORTERM origin=src/bin/bat/app.rs realm=host
+op=environment.read res=BAT_CACHE_PATH origin=src/bin/bat/directories.rs realm=host
+op=environment.read res=BAT_PAGER origin=src/pager.rs realm=host
+op=environment.read res=PAGER origin=src/pager.rs realm=host
+op=filesystem.read origin=src/bin/bat/config.rs realm=host modality=may
+op=filesystem.write origin=src/bin/bat/config.rs realm=host modality=may
+op=filesystem.read origin=src/input.rs realm=host
+op=process.exec origin=src/output.rs realm=host modality=may
+
+[forbidden]
+# bat is a local viewer: it never touches the network.
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]

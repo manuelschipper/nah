@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- **Guard naps** — `nah nap <guard>...` pauses only the named guards for 10 minutes while self-protection and every other guard stay active, and `nah nap all` replaces `nah nap --all`. Every nap now confirms with `nap`, and starting a nap replaces the active one. `all` is reserved and can no longer be a custom guard name.
+
+- **Database destruction guard** — The new off-by-default `db-destroy` guard blocks dropping, truncating, or flushing live database data, `DELETE` without a row filter, overwriting loads and restores, `CREATE OR REPLACE TABLE`, framework resets such as `rails db:reset` and `prisma migrate reset`, and deleting managed databases on AWS, Google Cloud, Azure, and hosted database platforms, through SQL clients, data-store CLIs, and cloud CLIs. Enable it with `nah guard enable db-destroy` when an agent works with credentials that can reach shared or production data.
+
+- **Cloud and GitHub uploads** — `secrets-exfil` now also blocks uploads of a sensitive file, or of a directory holding one, through `aws s3`, `gsutil`, `gcloud storage`, `azcopy`, `az storage blob upload`, `gh gist create`, `gh release upload`, `gh api -F field=@file`, `curl --json`, httpie and xh file items, `sftp` batch `put`, `gh issue`, `gh pr`, and `gh discussion` `comment --body-file`, `gh issue` and `gh pr` `edit --body-file`, and file contents sent as an HTTP request body from Node, Ruby, and PHP. `exec-remote` now follows `gh gist view`, `gh api`, `gh release download`, `xh`, and `aria2c` downloads into a shell. Downloads, listings, and `aws s3 --dryrun` runs pass.
+
+- **Vault secret destruction** — `secrets-store-destroy` now also blocks Vault KV metadata deletes and version destroys sent through generic `vault delete` and `vault write`, or through curl to Vault's HTTP API when an `X-Vault-*` header or `$VAULT_ADDR` identifies the server, as in `vault delete secret/metadata/prod/api`. Look-alike API paths on other servers still pass.
+
+- **AWS request input** — Every modeled `aws` command now reads its parameters from `--cli-input-json` and `--cli-input-yaml`, given inline or as `file://`, with explicit flags taking precedence, so a delete whose target or force option sits in the request input reaches the guards. For example, `aws secretsmanager delete-secret --cli-input-json '{"SecretId":"prod/api","ForceDeleteWithoutRecovery":true}'` now blocks under `secrets-store-destroy`.
+
+- **Custom guard protocol exec/v2** — Custom guards must declare `protocol = "exec/v2"` in `policy.toml`; exec/v1 guards, including those `nah guard new` generated in 1.5.0, no longer load. Regenerate the guard with `nah guard new`, or update its manifest and read the exec/v2 request that `nah test` prints for a command.
+
+- **Custom-guard access purpose** — `FilesystemAccess.purpose` in custom-guard evidence now reports only the purpose the modeled command or the plan's data flow shows. Previously, a moved file's source read was also reported as `Explicit` when the moved path was read again later or when the move took a whole system tree or home directory.
+
+- **Effect-based decisions** — Every decision now comes from the effect analyzer's plan of what a call reads, writes, deletes, or runs, replacing the hand-written per-command parsers. `nah why` and `nah log --json` records show the effects, boundaries, and per-domain coverage behind each decision. Coverage now reports only what the analyzer established, so some previously "full" decisions read as partial and vice versa.
+
+- **Dry-run tool calls and code** — `nah test` now also takes an agent tool call (`--tool Write --args-json '{...}'`) or code (`--source python -c '...'`) and reaches the decision the hook would, and it shows the effects, boundaries, and coverage Nah's engine found; `--json` adds the engine plan under `nah/test/v2`. Running `nah nap`, `nah tui`, or an interactive `nah decide` without the terminal or input it needs now exits 4, like every invalid invocation, instead of 2.
+
+- **Wildcard cleanup in /tmp** — `fs-system-tree` no longer blocks a wildcard delete under `/tmp` that can match only some names, such as `rm -rf /tmp/*.log`; `rm -rf /tmp/*` still blocks.
+
+- **Azure container deletion** — Invalid `az storage container delete` options, including `--yes`, no longer trigger `storage-recursive-delete`; valid container deletion remains protected.
+
+- **npm unpublish dry runs** — `npm unpublish --dry-run` now delegates because npm skips the registry mutation; `--no-dry-run` remains protected.
+
+- **Retired guard names** — Saved settings under the old names `fs-storage-destroy`, `git-remote-delete`, `infra-container-prune`, `secrets-keys`, and `storage-destroy` are now ignored with a warning, and those guards run at their defaults; guard commands no longer accept the old names. Set any choice again under `fs-volume-destroy`, `git-remote-repo-delete`, `infra-container-volume-delete`, `secrets-credentials`, or `storage-backup-destroy`.
+
+- **Prime Agent shell helper** — Shell commands that Prime Agent 0.9.6 runs through its `bash()` Python helper now reach Nah's shell guards when the cell calls the helper directly and cannot have rebound it. Cells are analyzed as plain Python, as current Prime Agent runs them, so IPython `!` and `%%bash` forms are no longer treated as shell commands.
+- **Hermes coverage** — Nah now decides Hermes' default `patch` edits, which omit `mode`, and tool calls that `execute_code` makes through `hermes_tools`; previously the edits were opaque to Nah and the nested calls got no Nah decision. The hook now names Nah by absolute path, and `--fail-closed` also makes Hermes block when Nah cannot start. Run `nah hook hermes install` again.
+- **One Cline hook** — `nah hook cline install` now registers only the IDE's `Documents/Cline/Hooks` script whenever the Cline CLI also runs it, instead of adding a second copy in `~/.cline/hooks` that made the CLI decide every call twice. Run `nah hook cline install` again to remove the old copy; `nah hook cline status` reports it as reinstall required.
+- **OpenCode 2.0** — The OpenCode plugin now targets OpenCode 2.x, whose loader rejected the previous plugin and left sessions unguarded, and maps its `shell`, `read`, `write`, `edit`, `patch`, `glob`, and `grep` tools. Run `nah hook opencode install` again after upgrading. OpenCode 1.x no longer loads Nah's plugin.
+
+- **More remote-code runners** — `exec-remote` now also blocks a downloaded script run with `source` or `.`, piped code run as `bash /dev/stdin`, `deno run` and `uv run` of a URL or of piped code, `deno run` of a file the command just downloaded, `bun run -` of piped code, `pipx run` of a URL, PowerShell script blocks created from a download (run with `&`, `.Invoke()`, `.InvokeWithContext()`, or `Invoke-Command`, also through a variable), Ruby `eval`, `binding.eval`, and `instance_eval` of a `Net::HTTP.get(...)` body, also through a variable, PHP `eval` or URL `include` of fetched code, `awk -f` of a downloaded program, a script unpacked from a downloaded archive, downloads passed through `sed` or `awk` into a shell or read with `mapfile` or `read` into `eval`, and `npx` or `npm exec` of a URL, git, or GitHub package spec. It also fires when the download and run sit in an `if`, `while`, or `case` body or after `||`, as in `if curl -o f URL; then . ./f; fi` and `command -v tool || curl URL | sh`.
+
 - **Terminal self-protection** — Restrict recognizable protected Nah commands sent through supported Herdr/tmux input, and keep proven removal or recursive mutation of the nap-state container protected during naps.
 
 ## nah 1.5.0 — Sep 6, 2026

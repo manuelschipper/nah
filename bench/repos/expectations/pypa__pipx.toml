@@ -1,0 +1,62 @@
+# Ground-truth expectations for pypa/pipx (holdout-dev corpus).
+# Pinned SHA: ef49480ec2c11b1b9e68499c3dec34b4840b750c.
+# Real entry: src/pipx/main.py (`scripts.pipx = "pipx.main:cli"`, pyproject.toml:56;
+#   cli() at main.py:2021 -> _dispatch -> run_pipx_command, argparse subcommands).
+# Derived from:
+#   src/pipx/constants.py (import-time os.environ.get("PIPX_FETCH_MISSING_PYTHON") /
+#     ("PIPX_FETCH_PYTHON"), constants.py:35-36),
+#   src/pipx/emojis.py (import-time os.getenv("PIPX_USE_EMOJI") / ("USE_EMOJI"),
+#     emojis.py:12/14),
+#   src/pipx/main.py (import-time os.getenv("PIPX__DOC_DEFAULT_PYTHON"), main.py:126),
+#   src/pipx/self_install.py (get_environment_value: os.environ.get(name),
+#     self_install.py:69 — the shared accessor paths.py routes PIPX_HOME /
+#     PIPX_BIN_DIR / PIPX_GLOBAL_* lookups through, paths.py:41-42/117-140),
+#   src/pipx/util.py (run_subprocess: subprocess.run, util.py:244; streamed variant
+#     Popen, util.py:284; exec_app: subprocess.run on Windows, util.py:582, and
+#     os.execvpe, util.py:583; rmdir: shutil.rmtree, util.py:78; mkdir,
+#     util.py:97),
+#   src/pipx/standalone_python.py (urlopen of the python-build-standalone release,
+#     standalone_python.py:163, and of the GitHub API index, :312; extracted file
+#     writes target.open("wb"), :252, and index write_text, :291),
+#   src/pipx/pipx_metadata_file.py (metadata read .open("rb"), :369/390; write()
+#     via NamedTemporaryFile in the venv dir, :329-340),
+#   src/pipx/commands/common.py (app/man symlink_to, common.py:137/231).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH for the import-time env reads (module-level in files imported
+# by main.py) and the util.py subprocess/rmtree funnels every command uses.
+# MEDIUM for standalone-python network/writes: reachable only when a missing
+# interpreter is fetched (PIPX_FETCH_MISSING_PYTHON / --fetch-missing-python),
+# hence modality=may. Command bodies dispatch through argparse subcommand
+# handlers in main.py (static if/def table, not a plugin wall).
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=process.exec
+op=filesystem.
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=PIPX_FETCH_MISSING_PYTHON origin=src/pipx/constants.py realm=host
+op=environment.read res=PIPX_USE_EMOJI origin=src/pipx/emojis.py realm=host
+op=environment.read res=PIPX__DOC_DEFAULT_PYTHON origin=src/pipx/main.py realm=host
+op=environment.read origin=src/pipx/self_install.py realm=host
+op=process.exec origin=src/pipx/util.py realm=host
+op=filesystem.delete origin=src/pipx/util.py realm=host modality=may
+op=network. origin=src/pipx/standalone_python.py realm=host modality=may
+op=filesystem.write origin=src/pipx/standalone_python.py realm=host modality=may
+op=filesystem.read origin=src/pipx/pipx_metadata_file.py realm=host modality=may
+
+[forbidden]
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]

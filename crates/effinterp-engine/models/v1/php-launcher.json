@@ -1,0 +1,193 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:0a7e3bd3a8dfbd2fed5fa8c3ec2fa6cfe039676654e1bda0d66b809defb2dc40",
+  "provenance": {
+    "author": "migrated_handwritten",
+    "sources": [
+      {
+        "uri": "git:57902bb2e2c326a6604c436409ba667798527a22:crates/effinterp-engine/src/models/phpexec.rs",
+        "digest": "blake3:844d7689dfa0ad3ad7ea492876970cb68b3d200c085393c482ee9b6fa206315a"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "php-launcher",
+        "requirement": "argv-surface@57902bb2"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "registry",
+        "name": "php-launcher",
+        "expected_entries": [
+          "php/php@v0"
+        ]
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "php-help-does-not-run-script",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "php",
+            "--help",
+            "ignored.php"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read"
+        ],
+        "absent_boundaries": []
+      }
+    ],
+    "mutation_tests": [],
+    "expected_facts": [],
+    "expected_boundaries": []
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "php/php@v0",
+      "commands": [
+        "php",
+        "php7",
+        "php8"
+      ],
+      "launcher": {
+        "frontend": "php",
+        "options": [
+          {
+            "names": [
+              "-r",
+              "--run"
+            ],
+            "class": "inline_source",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "-B",
+              "--process-begin",
+              "-R",
+              "--process-code",
+              "-E",
+              "--process-end"
+            ],
+            "class": "value",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-F",
+              "--process-file",
+              "-f",
+              "--file",
+              "-S",
+              "--server"
+            ],
+            "class": "value",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-c",
+              "--php-ini",
+              "-t",
+              "--docroot",
+              "-z",
+              "--zend-extension"
+            ],
+            "class": "value",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-d",
+              "--define"
+            ],
+            "class": "value",
+            "attachment": "either"
+          },
+          {
+            "names": [
+              "--"
+            ],
+            "class": "end_of_options",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-l",
+              "--syntax-check",
+              "-w",
+              "--strip",
+              "-s",
+              "--syntax-highlight",
+              "--syntax-highlighting"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-h",
+              "--help",
+              "-?",
+              "--usage",
+              "-v",
+              "--version",
+              "-i",
+              "--info",
+              "-m",
+              "--modules",
+              "--ini",
+              "--rf",
+              "--rc",
+              "--re",
+              "--rz",
+              "--ri",
+              "-n",
+              "--no-php-ini"
+            ],
+            "class": "inert",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "-"
+            ],
+            "class": "unreviewed",
+            "attachment": "attached"
+          }
+        ],
+        "operands": [
+          "script",
+          "stdin_program",
+          "program_arguments"
+        ]
+      },
+      "fragments": [],
+      "inert": true,
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "subcommands": [],
+      "modes": []
+    }
+  ]
+}

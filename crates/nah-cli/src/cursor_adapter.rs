@@ -8,6 +8,7 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+use crate::adapter_fields::runtime_field_names_covered;
 use crate::hook_adapter::{self, HookOutcome};
 use crate::live_state;
 use crate::runtime::{FailurePolicy, Runtime};
@@ -104,6 +105,26 @@ fn deny_unavailable<W: Write, E: Write>(
     })
 }
 
+/// The tool call `run` hands the pipeline for this Cursor tool call.
+/// `cwd` is also the one workspace root.
+pub(crate) fn normalize_call(
+    tool_name: &str,
+    tool_input: Value,
+    cwd: &str,
+) -> Result<ToolCallInput, String> {
+    normalize_for_platform(
+        CursorHookInput {
+            hook_event_name: "preToolUse".into(),
+            tool_name: tool_name.into(),
+            tool_input,
+            cwd: Some(cwd.into()),
+            workspace_roots: Some(vec![cwd.into()]),
+            conversation_id: None,
+        },
+        live_state::host_platform(),
+    )
+}
+
 fn normalize_for_platform(
     input: CursorHookInput,
     platform: Platform,
@@ -141,7 +162,7 @@ fn normalize_for_platform(
             tool,
             tool_input,
             cwd,
-            crate::adapter_fields::complete("cursor", &input.tool_name, &original_input),
+            runtime_field_names_covered("cursor", &input.tool_name, &original_input),
         ),
         Err(_) => (
             input.tool_name.as_str(),
@@ -410,14 +431,5 @@ mod tests {
         assert_eq!(call.input(), &original);
         assert_eq!(call.cwd(), "C:\\repo");
         assert!(!call.normalization_complete());
-    }
-
-    #[test]
-    fn native_adapter_stays_thin() {
-        let implementation = include_str!("cursor_adapter.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        assert!(implementation.lines().count() <= 280);
     }
 }

@@ -1,0 +1,61 @@
+# Ground-truth expectations for casey/just (holdout-dev corpus).
+# Pinned SHA: 7c9dbbc3b5f48139f68e25da6c1047cb176ad839.
+# Real entry: src/main.rs (bin; checks $JUST_COMPLETE then calls just::run,
+#   src/run.rs, which clap-parses Arguments and runs config.subcommand.execute).
+# Derived from:
+#   src/main.rs (env::var_os("JUST_COMPLETE"), main.rs:9),
+#   src/loader.rs (Loader::load fs::read_to_string of the justfile,
+#     loader.rs:24),
+#   src/search.rs (justfile read fs::read_to_string, search.rs:108),
+#   src/signal_handler.rs (SignalHandler::spawn command.spawn(),
+#     signal_handler.rs:120 — the funnel behind CommandExt in
+#     src/command_ext.rs:17/104 that every recipe, backtick, and shell
+#     invocation goes through),
+#   src/recipe.rs (shebang recipes are written to a tempdir script before
+#     execution, fs::write at recipe.rs:692),
+#   src/subcommand.rs (`--fmt` rewrites the justfile, subcommand.rs:536;
+#     `--init` writes a new one, :559; cache file read_to_string, :389, and
+#     remove_file/remove_dir, :407/:415; `--edit` reads $VISUAL/$EDITOR,
+#     :463-464, and runs the editor, :470).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. Loading the justfile and spawning recipe commands is the
+# product; the spawn is a direct static call chain (Subcommand::execute ->
+# recipe execution -> CommandExt -> SignalHandler::spawn), and the write/delete
+# paths are flag-gated, hence modality=may. just has no network code at all.
+# The `env(...)` justfile function reads arbitrary env vars through the
+# expression-evaluator table — see known_hard.
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=environment.read
+op=filesystem.read
+op=process.exec
+
+# Fact-level assertions.
+[facts]
+op=environment.read res=JUST_COMPLETE origin=src/main.rs realm=host
+op=filesystem.read origin=src/loader.rs realm=host
+op=process.exec origin=src/signal_handler.rs realm=host
+op=environment.read res=VISUAL origin=src/subcommand.rs realm=host modality=may
+op=filesystem.write origin=src/recipe.rs realm=host modality=may
+op=filesystem.write origin=src/subcommand.rs realm=host modality=may
+op=filesystem.delete origin=src/subcommand.rs realm=host modality=may
+
+[forbidden]
+# just is a local command runner: no network anywhere in product code.
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+op=git.
+
+[known_hard]
+# The `env()` justfile function reads caller-chosen variables via the
+# expression-evaluator function table.
+op=environment.read origin=src/function.rs

@@ -1,0 +1,900 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:3404b5b5f6959ba8c0fbf0e2c0eaa099d964343249464036c41a40a8348454d5",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/db_destroy_sources.json#p18b/database/artisan@v1",
+        "digest": "blake3:be7602cc9a24547d600e99a78cbce56ab7a8a02fbb24903e7cbd88a877918e83"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "laravel/framework",
+        "requirement": "reviewed-exact-surface@2026-09-28"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/database/artisan@v1",
+        "path": "../../tests/fixtures/model_tranche/artisan.json",
+        "digest": "blake3:a70a205f85d758f1d05e668ca5599627a0f2906c3bd2a137d08760cc28651cc1"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "artisan-db-wipe-operand-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan",
+            "db:wipe",
+            "users"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "artisan-db-wipe-version-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan",
+            "db:wipe",
+            "-V"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "artisan-migrate-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan",
+            "migrate"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "artisan-migrate-fresh-help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan",
+            "migrate:fresh",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "artisan-migrate-fresh-step-value-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan",
+            "migrate:fresh",
+            "--step=2"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "artisan-migrate-refresh-step-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan",
+            "migrate:refresh",
+            "--step=2"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "artisan-migrate-refresh-step-operand-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan",
+            "migrate:refresh",
+            "--step",
+            "3",
+            "--force"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "artisan-migrate-reset-pretend-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan",
+            "migrate:reset",
+            "--pretend"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "artisan-migrate-rollback-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan",
+            "migrate:rollback"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "artisan-migrate-status-abbreviation-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan",
+            "migrate:sta"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "artisan-migrate-status-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan",
+            "migrate:status"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "artisan-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "artisan-not-the-command",
+            "db:wipe"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/database/artisan@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "database.schema_drop"
+    ],
+    "expected_boundaries": [
+      "environment_configuration"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "command_segment_abbreviation": true,
+      "id": "p18b/database/artisan@v1",
+      "commands": [
+        "artisan"
+      ],
+      "fragments": [],
+      "flags": [
+        {
+          "names": [
+            "--help",
+            "-h"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--version",
+            "-V"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--quiet",
+            "-q"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--silent"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--ansi"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-ansi"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--no-interaction",
+            "-n"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--env"
+          ],
+          "takes_value": true,
+          "optional_value": true
+        }
+      ],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "database",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "migrate:fresh"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--database"
+              ],
+              "takes_value": true,
+              "optional_value": true
+            },
+            {
+              "names": [
+                "--drop-views"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--drop-types"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--force"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--path"
+              ],
+              "takes_value": true,
+              "optional_value": true,
+              "repeatable": true
+            },
+            {
+              "names": [
+                "--realpath"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--schema-path"
+              ],
+              "takes_value": true,
+              "optional_value": true
+            },
+            {
+              "names": [
+                "--seed"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--seeder"
+              ],
+              "takes_value": true,
+              "optional_value": true
+            },
+            {
+              "names": [
+                "--step"
+              ],
+              "takes_value": true,
+              "optional_value": true
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--step"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "nonempty"
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "-V"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database_objects"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "config/database.php and the environment select the connection; outside production, or with --force, the command runs without confirmation; migrations, seeders and prohibitions are project code"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "db:wipe"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--database"
+              ],
+              "takes_value": true,
+              "optional_value": true
+            },
+            {
+              "names": [
+                "--drop-views"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--drop-types"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--force"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "-V"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database_objects"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "config/database.php and the environment select the connection; outside production, or with --force, the command runs without confirmation; migrations, seeders and prohibitions are project code"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "migrate:reset"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--database"
+              ],
+              "takes_value": true,
+              "optional_value": true
+            },
+            {
+              "names": [
+                "--force"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--path"
+              ],
+              "takes_value": true,
+              "optional_value": true,
+              "repeatable": true
+            },
+            {
+              "names": [
+                "--realpath"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--pretend"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "-V",
+                  "--pretend"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database_objects"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "config/database.php and the environment select the connection; outside production, or with --force, the command runs without confirmation; migrations, seeders and prohibitions are project code; reset runs every migration's down method"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "migrate:refresh"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--database"
+              ],
+              "takes_value": true,
+              "optional_value": true
+            },
+            {
+              "names": [
+                "--force"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--path"
+              ],
+              "takes_value": true,
+              "optional_value": true,
+              "repeatable": true
+            },
+            {
+              "names": [
+                "--realpath"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--seed"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--seeder"
+              ],
+              "takes_value": true,
+              "optional_value": true
+            },
+            {
+              "names": [
+                "--step"
+              ],
+              "takes_value": true,
+              "optional_value": true
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "flag_values",
+                      "flags": [
+                        "--step"
+                      ]
+                    },
+                    "shape": {
+                      "kind": "integer",
+                      "min": 1
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h",
+                  "--version",
+                  "-V"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "database.schema_drop",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "db"
+                  },
+                  "attributes": {
+                    "object_kind": {
+                      "kind": "constant_string",
+                      "value": "database_objects"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "config/database.php and the environment select the connection; outside production, or with --force, the command runs without confirmation; migrations, seeders and prohibitions are project code; without a positive --step, refresh resets every migration through its down method"
+            },
+            {
+              "when": {
+                "flag_value_symbolic": [
+                  "--step"
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "input_determined_arguments",
+              "class": "unresolved",
+              "domains": [
+                "database",
+                "process"
+              ],
+              "detail": "--step is not literal: a positive value rolls back that many migrations instead of resetting all"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "database",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema": "effinterp/satisfies-case/v1",
+  "id": "different-realms",
+  "request": {
+    "mode": "satisfies",
+    "concrete": {
+      "realm": {
+        "realm": "host"
+      },
+      "identity": {
+        "family": "fs_path",
+        "path": "/x"
+      }
+    },
+    "expr": {
+      "realm": {
+        "realm": "container",
+        "runtime": "docker",
+        "name": "a"
+      },
+      "expr": {
+        "expr": "concrete",
+        "identity": {
+          "family": "fs_path",
+          "path": "/x"
+        }
+      }
+    },
+    "bindings": {
+      "platform": "posix",
+      "cwd": null,
+      "env": {}
+    }
+  },
+  "expected": {
+    "kind": "not_satisfied"
+  }
+}

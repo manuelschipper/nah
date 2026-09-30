@@ -1,0 +1,514 @@
+{
+  "schema": "effinterp/model/v1",
+  "identity": "blake3:e850d8d3682501844aa02062b80cbf1021cc92004e62ee6c07b9931bcb3dce7e",
+  "provenance": {
+    "author": "human",
+    "sources": [
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/tranche_sources.json#p18b/package-build-vcs/dotnet@v1",
+        "digest": "blake3:852ee3c889b3987966e26a2b458535021264c93e84b151bfe71b0ea4ce376474"
+      }
+    ]
+  },
+  "applicability": {
+    "platforms": [
+      {
+        "kind": "any"
+      }
+    ],
+    "versions": [
+      {
+        "target": "dotnet",
+        "requirement": "reviewed-exact-surface@2026-08-26"
+      }
+    ]
+  },
+  "assurance": "fixture_verified",
+  "evidence": {
+    "fixtures": [
+      {
+        "kind": "fact_assertions",
+        "name": "p18b/package-build-vcs/dotnet@v1",
+        "path": "../../tests/fixtures/model_tranche/dotnet.json",
+        "digest": "blake3:4589d2f0ad968168b7d8bc553fddf0a2db3033da335d67d62ab64055a35d5d44"
+      }
+    ],
+    "negative_tests": [
+      {
+        "name": "dotnet-near-name-does-not-activate",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "dotnet-not-the-command",
+            "restore",
+            "app.csproj"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "filesystem.read",
+          "filesystem.write",
+          "network.download"
+        ],
+        "absent_boundaries": [
+          "unrecognized_arguments"
+        ]
+      }
+    ],
+    "mutation_tests": [
+      {
+        "name": "p18b/package-build-vcs/dotnet@v1-drop-effect",
+        "mutation": "drop_first_effect"
+      }
+    ],
+    "expected_facts": [
+      "filesystem.read",
+      "filesystem.write",
+      "network.download"
+    ],
+    "expected_boundaries": [
+      "unrecognized_arguments"
+    ]
+  },
+  "entries": [
+    {
+      "kind": "command",
+      "id": "p18b/package-build-vcs/dotnet@v1",
+      "commands": [
+        "dotnet"
+      ],
+      "fragments": [],
+      "flags": [],
+      "positionals": [],
+      "mutually_exclusive": [],
+      "effects": [],
+      "invocations": [],
+      "bindings": [],
+      "unsupported": {
+        "reason": "unrecognized_arguments",
+        "class": "unmodeled",
+        "domains": [
+          "filesystem",
+          "network",
+          "process"
+        ],
+        "unknown_flags": true,
+        "extra_operands": true
+      },
+      "subcommands": [
+        {
+          "names": [
+            "test"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--no-build"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "literal",
+                      "value": "."
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "package_scripts",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "filesystem",
+                "network",
+                "process"
+              ]
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "delete"
+          ],
+          "index": 1,
+          "flags": [
+            {
+              "names": [
+                "--api-key",
+                "-k"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--source",
+                "-s"
+              ],
+              "takes_value": true
+            },
+            {
+              "names": [
+                "--force-english-output"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--interactive"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--no-service-endpoint"
+              ],
+              "takes_value": false
+            },
+            {
+              "names": [
+                "--non-interactive"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "nuget"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "package",
+              "index": 1,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "version",
+              "index": 2,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "artifact.yank_request",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "artifact"
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "action": {
+                      "kind": "constant_string",
+                      "value": "yank"
+                    },
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ecosystem": {
+                      "kind": "constant_string",
+                      "value": "nuget"
+                    },
+                    "package": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "positional",
+                        "name": "package"
+                      }
+                    },
+                    "package_manager": {
+                      "kind": "constant_string",
+                      "value": "dotnet"
+                    },
+                    "scope": {
+                      "kind": "constant_string",
+                      "value": "version"
+                    },
+                    "version": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "positional",
+                        "name": "version"
+                      }
+                    }
+                  },
+                  "modality": "must-on-success"
+                },
+                {
+                  "operation": "artifact.delete",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "artifact"
+                  },
+                  "attributes": {
+                    "action": {
+                      "kind": "constant_string",
+                      "value": "yank"
+                    },
+                    "active": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "dry_run": {
+                      "kind": "constant_bool",
+                      "value": false
+                    },
+                    "ecosystem": {
+                      "kind": "constant_string",
+                      "value": "nuget"
+                    },
+                    "package": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "positional",
+                        "name": "package"
+                      }
+                    },
+                    "package_manager": {
+                      "kind": "constant_string",
+                      "value": "dotnet"
+                    },
+                    "scope": {
+                      "kind": "constant_string",
+                      "value": "version"
+                    },
+                    "version": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "positional",
+                        "name": "version"
+                      }
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "network.upload",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "environment_configuration",
+              "class": "unmodeled",
+              "scope": "environment",
+              "domains": [
+                "artifact",
+                "network"
+              ],
+              "detail": "NuGet source and authentication may come from configuration"
+            }
+          ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "artifact",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "restore"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "project",
+              "index": 0,
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "project"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.download",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "fs_path",
+                      "glob": {
+                        "kind": "literal",
+                        "value": "obj"
+                      }
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "network",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        }
+      ],
+      "modes": []
+    }
+  ]
+}

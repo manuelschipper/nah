@@ -1,0 +1,276 @@
+{
+  "schema": "effinterp/repo-query/v1",
+  "snapshot_id": "blake3:2277f1952ac40fe7a7693bcd70906d45a0995cd4e6f713f962edffc5aabaca4f",
+  "identity": {
+    "analyzer": {
+      "name": "effinterp-fixture",
+      "version": "fixture-analyzer@1",
+      "build_digest": "blake3:45e62c443d22a3246930607f61ebe383873b6f1c039c70fd7fe8cc38fd3a813a"
+    },
+    "configuration_digest": "blake3:4dedbabfb3c13291cffbd869171cbf04b13df9b38e089349d9a6a1c55e470bc6",
+    "model_set_digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "dependencies": [
+      {
+        "key": "analyzer",
+        "kind": "analyzer",
+        "digest": "blake3:45e62c443d22a3246930607f61ebe383873b6f1c039c70fd7fe8cc38fd3a813a"
+      },
+      {
+        "key": "limit:analysis.max_effects",
+        "kind": "limit",
+        "digest": "blake3:c827da883b6cc26801e16589789e5099917440b5b52caa63b5248a7dd49128f9"
+      },
+      {
+        "key": "model-set",
+        "kind": "model_set",
+        "digest": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "key": "source:src/main.rs",
+        "kind": "source_module",
+        "digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ]
+  },
+  "subjects": [
+    {
+      "entrypoint": "src/main.rs",
+      "source_path": "src/main.rs",
+      "subject": {
+        "kind": "source",
+        "language": "rust",
+        "source": "src/main.rs"
+      },
+      "subject_digest": "blake3:70b078aa0e1cd638227c07ac26beb723fca13c7846ecb00534f1e5155bff89de"
+    }
+  ],
+  "status": {
+    "kind": "partial",
+    "reasons": [
+      {
+        "kind": "unsupported_evidence",
+        "boundary_id": "boundary:blake3:cb3de2614175ef074794498c393b73ca462ff2e345f91d1057f95ce71843170d",
+        "scope": {
+          "all_entrypoints": true,
+          "entrypoints": [],
+          "graphs": [
+            "effects"
+          ]
+        }
+      }
+    ]
+  },
+  "coverage": {
+    "domains": {
+      "filesystem": {
+        "level": "partial",
+        "gaps": [
+          "boundary:blake3:cb3de2614175ef074794498c393b73ca462ff2e345f91d1057f95ce71843170d"
+        ]
+      }
+    },
+    "causality": null
+  },
+  "boundaries": [
+    {
+      "class": "unresolved",
+      "id": "boundary:blake3:cb3de2614175ef074794498c393b73ca462ff2e345f91d1057f95ce71843170d",
+      "reason": "unresolved_call",
+      "domains": [
+        "filesystem"
+      ],
+      "affected_resource": null,
+      "detail": "dynamic target",
+      "limit": null,
+      "dispatch": null,
+      "provenance_roots": [
+        "occurrence:blake3:68600bcc0d62a6681ad38da03bb48ebf7d51e63c5dcabcd2e18cd533fa30429a"
+      ]
+    }
+  ],
+  "provenance": {
+    "nodes": [
+      {
+        "id": "occurrence:blake3:68600bcc0d62a6681ad38da03bb48ebf7d51e63c5dcabcd2e18cd533fa30429a",
+        "occurrence": {
+          "input_digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+          "origin": "src/main.rs",
+          "span": {
+            "start": 0,
+            "end": 5
+          },
+          "semantic_kind": "source_span",
+          "local_ordinal": 0
+        },
+        "evidence": {
+          "kind": "source",
+          "evidence": {
+            "kind": "span",
+            "start": 0,
+            "end": 5
+          }
+        }
+      },
+      {
+        "id": "occurrence:blake3:efac969811226e2e6554c966ba4fddeb52dcfb30f62a78a311a5e7033135ae1b",
+        "occurrence": {
+          "input_digest": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+          "origin": "src/main.rs",
+          "span": {
+            "start": 0,
+            "end": 5
+          },
+          "semantic_kind": "source_span",
+          "local_ordinal": 1
+        },
+        "evidence": {
+          "kind": "source",
+          "evidence": {
+            "kind": "span",
+            "start": 0,
+            "end": 5
+          }
+        }
+      }
+    ],
+    "edges": []
+  },
+  "payload_kind": "reach",
+  "payload": {
+    "domain": "filesystem",
+    "indeterminate": [
+      {
+        "affected_resource": null,
+        "boundary_detail": "dynamic target",
+        "boundary_id": "boundary:blake3:cb3de2614175ef074794498c393b73ca462ff2e345f91d1057f95ce71843170d",
+        "boundary_reason": "unresolved_call",
+        "coverage": "partial",
+        "domain": "filesystem",
+        "entrypoint": "src/main.rs",
+        "provenance_roots": [
+          "occurrence:blake3:68600bcc0d62a6681ad38da03bb48ebf7d51e63c5dcabcd2e18cd533fa30429a"
+        ],
+        "row_kind": "boundary",
+        "source_file": "src/main.rs"
+      },
+      {
+        "coverage": "full",
+        "domain": "filesystem",
+        "fact": {
+          "attributes": {},
+          "condition": null,
+          "entrypoint": "src/main.rs",
+          "exemplar_paths": [],
+          "fact_id": "fact:blake3:d9f82a2dd3e7cb781f82a88e165aaadb002b13e5f0b52eed8d11850d66f3db60",
+          "modality": "may",
+          "occurrences": 1,
+          "operation": "filesystem.read",
+          "origin": {
+            "execution_node": null,
+            "source_file": "src/main.rs"
+          },
+          "provenance_roots": [
+            "occurrence:blake3:68600bcc0d62a6681ad38da03bb48ebf7d51e63c5dcabcd2e18cd533fa30429a"
+          ],
+          "realm": {
+            "realm": "host"
+          },
+          "request_assurance": "conservative",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "config.toml"
+            }
+          }
+        },
+        "match": {
+          "kind": "indeterminate",
+          "reason": {
+            "kind": "unbound",
+            "names": [
+              "cwd"
+            ]
+          }
+        },
+        "row_kind": "effect"
+      }
+    ],
+    "matches": [
+      {
+        "fact": {
+          "attributes": {},
+          "condition": null,
+          "entrypoint": "src/main.rs",
+          "exemplar_paths": [],
+          "fact_id": "fact:blake3:9aaa299f33f77c2e482f4bbe6617958099be18846901194371a58ac643ca47b7",
+          "modality": "may",
+          "occurrences": 1,
+          "operation": "filesystem.read",
+          "origin": {
+            "execution_node": null,
+            "source_file": "src/main.rs"
+          },
+          "provenance_roots": [
+            "occurrence:blake3:efac969811226e2e6554c966ba4fddeb52dcfb30f62a78a311a5e7033135ae1b"
+          ],
+          "realm": {
+            "realm": "host"
+          },
+          "request_assurance": "conservative",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/config.toml"
+            }
+          }
+        },
+        "match": {
+          "kind": "satisfied",
+          "proof": {
+            "steps": []
+          }
+        }
+      },
+      {
+        "fact": {
+          "attributes": {},
+          "condition": null,
+          "entrypoint": "src/main.rs",
+          "exemplar_paths": [],
+          "fact_id": "fact:blake3:f335ee7f988513bcc667d37006899b8fff539f278731ec9db91b2e9fd28419e6",
+          "modality": "may",
+          "occurrences": 1,
+          "operation": "filesystem.read",
+          "origin": {
+            "execution_node": null,
+            "source_file": "src/main.rs"
+          },
+          "provenance_roots": [
+            "occurrence:blake3:68600bcc0d62a6681ad38da03bb48ebf7d51e63c5dcabcd2e18cd533fa30429a"
+          ],
+          "realm": {
+            "realm": "host"
+          },
+          "request_assurance": "conservative",
+          "resource": {
+            "expr": "concrete",
+            "identity": {
+              "family": "fs_path",
+              "path": "/config.toml"
+            }
+          }
+        },
+        "match": {
+          "kind": "satisfied",
+          "proof": {
+            "steps": []
+          }
+        }
+      }
+    ],
+    "selector": "host/fs:/config.toml"
+  },
+  "content_hash": "blake3:44550c634429f004f9df811068b663ca1d8d7695833a795773029cf90a3733fd"
+}

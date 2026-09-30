@@ -1,4 +1,5 @@
-//! Stores validated memo responses by content identity; it does not validate raw responses.
+//! Stores memo responses by content identity and owns the memo cache entry
+//! envelope; it does not semantically validate raw responses.
 
 use std::error::Error;
 use std::fmt;
@@ -6,19 +7,41 @@ use std::fs::{File, FileTimes, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use nah_proto::ctx::{AbsolutePath, Platform};
+use nah_proto::ctx::{AbsolutePath, ActivationProjection, Platform};
+use nah_proto::extension::ExtensionResponse;
+use serde::{Deserialize, Serialize};
 
-pub const CACHE_SIZE_CAP: u64 = 16 * 1024 * 1024;
+use crate::transport::{OUTPUT_SIZE_CAP, strip_terminal_sequences};
+use crate::user_state::{nah_home_path, sync_parent_directory};
 
+/// Largest memo cache entry and total memo cache size, in bytes; `put` evicts the
+/// oldest entries past it.
+const CACHE_SIZE_CAP: u64 = 16 * 1024 * 1024;
+
+/// Custom-guard memo entries, one `<key>.json` file per key, written under a
+/// directory lock.
+///
+/// The directory must be dedicated to disposable memo entries: eviction counts
+/// and may delete every regular file in it except `.lock`, not only `.json`
+/// entries.
 pub struct MemoCache {
     directory: PathBuf,
 }
 
 impl MemoCache {
+    /// Uses `directory`, which must be dedicated to this cache (see
+    /// [`MemoCache`]). Nothing is created until the first access.
     pub fn new(directory: PathBuf) -> Self {
         Self { directory }
     }
 
+    /// Returns the raw bytes stored for `key`. Callers still decode the entry
+    /// envelope and validate the response.
+    ///
+    /// Not a read-only inspection: it creates the directory and `.lock`, opens
+    /// the entry for writing, deletes an entry larger than the cap (returning
+    /// `None`), and touches a hit's modification time, which is the recency
+    /// that eviction orders by.
     pub fn get(&self, key: &str) -> Result<Option<Vec<u8>>, CacheError> {
         validate_key(key)?;
         std::fs::create_dir_all(&self.directory).map_err(|_| CacheError::Io)?;
@@ -44,6 +67,9 @@ impl MemoCache {
         Ok(Some(bytes))
     }
 
+    /// Atomically writes `bytes` for `key`, then evicts the least recently
+    /// modified regular files in the directory until the total fits the cap
+    /// (see [`MemoCache`] for which files that covers).
     pub fn put(&self, key: &str, bytes: &[u8]) -> Result<(), CacheError> {
         validate_key(key)?;
         if bytes.len() as u64 > CACHE_SIZE_CAP {
@@ -63,7 +89,7 @@ impl MemoCache {
         let lock = self.lock()?;
         match std::fs::remove_file(self.directory.join(format!("{key}.json"))) {
             Ok(()) => {
-                sync_parent(&self.directory)?;
+                sync_parent_directory(&self.directory).map_err(|_| CacheError::Io)?;
                 drop(lock);
                 Ok(())
             }
@@ -110,7 +136,7 @@ impl MemoCache {
             std::fs::remove_file(path).map_err(|_| CacheError::Io)?;
             total = total.saturating_sub(size);
         }
-        sync_parent(&self.directory)
+        sync_parent_directory(&self.directory).map_err(|_| CacheError::Io)
     }
 }
 
@@ -129,31 +155,64 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CacheError> {
     temporary.write_all(bytes).map_err(|_| CacheError::Io)?;
     temporary.as_file().sync_all().map_err(|_| CacheError::Io)?;
     temporary.persist(path).map_err(|_| CacheError::Io)?;
-    sync_parent(parent)
+    sync_parent_directory(parent).map_err(|_| CacheError::Io)
 }
 
+/// `<home>/.nah/cache/exec-v2`, spelled for the target platform.
 pub fn memo_cache_path(home: &AbsolutePath, platform: Platform) -> PathBuf {
-    let separator = if platform == Platform::Windows {
-        '\\'
-    } else {
-        '/'
-    };
-    PathBuf::from(format!(
-        "{}{separator}.nah{separator}cache{separator}exec-v1",
-        home.as_str().trim_end_matches(['/', '\\'])
-    ))
+    nah_home_path(home, platform, &["cache", "exec-v2"])
 }
 
-#[cfg(unix)]
-fn sync_parent(parent: &Path) -> Result<(), CacheError> {
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|_| CacheError::Io)
+/// Version of the memo cache entry envelope written inside each `<key>.json`.
+const CACHE_ENTRY_VERSION: u32 = 1;
+
+/// Memo cache entry envelope: the raw response bound to its memo key and guard
+/// activation, so a stale or copied entry never answers another consultation.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CacheEntry {
+    v: u32,
+    key: String,
+    activation: ActivationProjection,
+    response: ExtensionResponse,
 }
 
-#[cfg(not(unix))]
-fn sync_parent(_parent: &Path) -> Result<(), CacheError> {
-    Ok(())
+pub(crate) fn encode_cache_entry(
+    key: &str,
+    activation: &ActivationProjection,
+    response: &ExtensionResponse,
+) -> Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec(&CacheEntry {
+        v: CACHE_ENTRY_VERSION,
+        key: key.to_owned(),
+        activation: activation.clone(),
+        response: response.clone(),
+    })
+}
+
+/// Decodes a memo cache entry only when its version, key, and activation match
+/// and its bytes are the canonical encoding; the response still needs semantic
+/// validation.
+pub(crate) fn decode_cache_entry(
+    bytes: &[u8],
+    key: &str,
+    activation: &ActivationProjection,
+) -> Result<ExtensionResponse, ()> {
+    if bytes.len() > OUTPUT_SIZE_CAP {
+        return Err(());
+    }
+    let entry: CacheEntry = serde_json::from_slice(bytes).map_err(|_| ())?;
+    if entry.v != CACHE_ENTRY_VERSION || entry.key != key || entry.activation != *activation {
+        return Err(());
+    }
+    if serde_json::to_vec(&entry).map_err(|_| ())? != bytes {
+        return Err(());
+    }
+    let mut response = entry.response;
+    if let Some(reason) = &mut response.reason {
+        *reason = strip_terminal_sequences(reason);
+    }
+    Ok(response)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

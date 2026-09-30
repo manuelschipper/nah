@@ -62,6 +62,6 @@ told not to retry; an operator can use `nah nap` from another terminal.
 This integration is best effort: runtime APIs and hook behavior can change.
 After upgrades, verify the latest official upstream documentation linked below,
 inspect the loaded hook, and test it before relying on nah. See Amp's
-[plugin documentation](https://ampcode.com/manual#plugins),
+[plugin documentation](https://ampcode.com/docs/customize/plugins),
 [Plugin API](https://ampcode.com/manual/plugin-api), and
 [Orbs documentation](https://ampcode.com/manual/orbs).

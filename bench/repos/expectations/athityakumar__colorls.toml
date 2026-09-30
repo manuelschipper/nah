@@ -1,0 +1,47 @@
+# Ground-truth expectations for athityakumar/colorls (holdout-dev corpus).
+# Pinned SHA: ec2fbcd36f6b7fa56c72b13e52c235eba277bad0.
+# Real entry: exe/colorls (gem executable; requires colorls then
+#   `exit ColorLS::Flags.new(*ARGV).process`, exe/colorls:26 — the Ruby
+#   cli-gem shape).
+# Derived from:
+#   lib/colorls/yaml.rb (bundled + user YAML config read File.read(filepath),
+#     yaml.rb:23, with the user override under ~/.config/colorls, yaml.rb:7/12),
+#   lib/colorls/core.rb (directory listing Dir.entries, core.rb:71/463),
+#   lib/colorls/fileinfo.rb (symlink target File.readlink, fileinfo.rb:80),
+#   lib/colorls/git.rb (`--gs` shells out to git: IO.popen(['git', '-C', ...,
+#     'rev-parse', '--show-prefix']), git.rb:55, and IO.popen(['git', '-C', ...,
+#     'status', '--porcelain', ...]), git.rb:63).
+# Authored 2026-08-18 by reading pinned product source BEFORE any analyzer run
+# (blind holdout rule), NOT EI output.
+# Confidence: HIGH. Listing directories after loading the YAML color config is
+# the product; the git subprocess only runs with --git-status, hence
+# modality=may. No ENV access, no file writes/deletes, and no sockets exist
+# anywhere in lib/ or exe/ (checked by sweep); the git subprocess is read-only
+# (rev-parse/status).
+#
+# Matcher syntax: one per line, `key=value` tokens — op (operation prefix,
+# required), res (resource substring), origin (origin-file substring),
+# realm (exact), modality (exact).
+
+version = 2
+
+[should_find]
+op=filesystem.read
+
+# Fact-level assertions.
+[facts]
+op=filesystem.read origin=lib/colorls/yaml.rb realm=host
+op=filesystem. origin=lib/colorls/core.rb realm=host
+op=process.exec res=git origin=lib/colorls/git.rb realm=host modality=may
+
+[forbidden]
+# A pure lister: it never writes, deletes, or touches the network.
+op=filesystem.write
+op=filesystem.delete
+op=network.
+op=database.
+op=cloud.
+op=messaging.
+op=git.history_rewrite
+
+[known_hard]

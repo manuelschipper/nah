@@ -7,12 +7,9 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+effinterp-matcher = { path = "../effinterp-matcher" }
+effinterp-proto = { path = "../effinterp-proto" }
 nah-proto = { path = "../nah-proto" }
 
 [dev-dependencies]
-nah-inline = { path = "../nah-inline" }
-criterion = "0.5"
-
-[[bench]]
-name = "decide"
-harness = false
+serde_json = { workspace = true }
