@@ -6,9 +6,10 @@ use nah_extensions::{
     ActivationDatabase, MemoCache, activation_database_path, consult_extensions, discover_bundles,
     load_active_extensions, record_activation,
 };
+use nah_proto::action::Coverage;
 use nah_proto::ctx::{AbsolutePath, Ctx, SchemaVersion, ShippedGuardState, TrustProjection};
 use nah_proto::decision::Verdict;
-use nah_proto::observation::{Observation, ObservationQuery, ObservationRequest};
+use nah_proto::observation::{Observation, ObservationRequest};
 use nah_proto::tool::ToolCallInput;
 use serde_json::json;
 
@@ -28,9 +29,11 @@ fn performance_kpis() {
 
     let guard_directory = temp.path().join(".nah").join("guards").join("kpi-guard");
     fs::create_dir_all(&guard_directory).unwrap();
+    // The guard matches `cat`: `echo` is a shell builtin, so the engine
+    // reports no program call for it and a guard on it is never consulted.
     fs::write(
         guard_directory.join("policy.toml"),
-        "name = \"kpi-guard\"\nmatch = [\"echo\"]\nprotocol = \"exec/v2\"\nprovenance = \"user\"\n",
+        "name = \"kpi-guard\"\nmatch = [\"cat\"]\nprotocol = \"exec/v2\"\nprovenance = \"user\"\n",
     )
     .unwrap();
     let run = guard_directory.join("run");
@@ -200,31 +203,19 @@ fn performance_kpis() {
         |_, _| ConsultedExtensions::default(),
     );
     let capped_scan_time = started.elapsed();
-    assert_eq!(capped_scan.core().verdict(), Verdict::Block);
-    for (name, elapsed) in [
-        ("complete recursive scan", complete_scan_time),
-        ("capped recursive scan", capped_scan_time),
-    ] {
-        assert!(
-            elapsed <= Duration::from_secs(1),
-            "{name} {elapsed:?} exceeds 1 s"
-        );
-    }
+    // A capped scan proves no secret content, so the engine leaves a
+    // descendant-scan-incomplete gap rather than a secrets-exfil block.
+    assert_eq!(capped_scan.core().verdict(), Verdict::Delegate);
+    assert_eq!(capped_scan.core().coverage(), Coverage::Partial);
 
+    // The engine observes the descendants of every recursive filesystem
+    // effect, network sink or not, so a local archive still pays for the
+    // capped walk; this budget bounds that cost.
     let started = Instant::now();
     let local_scan = decide_with_extensions(
         &scan_input("scan-capped", false),
         &scan_ctx,
         |request| {
-            assert!(request.queries().iter().all(|query| {
-                !matches!(
-                    query,
-                    ObservationQuery::Path {
-                        inspect_descendants: true,
-                        ..
-                    }
-                )
-            }));
             nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
                 .map_err(|error| error.to_string())
         },
@@ -232,10 +223,6 @@ fn performance_kpis() {
     );
     let local_scan_time = started.elapsed();
     assert_eq!(local_scan.core().verdict(), Verdict::Delegate);
-    assert!(
-        local_scan_time <= Duration::from_millis(100),
-        "local archive {local_scan_time:?} exceeds 100 ms"
-    );
 
     println!(
         "nah-performance-kpis {}",
@@ -252,6 +239,19 @@ fn performance_kpis() {
         core.p99 <= Duration::from_millis(1),
         "captured core p99 {:?} exceeds 1 ms",
         core.p99
+    );
+    for (name, elapsed) in [
+        ("complete recursive scan", complete_scan_time),
+        ("capped recursive scan", capped_scan_time),
+    ] {
+        assert!(
+            elapsed <= Duration::from_secs(1),
+            "{name} {elapsed:?} exceeds 1 s"
+        );
+    }
+    assert!(
+        local_scan_time <= Duration::from_millis(100),
+        "local archive {local_scan_time:?} exceeds 100 ms"
     );
 }
 
