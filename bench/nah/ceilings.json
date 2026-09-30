@@ -10,7 +10,7 @@
   },
   "per_guard": {
     "(structural)": {
-      "explained_partial": 163,
+      "explained_partial": 166,
       "missing_effect": 2,
       "missing_flow": 0
     },
@@ -93,7 +93,7 @@
       "missing_flow": 0
     },
     "fs-system-tree": {
-      "explained_partial": 6,
+      "explained_partial": 8,
       "missing_effect": 0,
       "missing_flow": 0
     },

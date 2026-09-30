@@ -27619,6 +27619,364 @@
       ]
     },
     {
+      "id": "windows.fs-home.git-bash-home-drive-path-over-userprofile",
+      "guard": "fs-home",
+      "derivation": "Git Bash takes HOME from HOMEDRIVE and HOMEPATH before USERPROFILE, so `rm -rf \"$HOME\"` deletes the fixture home C:/Users/test.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "C:/Users/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.fs-home.git-bash-home-userprofile-without-homepath",
+      "guard": "fs-home",
+      "derivation": "With HOMEPATH unset Git Bash takes HOME from USERPROFILE, so `rm -rf \"$HOME\"` deletes the fixture home C:/Users/test.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "C:/Users/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.fs-home.rm-home-variable",
+      "guard": "fs-home",
+      "derivation": "'rm -rf \"$HOME\"' deletes the fixture home directory",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "C:/Users/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.fs-home.rm-tilde",
+      "guard": "fs-home",
+      "derivation": "'rm -rf ~' deletes the fixture home directory",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "C:/Users/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.fs-system-tree.git-bash-home-drive-path-over-userprofile",
+      "guard": "fs-system-tree",
+      "derivation": "Git Bash takes HOME (C:/Users/test) from HOMEDRIVE and HOMEPATH before USERPROFILE, so `\"$HOME/../../Windows\"` deletes C:/Windows.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "C:/Windows"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.fs-system-tree.git-bash-home-sources-all-unset",
+      "guard": "fs-system-tree",
+      "derivation": "With every home source unset Git Bash leaves HOME unset, so `\"$HOME/../..\"` names / and the command deletes it.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.fs-system-tree.git-bash-home-symbolic-homedrive-conditional",
+      "guard": "fs-system-tree",
+      "derivation": "Git Bash sets HOME from the set home source, so `${HOME:+rm}` runs `rm -rf C:/Windows`; with that source's value unknown the analysis keeps HOME unset and plans no deletion, the 1.6.1 gap recorded as expected-fail in corpus/TRIAGE.md.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "C:/Windows"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.fs-system-tree.git-bash-home-symbolic-userprofile-conditional",
+      "guard": "fs-system-tree",
+      "derivation": "Git Bash sets HOME from the set home source, so `${HOME:+rm}` runs `rm -rf C:/Windows`; with that source's value unknown the analysis keeps HOME unset and plans no deletion, the 1.6.1 gap recorded as expected-fail in corpus/TRIAGE.md.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "C:/Windows"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.fs-system-tree.git-bash-home-symbolic-userprofile-root",
+      "guard": "fs-system-tree",
+      "derivation": "With USERPROFILE's value unknown the analysis keeps HOME unset, as the release base does, so `\"$HOME/../..\"` names / and the command deletes it.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.fs-system-tree.host-shell-posix-root",
+      "guard": "fs-system-tree",
+      "derivation": "guard blocks destruction of a system tree; 'rm -rf /' deletes /",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.fs-system-tree.terminal-posix-root",
+      "guard": "fs-system-tree",
+      "derivation": "command performs the destructive filesystem operation named by the guard",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.fs-system-tree.terminal-root-entries",
+      "guard": "fs-system-tree",
+      "derivation": "command performs the destructive filesystem operation named by the guard",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/*"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.git-clean-force.short-root",
+      "guard": "git-clean-force",
+      "derivation": "'git clean -f' discards untracked worktree files",
+      "require": [
+        {
+          "op": "git.worktree_discard",
+          "resource": {
+            "eq": "git:worktree=\"fs:C:/workspace/project\";git_dir=null;pathspec=\"fs:.\""
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.git-force-push.terminal-posix-git",
+      "guard": "git-force-push",
+      "derivation": "tmux runs `/usr/bin/git push --force origin main` in a new session; the push request is forced to main without a lease in the session's working directory.",
+      "require": [
+        {
+          "op": "git.push_request",
+          "resource": {
+            "eq": "git:worktree=\"<terminal_cwd>\";git_dir=null;pathspec=null"
+          },
+          "attributes": {
+            "lease_requested": false,
+            "controls_complete": true,
+            "dry_run": false,
+            "explicit_force": true,
+            "updated_destinations": [
+              "main"
+            ],
+            "deleted_destinations": [],
+            "unleased_forced_destinations": [
+              "main"
+            ],
+            "leased_destinations": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.git-hard-reset.hard",
+      "guard": "git-hard-reset",
+      "derivation": "'git reset --hard' discards the worktree",
+      "require": [
+        {
+          "op": "git.worktree_discard",
+          "resource": {
+            "eq": "git:worktree=\"fs:C:/workspace/project\";git_dir=null;pathspec=null"
+          }
+        },
+        {
+          "op": "git.reset_request",
+          "resource": {
+            "eq": "git:worktree=\"fs:C:/workspace/project\";git_dir=null;pathspec=null"
+          },
+          "attributes": {
+            "reset_mode": "hard",
+            "dry_run": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.git-rewrite-force.filter-repo-force-path",
+      "guard": "git-rewrite-force",
+      "derivation": "`git filter-repo --force --path src/` runs `git filter-repo` with its force flag, bypassing the tool's own safety check before rewriting history",
+      "require": [
+        {
+          "op": "git.history_rewrite",
+          "resource": {
+            "eq": "git:worktree=\"fs:C:/workspace/project\";git_dir=null;pathspec=null"
+          },
+          "attributes": {
+            "force": true
+          }
+        },
+        {
+          "op": "git.history_rewrite_request",
+          "resource": {
+            "eq": "git:worktree=\"fs:C:/workspace/project\";git_dir=null;pathspec=null"
+          },
+          "attributes": {
+            "history_operation": "filter-repo",
+            "force": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.git-rewrite-force.sh-c-filter-repo",
+      "guard": "git-rewrite-force",
+      "derivation": "`sh -c 'git filter-repo --force --invert-paths --path secrets.txt'` runs `git filter-repo` with its force flag, bypassing the tool's own safety check before rewriting history",
+      "require": [
+        {
+          "op": "git.history_rewrite",
+          "resource": {
+            "eq": "git:worktree=\"fs:C:/workspace/project\";git_dir=null;pathspec=null"
+          },
+          "attributes": {
+            "force": true
+          }
+        },
+        {
+          "op": "git.history_rewrite_request",
+          "resource": {
+            "eq": "git:worktree=\"fs:C:/workspace/project\";git_dir=null;pathspec=null"
+          },
+          "attributes": {
+            "history_operation": "filter-repo",
+            "force": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.git-worktree-discard.restore-root",
+      "guard": "git-worktree-discard",
+      "derivation": "'git restore .' discards every tracked worktree change",
+      "require": [
+        {
+          "op": "git.worktree_discard",
+          "resource": {
+            "eq": "git:worktree=\"fs:C:/workspace/project\";git_dir=null;pathspec=\"fs:.\""
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.nah-self-protection.posix-path-alias-nap",
+      "guard": null,
+      "derivation": "The host observes the helper executable to be Nah, so its `nap` writes Nah's nap state; the engine has no model for an executable it identifies only by an unknown name and reports that gap.",
+      "require": [],
+      "require_boundary": [
+        {
+          "reason": "unmodeled_command",
+          "detail_contains": "helper"
+        }
+      ]
+    },
+    {
+      "id": "windows.nah-self-protection.posix-path-alias-trust",
+      "guard": null,
+      "derivation": "The host observes the helper executable to be Nah, so its `trust` writes Nah's trust state; the engine has no model for an executable it identifies only by an unknown name and reports that gap.",
+      "require": [],
+      "require_boundary": [
+        {
+          "reason": "unmodeled_command",
+          "detail_contains": "helper"
+        }
+      ]
+    },
+    {
+      "id": "windows.nah-self-protection.posix-path-nap-missing",
+      "guard": null,
+      "derivation": "'/usr/bin/nah nap' is Nah by name, so it writes the nap state under the fixture home",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "C:/Users/test/.nah/nap.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows.nah-self-protection.root-relative-alias-nap",
+      "guard": null,
+      "derivation": "The host observes the helper executable to be Nah, so its `nap` writes Nah's nap state; the engine has no model for an executable it identifies only by an unknown name and reports that gap.",
+      "require": [],
+      "require_boundary": [
+        {
+          "reason": "unmodeled_command",
+          "detail_contains": "helper"
+        }
+      ]
+    },
+    {
+      "id": "windows.nah-self-protection.terminal-posix-path-nap",
+      "guard": null,
+      "derivation": "The reached `nah nap` writes nah's nap state. The payload runs in another terminal session, so its state paths stay relative to that session's unknown HOME.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "join($HOME, /.nah/nap.json)"
+          }
+        },
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "join($HOME, /.nah/nap.lock)"
+          }
+        },
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "join($HOME, /.nah/nap.key)"
+          }
+        }
+      ]
+    },
+    {
       "id": "compound.luajit-os-execute",
       "guard": "fs-system-tree",
       "derivation": "command performs the destructive filesystem operation named by the guard",
