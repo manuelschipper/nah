@@ -67,12 +67,12 @@ jobs:
           PY
       - name: Release KPIs
         run: |
-          cargo test --release -p nah-cli --test suite latency::captured_read_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::captured_bash_pipeline_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::captured_ambient_preflight_p99_is_below_one_millisecond --locked -- --ignored --nocapture --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::captured_python_rmtree_p99_is_below_one_millisecond --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::a_cold_captured_git_force_push_decision_is_below_two_milliseconds --locked -- --ignored --nocapture --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::captured_git_force_push_p99_is_below_one_millisecond --locked -- --ignored --nocapture --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_read_p99_is_within_budget --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_bash_pipeline_p99_is_within_budget --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_ambient_preflight_p99_is_within_budget --locked -- --ignored --nocapture --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_python_rmtree_p99_is_within_budget --locked -- --ignored --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::a_cold_captured_git_force_push_decision_is_within_budget --locked -- --ignored --nocapture --test-threads=1
+          cargo test --release -p nah-cli --test suite latency::captured_git_force_push_p99_is_within_budget --locked -- --ignored --nocapture --test-threads=1
           cargo test --release -p nah-cli --lib pipeline::performance_tests::performance_kpis --locked -- --ignored --nocapture --test-threads=1
 
   windows:
