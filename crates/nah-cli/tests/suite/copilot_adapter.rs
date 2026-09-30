@@ -118,7 +118,7 @@ fn adapter_maps_cli_and_vscode_decisions() {
             cli_payload(
                 &project,
                 "powershell",
-                json!({"command":"Remove-Item -LiteralPath C:\\ -Recurse -Force"}),
+                json!({"command":"Remove-Item -LiteralPath C:\\Windows -Recurse -Force"}),
             ),
         );
         assert!(!powershell.stdout.is_empty(), "{powershell:?}");
@@ -210,7 +210,7 @@ fn independent_guards_still_block_when_self_protection_is_unavailable() {
     let (tool, command) = if cfg!(windows) {
         (
             "powershell",
-            "Remove-Item -LiteralPath C:\\ -Recurse -Force",
+            "Remove-Item -LiteralPath C:\\Windows -Recurse -Force",
         )
     } else {
         ("bash", "rm -rf /")
