@@ -184,3 +184,4 @@
 {"v":1,"id":"windows.nah-self-protection.posix-path-alias-nap","command":"/usr/bin/helper nap","ctx_fixture":"default-windows-v1","observation_fixture":"project-windows-v1","expected":{"verdict":"block"}}
 {"v":1,"id":"windows.nah-self-protection.root-relative-alias-nap","command":"/tools/helper nap","ctx_fixture":"default-windows-v1","observation_fixture":"project-windows-v1","expected":{"verdict":"block"}}
 {"v":1,"id":"windows.nah-self-protection.posix-path-alias-trust","command":"/usr/bin/helper trust .","ctx_fixture":"default-windows-v1","observation_fixture":"project-windows-v1","expected":{"verdict":"block"}}
+{"v":1,"id":"windows.fs-system-tree.git-bash-home-sources-all-unset","command":"env -u HOME -u HOMEDRIVE -u HOMEPATH -u USERPROFILE bash -c 'rm -rf \"$HOME/../..\"'","ctx_fixture":"default-windows-v1","observation_fixture":"project-windows-v1","expected":{"verdict":"block","guard":"fs-system-tree"}}
