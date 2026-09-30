@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use super::support::{request, value};
 use crate::fulfill;
 use nah_proto::ctx::SchemaVersion;
@@ -5,7 +7,6 @@ use nah_proto::observation::{
     ObservationQuery, ObservationRequest, ObservationValue, Observed, UserHomeObservation,
 };
 
-#[cfg(unix)]
 #[test]
 fn user_home_answers_from_the_account_database() {
     let temp = tempfile::tempdir().expect("tempdir");

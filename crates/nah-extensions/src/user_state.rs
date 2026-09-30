@@ -1,5 +1,6 @@
 //! Paths under the user's `.nah` directory and crash-safe renames into them.
 
+#[cfg(unix)]
 use std::fs::File;
 use std::path::{Path, PathBuf};
 

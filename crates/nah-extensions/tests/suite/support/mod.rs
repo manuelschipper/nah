@@ -4,6 +4,7 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process::{Command, Stdio};
 
 use nah_extensions::{
@@ -20,6 +21,8 @@ use nah_proto::observation::{
 
 pub(crate) struct Fixture {
     _temp: tempfile::TempDir,
+    // Read only by the Unix-only suites.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) home: AbsolutePath,
     pub(crate) catalog: nah_extensions::ActiveExtensionCatalog,
     pub(crate) ctx: Ctx,
@@ -72,6 +75,7 @@ impl Fixture {
     }
 }
 
+#[cfg(unix)]
 pub(crate) fn finish(
     temp: tempfile::TempDir,
     home: AbsolutePath,
@@ -88,6 +92,7 @@ pub(crate) fn finish(
 /// spend the consultation's `EXEC_TIMEOUT` queued behind it. The throwaway
 /// working directory keeps a fixture's cwd-relative side effects (counters,
 /// marker files) out of the guard directory the test inspects.
+#[cfg(unix)]
 pub(crate) fn warm_up(run: &Path) {
     let cwd = tempfile::tempdir().unwrap();
     let _ = Command::new(run)
