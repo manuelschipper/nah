@@ -91,9 +91,7 @@ and **host power and service-stop actions**.
 Run `nah docs guards` to see the full built-in catalog, with each guard's
 exact scope and three tested examples, plus current custom guard status.
 
-## How it compares.
-
-nah models what every call does, then blocks the disasters.
+## How it compares against similar tools
 
 | | nah | dcg | cc-safety-net |
 | --- | :---: | :---: | :---: |
