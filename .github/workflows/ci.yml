@@ -73,6 +73,10 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    env:
+      # .cargo/rustc-wrapper.sh cannot run on Windows; apply its path remap directly.
+      RUSTC_WRAPPER: ""
+      RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=.
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:

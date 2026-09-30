@@ -38,6 +38,14 @@ jobs:
       - name: Add target
         run: rustup target add ${{ matrix.target }}
 
+      # .cargo/rustc-wrapper.sh cannot run on Windows; apply its path remap directly.
+      - name: Replace the rustc wrapper on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=--remap-path-prefix=$GITHUB_WORKSPACE=." >> "$GITHUB_ENV"
+
       - name: Build
         run: cargo build --release --locked -p nah-cli --target ${{ matrix.target }}
 
