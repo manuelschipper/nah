@@ -10,6 +10,7 @@
 <p align="center">
   <a href="https://nahguard.ai/">nahguard.ai</a> &bull;
   <a href="#it-knows-a-disaster-when-it-sees-one">what it blocks</a> &bull;
+  <a href="#how-it-compares">how it compares</a> &bull;
   <a href="#deterministic-programs-not-llm-judges">how it decides</a> &bull;
   <a href="#install">install</a> &bull;
   <a href="#extensions-are-just-programs-you-build">extend</a> &bull;
@@ -23,36 +24,12 @@
 
 nah is a guard that sits in your coding agent's hook path and reads tool
 calls before they run. It blocks the calls it can prove are disasters and
-leaves everything else to your runtime. 
+never approves anything: everything else goes to your runtime's normal
+permissions.
 
 nah is just one Rust binary: a verdict is
 deterministic and needs no LLM. 
 Extensions are just programs. Point your agent to nah's docs and ask it to build a custom nah guard.
-
-## How it compares.
-
-47 guards. 29 on by default. Zero approvals.
-nah models what every call does, then blocks the disasters. It never says yes on your behalf.
-
-| | nah | dcg | cc-safety-net |
-| --- | :---: | :---: | :---: |
-| Stops destructive Git: hard resets, force pushes, git clean | ✓ | ✓ | ✓ |
-| Stops wiping root, home or your project | ✓ | ✓ | ✓ |
-| Stops downloaded or decoded code from running (curl \| bash) | ✓ | ✓ | ✓ |
-| Understands inline scripts (python -c, node -e, perl -e) | ✓ | ✓ | partial |
-| Deterministic and local, no LLM | ✓ | ✓ | ✓ |
-| One set of guards for shell, code and the agent's file tools | ✓ | ✗ | partial |
-| Reads the scripts, Makefiles and npm scripts it's about to run | ✓ | ✗ | ✗ |
-| Tracks secrets all the way to the network | ✓ | ✗ | ✗ |
-| Your agent can't switch it off, on by default | ✓ | ✗ | ✗ |
-| Extensions are real programs, in any language | ✓ | ✗ | ✗ |
-| MIT, no strings attached | ✓ | ✗ | ✓ |
-
-<sub>dcg v0.14.4 and cc-safety-net 2.4.11, default settings, tested 2026-09-27.</sub>
-
-### Already using auto mode?
-
-Claude Code's auto mode and Codex's auto-review use LLM classifiers. They're great at flagging unsafe commands, but far from perfect: Anthropic's [own evaluation](https://www.anthropic.com/engineering/claude-code-auto-mode) found its classifier misses 17% of real overeager actions. nah adds structural protection underneath them, and it plays well with them: its hook runs before the classifier. nah never approves anything; it only blocks. Whatever nah doesn't catch goes on to auto mode or your permission layer, just as it did before.
 
 ## It knows a disaster when it sees one.
 
@@ -113,6 +90,30 @@ and **host power and service-stop actions**.
 
 Run `nah docs guards` to see the full built-in catalog, with each guard's
 exact scope and three tested examples, plus current custom guard status.
+
+## How it compares.
+
+nah models what every call does, then blocks the disasters.
+
+| | nah | dcg | cc-safety-net |
+| --- | :---: | :---: | :---: |
+| Stops destructive Git: hard resets, force pushes, git clean | ✓ | ✓ | ✓ |
+| Stops wiping root, home or your project | ✓ | ✓ | ✓ |
+| Stops downloaded or decoded code from running (curl \| bash) | ✓ | ✓ | ✓ |
+| Understands inline scripts (python -c, node -e, perl -e) | ✓ | ✓ | partial |
+| Deterministic and local, no LLM | ✓ | ✓ | ✓ |
+| One set of guards for shell, code and the agent's file tools | ✓ | ✗ | partial |
+| Reads the scripts, Makefiles and npm scripts it's about to run | ✓ | ✗ | ✗ |
+| Tracks secrets all the way to the network | ✓ | ✗ | ✗ |
+| Your agent can't switch it off, on by default | ✓ | ✗ | ✗ |
+| Extensions are real programs, in any language | ✓ | ✗ | ✗ |
+| MIT, no strings attached | ✓ | ✗ | ✓ |
+
+<sub>dcg v0.14.4 and cc-safety-net 2.4.11, default settings, tested 2026-09-27.</sub>
+
+### Already using auto mode?
+
+Claude Code's auto mode and Codex's auto-review use LLM classifiers. They're great at flagging unsafe commands, but far from perfect: Anthropic's [own evaluation](https://www.anthropic.com/engineering/claude-code-auto-mode) found its classifier misses 17% of real overeager actions. nah adds structural protection underneath them, and it plays well with them: its hook runs before the classifier. Whatever nah doesn't catch goes on to auto mode or your permission layer, just as it did before.
 
 ## Deterministic programs, not LLM judges.
 
