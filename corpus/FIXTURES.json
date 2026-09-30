@@ -4008,6 +4008,22 @@
           "realpath": "C:\\",
           "requested": "/",
           "resolved": "C:\\"
+        },
+        {
+          "exists": true,
+          "kind": "symlink",
+          "realpath": "C:\\Users\\test\\.local\\bin\\nah.exe",
+          "requested": "/usr/bin/helper",
+          "resolved": "C:\\usr\\bin\\helper",
+          "target_kind": "file"
+        },
+        {
+          "exists": true,
+          "kind": "symlink",
+          "realpath": "C:\\Users\\test\\.local\\bin\\nah.exe",
+          "requested": "/tools/helper",
+          "resolved": "C:\\tools\\helper",
+          "target_kind": "file"
         }
       ],
       "roots": [
