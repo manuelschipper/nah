@@ -1,10 +1,11 @@
-use super::support::{init_repo, request, value};
+use super::support::{canonical, init_repo, request, value};
 use crate::fulfill;
 #[cfg(windows)]
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::observation::ObservationFailure;
 use nah_proto::observation::{ObservationValue, Observed, PathKind};
 use std::fs;
+use std::path::Path;
 
 #[test]
 fn multiply_linked_files_keep_entry_identity_and_kind() {
@@ -25,7 +26,6 @@ fn multiply_linked_files_keep_entry_identity_and_kind() {
     } else {
         &[("alias", PathKind::File, None)]
     };
-    let canonical_repo = repo.canonicalize().expect("canonical repo");
     for (requested, kind, target_kind) in requested {
         let observation = fulfill(&request(&repo, &[("path", requested)])).expect("observation");
         let ObservationValue::Path {
@@ -36,7 +36,10 @@ fn multiply_linked_files_keep_entry_identity_and_kind() {
         };
         assert_eq!(
             path.resolved().as_str(),
-            canonical_repo.join(requested).to_str().unwrap()
+            Path::new(&canonical(&repo))
+                .join(requested)
+                .to_str()
+                .unwrap()
         );
         assert_eq!(path.kind(), *kind);
         assert_eq!(path.realpath(), None);
