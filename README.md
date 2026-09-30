@@ -52,7 +52,7 @@ nah models what every call does, then blocks the disasters. It never says yes on
 
 ### Already using auto mode?
 
-Claude Code's auto mode and Codex's auto-review use LLM classifiers. They're great at flagging unsafe commands, but far from perfect: Anthropic's own evaluation found its classifier misses 17% of real overeager actions. nah adds structural protection underneath them, and it plays well with them: its hook runs before the classifier. nah never approves anything; it only blocks. Whatever nah doesn't catch goes on to auto mode or your permission layer, just as it did before.
+Claude Code's auto mode and Codex's auto-review use LLM classifiers. They're great at flagging unsafe commands, but far from perfect: Anthropic's [own evaluation](https://www.anthropic.com/engineering/claude-code-auto-mode) found its classifier misses 17% of real overeager actions. nah adds structural protection underneath them, and it plays well with them: its hook runs before the classifier. nah never approves anything; it only blocks. Whatever nah doesn't catch goes on to auto mode or your permission layer, just as it did before.
 
 ## It knows a disaster when it sees one.
 
