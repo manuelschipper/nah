@@ -105941,6 +105941,84 @@
           }
         }
       ]
+    },
+    {
+      "id": "net-lookalike-host.pip-editable-separated",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the -e value's repository",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b#egg=b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-editable-attached",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the repository of the -e value attached to the option",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b#egg=b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-editable-long",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the --editable value's repository",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b#egg=b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-editable-long-equals",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the repository of the --editable= value",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b#egg=b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-named-direct-url",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the named requirement's git+https direct reference",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-named-direct-url-unspaced",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the named requirement's git+https direct reference written without spaces",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
     }
   ]
 }
