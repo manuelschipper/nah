@@ -239,6 +239,14 @@ because the owner accepted the conservative rule over a narrower model.
   `print(file=)`, `os.write(f.fileno())`, `mmap`), so it cannot establish that
   the protected file is never written. Reading Nah's files through an update
   mode is not a workflow worth that gap.
+- `secrets-exfil.python-function-conditional-nonempty-loop-then-print-key-upload-kept-conservative`
+  — inside `if os.getenv("DEBUG"):`, `for x in ["ping"]: pass` always rebinds
+  `x`, so the following `print(x)` in the same branch prints only `ping`. A
+  function summary's printable locals have no branch join: under a runtime
+  condition the loop's exit keeps the prior secret as possible, because some
+  conditions (try bodies, guard regions) have no join that would restore it
+  on the paths that skip the branch. Prints inside the loop body, and after a
+  nonempty literal loop outside any condition, are exact.
 
 ## Documented gaps
 

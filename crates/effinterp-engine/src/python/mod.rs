@@ -343,9 +343,9 @@ fn print_emitted(call: &ast::ExprCall) -> Vec<&Expr> {
 /// The call spans and local names an expression's value is produced by, as
 /// the def-use walk reads it: the call itself, the receiver call a wrapper
 /// such as `open(p).read()` passes through, a response's `.text`/`.content`,
-/// and the elements of a literal container. A call to a local helper
-/// (`is_local`) is not on the spine: what it returns is not tracked, and the
-/// reads inside it need not be what it returns.
+/// and the elements of a literal container. A call to a local function or
+/// method (`is_local`) is not on the spine: what it returns is not tracked,
+/// and the reads inside it need not be what it returns.
 fn value_spine<'e>(
     expr: &'e Expr,
     is_local: &dyn Fn(&Expr) -> bool,
@@ -384,6 +384,55 @@ fn value_spine<'e>(
         Expr::Starred(starred) => value_spine(&starred.value, is_local, spans, names),
         _ => {}
     }
+}
+
+/// A literal that iterates at least once: a nonempty string or a container
+/// display with at least one element and no unpacking.
+fn literal_nonempty(iter: &Expr) -> bool {
+    let elements = match iter {
+        Expr::List(list) => &list.elts,
+        Expr::Tuple(tuple) => &tuple.elts,
+        Expr::Set(set) => &set.elts,
+        Expr::Dict(dict) => return dict.keys.iter().any(Option::is_some),
+        Expr::Constant(constant) => {
+            return matches!(&constant.value, ast::Constant::Str(text) if !text.is_empty());
+        }
+        _ => return false,
+    };
+    !elements.is_empty()
+        && !elements
+            .iter()
+            .any(|element| matches!(element, Expr::Starred(_)))
+}
+
+/// The names of a `a, b = p, q` target each paired with its element of a
+/// literal value of the same length, when neither side unpacks with `*`.
+fn literal_unpack<'v>(target: &Expr, value: &'v Expr) -> Vec<(String, &'v Expr)> {
+    let names = match target {
+        Expr::Tuple(tuple) => &tuple.elts,
+        Expr::List(list) => &list.elts,
+        _ => return Vec::new(),
+    };
+    let elements = match value {
+        Expr::Tuple(tuple) => &tuple.elts,
+        Expr::List(list) => &list.elts,
+        _ => return Vec::new(),
+    };
+    if names.len() != elements.len()
+        || elements
+            .iter()
+            .any(|element| matches!(element, Expr::Starred(_)))
+    {
+        return Vec::new();
+    }
+    names
+        .iter()
+        .zip(elements)
+        .filter_map(|(name, element)| match name {
+            Expr::Name(name) => Some((name.id.to_string(), element)),
+            _ => None,
+        })
+        .collect()
 }
 
 fn partition_top_level(body: &[Stmt]) -> (Vec<Stmt>, Vec<Stmt>) {
@@ -3091,22 +3140,21 @@ impl Walker<'_, '_> {
     fn walk_for(&mut self, target: &Expr, iter: &Expr, body: &[Stmt], orelse: &[Stmt]) {
         let before = self.capture.as_ref().map(|capture| capture.effects.len());
         self.walk_deferred(iter);
-        // In a summarized body the loop target holds an element of `iter`;
-        // after the loop it may still hold its prior value.
-        let element = before.map(|before| self.carried_effects(iter, before));
-        let prior_printed: Vec<(String, Vec<u32>)> = self
-            .capture
-            .as_ref()
-            .map(|capture| {
-                rebound_target_names(target)
-                    .into_iter()
-                    .filter_map(|name| {
-                        let held = capture.print_vars.get(&name)?.clone();
-                        Some((name, held))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        // In a summarized body a single loop target holds an element of
+        // `iter`: an item of a list, a line of a file, a key of a dict.
+        // Unpacked targets are not projected.
+        let element = before.map(|before| match (target, iter) {
+            (Expr::Name(_), Expr::Dict(dict)) => dict
+                .keys
+                .iter()
+                .flatten()
+                .flat_map(|key| self.carried_effects(key, before))
+                .collect(),
+            (Expr::Name(_), _) => self.carried_effects(iter, before),
+            _ => Vec::new(),
+        });
+        let rebound = rebound_target_names(target);
+        let prior_printed = self.printed_by(&rebound);
         let path_iter_resource = self.path_iter_resource(iter);
         let static_values = self.static_iter_resources(iter);
         let static_instances = self.static_iter_instances(iter);
@@ -3147,9 +3195,7 @@ impl Walker<'_, '_> {
             self.invalidate_rebound_target(target);
         }
         if let Some(element) = element {
-            for name in rebound_target_names(target) {
-                self.capture_assign(&name, element.clone());
-            }
+            self.rebind_printed(&rebound, &element);
         }
 
         if let Some(name) = &loop_name
@@ -3212,13 +3258,11 @@ impl Walker<'_, '_> {
                 self.deferred_vars.insert(loop_name, prior);
             }
         }
-        if let Some(capture) = self.capture.as_mut() {
-            for (name, held) in prior_printed {
-                let printed = capture.print_vars.entry(name).or_default();
-                printed.extend(held);
-                printed.sort_unstable();
-                printed.dedup();
-            }
+        // After the loop the target may still hold its prior value, unless a
+        // nonempty literal proves the loop ran and no enclosing branch can be
+        // skipped.
+        if !literal_nonempty(iter) || self.capture_conditional() {
+            self.restore_printed(prior_printed);
         }
     }
 
@@ -3235,9 +3279,7 @@ impl Walker<'_, '_> {
         };
         self.walk_assignment_target(target);
         if self.capture.is_some() {
-            for name in rebound_target_names(target) {
-                self.capture_assign(&name, Vec::new());
-            }
+            self.rebind_printed(&rebound_target_names(target), &[]);
         }
         let Expr::Name(target) = target else {
             self.invalidate_rebound_target(target);
@@ -3315,6 +3357,12 @@ impl Walker<'_, '_> {
     }
 
     fn walk_with(&mut self, items: &[ast::WithItem], body: &[Stmt]) {
+        let rebound: Vec<_> = items
+            .iter()
+            .filter_map(|item| item.optional_vars.as_deref())
+            .flat_map(rebound_target_names)
+            .collect();
+        let prior_printed = self.printed_by(&rebound);
         let mut contexts = Vec::new();
         for item in items {
             // Entering a context does not consume a filesystem iterator.
@@ -3386,6 +3434,10 @@ impl Walker<'_, '_> {
         self.walk_body(body);
         for (class, receiver, span) in contexts.into_iter().rev() {
             self.apply_context_method(&class, "__exit__", &receiver, span);
+        }
+        // Paths skipping an enclosing branch keep the targets' prior values.
+        if self.capture_conditional() {
+            self.restore_printed(prior_printed);
         }
     }
 
@@ -4510,11 +4562,29 @@ impl Walker<'_, '_> {
     /// effects, then bind (or drop) the target name's producer stage.
     fn flow_assign(&mut self, targets: &[Expr], value: &Expr) {
         if self.capture.is_some() {
-            // `x = y = v` binds `v` to both names; an unpacked name may hold
-            // any part of `v`.
-            let effects = self.capture_value(value);
-            for name in targets.iter().flat_map(rebound_target_names) {
-                self.capture_assign(&name, effects.clone());
+            // `x = y = v` binds `v` to both names. Unpacking a literal
+            // `a, b = p, q` binds each name its element; other unpacking is
+            // not projected.
+            let before = self
+                .capture
+                .as_ref()
+                .map_or(0, |capture| capture.effects.len());
+            self.walk_expr(value);
+            for target in targets {
+                if let Expr::Name(name) = target {
+                    let effects = self.carried_effects(value, before);
+                    self.capture_assign(name.id.as_str(), effects);
+                    continue;
+                }
+                let projected = literal_unpack(target, value);
+                for name in rebound_target_names(target) {
+                    let effects = projected
+                        .iter()
+                        .find(|(bound, _)| *bound == name)
+                        .map(|(_, element)| self.carried_effects(element, before))
+                        .unwrap_or_default();
+                    self.capture_assign(&name, effects);
+                }
             }
             return;
         }
@@ -4737,7 +4807,11 @@ impl Walker<'_, '_> {
                 .iter()
                 .chain(call.keywords.iter().map(|keyword| &keyword.value))
             {
-                if emitted.iter().any(|value| std::ptr::eq(*value, argument)) {
+                // What a local helper or method returns is not tracked, and
+                // the reads inside it need not be what it returns.
+                let local_call = matches!(argument, Expr::Call(inner)
+                    if self.is_local_callable(&inner.func));
+                if emitted.iter().any(|value| std::ptr::eq(*value, argument)) && !local_call {
                     self.collect_flow_producers(argument, &mut producers);
                 } else {
                     self.walk_expr(argument);
@@ -4810,7 +4884,12 @@ impl Walker<'_, '_> {
     fn carried_effects(&self, expr: &Expr, before: usize) -> Vec<u32> {
         let mut spans = Vec::new();
         let mut names = Vec::new();
-        value_spine(expr, &|func| self.is_local_fn(func), &mut spans, &mut names);
+        value_spine(
+            expr,
+            &|func| self.is_local_callable(func),
+            &mut spans,
+            &mut names,
+        );
         let Some(capture) = self.capture.as_ref() else {
             return Vec::new();
         };
@@ -4836,6 +4915,58 @@ impl Walker<'_, '_> {
         matches!(func, Expr::Name(n)
             if self.imports.resolve_callee(func).is_none()
                 && self.defs.iter().any(|d| d.name == n.id.as_str()))
+    }
+
+    /// A call to a function, method or class this file defines, including
+    /// one [`Self::local_callee`] resolves through a receiver.
+    fn is_local_callable(&self, func: &Expr) -> bool {
+        self.is_local_fn(func) || self.local_callee(func).is_some()
+    }
+
+    /// Whether a branch condition of the summarized body is active here.
+    fn capture_conditional(&self) -> bool {
+        self.builder
+            .condition_since(self.capture_condition_depth)
+            .is_some()
+    }
+
+    /// The effects each of `names` holds in the summarized body.
+    fn printed_by(&self, names: &[String]) -> Vec<(String, Vec<u32>)> {
+        let Some(capture) = self.capture.as_ref() else {
+            return Vec::new();
+        };
+        names
+            .iter()
+            .filter_map(|name| Some((name.clone(), capture.print_vars.get(name)?.clone())))
+            .collect()
+    }
+
+    /// Bind `names` to exactly `effects` for a body that runs only after
+    /// the binding, such as a loop or `with` body, whatever branch encloses it.
+    fn rebind_printed(&mut self, names: &[String], effects: &[u32]) {
+        let Some(capture) = self.capture.as_mut() else {
+            return;
+        };
+        for name in names {
+            if effects.is_empty() {
+                capture.print_vars.remove(name);
+            } else {
+                capture.print_vars.insert(name.clone(), effects.to_vec());
+            }
+        }
+    }
+
+    /// Add back what names held before a binding that may have been skipped.
+    fn restore_printed(&mut self, prior: Vec<(String, Vec<u32>)>) {
+        let Some(capture) = self.capture.as_mut() else {
+            return;
+        };
+        for (name, held) in prior {
+            let printed = capture.print_vars.entry(name).or_default();
+            printed.extend(held);
+            printed.sort_unstable();
+            printed.dedup();
+        }
     }
 
     /// Bind a summarized body's local to the effects its assigned value

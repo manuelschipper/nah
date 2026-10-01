@@ -384,7 +384,7 @@ impl Frontend for JsFrontend {
         let entry_condition_depth = builder.condition_depth();
         let mut effects = EffectVisitor {
             condition_site: (0, 0),
-            replaced_console_methods: HashSet::new(),
+            console_replacements: Vec::new(),
             builder,
             nest,
             source_cwd,
@@ -407,7 +407,7 @@ impl Frontend for JsFrontend {
             visiting: HashSet::new(),
             active_bodies: Vec::new(),
             exception_source_states: Vec::new(),
-            exception_regions: 0,
+            exception_regions: Vec::new(),
             return_source_states: Vec::new(),
             return_source_values: Vec::new(),
             return_aggregate_aliases: Vec::new(),
@@ -921,14 +921,34 @@ fn literal_truth(test: &Expression<'_>) -> Option<bool> {
 /// The arguments whose bytes `console.log` prints, a spread's operand
 /// among them. A literal format string drops a `%c` argument as CSS; a
 /// number conversion (`%d`, `%i`, `%f`) keeps whatever digits it holds, so
-/// those arguments still count as printed.
+/// those arguments still count as printed. A spread of a literal array
+/// expands in place; after a spread of unknown length no position is known,
+/// so every later value counts as printed.
 fn console_printed_arguments<'b, 'a>(arguments: &'b [Argument<'a>]) -> Vec<&'b Expression<'a>> {
-    let operand = |argument: &'b Argument<'a>| match argument {
-        Argument::SpreadElement(spread) => Some(&spread.argument),
-        _ => argument.as_expression(),
-    };
+    // Values at known positions (`None` for an array hole), then the
+    // operands past the first spread of unknown length.
+    let mut known = Vec::new();
+    let mut unknown = Vec::new();
+    for argument in arguments {
+        match argument {
+            Argument::SpreadElement(spread) => {
+                if !(unknown.is_empty() && expand_literal_spread(&spread.argument, &mut known)) {
+                    unknown.push(&spread.argument);
+                }
+            }
+            _ => {
+                if let Some(expression) = argument.as_expression() {
+                    if unknown.is_empty() {
+                        known.push(Some(expression));
+                    } else {
+                        unknown.push(expression);
+                    }
+                }
+            }
+        }
+    }
     let mut dropped = HashSet::new();
-    if let Some(Argument::StringLiteral(format)) = arguments.first() {
+    if let Some(Some(Expression::StringLiteral(format))) = known.first() {
         let mut next = 1;
         let mut characters = format.value.chars();
         while let Some(character) = characters.next() {
@@ -944,20 +964,39 @@ fn console_printed_arguments<'b, 'a>(arguments: &'b [Argument<'a>]) -> Vec<&'b E
                 _ => {}
             }
         }
-        // A spread argument shifts which value each specifier consumes.
-        if arguments[..next.min(arguments.len())]
-            .iter()
-            .any(|argument| matches!(argument, Argument::SpreadElement(_)))
-        {
-            dropped.clear();
-        }
     }
-    arguments
-        .iter()
+    known
+        .into_iter()
         .enumerate()
         .filter(|(index, _)| !dropped.contains(index))
-        .filter_map(|(_, argument)| operand(argument))
+        .filter_map(|(_, value)| value)
+        .chain(unknown)
         .collect()
+}
+
+/// Append the values a spread of `expression` passes when it is a literal
+/// array whose length is known; false, appending nothing, otherwise.
+fn expand_literal_spread<'b, 'a>(
+    expression: &'b Expression<'a>,
+    values: &mut Vec<Option<&'b Expression<'a>>>,
+) -> bool {
+    let Expression::ArrayExpression(array) = unparen(expression) else {
+        return false;
+    };
+    let mut expanded = Vec::new();
+    for element in &array.elements {
+        match element {
+            ArrayExpressionElement::SpreadElement(spread) => {
+                if !expand_literal_spread(&spread.argument, &mut expanded) {
+                    return false;
+                }
+            }
+            ArrayExpressionElement::Elision(_) => expanded.push(None),
+            _ => expanded.push(element.as_expression()),
+        }
+    }
+    values.extend(expanded);
+    true
 }
 
 /// What a bare callee name binds to at its call site.
@@ -2295,11 +2334,19 @@ struct Reached {
     callbacks: usize,
 }
 
+/// A replacement of a runtime `console` method and the path state it ran
+/// under: its condition and the enclosing try and catch regions.
+struct ConsoleReplacement {
+    method: String,
+    condition: Option<effinterp_proto::Condition>,
+    regions: Vec<u32>,
+}
+
 struct EffectVisitor<'v, 'a> {
     condition_site: (u32, u32),
-    /// The runtime `console` methods a definite earlier assignment or
-    /// `delete` replaced.
-    replaced_console_methods: HashSet<String>,
+    /// Earlier assignments or `delete`s of a runtime `console` method, each
+    /// with the path state it ran under.
+    console_replacements: Vec<ConsoleReplacement>,
     builder: &'v mut PlanBuilder,
     nest: &'v Nest<'v>,
     source_cwd: Option<&'v str>,
@@ -2334,9 +2381,9 @@ struct EffectVisitor<'v, 'a> {
     active_bodies: Vec<ActiveBody>,
     /// Source-string states reaching explicit throws in the active try block.
     exception_source_states: Vec<Vec<SourceStringState>>,
-    /// Try blocks and catch clauses being walked: a throw may skip or select
-    /// the statements in them.
-    exception_regions: u32,
+    /// Starts of the try blocks and catch clauses being walked, innermost
+    /// last: a throw may skip or select the statements in them.
+    exception_regions: Vec<u32>,
     /// Source-string states reaching returns in each entered function body.
     return_source_states: Vec<Vec<SourceStringState>>,
     /// Source-string values returned by each entered function body.
@@ -3929,9 +3976,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             .map_or(0, std::vec::Vec::len);
         let entry = self.flow_entry();
         self.exception_source_states.push(Vec::new());
-        self.exception_regions += 1;
+        self.exception_regions.push(it.block.span.start);
         self.visit_block_statement(&it.block);
-        self.exception_regions -= 1;
+        self.exception_regions.pop();
         let exception_states = self.exception_source_states.pop().unwrap();
         let try_exit = self.source_string_state();
         let mut catch_exception_states = Vec::new();
@@ -3944,9 +3991,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             if it.finalizer.is_some() {
                 self.exception_source_states.push(Vec::new());
             }
-            self.exception_regions += 1;
+            self.exception_regions.push(handler.span.start);
             self.visit_catch_clause(handler);
-            self.exception_regions -= 1;
+            self.exception_regions.pop();
             if it.finalizer.is_some() {
                 catch_exception_states = self.exception_source_states.pop().unwrap();
             }
@@ -7876,8 +7923,22 @@ impl<'a> EffectVisitor<'_, 'a> {
     fn prints_to_stdout(&self, callee: &Expression<'a>) -> bool {
         matches!(unparen(callee), Expression::StaticMemberExpression(member)
             if matches!(member.property.name.as_str(), "log" | "info" | "debug")
-                && !self.replaced_console_methods.contains(member.property.name.as_str())
+                && !self.console_method_replaced(member.property.name.as_str())
                 && self.is_global_console(&member.object))
+    }
+
+    /// Whether every path reaching here ran an earlier replacement of
+    /// `method`: one made under no condition outside any try block or catch
+    /// clause, or one made under this same condition within the try and catch
+    /// regions still being walked, where a throw skipping the replacement
+    /// also skips this call.
+    fn console_method_replaced(&self, method: &str) -> bool {
+        let condition = self.builder.current_condition();
+        self.console_replacements.iter().any(|replacement| {
+            replacement.method == method
+                && (replacement.condition.is_none() || replacement.condition == condition)
+                && self.exception_regions.starts_with(&replacement.regions)
+        })
     }
 
     fn is_global_console(&self, expression: &Expression<'a>) -> bool {
@@ -7885,17 +7946,18 @@ impl<'a> EffectVisitor<'_, 'a> {
             if self.bindings.global_console_spans.contains(&id.span.start))
     }
 
-    /// An assignment or `delete` of `console.<method>` that runs on every path
-    /// reaching it replaces the runtime printer for every later call. One
-    /// under any condition, or in a try block or catch clause, may not run,
-    /// so the printer stays real.
+    /// An assignment or `delete` of `console.<method>` replaces the runtime
+    /// printer for the later calls it definitely precedes (see
+    /// [`Self::console_method_replaced`]).
     fn note_console_replacement(&mut self, member: &MemberExpression<'a>) {
-        if self.builder.current_condition().is_none()
-            && self.exception_regions == 0
-            && self.is_global_console(member.object())
+        if self.is_global_console(member.object())
             && let Some(method) = member.static_property_name()
         {
-            self.replaced_console_methods.insert(method.to_string());
+            self.console_replacements.push(ConsoleReplacement {
+                method: method.to_string(),
+                condition: self.builder.current_condition(),
+                regions: self.exception_regions.clone(),
+            });
         }
     }
 
