@@ -335,10 +335,6 @@ impl Frontend for JsFrontend {
                 .chain(global_reference_spans(&semantic, "process"))
                 .collect(),
             global_console_spans: global_reference_spans(&semantic, "console"),
-            replaced_console_methods: replaced_console_methods(
-                program,
-                &global_reference_spans(&semantic, "console"),
-            ),
             // A write to the global itself replaces it for every reader.
             runtime_code_spans: ["eval", "Function"]
                 .into_iter()
@@ -388,6 +384,7 @@ impl Frontend for JsFrontend {
         let entry_condition_depth = builder.condition_depth();
         let mut effects = EffectVisitor {
             condition_site: (0, 0),
+            replaced_console_methods: HashSet::new(),
             builder,
             nest,
             source_cwd,
@@ -410,6 +407,7 @@ impl Frontend for JsFrontend {
             visiting: HashSet::new(),
             active_bodies: Vec::new(),
             exception_source_states: Vec::new(),
+            exception_regions: 0,
             return_source_states: Vec::new(),
             return_source_values: Vec::new(),
             return_aggregate_aliases: Vec::new(),
@@ -908,85 +906,6 @@ fn readonly_write_spans(semantic: &oxc_semantic::Semantic<'_>) -> Option<HashSet
     Some(spans)
 }
 
-/// The methods of the runtime's own `console` the program may replace: ones
-/// it assigns, updates or deletes through `console`, or every one (`*`) when
-/// it hands `console` itself to other code or another name.
-fn replaced_console_methods(
-    program: &oxc_ast::ast::Program<'_>,
-    console: &HashSet<u32>,
-) -> HashSet<String> {
-    struct Replaced<'s> {
-        console: &'s HashSet<u32>,
-        methods: HashSet<String>,
-    }
-    impl Replaced<'_> {
-        fn is_console(&self, expression: &Expression<'_>) -> bool {
-            matches!(unparen(expression), Expression::Identifier(id)
-                if self.console.contains(&id.span.start))
-        }
-        fn member(&mut self, object: &Expression<'_>, property: Option<&str>) {
-            if self.is_console(object) {
-                self.methods.insert(property.unwrap_or("*").to_string());
-            }
-        }
-        fn escapes(&mut self, expression: Option<&Expression<'_>>) {
-            if expression.is_some_and(|expression| self.is_console(expression)) {
-                self.methods.insert("*".to_string());
-            }
-        }
-    }
-    impl<'a> Visit<'a> for Replaced<'_> {
-        fn visit_simple_assignment_target(&mut self, it: &SimpleAssignmentTarget<'a>) {
-            match it {
-                SimpleAssignmentTarget::StaticMemberExpression(member) => {
-                    self.member(&member.object, Some(member.property.name.as_str()));
-                }
-                SimpleAssignmentTarget::ComputedMemberExpression(member) => {
-                    let property = match &member.expression {
-                        Expression::StringLiteral(key) => Some(key.value.as_str()),
-                        _ => None,
-                    };
-                    self.member(&member.object, property);
-                }
-                _ => {}
-            }
-            walk::walk_simple_assignment_target(self, it);
-        }
-        fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
-            if it.operator == oxc_ast::ast::UnaryOperator::Delete {
-                match unparen(&it.argument) {
-                    Expression::StaticMemberExpression(member) => {
-                        self.member(&member.object, Some(member.property.name.as_str()));
-                    }
-                    Expression::ComputedMemberExpression(member) => {
-                        self.member(&member.object, None);
-                    }
-                    _ => {}
-                }
-            }
-            walk::walk_unary_expression(self, it);
-        }
-        fn visit_argument(&mut self, it: &Argument<'a>) {
-            self.escapes(it.as_expression());
-            walk::walk_argument(self, it);
-        }
-        fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
-            self.escapes(it.init.as_ref());
-            walk::walk_variable_declarator(self, it);
-        }
-        fn visit_assignment_expression(&mut self, it: &oxc_ast::ast::AssignmentExpression<'a>) {
-            self.escapes(Some(&it.right));
-            walk::walk_assignment_expression(self, it);
-        }
-    }
-    let mut replaced = Replaced {
-        console,
-        methods: HashSet::new(),
-    };
-    replaced.visit_program(program);
-    replaced.methods
-}
-
 /// The truth of an `if` test that is a literal, whose other arm never runs.
 fn literal_truth(test: &Expression<'_>) -> Option<bool> {
     match unparen(test) {
@@ -999,47 +918,45 @@ fn literal_truth(test: &Expression<'_>) -> Option<bool> {
     }
 }
 
-/// The arguments whose bytes `console.log` prints. A literal format string
-/// passes a `%d`, `%i` or `%f` argument through a number conversion and drops
-/// a `%c` one as CSS; every other argument is printed as text.
+/// The arguments whose bytes `console.log` prints, a spread's operand
+/// among them. A literal format string drops a `%c` argument as CSS; a
+/// number conversion (`%d`, `%i`, `%f`) keeps whatever digits it holds, so
+/// those arguments still count as printed.
 fn console_printed_arguments<'b, 'a>(arguments: &'b [Argument<'a>]) -> Vec<&'b Expression<'a>> {
-    let printed = || {
-        arguments
-            .iter()
-            .filter_map(Argument::as_expression)
-            .collect()
-    };
-    let Some(Argument::StringLiteral(format)) = arguments.first() else {
-        return printed();
+    let operand = |argument: &'b Argument<'a>| match argument {
+        Argument::SpreadElement(spread) => Some(&spread.argument),
+        _ => argument.as_expression(),
     };
     let mut dropped = HashSet::new();
-    let mut next = 1;
-    let mut characters = format.value.chars();
-    while let Some(character) = characters.next() {
-        if character != '%' {
-            continue;
-        }
-        match characters.next() {
-            Some('s' | 'j' | 'o' | 'O') => next += 1,
-            Some('d' | 'i' | 'f' | 'c') => {
-                dropped.insert(next);
-                next += 1;
+    if let Some(Argument::StringLiteral(format)) = arguments.first() {
+        let mut next = 1;
+        let mut characters = format.value.chars();
+        while let Some(character) = characters.next() {
+            if character != '%' {
+                continue;
             }
-            _ => {}
+            match characters.next() {
+                Some('s' | 'j' | 'o' | 'O' | 'd' | 'i' | 'f') => next += 1,
+                Some('c') => {
+                    dropped.insert(next);
+                    next += 1;
+                }
+                _ => {}
+            }
         }
-    }
-    // A spread argument shifts which value each specifier consumes.
-    if arguments[..next.min(arguments.len())]
-        .iter()
-        .any(|argument| matches!(argument, Argument::SpreadElement(_)))
-    {
-        return printed();
+        // A spread argument shifts which value each specifier consumes.
+        if arguments[..next.min(arguments.len())]
+            .iter()
+            .any(|argument| matches!(argument, Argument::SpreadElement(_)))
+        {
+            dropped.clear();
+        }
     }
     arguments
         .iter()
         .enumerate()
         .filter(|(index, _)| !dropped.contains(index))
-        .filter_map(|(_, argument)| argument.as_expression())
+        .filter_map(|(_, argument)| operand(argument))
         .collect()
 }
 
@@ -1124,9 +1041,6 @@ struct Bindings {
     global_process_spans: HashSet<u32>,
     /// Spans of the `console` references that reach the runtime's own.
     global_console_spans: HashSet<u32>,
-    /// The runtime `console`'s methods the program may replace; `*` when it
-    /// may replace any of them.
-    replaced_console_methods: HashSet<String>,
     /// Spans of the `eval` and `Function` references that reach the
     /// runtime's own, which no scope binds and the program never replaces.
     runtime_code_spans: HashSet<u32>,
@@ -2383,6 +2297,9 @@ struct Reached {
 
 struct EffectVisitor<'v, 'a> {
     condition_site: (u32, u32),
+    /// The runtime `console` methods a definite earlier assignment or
+    /// `delete` replaced.
+    replaced_console_methods: HashSet<String>,
     builder: &'v mut PlanBuilder,
     nest: &'v Nest<'v>,
     source_cwd: Option<&'v str>,
@@ -2417,6 +2334,9 @@ struct EffectVisitor<'v, 'a> {
     active_bodies: Vec<ActiveBody>,
     /// Source-string states reaching explicit throws in the active try block.
     exception_source_states: Vec<Vec<SourceStringState>>,
+    /// Try blocks and catch clauses being walked: a throw may skip or select
+    /// the statements in them.
+    exception_regions: u32,
     /// Source-string states reaching returns in each entered function body.
     return_source_states: Vec<Vec<SourceStringState>>,
     /// Source-string values returned by each entered function body.
@@ -3560,6 +3480,11 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         {
             self.kill_flow_name(&base);
         }
+        if !it.operator.is_logical()
+            && let Some(member) = it.left.as_member_expression()
+        {
+            self.note_console_replacement(member);
+        }
         self.retain_exception_source_state(it.span());
     }
 
@@ -3586,6 +3511,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             walk::walk_unary_expression(self, it);
         }
         if it.operator.as_str() == "delete" {
+            if let Some(member) = unparen(&it.argument).as_member_expression() {
+                self.note_console_replacement(member);
+            }
             match unparen(&it.argument) {
                 Expression::StaticMemberExpression(member) => {
                     if let Some(name) = resolve::process_env_name(member) {
@@ -4001,7 +3929,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             .map_or(0, std::vec::Vec::len);
         let entry = self.flow_entry();
         self.exception_source_states.push(Vec::new());
+        self.exception_regions += 1;
         self.visit_block_statement(&it.block);
+        self.exception_regions -= 1;
         let exception_states = self.exception_source_states.pop().unwrap();
         let try_exit = self.source_string_state();
         let mut catch_exception_states = Vec::new();
@@ -4014,7 +3944,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             if it.finalizer.is_some() {
                 self.exception_source_states.push(Vec::new());
             }
+            self.exception_regions += 1;
             self.visit_catch_clause(handler);
+            self.exception_regions -= 1;
             if it.finalizer.is_some() {
                 catch_exception_states = self.exception_source_states.pop().unwrap();
             }
@@ -7939,16 +7871,32 @@ impl<'a> EffectVisitor<'_, 'a> {
     }
 
     /// `console.log`, `console.info` and `console.debug` write their
-    /// arguments to this program's own stdout, unless the program replaced
-    /// the method.
+    /// arguments to this program's own stdout, unless a replacement of the
+    /// method has definitely run before this call.
     fn prints_to_stdout(&self, callee: &Expression<'a>) -> bool {
-        let replaced = &self.bindings.replaced_console_methods;
         matches!(unparen(callee), Expression::StaticMemberExpression(member)
             if matches!(member.property.name.as_str(), "log" | "info" | "debug")
-                && !replaced.contains("*")
-                && !replaced.contains(member.property.name.as_str())
-                && matches!(unparen(&member.object), Expression::Identifier(id)
-                    if self.bindings.global_console_spans.contains(&id.span.start)))
+                && !self.replaced_console_methods.contains(member.property.name.as_str())
+                && self.is_global_console(&member.object))
+    }
+
+    fn is_global_console(&self, expression: &Expression<'a>) -> bool {
+        matches!(unparen(expression), Expression::Identifier(id)
+            if self.bindings.global_console_spans.contains(&id.span.start))
+    }
+
+    /// An assignment or `delete` of `console.<method>` that runs on every path
+    /// reaching it replaces the runtime printer for every later call. One
+    /// under any condition, or in a try block or catch clause, may not run,
+    /// so the printer stays real.
+    fn note_console_replacement(&mut self, member: &MemberExpression<'a>) {
+        if self.builder.current_condition().is_none()
+            && self.exception_regions == 0
+            && self.is_global_console(member.object())
+            && let Some(method) = member.static_property_name()
+        {
+            self.replaced_console_methods.insert(method.to_string());
+        }
     }
 
     /// Wire def-use edges into `consumer` from each argument that carries a

@@ -29,7 +29,7 @@ use crate::lang::frontend::{
     WalkOutcome,
 };
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use effinterp_proto::{
@@ -2881,7 +2881,7 @@ struct Walker<'a> {
     /// The `File.read`-style call spans whose bytes each local may hold. A
     /// guarded assignment adds to what the local held; only an unguarded one
     /// replaces it.
-    read_locals: HashMap<String, Vec<(usize, usize)>>,
+    read_locals: HashMap<String, BTreeSet<(usize, usize)>>,
     /// Each captured backtick's child execution and the stdout it would
     /// have inherited, so printing the captured value can reconnect it.
     captured_outputs: HashMap<
@@ -3085,7 +3085,7 @@ impl Walker<'_> {
                                     .filter_map(|span| self.read_effects.get(span))
                                     .flatten()
                                     .copied()
-                                    .collect::<Vec<_>>();
+                                    .collect::<BTreeSet<_>>();
                                 for read in reads {
                                     for request in &requests {
                                         self.builder
@@ -3160,15 +3160,16 @@ impl Walker<'_> {
                         if let Some(value) = assignment.value.as_deref() {
                             // `y = x` copies the bytes of every read `x` may hold.
                             let assigned = match value {
-                                Node::Send(read) if file_read_call(read) => {
-                                    vec![(read.expression_l.begin, read.expression_l.end)]
-                                }
+                                Node::Send(read) if file_read_call(read) => BTreeSet::from([(
+                                    read.expression_l.begin,
+                                    read.expression_l.end,
+                                )]),
                                 Node::Lvar(source) => self
                                     .read_locals
                                     .get(&source.name)
                                     .cloned()
                                     .unwrap_or_default(),
-                                _ => Vec::new(),
+                                _ => BTreeSet::new(),
                             };
                             // A guarded assignment may not run, so the
                             // earlier reads may still be what it holds.
@@ -3177,7 +3178,7 @@ impl Walker<'_> {
                                     .remove(&assignment.name)
                                     .unwrap_or_default()
                             } else {
-                                Vec::new()
+                                BTreeSet::new()
                             };
                             held.extend(assigned);
                             if held.is_empty() {
@@ -3731,6 +3732,8 @@ impl Walker<'_> {
                         .filter_map(|span| self.read_effects.get(span))
                         .flatten()
                         .copied()
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
                         .collect();
                     self.bind_reads_to_stdout(
                         reads,

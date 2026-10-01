@@ -343,29 +343,45 @@ fn print_emitted(call: &ast::ExprCall) -> Vec<&Expr> {
 /// The call spans and local names an expression's value is produced by, as
 /// the def-use walk reads it: the call itself, the receiver call a wrapper
 /// such as `open(p).read()` passes through, a response's `.text`/`.content`,
-/// and the elements of a literal container.
-fn value_spine<'e>(expr: &'e Expr, spans: &mut Vec<TextRange>, names: &mut Vec<&'e str>) {
+/// and the elements of a literal container. A call to a local helper
+/// (`is_local`) is not on the spine: what it returns is not tracked, and the
+/// reads inside it need not be what it returns.
+fn value_spine<'e>(
+    expr: &'e Expr,
+    is_local: &dyn Fn(&Expr) -> bool,
+    spans: &mut Vec<TextRange>,
+    names: &mut Vec<&'e str>,
+) {
     match expr {
         Expr::Name(name) => names.push(name.id.as_str()),
-        Expr::Call(call) => {
+        Expr::Call(call) if !is_local(&call.func) => {
             spans.push(call.range);
             if let Expr::Attribute(attribute) = call.func.as_ref()
                 && matches!(attribute.value.as_ref(), Expr::Call(_))
             {
-                value_spine(&attribute.value, spans, names);
+                value_spine(&attribute.value, is_local, spans, names);
             }
         }
         Expr::Attribute(attribute) if matches!(attribute.attr.as_str(), "text" | "content") => {
-            value_spine(&attribute.value, spans, names);
+            value_spine(&attribute.value, is_local, spans, names);
         }
-        Expr::List(list) => list.elts.iter().for_each(|e| value_spine(e, spans, names)),
-        Expr::Tuple(tuple) => tuple.elts.iter().for_each(|e| value_spine(e, spans, names)),
-        Expr::Set(set) => set.elts.iter().for_each(|e| value_spine(e, spans, names)),
+        Expr::List(list) => list
+            .elts
+            .iter()
+            .for_each(|e| value_spine(e, is_local, spans, names)),
+        Expr::Tuple(tuple) => tuple
+            .elts
+            .iter()
+            .for_each(|e| value_spine(e, is_local, spans, names)),
+        Expr::Set(set) => set
+            .elts
+            .iter()
+            .for_each(|e| value_spine(e, is_local, spans, names)),
         Expr::Dict(dict) => dict
             .values
             .iter()
-            .for_each(|e| value_spine(e, spans, names)),
-        Expr::Starred(starred) => value_spine(&starred.value, spans, names),
+            .for_each(|e| value_spine(e, is_local, spans, names)),
+        Expr::Starred(starred) => value_spine(&starred.value, is_local, spans, names),
         _ => {}
     }
 }
@@ -3073,7 +3089,24 @@ impl Walker<'_, '_> {
     }
 
     fn walk_for(&mut self, target: &Expr, iter: &Expr, body: &[Stmt], orelse: &[Stmt]) {
+        let before = self.capture.as_ref().map(|capture| capture.effects.len());
         self.walk_deferred(iter);
+        // In a summarized body the loop target holds an element of `iter`;
+        // after the loop it may still hold its prior value.
+        let element = before.map(|before| self.carried_effects(iter, before));
+        let prior_printed: Vec<(String, Vec<u32>)> = self
+            .capture
+            .as_ref()
+            .map(|capture| {
+                rebound_target_names(target)
+                    .into_iter()
+                    .filter_map(|name| {
+                        let held = capture.print_vars.get(&name)?.clone();
+                        Some((name, held))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let path_iter_resource = self.path_iter_resource(iter);
         let static_values = self.static_iter_resources(iter);
         let static_instances = self.static_iter_instances(iter);
@@ -3112,6 +3145,11 @@ impl Walker<'_, '_> {
         }
         if path_iter_resource.is_none() && (loop_name.is_none() || static_values.is_none()) {
             self.invalidate_rebound_target(target);
+        }
+        if let Some(element) = element {
+            for name in rebound_target_names(target) {
+                self.capture_assign(&name, element.clone());
+            }
         }
 
         if let Some(name) = &loop_name
@@ -3174,6 +3212,14 @@ impl Walker<'_, '_> {
                 self.deferred_vars.insert(loop_name, prior);
             }
         }
+        if let Some(capture) = self.capture.as_mut() {
+            for (name, held) in prior_printed {
+                let printed = capture.print_vars.entry(name).or_default();
+                printed.extend(held);
+                printed.sort_unstable();
+                printed.dedup();
+            }
+        }
     }
 
     fn bind_context(&mut self, item: &ast::WithItem) {
@@ -3188,6 +3234,11 @@ impl Walker<'_, '_> {
             return;
         };
         self.walk_assignment_target(target);
+        if self.capture.is_some() {
+            for name in rebound_target_names(target) {
+                self.capture_assign(&name, Vec::new());
+            }
+        }
         let Expr::Name(target) = target else {
             self.invalidate_rebound_target(target);
             return;
@@ -4459,16 +4510,11 @@ impl Walker<'_, '_> {
     /// effects, then bind (or drop) the target name's producer stage.
     fn flow_assign(&mut self, targets: &[Expr], value: &Expr) {
         if self.capture.is_some() {
+            // `x = y = v` binds `v` to both names; an unpacked name may hold
+            // any part of `v`.
             let effects = self.capture_value(value);
-            for target in targets {
-                if let Expr::Name(name) = target {
-                    let carried = if targets.len() == 1 {
-                        effects.clone()
-                    } else {
-                        Vec::new()
-                    };
-                    self.capture_assign(name.id.as_str(), carried);
-                }
+            for name in targets.iter().flat_map(rebound_target_names) {
+                self.capture_assign(&name, effects.clone());
             }
             return;
         }
@@ -4668,9 +4714,7 @@ impl Walker<'_, '_> {
         // this site, but the value it returns is not tracked to any single
         // effect (the function may read a file yet return something unrelated),
         // so it is not a def-use producer and its arguments are not wired.
-        let is_local_fn = matches!(call.func.as_ref(), Expr::Name(n)
-            if self.imports.resolve_callee(&call.func).is_none()
-                && self.defs.iter().any(|d| d.name == n.id.as_str()));
+        let is_local_fn = self.is_local_fn(&call.func);
         // An ordinary call: it may itself produce effects (a stage) and may
         // consume tracked variables through its arguments.
         let before = self.builder.effects_len();
@@ -4758,9 +4802,15 @@ impl Walker<'_, '_> {
             .as_ref()
             .map_or(0, |capture| capture.effects.len());
         self.walk_expr(expr);
+        self.carried_effects(expr, before)
+    }
+
+    /// The captured effects from slot `before` on, plus the effects held by
+    /// the locals it names, whose bytes the already walked `expr` carries.
+    fn carried_effects(&self, expr: &Expr, before: usize) -> Vec<u32> {
         let mut spans = Vec::new();
         let mut names = Vec::new();
-        value_spine(expr, &mut spans, &mut names);
+        value_spine(expr, &|func| self.is_local_fn(func), &mut spans, &mut names);
         let Some(capture) = self.capture.as_ref() else {
             return Vec::new();
         };
@@ -4779,6 +4829,13 @@ impl Walker<'_, '_> {
             effects.extend(capture.print_vars.get(name).into_iter().flatten());
         }
         effects
+    }
+
+    /// A call to a function defined in this file, which a summary composes.
+    fn is_local_fn(&self, func: &Expr) -> bool {
+        matches!(func, Expr::Name(n)
+            if self.imports.resolve_callee(func).is_none()
+                && self.defs.iter().any(|d| d.name == n.id.as_str()))
     }
 
     /// Bind a summarized body's local to the effects its assigned value

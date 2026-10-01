@@ -104262,6 +104262,114 @@
       ]
     },
     {
+      "id": "secrets-exfil.node-conditionally-replaced-console-log-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node replaces console.log only when QUIET is set, so the later console.log may still print the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-console-log-number-format-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node formats the private key with %d, which prints the number parsed from its leading characters to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-console-log-spread-format-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node spreads the private key into console.log as the %s argument, printing it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
       "id": "secrets-exfil.python-function-print-key-upload",
       "guard": "secrets-exfil",
       "derivation": "Python main() prints the private key to stdout when the module calls it, which curl --data-binary @- uploads",
@@ -104376,6 +104484,45 @@
       ]
     },
     {
+      "id": "secrets-exfil.ruby-repeated-guarded-copies-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Ruby copies the private key onto itself under sixteen guards and puts it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          },
+          "attributes": {
+            "access_purpose": "program_input"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
       "id": "secrets-exfil.node-debug-conditional-console-log-key-upload",
       "guard": "secrets-exfil",
       "derivation": "Node reads the private key into x and console.log(x) prints it to stdout whenever DEBUG is set, which curl --data-binary @- uploads",
@@ -104451,6 +104598,114 @@
       "id": "secrets-exfil.python-function-debug-conditional-print-key-upload",
       "guard": "secrets-exfil",
       "derivation": "Python main() prints the private key to stdout whenever DEBUG is set, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-nested-function-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python main() calls a helper that prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-function-loop-print-key-lines-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python main() prints each line of the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-function-chained-assignment-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python main() binds the private key to two names in one chained assignment and prints one of them to stdout, which curl --data-binary @- uploads",
       "require": [
         {
           "op": "filesystem.read",

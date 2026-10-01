@@ -112,14 +112,14 @@
       }
     },
     "parity": {
-      "nah_commit": "87387812250460e319f62d6591b155941d73a217",
-      "corpus_digest": "b8e9292f1c6c719f741e647a7528034fc5af8788f14d33ded398bc162c3055be",
+      "nah_commit": "048e42ad6ad9f974e1c4f9cf408d2916bcf5897e",
+      "corpus_digest": "609ad80a80f163c24158e8980a3020953fe2a3793b03e518c285a08eec5be0e0",
       "classes": {
-        "effect_match": 5076,
+        "effect_match": 5083,
         "missing_effect": 11,
         "missing_flow": 2,
-        "covered": 1413,
-        "explained_partial": 1732
+        "covered": 1415,
+        "explained_partial": 1735
       },
       "per_file": {
         "code.jsonl": {
@@ -196,11 +196,11 @@
           "explained_partial": 102
         },
         "secrets.jsonl": {
-          "effect_match": 750,
+          "effect_match": 757,
           "missing_effect": 3,
           "missing_flow": 2,
-          "covered": 184,
-          "explained_partial": 197
+          "covered": 186,
+          "explained_partial": 200
         },
         "self-protection.jsonl": {
           "effect_match": 639,
@@ -362,7 +362,7 @@
           "effect_match": 119
         },
         "secrets-exfil": {
-          "effect_match": 494,
+          "effect_match": 501,
           "missing_effect": 3,
           "missing_flow": 2,
           "explained_partial": 3
@@ -804,7 +804,7 @@
         },
         "secrets-exfil": {
           "deferred": 28,
-          "indeterminate": 467,
+          "indeterminate": 474,
           "no_match": 7
         },
         "secrets-store-delete": {
@@ -11224,10 +11224,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.7911,
-        "p99_ms": 130.722,
-        "max_ms": 9963.5826,
-        "max_rss_kb": 345152
+        "p50_ms": 0.8574,
+        "p99_ms": 150.4972,
+        "max_ms": 10401.8212,
+        "max_rss_kb": 343536
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11251,13 +11251,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261001T180935Z-correctness-98197",
-      "measured_at": "2026-10-01T18:09:35Z",
-      "source_fingerprint": "blake3:8ab08ef62902f603ba4445025d48c108f64bd2b2e8c3d1ab982dbac1fd703d10",
-      "binary_hash": "blake3:2f83b85d8d3402c9c4cfc7ac61c6736db88000314dbb1168566d75778bc91b4b",
+      "run_id": "20261001T190059Z-correctness-60886",
+      "measured_at": "2026-10-01T19:00:59Z",
+      "source_fingerprint": "blake3:0a7f55fe8f50e8c17a8cbc1477a3cf16fe26f546f1c0810d9d5aedf7eebd827d",
+      "binary_hash": "blake3:3464c54a28215bc64ab841f3559dffb342061054aef5f976b3aaf27c42f55fde",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "87387812250460e319f62d6591b155941d73a217",
+      "git_head": "048e42ad6ad9f974e1c4f9cf408d2916bcf5897e",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,
