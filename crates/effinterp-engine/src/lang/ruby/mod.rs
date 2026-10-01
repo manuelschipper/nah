@@ -3097,13 +3097,10 @@ impl Walker<'_> {
                                     .flatten()
                                     .copied()
                                     .collect::<Vec<_>>();
-                                {
-                                    for read in &reads {
-                                        for request in &requests {
-                                            self.builder.transfer_binding(TransferBinding::new(
-                                                *read, *request,
-                                            ));
-                                        }
+                                for read in reads {
+                                    for request in &requests {
+                                        self.builder
+                                            .transfer_binding(TransferBinding::new(read, *request));
                                     }
                                 }
                             }
