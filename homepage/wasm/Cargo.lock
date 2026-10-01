@@ -1196,7 +1196,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "nah-cli"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "clap",
  "getrandom 0.4.3",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "nah-effinterp"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "blake3",
  "effinterp-engine",
@@ -1235,7 +1235,7 @@ dependencies = [
 
 [[package]]
 name = "nah-extensions"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "nah-proto",
  "serde",
@@ -1258,7 +1258,7 @@ dependencies = [
 
 [[package]]
 name = "nah-observe"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "libc",
  "nah-proto",
@@ -1269,7 +1269,7 @@ dependencies = [
 
 [[package]]
 name = "nah-policy"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "effinterp-matcher",
  "effinterp-proto",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "nah-proto"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "effinterp-proto",
  "serde",
