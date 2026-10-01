@@ -107214,6 +107214,71 @@
           "path_provenance": true
         }
       ]
+    },
+    {
+      "id": "shell-resolution.hidden-soft-hyphen-path",
+      "guard": "exec-obfuscated",
+      "derivation": "An invisible soft hyphen U+00AD makes the copy's name differ from the config.yml it displays as.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/workspace/project/con\u00adfig.yml"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-hangul-filler-path",
+      "guard": "exec-obfuscated",
+      "derivation": "The Hangul filler U+3164 renders as blank space inside the name of the file cat reads.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/notes\u3164.md"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-halfwidth-hangul-filler-argument",
+      "guard": "exec-obfuscated",
+      "derivation": "The halfwidth Hangul filler U+FFA0 renders as blank space inside the name of the file rm deletes.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/workspace/project/build\uffa0.log"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-hangul-jamo-filler-path",
+      "guard": "exec-obfuscated",
+      "derivation": "The Hangul choseong and jungseong fillers U+115F and U+1160 are invisible in the name of the file touch creates.",
+      "require": [
+        {
+          "op": "filesystem.create",
+          "resource": {
+            "eq": "/workspace/project/release\u115f\u1160.txt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-lone-carriage-return",
+      "guard": "exec-obfuscated",
+      "derivation": "A carriage return inside the comment returns the cursor, so echo 'tests passed' overwrites the displayed rm -f build.log that runs.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/workspace/project/build.log"
+          }
+        }
+      ]
     }
   ]
 }
