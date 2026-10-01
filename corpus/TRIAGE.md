@@ -277,6 +277,14 @@ Accepted limitations with no corpus row that asserts a desired block.
   piped to an upload delegates, at module level and inside functions alike,
   while `print(key)` and `return key` block. A row asserting the block would
   add a `missing_flow` parity miss above the `secrets-exfil` ceiling.
+- The runtime `console` passed as a parameter. Node prints are recognized
+  through unbound `console` references and `const` aliases of it
+  (`console_aliases` in `crates/effinterp-engine/src/js/mod.rs`), not through
+  a parameter, so `(function (console) { console.log(key) })(console)` piped
+  to an upload delegates. Telling that parameter apart from a stub passed in
+  its place needs call-site argument binding; a local stub `console` already
+  delegates (`secrets-exfil.node-shadowed-console-key-upload-delegates`).
+
 - A symlinked parent inside a pattern — a `..` after a component that is
   a symlink to a directory resolves at the link target's parent, but a
   pattern's `..` is collapsed lexically. After a wildcard (`X/*/../Y`,
