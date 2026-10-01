@@ -885,8 +885,8 @@
     {
       "id": "p18b/cloud/doctl@v1",
       "family": "cloud",
-      "document_identity": "blake3:9e9a3fce65be45c869935b099528c92e326bc45d0f298443690aff958e9d1054",
-      "revision": "p18b/cloud/doctl@v1#blake3:c8c0f078332b5c73bf0dc8568deaae053c5806436e2d0a959e18627b67a366a0",
+      "document_identity": "blake3:8049eba41430f952c7aec64a6d4290387808b82c1ccfc8d1d6541d586d33b5df",
+      "revision": "p18b/cloud/doctl@v1#blake3:68f897b1aabf1394e7018f5150c98495887812bbaf361a75c5b5730374592b86",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {

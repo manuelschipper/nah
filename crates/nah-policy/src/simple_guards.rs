@@ -251,6 +251,156 @@ pub(crate) fn infra_iac_destroy() -> GuardDefinition {
     }
 }
 
+/// Provisioned cloud and hosted-platform resources whose deletion the engine's
+/// reviewed command tables establish: `(provider, service, kinds)` as the
+/// models name them. Snapshots, backups, disks and storage volumes are the
+/// storage guards', object storage and secrets stores have their own guards,
+/// Cloud SQL users and certificates hold no data, and Timestream deletes only
+/// an empty database.
+const CLOUD_RESOURCES: &[(&str, &str, &[&str])] = &[
+    (
+        "aws",
+        "ec2",
+        &["instance", "vpc", "subnet", "security-group"],
+    ),
+    ("aws", "rds", &["db", "cluster"]),
+    ("aws", "docdb", &["cluster"]),
+    ("aws", "docdb-elastic", &["cluster"]),
+    ("aws", "neptune", &["cluster"]),
+    ("aws", "redshift", &["cluster"]),
+    ("aws", "redshift-serverless", &["namespace"]),
+    ("aws", "dynamodb", &["table"]),
+    ("aws", "keyspaces", &["keyspace", "table"]),
+    ("aws", "timestream", &["table"]),
+    (
+        "aws",
+        "elasticache",
+        &["cache-cluster", "replication-group", "serverless-cache"],
+    ),
+    ("aws", "memorydb", &["cluster"]),
+    ("aws", "lightsail", &["relational-database"]),
+    ("aws", "dsql", &["cluster"]),
+    ("aws", "eks", &["cluster"]),
+    ("aws", "efs", &["file-system"]),
+    ("aws", "kinesis", &["stream"]),
+    ("aws", "logs", &["log-group"]),
+    ("aws", "cloudtrail", &["trail"]),
+    ("aws", "route53", &["hosted-zone"]),
+    ("aws", "elbv2", &["load-balancer"]),
+    ("aws", "cloudfront", &["distribution"]),
+    ("aws", "lambda", &["function"]),
+    ("aws", "ecr", &["repository"]),
+    ("aws", "iam", &["user", "role", "group"]),
+    ("aws", "cloudformation", &["stack"]),
+    ("gcp", "compute", &["instance", "network", "firewall-rule"]),
+    ("gcp", "sql", &["instance", "database"]),
+    ("gcp", "spanner", &["instance", "database"]),
+    ("gcp", "firestore", &["database"]),
+    ("gcp", "bigtable", &["instance", "table"]),
+    ("gcp", "alloydb", &["cluster"]),
+    ("gcp", "redis", &["instance", "cluster"]),
+    ("gcp", "container", &["cluster"]),
+    ("gcp", "dataproc", &["cluster"]),
+    ("gcp", "functions", &["function"]),
+    ("gcp", "run", &["service"]),
+    ("gcp", "dns", &["managed-zone"]),
+    ("gcp", "iam", &["service-account"]),
+    ("gcp", "projects", &["project"]),
+    ("azure", "group", &["resource-group"]),
+    ("azure", "vm", &["instance"]),
+    ("azure", "aks", &["cluster"]),
+    ("azure", "acr", &["registry"]),
+    ("azure", "webapp", &["app"]),
+    ("azure", "functionapp", &["app"]),
+    ("azure", "network", &["vnet", "dns-zone"]),
+    ("azure", "ad", &["service-principal", "application"]),
+    ("azure", "sql", &["database", "server", "managed-instance"]),
+    (
+        "azure",
+        "cosmosdb",
+        &[
+            "account",
+            "database",
+            "keyspace",
+            "container",
+            "collection",
+            "graph",
+            "table",
+        ],
+    ),
+    ("azure", "postgres", &["server", "database"]),
+    ("azure", "mysql", &["server", "database"]),
+    ("azure", "redis", &["cache"]),
+    ("digitalocean", "compute", &["droplet"]),
+    ("digitalocean", "databases", &["cluster", "database"]),
+    ("fly", "mpg", &["cluster"]),
+    ("heroku", "postgresql", &["addon"]),
+    ("heroku", "redis", &["addon"]),
+    ("neon", "postgres", &["project", "branch", "database"]),
+    ("planetscale", "database", &["database", "branch"]),
+    ("turso", "database", &["database", "group"]),
+    ("upstash", "redis", &["database"]),
+    ("upstash", "vector", &["index"]),
+    ("upstash", "search", &["index"]),
+    ("cloudflare", "workers", &["worker"]),
+    ("cloudflare", "d1", &["database"]),
+    ("cloudflare", "kv", &["namespace"]),
+    ("cloudflare", "queues", &["queue"]),
+    ("cloudflare", "hyperdrive", &["config"]),
+    ("cloudflare", "pages", &["project"]),
+    ("supabase", "projects", &["project"]),
+    ("supabase", "branches", &["branch"]),
+    ("supabase", "functions", &["function"]),
+    ("railway", "project", &["project"]),
+    ("railway", "environment", &["environment"]),
+    ("railway", "volume", &["volume"]),
+    ("modal", "app", &["app"]),
+    ("modal", "environment", &["environment"]),
+    ("modal", "volume", &["volume"]),
+    ("modal", "dict", &["dict"]),
+    ("modal", "queue", &["queue"]),
+    ("kamal", "deployment", &["deployment"]),
+    ("kamal", "app", &["app"]),
+    ("kamal", "accessory", &["accessory"]),
+    ("kamal", "proxy", &["proxy"]),
+    ("fastly", "service", &["service"]),
+];
+
+/// Only an exact request counts: the engine marks one when every option of
+/// the invocation is one the reviewed table documents and the resource is
+/// named literally or is the one the CLI is linked to. Help, dry runs and
+/// unknown options leave the request conservative, and the call delegates.
+/// Infrastructure-as-code teardown, which states its `mode`, is
+/// infra-iac-destroy's.
+pub(crate) fn infra_cloud_delete() -> GuardDefinition {
+    let mut assertions = Vec::new();
+    for (provider, service, kinds) in CLOUD_RESOURCES {
+        for kind in *kinds {
+            assertions.push(effect_without_attribute(
+                "cloud.resource.delete",
+                ResourcePredicate::CloudResource {
+                    provider: Some(TextPredicate::Equals((*provider).into())),
+                    service: Some(TextPredicate::Equals((*service).into())),
+                    kind: Some(TextPredicate::Equals((*kind).into())),
+                },
+                vec![],
+                Some(RequestAssurance::Exact),
+                None,
+                "mode",
+            ));
+        }
+    }
+    GuardDefinition {
+        id: "infra-cloud-delete",
+        reason: "infra-cloud-delete blocked deleting a provisioned cloud or hosted-platform resource; keep the resource and ask the operator to perform the reviewed deletion",
+        family: GuardFamily::Infrastructure,
+        default_enabled: false,
+        domain: Domain::Infrastructure,
+        gap_code: Some("infrastructure-destruction-mode-unavailable"),
+        clauses: engine_only(Query::new(Assertion::Any { assertions })),
+    }
+}
+
 pub(crate) fn infra_k8s_delete() -> GuardDefinition {
     let controls = vec![
         string_attr("mode", "delete"),
