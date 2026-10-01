@@ -1,0 +1,78 @@
+summary = "Blocks broad unused-volume pruning and explicit Compose volume removal through reviewed Docker and Podman commands."
+
+description = '''
+This guard stops container commands that delete data volumes. It blocks broad
+pruning of unused volumes and Compose teardown that removes a project's named
+volumes, which can hold a local database. It covers reviewed Docker, Podman,
+and Compose commands.
+'''
+
+limits = '''
+Nah cannot tell whether a volume holds throwaway test data or the only copy of
+a development database. Podman's default prune scope depends on its version.
+An unresolved option delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships off because `docker compose down -v` is a routine reset of disposable
+development stacks. The default-on `infra-container-reset` still stops a full
+Podman reset, and the optional `sys-service-stop` covers stopping every
+container.
+'''
+
+[[blocks]]
+row = "infra-container-volume-delete.docker-volume-all"
+why = "--all prunes every unused volume, named ones included."
+tui = true
+
+[[blocks]]
+row = "infra-container-volume-delete.docker-compose-down"
+why = "-v removes the stack's named volumes along with its containers."
+tui = true
+
+[[blocks]]
+row = "infra-container-volume-delete.infrastructure-podman-compose-rm-worker-volumes"
+why = "--volumes deletes the worker service's volumes."
+tui = true
+
+[[blocks]]
+row = "infra-container-volume-delete.docker-system-volumes"
+why = "--volumes adds every unused volume to the system prune."
+
+[[blocks]]
+row = "infra-container-volume-delete.narrow-volume-delegates"
+why = "podman volume prune --force removes unused volumes without asking."
+
+[[blocks]]
+row = "infra-container-volume-delete.remote-daemon"
+why = "The prune runs against a remote daemon's volumes; it still deletes them."
+
+[[passes]]
+row = "infra-container-volume-delete.compose-down-without-volumes-delegates"
+why = "Without -v, compose down keeps the volumes."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-container-volume-delete.narrow-system-delegates"
+why = "Without --volumes, system prune keeps volumes."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-container-volume-delete.named-volume-control"
+why = "volume rm deletes one named volume, not a broad prune."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-container-volume-delete.filter-delegates"
+why = "--filter label=temporary narrows the prune to labeled volumes."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-container-volume-delete.dry-run-delegates"
+why = "--dry-run only lists what would be pruned."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-container-volume-delete.dynamic-scope-delegates"
+why = "$SCOPE is unset, so the prune's scope is unknown."
+cause = "unresolved"

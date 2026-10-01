@@ -1,0 +1,88 @@
+summary = "Blocks changes to reviewed service, schedule, login, autostart, and loader startup paths."
+
+description = '''
+This guard prevents writing or deleting files that make code run
+automatically later, a common way to keep access after a session ends. It
+blocks any write, creation, deletion, move, or permission change that reaches
+a startup location, a move onto one, and a Git discard that would overwrite
+one. A recursive delete of a parent directory counts.
+
+The protected locations include `~/.ssh/rc`, `~/.config/autostart`,
+`~/.config/systemd/user`, `~/Library/LaunchAgents`, and the Windows Startup
+folder. System-wide, they include `/etc/profile`, `/etc/bash.bashrc`, the
+`/etc/zsh*` files, `/etc/profile.d`, `/etc/crontab`, the `/etc/cron.*`
+directories, `/var/spool/cron`, `/etc/rc.local`, `/etc/ssh/sshrc`,
+`/etc/ld.so.preload`, `/etc/init.d`, `/etc/xdg/autostart`, the systemd
+`system` and `user` unit and generator directories under `/etc/systemd`,
+`/lib/systemd`, `/usr/lib/systemd`, and `/usr/local/lib/systemd`,
+`/run/systemd/system`, and macOS `/Library/LaunchAgents` and
+`/Library/LaunchDaemons`.
+'''
+
+limits = '''
+Nah cannot tell a unit file the user wants from a planted one. Service and
+cron commands that name no file, such as `systemctl enable` or `crontab -r`,
+belong to the optional `fs-startup-management`.
+'''
+
+default_reason = '''
+It ships on because persistence outlives the session. User shell profiles are
+split out to the optional `fs-shell-profile`, and `fs-auth-identity` covers
+login credentials.
+'''
+
+[[blocks]]
+row = "fs-startup-persistence.sudo-tee-append-crontab"
+why = "tee -a adds a root cron job to /etc/crontab."
+tui = true
+
+[[blocks]]
+row = "fs-startup-persistence.systemd-user"
+why = "The file lands in ~/.config/systemd/user, where user services are defined."
+tui = true
+
+[[blocks]]
+row = "fs-startup-persistence.nice-tee-ssh-rc"
+why = "~/.ssh/rc runs on every SSH login."
+tui = true
+
+[[blocks]]
+row = "fs-startup-persistence.recursive-ancestor-blocks"
+why = "Recursively deleting ~/.config removes the autostart and systemd user directories with it."
+
+[[blocks]]
+row = "fs-startup-persistence.sh-c-ld-preload"
+why = "/etc/ld.so.preload loads a library into every program."
+
+[[blocks]]
+row = "fs-startup-persistence.macos-pwsh-include-lands-launchagent"
+why = "-Include Library copies a LaunchAgents tree into ~/Library."
+
+[[blocks]]
+row = "fs-startup-persistence.windows-pwsh-startup-set"
+why = "Set-Content writes into the Windows Startup folder."
+
+[[passes]]
+row = "fs-startup-persistence.config-child-delegates"
+why = "~/.config/app/settings.json is not a startup path."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-persistence.crontab-read-delegates"
+why = "cat only reads /etc/crontab."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-persistence.user-unit-backup-to-tmp-delegates"
+why = "The unit is only the copy source; the copy lands in /tmp."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-persistence.project-unit-file-delegates"
+why = "deploy/app.service is a project file that systemd does not load."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-persistence.macos-pwsh-exclude-library-delegates"
+why = "-Exclude Library keeps the copy out of ~/Library."
+cause = "out-of-scope"

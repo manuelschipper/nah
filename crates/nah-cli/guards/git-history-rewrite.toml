@@ -1,0 +1,90 @@
+summary = "Blocks selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes, including explicit static refspecs targeting `main` or `master`."
+
+description = '''
+This guard stops operations that rewrite or expire Git history even when no
+safety check is bypassed. It blocks starting, continuing, or skipping a
+rebase; unforced `filter-branch` and `filter-repo`; expiring the reflog of
+named refs; `git gc --aggressive`; `git gc` with a prune date; and every push
+with `--force-with-lease`, whatever the destination. Plain `git gc`,
+`git cherry-pick`, and `git commit --amend` stay outside, and enabling this
+guard mid-rebase leaves only `--abort` and `--quit` open.
+'''
+
+limits = '''
+Nah cannot tell a private feature branch from shared history. An operation
+whose mode it cannot resolve delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships off because rebasing and leased pushes are everyday workflows whose
+risk depends on whether the history is shared. With it off, the default-on
+`git-rewrite-force` still stops forced filtering, `git-recovery-destroy` stops
+immediate recovery destruction, and `git-force-push` stops unleased force
+pushes and leased pushes to `main` or `master`.
+'''
+
+[[blocks]]
+row = "git-history-rewrite.rebase-start"
+why = "rebase main replays the branch's commits onto main as new commits."
+tui = true
+
+[[blocks]]
+row = "git-history-rewrite.filter-repo"
+why = "filter-repo rewrites every commit to drop the secret path."
+tui = true
+
+[[blocks]]
+row = "git-leased-push.history-main"
+why = "A leased force push replaces the remote main with rewritten history."
+tui = true
+
+[[blocks]]
+row = "git-history-rewrite.rebase-continue"
+why = "--continue resumes a rebase that is rewriting commits."
+
+[[blocks]]
+row = "git-history-rewrite.pull-rebase-main"
+why = "--rebase makes the pull replay local commits instead of merging."
+
+[[blocks]]
+row = "git-history-rewrite.gc-expiring"
+why = "--prune=2.weeks.ago deletes unreachable objects a rewrite left behind."
+
+[[blocks]]
+row = "git-history-rewrite.lease-feature-destination"
+why = "Any leased force push matches, a feature branch included."
+
+[[passes]]
+row = "git-history-rewrite.rebase-abort-delegates"
+why = "--abort restores the branch to where the rebase started."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.gc-plain-delegates"
+why = "Plain gc keeps unreachable objects inside the default grace period."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.gc-no-prune-delegates"
+why = "The later --no-prune cancels the pruning date."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.merge-ff-only-delegates"
+why = "--ff-only only moves the branch forward and rewrites nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.pull-no-rebase-last-delegates"
+why = "The last option, --no-rebase, makes the pull a merge."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.amend-message-delegates"
+why = "Amending the tip commit is outside the modeled rewrites."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.push-feature-delegates"
+why = "A push without force or lease only fast-forwards the remote."
+cause = "out-of-scope"

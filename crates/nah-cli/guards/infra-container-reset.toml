@@ -1,0 +1,77 @@
+summary = "Blocks Podman commands that reset the complete local or selected runtime state."
+
+description = '''
+This guard stops a command that wipes a Podman runtime's entire local state:
+every container, image, volume, network, and build cache at once. It blocks
+`podman system reset` and `podman machine reset` when they would actually run,
+whether forced or confirmed through piped input.
+'''
+
+limits = '''
+Nah cannot tell a disposable CI machine from a workstation with valuable
+volumes. When a control it needs is missing or unresolved, the call delegates
+with a coverage gap.
+'''
+
+default_reason = '''
+It ships on because a full reset destroys every volume without selecting any,
+and routine cleanup has narrower prune commands. The optional
+`infra-container-volume-delete` covers volume pruning and Compose volume
+removal.
+'''
+
+[[blocks]]
+row = "infra-container-reset.podman-system-reset"
+why = "system reset deletes every container, image, and volume after a prompt."
+tui = true
+
+[[blocks]]
+row = "infra-container-reset.force"
+why = "--force runs the full reset without asking."
+tui = true
+
+[[blocks]]
+row = "infra-container-reset.confirmation-pipe"
+why = "The piped y answers the confirmation prompt."
+
+[[blocks]]
+row = "infra-container-reset.machine-control"
+why = "machine reset --force removes every Podman machine and its data."
+
+[[blocks]]
+row = "infra-container-reset.infrastructure-podman-system-reset-force-false"
+why = "--force=false still leaves the prompt, which an agent can answer."
+
+[[blocks]]
+row = "infra-container-reset.variable-program"
+why = "$P resolves to podman in the same call."
+
+[[passes]]
+row = "infra-container-reset.help-delegates"
+why = "--help prints usage and resets nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-container-reset.remote-connection"
+why = "--connection production targets a remote service, not the local runtime."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-container-reset.system-prune-delegates"
+why = "system prune removes only unused data, not the whole state."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-container-reset.root-terminator-delegates"
+why = "Podman rejects a -- before the subcommand, so nothing runs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-container-reset.machine-stop-delegates"
+why = "machine stop shuts the VM down but keeps its data."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-container-reset.path-override-delegates"
+why = "PATH=/tmp resolves podman from /tmp, so Nah cannot establish which program runs."
+cause = "unresolved"

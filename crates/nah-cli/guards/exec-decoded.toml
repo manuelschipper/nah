@@ -1,0 +1,79 @@
+summary = "Blocks execution reached from a visible decode stage."
+
+description = '''
+This guard stops the agent from running code hidden behind an encoding. A
+payload such as `cm0gLXJmIC8=` could say anything, and a person reviewing the
+command cannot read it. It blocks when the output of a decode step, such as
+`base64 -d` or a `tar` extraction of one archive member to stdout, reaches a
+shell or interpreter as code. The route can pass through variables, files,
+pipes, and interactive sessions.
+'''
+
+limits = '''
+Nah cannot see decoded bytes that return through a route it does not model;
+such calls delegate without a coverage gap.
+'''
+
+default_reason = '''
+It ships on because running a payload nobody can read is rarely legitimate,
+and decoding to a file is never interrupted. `exec-remote` covers content from
+the network, `exec-obfuscated` covers encoding spelled into the command itself,
+such as PowerShell `-EncodedCommand`, and `exec-network-shell` covers content
+from a listener.
+'''
+
+[[blocks]]
+row = "exec.execution-base64-d-sh"
+why = "The output of base64 -d is piped straight into sh as its script."
+tui = true
+
+[[blocks]]
+row = "shell-resolution.decoder-variable-execution"
+why = "The decoded payload is stored in $CODE, then run as code by bash -c."
+tui = true
+
+[[blocks]]
+row = "exec.tar-stdout-shell"
+why = "tar -xO writes one archive member to stdout, and sh runs it."
+
+[[blocks]]
+row = "exec.python-base64-subprocess-shell"
+why = "subprocess.run with shell=True runs the b64decode result as shell code."
+
+[[blocks]]
+row = "exec.decoded-stdin-read-eval"
+why = "read stores the decoded line in $cmd, and eval runs it."
+
+[[blocks]]
+row = "exec.python-exec-base64-payload"
+why = "exec() runs whatever b64decode returns as Python code."
+
+[[passes]]
+row = "exec.python-base64-decode-only"
+why = "The decoded text only reaches print(), never an interpreter."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-decoded.decode-to-file-delegates"
+why = "The decoded bytes land in cert.pem; nothing runs them."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-decoded.tar-extract-to-jq-delegates"
+why = "jq parses the extracted member as JSON; it runs no code."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.encode-is-not-decode"
+why = "Without -d, base64 encodes its input; no decoded payload reaches bash."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.decoded-shell-noexec-delegates"
+why = "sh -n only parses the script and executes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.python-base64-subprocess-no-shell"
+why = "shell=False runs the decoded bytes as one program name, not as shell code."
+cause = "out-of-scope"

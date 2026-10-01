@@ -1,0 +1,92 @@
+summary = "Blocks removal or replacement of live database data: dropping a database, schema, keyspace, table, materialized view, or collection; TRUNCATE, partition drops, and Redis flushes; DELETE without a row filter; overwriting loads and restores; CREATE OR REPLACE of a table, schema, or database; dropping a column; framework resets such as rails db:reset and prisma migrate reset; and deleting a managed database, cluster, table, or cache on AWS, Google Cloud, Azure, and reviewed database platforms. Views, indexes, filtered deletes, UPDATE, migration rollbacks, local-emulator defaults, dry runs, table snapshots, and ClickHouse detached parts stay outside."
+
+description = '''
+This guard stops the agent from destroying live database data through a
+connection it inherited and assumes is disposable. It blocks dropping a
+database, schema, keyspace, table, or collection; `TRUNCATE`, partition
+drops, and Redis `FLUSHALL`/`FLUSHDB`; `DELETE` without a row filter;
+overwriting writes and restores such as `INSERT OVERWRITE`, `bq query
+--replace`, `pg_restore --clean`, and `mongorestore --drop`; `CREATE OR
+REPLACE TABLE`; dropping a column; framework resets such as `rails db:reset`,
+`prisma migrate reset`, and `django-admin flush`; and deleting a managed
+database, cluster, table, or cache on AWS, Google Cloud, Azure, Neon,
+PlanetScale, Turso, Cloudflare D1, MongoDB Atlas, Upstash, Supabase,
+DigitalOcean, Heroku, and Fly.io. Sequences, functions, roles, temporary
+tables, migration rollbacks, and dry runs stay outside; BigQuery table
+snapshots and ClickHouse detached parts are recovery copies that
+`storage-snapshot-delete` covers.
+'''
+
+limits = '''
+Nah cannot tell a development database from production: the connection comes
+from configuration it does not read. A drop whose object kind or a cloud
+delete whose resource kind Nah cannot resolve delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships off because resetting and rebuilding databases is routine local and
+ELT work. It matches independently of `storage-snapshot-delete`, which still
+blocks a managed-database delete that skips its final snapshot or removes its
+automated backups.
+'''
+
+[[blocks]]
+row = "db-destroy.sql-drop-table"
+why = "DROP TABLE removes the users table together with every row it holds."
+tui = true
+
+[[blocks]]
+row = "db-destroy.redis-flushall"
+why = "FLUSHALL deletes every key in every database of the Redis server."
+tui = true
+
+[[blocks]]
+row = "db-destroy.dynamodb-delete-table"
+why = "delete-table removes the managed DynamoDB table and all of its items."
+tui = true
+
+[[blocks]]
+row = "db-destroy.sql-delete-without-where"
+why = "DELETE with no WHERE clause removes every row of the table."
+
+[[blocks]]
+row = "db-destroy.sql-delete-where-one-equals-one"
+why = "WHERE 1=1 is always true, so the filter still selects every row."
+
+[[blocks]]
+row = "db-destroy.mongo-delete-many-empty-filter"
+why = "deleteMany with the empty filter {} matches every document in the collection."
+
+[[blocks]]
+row = "db-destroy.wrangler-d1-remote-drop"
+why = "--remote sends the DROP TABLE to the live Cloudflare D1 database."
+
+[[passes]]
+row = "db-destroy.sql-delete-with-where-delegates"
+why = "WHERE id = 1 limits the delete to matching rows."
+cause = "out-of-scope"
+
+[[passes]]
+row = "db-destroy.mongo-delete-one-empty-filter-delegates"
+why = "deleteOne removes at most one document, even with an empty filter."
+cause = "out-of-scope"
+
+[[passes]]
+row = "db-destroy.sql-update-without-where-delegates"
+why = "UPDATE rewrites values in place and removes no rows."
+cause = "out-of-scope"
+
+[[passes]]
+row = "db-destroy.psql-comma-targets-s7-inert-delegates"
+why = "Indexes rebuild from table data; no rows are lost."
+cause = "out-of-scope"
+
+[[passes]]
+row = "db-destroy.wrangler-d1-local-default-drop-delegates"
+why = "Without --remote the drop runs against the local D1 emulator."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-boundary.rds-unresolved-identifier-delegates"
+why = "$DB is never set, so Nah cannot name the instance being deleted."
+cause = "unresolved"

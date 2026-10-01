@@ -1,0 +1,72 @@
+summary = "Blocks reviewed persistent systemctl, crontab, and launchctl management commands."
+
+description = '''
+This guard stops the agent from changing what the system starts automatically
+through service-manager and cron commands rather than files. It blocks
+persistent `systemctl` enable, disable, mask, link, and default-target changes,
+installing, editing, or removing a crontab, and `launchctl` enable, disable,
+bootstrap, bootout, load, and unload. A change made with `--runtime` stays out
+of the boot path and does not match.
+'''
+
+limits = '''
+Nah cannot tell routine host administration from persistence abuse. Other
+schedulers, login items, and Windows Run keys are outside this guard.
+'''
+
+default_reason = '''
+It ships off because service management is ordinary system administration.
+The default-on `fs-startup-persistence` covers startup changes made by editing
+files, and `sys-service-stop` covers stopping services.
+'''
+
+[[blocks]]
+row = "fs-startup-management.enabled-systemctl-blocks"
+why = "enable makes backup.service start at every boot."
+tui = ["linux", "windows"]
+
+[[blocks]]
+row = "fs-startup-management.systemctl-mask-backup-service"
+why = "mask links the unit to /dev/null so it can never start."
+tui = ["linux", "windows"]
+
+[[blocks]]
+row = "fs-startup-management.enabled-crontab-remove-blocks"
+why = "crontab -r deletes the user's whole crontab."
+tui = true
+
+[[blocks]]
+row = "fs-startup-management.crontab-stdin-replace"
+why = "crontab - replaces the crontab with whatever arrives on stdin."
+
+[[blocks]]
+row = "fs-startup-management.systemctl-set-default"
+why = "set-default changes the target the host boots into."
+
+[[blocks]]
+row = "fs-startup-management.systemctl-link-tmp"
+why = "link registers a unit file from /tmp with systemd."
+
+[[blocks]]
+row = "fs-startup-management.launchctl-disable-blocks"
+why = "launchctl disable persistently stops the job from loading."
+
+[[passes]]
+row = "fs-startup-management.runtime-delegates"
+why = "--runtime keeps the enable until the next reboot only."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-management.service-restart-delegates"
+why = "restart changes no boot-time configuration."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-management.enabled-systemctl-list-unit-files-delegates"
+why = "list-unit-files only reports unit states."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-management.enabled-systemctl-is-enabled-delegates"
+why = "is-enabled only queries the unit."
+cause = "out-of-scope"

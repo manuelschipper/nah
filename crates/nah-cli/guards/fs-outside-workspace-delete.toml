@@ -1,0 +1,83 @@
+summary = "Blocks recursive deletion outside the active project, except under reviewed temporary roots."
+
+description = '''
+This guard prevents recursive deletion of anything outside the active project,
+such as another checkout, a data directory, or a folder under home. It blocks
+a recursive delete whose target is outside the project root. Targets under the
+temporary directories `/tmp`, `/private/tmp`, `/var/tmp`, `C:\Windows\Temp`,
+and the user's `AppData\Local\Temp` are exempt.
+'''
+
+limits = '''
+Nah cannot know whether an outside directory is disposable, such as an old
+build cache or a checkout the user wants gone. A target it cannot identify
+delegates.
+'''
+
+default_reason = '''
+It ships off because this cleanup is routine work whose danger depends on
+context Nah cannot see. With it off, the default-on `fs-home`,
+`fs-system-tree`, and `fs-project-root` still stop root-level wipes, and the
+host protection guards still cover their listed files.
+'''
+
+[[blocks]]
+row = "fs-outside-workspace-delete.enabled-outside-blocks"
+why = "/srv/data lies outside the project and every temporary root."
+tui = true
+
+[[blocks]]
+row = "fs-outside-workspace-delete.home-child-blocks"
+why = "~/Downloads/old-build is a home subtree outside the project."
+tui = true
+
+[[blocks]]
+row = "fs-outside-workspace-delete.home-other-checkout"
+why = "~/src/other-repo is another project, not the active one."
+tui = true
+
+[[blocks]]
+row = "fs-outside-workspace-delete.resolved-sibling-blocks"
+why = "../sibling resolves to a directory beside the project, outside it."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.find-delete-tree"
+why = "find -delete removes every entry under /srv/data."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.rsync-delete-empty-source"
+why = "--delete removes whatever in /srv/data the source lacks."
+
+[[blocks]]
+row = "windows.pwsh.hash-bare-path"
+why = "Remove-Item -Recurse targets a home directory outside the project."
+
+[[passes]]
+row = "fs-outside-workspace-delete.project-child-delegates"
+why = "safe is inside the project."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.temp-child-delegates"
+why = "/tmp is a reviewed temporary root."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.non-recursive-outside-file-delegates"
+why = "Without -r, rm removes one file, not a tree."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.outside-du-delegates"
+why = "du only measures the outside directory."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.mktemp-dir-cleanup-delegates"
+why = "mktemp -d picks the directory at run time, so Nah cannot see the target."
+cause = "unresolved"
+
+[[passes]]
+row = "compound.node-rmsync-unset-env-dir"
+why = "BUILD_DIR is unset, so Nah cannot name the directory rmSync removes."
+cause = "unresolved"

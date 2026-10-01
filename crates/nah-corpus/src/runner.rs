@@ -29,6 +29,8 @@ pub struct Reconciliation {
     pub exercised_guards: BTreeSet<String>,
     /// Per decided row id, the guards its engine decision attributed.
     pub firing_guards: BTreeMap<String, BTreeSet<String>>,
+    /// Decided row ids whose engine decision reported partial coverage.
+    pub partial_coverage: BTreeSet<String>,
 }
 
 /// Decides every case through the production engine path and reconciles it
@@ -58,6 +60,9 @@ pub fn reconcile(cases: &[CorpusCase], fixtures: &FixtureRegistry, ledger: &str)
                     .collect::<BTreeSet<_>>();
                 result.exercised_guards.extend(firing.iter().cloned());
                 result.firing_guards.insert(case.id.clone(), firing);
+                if decision.core().coverage() == Coverage::Partial {
+                    result.partial_coverage.insert(case.id.clone());
+                }
                 expectation_matches(&case.expected, &decision)
             }
             Err(DecisionFailure::AnalysisLimit(code)) => {

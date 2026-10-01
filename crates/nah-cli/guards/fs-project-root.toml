@@ -1,0 +1,82 @@
+summary = "Blocks recursive deletion or recursive permission changes selecting the exact project root or its `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target."
+
+description = '''
+This guard prevents a command that wipes or locks the whole project checkout
+at once, taking uncommitted work with it. It blocks a recursive delete, or a
+recursive `chmod`, `chown`, or `chgrp`, that selects the project root itself or
+every entry in it through `*`, `.*`, or `{*,.*}`.
+'''
+
+limits = '''
+Nah cannot tell which project applies when it has not observed a project root.
+`find -delete` without an explicit start path has no modeled target and
+delegates.
+'''
+
+default_reason = '''
+It ships on because losing the whole working tree is broad loss, and naming a
+subtree is an easy alternative. `git-clean-force` and `git-worktree-discard`
+protect the same tree against Git-driven discards, and `fs-home` and
+`fs-system-tree` protect larger roots.
+'''
+
+[[blocks]]
+row = "fs-project-root.delete-root"
+why = ". is the project root itself."
+tui = true
+
+[[blocks]]
+row = "fs-project-root.delete-root-glob"
+why = "* selects every top-level entry of the project."
+tui = true
+
+[[blocks]]
+row = "fs-project-root.chmod-destructive-mode"
+why = "-R 000 removes every permission on the whole project tree."
+tui = true
+
+[[blocks]]
+row = "fs-project-root.chmod-benign-mode"
+why = "Any recursive mode change on the root matches, even a harmless 755."
+
+[[blocks]]
+row = "fs-project-root.find-dot-delete"
+why = "find . -delete removes the project root and everything under it."
+
+[[blocks]]
+row = "fs-project-root.git-rm-bundled-rf-root"
+why = "git rm -rf . deletes every tracked file from the working tree."
+
+[[blocks]]
+row = "fs-project-root.python-getcwd-rmtree"
+why = "rmtree is given os.getcwd(), the project root."
+
+[[passes]]
+row = "fs-project-root.rm-child-delegates"
+why = "build is a named child, not the root."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.find-filtered-root"
+why = "-name '*.pyc' limits the delete to compiled files."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.chmod-root-nonrecursive-delegates"
+why = "Without -R, chmod changes only the root directory's own mode."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.rsync-delete-root"
+why = "Without -r, --delete has no directory to prune."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.git-rm-bundled-rf-cached-delegates"
+why = "--cached only unstages files; the working tree is kept."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.unset-target-variable-delegates"
+why = "$UNKNOWN is unset, so Nah cannot tell which tree chmod changes."
+cause = "unresolved"

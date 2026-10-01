@@ -1,0 +1,84 @@
+summary = "Blocks Git force pushes without lease protection and leased pushes to explicit static main/master destinations. Leases must apply to the destination; bare pushes, --all, wildcard refspecs, and unresolved destinations do not establish main/master."
+
+description = '''
+This guard prevents a push that overwrites remote history without checking
+that nobody else pushed first. It blocks `--force`, `--mirror`, and forced
+`+ref` refspecs that have no lease. It also blocks a leased force push whose
+explicit destination is `main` or `master`.
+'''
+
+limits = '''
+Nah cannot see the remote's branch protection or whether anyone else pushed.
+A bare push, `--all`, a wildcard refspec, or an unresolved destination does
+not establish `main` or `master`. An unknown lease or destination delegates
+with a coverage gap.
+'''
+
+default_reason = '''
+It ships on because an unleased force push can silently discard teammates'
+commits, and a leased push to a feature branch stays available. The optional
+`git-protected-push` covers any push to `main` or `master`,
+`git-history-rewrite` covers leased pushes and local rewrites, and
+`git-ref-delete` covers deleting remote branches.
+'''
+
+[[blocks]]
+row = "git-force-push.long"
+why = "--force overwrites the remote branch with no lease check."
+tui = true
+
+[[blocks]]
+row = "git-force-push.refspec"
+why = "The + prefix forces the update of main."
+tui = true
+
+[[blocks]]
+row = "git-leased-push.factory-main"
+why = "A lease still overwrites main, an explicit static main destination."
+tui = true
+
+[[blocks]]
+row = "git-force-push.short"
+why = "-f force-pushes to main without a lease."
+
+[[blocks]]
+row = "git-force-push.mirror"
+why = "--mirror force-updates and deletes remote refs to match the local ones."
+
+[[blocks]]
+row = "git-force-push.python-subprocess"
+why = "subprocess.run starts git push --force origin main."
+
+[[blocks]]
+row = "git-force-push.config-push-forced-refspec"
+why = "The configured push refspec starts with +, forcing main."
+
+[[passes]]
+row = "git-force-push.separator-delegates"
+why = "After --, --force is a refspec name, not an option."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-force-push.mirror-dry-run-delegates"
+why = "--dry-run reports the mirror push without sending it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-force-push.factory-lease-feature-delegates"
+why = "The lease protects a feature branch; git-history-rewrite owns this case."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-force-push.push-matching-unforced-delegates"
+why = "The : refspec pushes matching branches without +, so nothing is forced."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-force-push.config-mirror-false-delegates"
+why = "remote.origin.mirror=false keeps the push an ordinary one."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-force-push.config-include-unobserved-delegates"
+why = "The included config is not observed, so Nah cannot tell whether it forces the push."
+cause = "unresolved"

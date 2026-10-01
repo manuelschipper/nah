@@ -1,0 +1,87 @@
+summary = "Blocks Git hard resets."
+
+description = '''
+This guard prevents `git reset --hard`, which throws away every uncommitted
+change in the working tree and index. It blocks any hard reset that would run,
+however it is spelled. Aliases, command chains, and a subcommand held in a
+variable Nah can resolve all count.
+'''
+
+limits = '''
+Nah cannot tell whether the working tree has uncommitted changes, so it blocks
+even when a hard reset would lose nothing. When the reset mode cannot be
+resolved, the call delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships on because discarding all local work is broad loss, and a targeted
+`git restore` or a stash is always available. `git-worktree-discard` covers
+the checkout, restore, and switch equivalents, and `git-path-discard` covers
+named files.
+'''
+
+[[blocks]]
+row = "git-hard-reset.hard"
+why = "--hard resets the index and working tree, discarding uncommitted changes."
+tui = true
+
+[[blocks]]
+row = "git-hard-reset.macos-reset-hard"
+why = "--hard HEAD~1 also drops the last commit from the branch."
+tui = true
+
+[[blocks]]
+row = "git-hard-reset.sudo-c-path"
+why = "-C . still names the current repository for the hard reset."
+tui = true
+
+[[blocks]]
+row = "git-hard-reset.static-command-alias"
+why = "The inline alias wipe expands to reset --hard."
+
+[[blocks]]
+row = "compound.and-chain-late-hard-reset"
+why = "The reset runs after npm test succeeds."
+
+[[blocks]]
+row = "git-hard-reset.read-tree-reset-update"
+why = "read-tree -u --reset overwrites the working tree like a hard reset."
+
+[[blocks]]
+row = "git-hard-reset.unquoted-heredoc-backticks"
+why = "In an unquoted heredoc, the shell runs the backtick command before python3 sees the text."
+
+[[passes]]
+row = "git-hard-reset.soft-delegates"
+why = "--soft moves the branch but keeps the index and working tree."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.separator-delegates"
+why = "After --, --hard is a path to unstage, not the mode."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.help-delegates"
+why = "--help shows documentation instead of resetting."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.reset-keep-delegates"
+why = "--keep refuses to reset files that have local changes."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.quoted-heredoc-backticks-delegates"
+why = "The quoted 'EOF' heredoc keeps the backticks as plain text."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.infeasible-or-delegates"
+why = "true succeeds, so the reset after || never runs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.gh-repo-sync-local-force-unresolved"
+why = "Without a repository argument, Nah cannot tell which branch gh resets."
+cause = "unresolved"

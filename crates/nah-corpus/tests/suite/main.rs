@@ -6,4 +6,5 @@
 // one module with `cargo test -p nah-corpus --test suite <module>::`.
 
 mod guard_floor;
+mod guard_knowledge;
 mod harness;

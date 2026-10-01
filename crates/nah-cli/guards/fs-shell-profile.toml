@@ -1,0 +1,88 @@
+summary = "Blocks changes to reviewed user shell profile paths."
+
+description = '''
+This guard stops the agent from changing the files every new shell runs at
+startup. An alias, `PATH` entry, or command injected there runs in every later
+terminal session. It blocks any write, creation, deletion, move, or permission
+change that reaches a user shell profile, a move onto one, and a Git discard
+that would overwrite one.
+
+The protected paths are `~/.bashrc`, `~/.bash_profile`, `~/.bash_login`,
+`~/.bash_aliases`, `~/.bash_logout`, `~/.profile`, `~/.zshrc`, `~/.zshenv`,
+`~/.zprofile`, `~/.zlogin`, `~/.zlogout`, `~/.config/fish/config.fish`,
+`~/.config/fish/conf.d/`, and the Windows PowerShell profiles under
+`Documents`.
+'''
+
+limits = '''
+Nah cannot tell an alias the user asked for from an injected one. A change
+made without a visible path does not match.
+'''
+
+default_reason = '''
+It ships off because installers and dotfile tools routinely edit these files.
+When it blocks, the reason tells the agent to ask the operator to enable the
+change in `nah tui`. The default-on `fs-startup-persistence` still covers the
+system-wide profiles under `/etc`.
+'''
+
+[[blocks]]
+row = "fs-shell-profile.sudo-tee-append-path"
+why = "tee -a appends a PATH change to ~/.bashrc, which every new shell runs."
+tui = true
+
+[[blocks]]
+row = "fs-shell-profile.fish-conf-d"
+why = "Files in ~/.config/fish/conf.d are sourced by every fish shell."
+tui = true
+
+[[blocks]]
+row = "fs-shell-profile.copy-over-profile"
+why = "cp replaces ~/.bashrc with another file."
+tui = true
+
+[[blocks]]
+row = "fs-shell-profile.python-urlretrieve-bashrc"
+why = "urlretrieve saves a download over ~/.bashrc."
+
+[[blocks]]
+row = "fs-shell-profile.find-home-top-level-files"
+why = "find ~ -maxdepth 1 -type f selects the profiles at the top of home for deletion."
+
+[[blocks]]
+row = "fs-shell-profile.macos-pwsh-force-move-lands-zshrc"
+why = "-Force makes the wildcard include the hidden .zshrc, which lands in ~."
+
+[[blocks]]
+row = "fs-shell-profile.windows-pwsh-profile-add"
+why = "Add-Content appends to the PowerShell profile that runs at every start."
+
+[[passes]]
+row = "fs-shell-profile.read-delegates"
+why = "cat only reads ~/.bashrc."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-shell-profile.unlisted-dotfile-delegates"
+why = "~/.vimrc is not a shell profile."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-shell-profile.project-dotfile-append-delegates"
+why = "dotfiles/.bashrc is a project file, not the profile in home."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-shell-profile.backup-copy-delegates"
+why = "The write lands in ~/.bashrc.bak, which no shell loads."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-shell-profile.bash-syntax-check-delegates"
+why = "bash -n parses the profile without running or changing it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-shell-profile.macos-pwsh-move-hidden-unselected-delegates"
+why = "Without -Force, the wildcard skips hidden files such as .zshrc."
+cause = "out-of-scope"

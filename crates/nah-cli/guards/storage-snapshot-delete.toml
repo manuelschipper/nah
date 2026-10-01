@@ -1,0 +1,76 @@
+summary = "Blocks reviewed snapshot, backup, archive, volume, and retention deletion, including AWS RDS, DocumentDB, Neptune, Redshift, and DynamoDB snapshots and backups, Cloud SQL, Spanner, and AlloyDB backups, Azure SQL long-term-retention backups, PostgreSQL and MySQL flexible-server backups, BigQuery table snapshots, and ClickHouse detached parts, plus AWS RDS, Aurora, DocumentDB, Neptune, and Redshift deletion that skips the final snapshot or removes the automated backups. Google Cloud and Azure database, instance, and server deletion stay outside the modeled guard: what recovery survives depends on the service and its configuration, such as Azure SQL long-term retention surviving a server deletion only when it was configured. Dry runs, creation, garbage collection after logical removal, nonrecursive ZFS rollback, Kubernetes backup-resource deletion, Velero restore deletion, and AMI deregistration stay outside because they do not prove deletion of a recovery point in this modeled family."
+
+description = '''
+This guard stops deletion of individual recovery points: filesystem
+snapshots, backup archives, cloud snapshots, and retention runs that expire
+old backups. It also blocks btrfs subvolume deletion, ZFS rollbacks that
+destroy newer snapshots, deletion of AWS, Google Cloud, and Azure volumes
+and disks, and deletion of managed-database snapshots and backups, BigQuery
+table snapshots, and ClickHouse detached parts. An AWS RDS,
+Aurora, DocumentDB, Neptune, or Redshift deletion counts when it skips the
+final snapshot or removes the automated backups. Tools covered include ZFS,
+btrfs, Restic, Borg, Kopia, pgBackRest, and the major cloud CLIs.
+'''
+
+limits = '''
+Google Cloud and Azure database, instance, and server deletion are outside the
+modeled guard. What survives them depends on the service and its
+configuration: Cloud SQL keeps backups for a while after an instance is
+deleted, Spanner refuses to delete an instance that still has backups, and
+deleting an Azure SQL database keeps its point-in-time backups while deleting
+its server does not, leaving only long-term-retention backups where they were
+configured.
+
+Nah cannot tell whether a snapshot is the last good copy or routine rotation.
+A target kind or mode it cannot resolve delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships off because retention pruning and snapshot rotation are scheduled
+maintenance. With it off, the default-on `storage-backup-destroy` still stops
+whole-repository and remove-all deletion, and `fs-volume-destroy` stops
+destroying live volumes and datasets.
+'''
+
+[[blocks]]
+row = "storage-snapshot.zfs-destroy"
+why = "The @snap suffix names one ZFS snapshot to destroy."
+tui = true
+
+[[blocks]]
+row = "storage-snapshot.restic-retention"
+why = "--keep-daily 7 expires older snapshots, and --prune deletes their data."
+tui = true
+
+[[blocks]]
+row = "storage-snapshot.aws-snapshot"
+why = "delete-snapshot removes the EBS snapshot snap-1."
+tui = true
+
+[[blocks]]
+row = "storage-snapshot.zfs-rollback"
+why = "-r destroys every snapshot newer than tank/data@snap."
+
+[[blocks]]
+row = "storage-snapshot.rds-instance-skip-final-snapshot"
+why = "--skip-final-snapshot deletes the database with no last recovery point."
+
+[[passes]]
+row = "storage-boundary.zfs-dry-run-delegates"
+why = "-n only reports what would be destroyed."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-boundary.duplicity-without-force-delegates"
+why = "Without --force, duplicity only lists what it would remove."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-boundary.restic-prune-delegates"
+why = "prune alone drops data no snapshot references."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-boundary.rds-db-snapshot-unresolved-delegates"
+why = "$SNAP is never set, so Nah cannot name the snapshot."
+cause = "unresolved"

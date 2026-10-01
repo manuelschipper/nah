@@ -1,0 +1,85 @@
+summary = "Blocks exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes."
+
+description = '''
+This guard prevents deleting an entire hosted GitHub or GitLab repository,
+with its issues, pull requests, releases, and settings. It blocks
+`gh repo delete`, `glab repo delete`, and `glab project delete`, and `DELETE`
+requests to a repository route through `gh api`, `glab api`, or a generic HTTP
+client such as `curl`. A repository named in a variable still blocks, because
+the action is certainly whole-repository deletion.
+'''
+
+limits = '''
+Nah cannot see account permissions or whether backups exist. In a few cases
+`gh` would reject the invocation before sending anything, yet Nah currently
+blocks it. A request whose target kind is unknown delegates with a coverage
+gap.
+'''
+
+default_reason = '''
+It ships on because hosted repository deletion loses collaboration history a
+local clone does not hold. The optional `git-remote-resource-delete` covers
+releases, secrets, keys, and other resources inside a repository, and
+`git-ref-delete` covers branches.
+'''
+
+[[blocks]]
+row = "git-remote-repo-delete.gh-explicit-confirmed"
+why = "gh repo delete removes the hosted repository; --yes skips the prompt."
+tui = true
+
+[[blocks]]
+row = "git-remote-repo-delete.live-glab-repo-delete-group-project-y"
+why = "glab repo delete removes the GitLab project."
+tui = true
+
+[[blocks]]
+row = "git-remote-repo-delete.gh-api-placeholders"
+why = "DELETE on repos/{owner}/{repo} is the repository deletion route."
+tui = true
+
+[[blocks]]
+row = "git-remote-repo-delete.gh-current"
+why = "With no argument, gh deletes the current repository."
+
+[[blocks]]
+row = "git-remote-repo-delete.glab-api-id"
+why = "DELETE on projects/123 deletes the GitLab project by id."
+
+[[blocks]]
+row = "git-remote-repo-delete.generic-http-delegates"
+why = "curl sends DELETE to the repository's GitHub API URL."
+
+[[blocks]]
+row = "git-remote-repo-delete.dynamic-target-delegates"
+why = "Whatever $REPOSITORY names, the command deletes a whole repository."
+
+[[passes]]
+row = "git-remote-repo-delete.gh-nested-endpoint-delegates"
+why = "The route ends in /issues, a resource inside the repository."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-repo-delete.other-method-delegates"
+why = "The later --method GET overrides DELETE."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-repo-delete.archive-delegates"
+why = "archive makes the repository read-only but keeps it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-repo-delete.glab-unencoded-path-delegates"
+why = "An unencoded group/project path is not GitLab's project route."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-repo-delete.gh-slurp-delegates"
+why = "gh rejects --slurp without --paginate before sending anything."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-repo-delete.gh-dynamic-api-option-delegates"
+why = "* expands to file names at run time, so Nah cannot tell how gh parses the call."
+cause = "unresolved"

@@ -1,0 +1,78 @@
+summary = "Blocks reviewed broad remote deletion and destination-deleting synchronization. Single-object deletion, copy or overwrite, source-side rsync cleanup, opaque delete manifests and lifecycle JSON, replication and reversible protection settings, unobservable network mounts, version-dependent ZFS receive and Azure blob sync, and the deferred MinIO ecosystem stay outside because argv does not prove this guard's destructive destination scope."
+
+description = '''
+This guard stops bulk deletion of remote storage, and synchronization that
+deletes whatever the destination has and the source lacks. It blocks
+recursive object-store deletion, bucket and container removal with contents,
+cloud storage account deletion, and sync commands with delete options. A
+local `rsync --delete` destination counts too. Single objects, copies,
+empty-bucket removal, and dry runs stay outside.
+'''
+
+limits = '''
+Nah cannot tell a deploy mirror, where deleting stale files is the point, from
+a data bucket. It cannot read delete manifests or lifecycle JSON. An
+unresolved option delegates with a coverage gap. `rsync --delete
+--backup-dir`, `zfs receive -F`, and `az storage blob sync` delegate because
+their arguments do not prove data loss at the destination, and MinIO's `mc rm
+--recursive` is not yet modeled.
+'''
+
+default_reason = '''
+It ships off because sync-with-delete is the standard static-site deploy. The
+default-on `storage-backup-destroy` covers backup repositories, the optional
+`storage-snapshot-delete` covers snapshots, and `fs-system-tree`, `fs-home`,
+and `fs-project-root` cover local root-level loss.
+'''
+
+[[blocks]]
+row = "storage-recursive.aws-s3-rm-s3-bucket-prefix-recursive-quiet"
+why = "--recursive deletes every object under the prefix."
+tui = true
+
+[[blocks]]
+row = "storage-recursive.rclone-purge"
+why = "purge deletes the remote path and everything under it."
+tui = true
+
+[[blocks]]
+row = "storage-recursive.rclone-sync-remote-mirror"
+why = "sync deletes destination files missing from the source."
+
+[[blocks]]
+row = "storage-recursive.rsync-a-delete-dist-host-var-www"
+why = "--delete removes files on the host that dist/ lacks."
+tui = true
+
+[[blocks]]
+row = "storage-recursive.aws-bucket-force"
+why = "--force deletes every object before removing the bucket."
+
+[[blocks]]
+row = "storage-recursive.azure-account"
+why = "Deleting the storage account deletes all of its containers and data."
+
+[[passes]]
+row = "storage-boundary.single-object-delegates"
+why = "One named object is deleted, not a prefix."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-boundary.empty-aws-bucket-delegates"
+why = "Without --force, rb only removes an empty bucket."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-boundary.rclone-copy-delegates"
+why = "copy adds and overwrites files but never deletes at the destination."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-boundary.rclone-dry-run-delegates"
+why = "--dry-run reports what sync would delete without deleting."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-boundary.opaque-delete-manifest-delegates"
+why = "Nah cannot read which keys objects.json lists."
+cause = "unresolved"

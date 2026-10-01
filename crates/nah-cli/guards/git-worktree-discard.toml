@@ -1,0 +1,84 @@
+summary = "Blocks project-wide checkout or restore, proven forced branch changes, and forced worktree removal or submodule deinitialization."
+
+description = '''
+This guard prevents discarding every uncommitted change in the project through
+Git, and forcibly removing a worktree or submodule working tree along with its
+local edits. It blocks `git checkout`, `git restore`, or `git switch` discards
+that select the whole project, forced branch changes that drop local edits,
+`git worktree remove --force`, `git worktree prune --force`, and
+`git submodule deinit --force`.
+'''
+
+limits = '''
+Nah cannot see whether the tree has changes to lose. A selection it cannot
+resolve delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships on because losing all uncommitted work, or a whole secondary
+worktree, is broad loss with targeted alternatives. The optional
+`git-path-discard` covers named files, `git-hard-reset` the reset form,
+`git-clean-force` untracked files, and the optional `git-ref-delete` unforced
+worktree removal.
+'''
+
+[[blocks]]
+row = "git-worktree-discard.checkout-force-current"
+why = "-f throws away local changes to every tracked file."
+tui = true
+
+[[blocks]]
+row = "git-worktree-discard.remove-force-factory"
+why = "-f removes the worktree even when it has uncommitted changes."
+tui = true
+
+[[blocks]]
+row = "git-worktree-discard.submodule-force-all"
+why = "--force --all deinitializes every submodule, discarding local changes in them."
+tui = true
+
+[[blocks]]
+row = "git-worktree-discard.checkout-root"
+why = ". selects every tracked file in the project for overwrite."
+
+[[blocks]]
+row = "git-worktree-discard.restore-root"
+why = "restore . discards all unstaged changes project-wide."
+
+[[blocks]]
+row = "git-worktree-discard.switch-discard"
+why = "--discard-changes drops local changes while switching."
+
+[[blocks]]
+row = "git-worktree-discard.checkout-force-branch"
+why = "-f switches to main, discarding conflicting local changes."
+
+[[passes]]
+row = "git-worktree-discard.restore-staged-delegates"
+why = "--staged only resets the index; working files are kept."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.switch-force-merge-delegates"
+why = "--merge carries local changes into the new branch."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.deinit-all-unforced"
+why = "Without --force, deinit refuses submodules with local changes."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.rejected-git-checkout-f-no-merge-merge"
+why = "Git rejects --merge combined with -f, so nothing runs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.remove-force-negated"
+why = "The later --no-force cancels -ff."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.restore-extension-pattern-delegates"
+why = "'*.lock' restores only lock files, not the whole tree."
+cause = "out-of-scope"

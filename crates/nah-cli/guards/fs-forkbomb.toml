@@ -1,0 +1,81 @@
+summary = "Blocks shell fork bombs and loops or recursion proven to spawn background processes without bound."
+
+description = '''
+This guard prevents commands that spawn processes without limit until the
+machine runs out of process slots or memory. It blocks the classic fork bomb
+and its relatives: a loop that never ends and starts a background job on every
+pass without waiting for it, a function that keeps launching itself in the
+background, and a script that re-runs itself. Nah recognizes these from the
+shape of the shell code, not from watching processes.
+'''
+
+limits = '''
+Nah cannot evaluate a loop condition that depends on run-time state. There is
+no coverage gap for this guard.
+'''
+
+default_reason = '''
+It ships on because unbounded spawning has no development use, and bounded
+worker pools are left alone. No other guard covers resource exhaustion.
+'''
+
+[[blocks]]
+row = "fs-forkbomb.canonical"
+why = "The function : pipes into a backgrounded copy of itself, doubling processes until the host stalls."
+tui = true
+
+[[blocks]]
+row = "fs-forkbomb.named"
+why = "bomb calls itself twice per call in a backgrounded pipeline, so processes multiply without bound."
+tui = true
+
+[[blocks]]
+row = "fs-forkbomb.infinite-while"
+why = "while true never ends and backgrounds a new job on every pass."
+tui = true
+
+[[blocks]]
+row = "fs-forkbomb.single-background-recursion"
+why = "Each call backgrounds the next before returning, so the recursion never ends."
+
+[[blocks]]
+row = "fs-forkbomb.coprocess-recursion"
+why = "Each coproc starts another copy of f, an unbounded chain of processes."
+
+[[blocks]]
+row = "fs-forkbomb.conditional-break"
+why = "The break sits under if false, so the loop never exits."
+
+[[blocks]]
+row = "fs-forkbomb.subshell-wait"
+why = "(wait) runs in a subshell that has no jobs to wait for, so jobs pile up."
+
+[[passes]]
+row = "fs-forkbomb.literal-delegates"
+why = "The fork bomb is only an argument that echo prints."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-forkbomb.bounded-for-delegates"
+why = "The loop starts exactly three background jobs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-forkbomb.wait-bounds-loop"
+why = "wait reaps each job before the next one starts."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-forkbomb.break-bounds-loop"
+why = "break leaves the loop after the first job."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-forkbomb.mutual-foreground-recursion-refuses"
+why = "The recursion stays in the foreground, so one process runs at a time."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-forkbomb.dynamic-predicate-delegates"
+why = "$running is decided at run time, so Nah cannot tell whether the loop ends."
+cause = "unresolved"

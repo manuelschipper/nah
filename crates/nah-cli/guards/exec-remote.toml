@@ -1,0 +1,90 @@
+summary = "Blocks execution of a payload visibly obtained from the network."
+
+description = '''
+This guard stops the agent from running code it just fetched from the
+network. `curl | bash` and its disguises are the classic route by which a
+prompt injection becomes code execution. It blocks when downloaded or
+requested content reaches a shell or interpreter as code and no listener is
+involved. Nah follows the content through saved files, copies, renames,
+`chmod +x`, file descriptors, and process substitution, and into `if`,
+`while`, and `case` bodies and `||` fallbacks, so an installer guarded by
+`command -v tool || curl … | sh` blocks too.
+'''
+
+limits = '''
+Nah cannot follow a file name the server chooses or a URL in a variable it
+cannot resolve, and those calls delegate.
+'''
+
+default_reason = '''
+It ships on because running unreviewed remote code is the core injection
+threat, and saving a file is never blocked. `exec-network-shell` covers the
+case with a listener, `exec-decoded` covers decode steps, and `secrets-exfil`
+covers data flowing out rather than in.
+'''
+
+[[blocks]]
+row = "exec.remote-pipe"
+why = "curl's response body is piped into bash as its script."
+tui = true
+
+[[blocks]]
+row = "exec-remote.live-wget-output-doc-evil-example-bash"
+why = "--output-doc=- writes the download to stdout, and bash runs it."
+tui = true
+
+[[blocks]]
+row = "exec.shell-tcp-input"
+why = "bash reads its script from a /dev/tcp network connection."
+tui = true
+
+[[blocks]]
+row = "exec.remote-moved-artifact"
+why = "The download is renamed, and bash still runs it as unrelated.sh."
+
+[[blocks]]
+row = "exec.descriptors-exec-3-curl-evil-example-bash-3"
+why = "fd 3 carries curl's output, and bash reads its script from it."
+
+[[blocks]]
+row = "exec.python-urlretrieve-then-system"
+why = "urlretrieve saves the download to /tmp/output, and os.system runs it with sh."
+
+[[blocks]]
+row = "exec.tmux-new-window-curl-http-x-setsid-sh"
+why = "The new tmux window pipes curl's download into sh."
+
+[[passes]]
+row = "exec.chain-is-not-flow"
+why = "&& only sequences the commands; curl's output never reaches bash."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.curl-version-is-not-network"
+why = "--version prints curl's own version and fetches nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.local-curl-is-not-network"
+why = "A file:// URL reads a local file, not network content."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.inline-shell-does-not-consume-pipe-as-code"
+why = "bash -c runs its fixed string and ignores the piped download."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.artifact-overwrite-severs-remote"
+why = "downloaded.sh is overwritten with local text before bash runs it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-remote.header-remote-name-delegates"
+why = "-J lets the server's header name the file, so Nah cannot tie payload.sh to the download."
+cause = "unresolved"
+
+[[passes]]
+row = "exec.remote-dynamic-curl-url"
+why = "$URL is unset, so Nah cannot tell whether curl fetches network content."
+cause = "unresolved"

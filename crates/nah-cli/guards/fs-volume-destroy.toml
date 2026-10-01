@@ -1,0 +1,83 @@
+summary = "Blocks definite logical-volume, storage-pool, and live ZFS dataset destruction."
+
+description = '''
+This guard prevents destroying a live logical volume, volume group, ZFS pool,
+or ZFS dataset, which removes all the data on it at once. It blocks definite
+destroy commands such as `lvremove`, `vgremove`, `zpool destroy`, and
+`zfs destroy` of a dataset. Snapshots, bookmarks, btrfs subvolumes, cloud
+disks, dry runs, and rollbacks are outside this guard.
+'''
+
+limits = '''
+Nah cannot know whether a volume holds valuable data or is scratch space. It
+does not model every storage tool; whole-device tools such as
+`cryptsetup erase` belong to `fs-raw-device`.
+'''
+
+default_reason = '''
+It ships on because a live volume or pool holds working data with no built-in
+undo. The optional `storage-snapshot-delete` covers snapshots, btrfs
+subvolumes, and cloud disks, and `fs-raw-device` covers whole block devices.
+'''
+
+[[blocks]]
+row = "fs-volume-destroy.lvm-lvremove"
+why = "lvremove deletes the vg/data logical volume and its data."
+tui = true
+
+[[blocks]]
+row = "fs-volume-destroy.lvm-vgremove"
+why = "vgremove deletes the whole archive volume group."
+tui = true
+
+[[blocks]]
+row = "fs-volume-destroy.zfs-destroy-recursive-default"
+why = "-r destroys the live tank/data dataset and every child."
+tui = true
+
+[[blocks]]
+row = "fs-volume-destroy.zpool"
+why = "zpool destroy removes the whole tank pool."
+
+[[blocks]]
+row = "fs-volume-destroy.zfs-destroy-tank-data"
+why = "Without @, the target is a live dataset, not a snapshot."
+
+[[blocks]]
+row = "fs-volume-destroy.lvremove-multiple-volumes"
+why = "Both named logical volumes are removed."
+
+[[passes]]
+row = "fs-volume-destroy.test-delegates"
+why = "--test rehearses the removal without changing metadata."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.status-delegates"
+why = "zpool status only reports pool health."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.zfs-live-dataset-deferred"
+why = "-d is the deferred snapshot form; it does not destroy a live dataset."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.factory-zfs-snapshot-delegates"
+why = "tank@snap is a snapshot, which storage-snapshot-delete covers."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.zfs-destroy-dry-run-delegates"
+why = "-n reports what would be destroyed without destroying it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.lvchange-deactivate-delegates"
+why = "-an deactivates the volume but keeps its data."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.dynamic-delegates"
+why = "$VOLUME is unset, so Nah cannot name the volume."
+cause = "unresolved"

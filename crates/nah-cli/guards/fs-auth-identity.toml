@@ -1,0 +1,92 @@
+summary = "Protects reviewed host authentication, identity, and privilege-policy files from modification or deletion, including recursive deletion of their parent directories."
+
+description = '''
+This guard protects the files that decide who can log in and who can become
+root. It stops an agent from adding its own SSH key, blanking the root
+password, or deleting sudo policy. It blocks any write, creation, deletion,
+move, or permission change that reaches one of these files, including through
+a native `Write` tool call, a move onto one, and a Git discard that would
+overwrite one. A recursive delete of a parent directory, such as
+`rm -rf ~/.ssh`, counts.
+
+The protected paths are `~/.ssh/authorized_keys` and
+`~/.ssh/authorized_keys.d/`; `/etc/passwd`, `/etc/group`, `/etc/shadow`,
+`/etc/gshadow`, `/etc/sudoers`, `/etc/sudoers.d`, `/etc/pam.conf`,
+`/etc/pam.d`, `/etc/ssh/sshd_config` and `/etc/ssh/sshd_config.d`, including
+the macOS `/private/etc` copies; and the Windows SAM, SECURITY, and SYSTEM
+registry hives. Reading them stays allowed. Other files in `~/.ssh` belong to
+other guards: `~/.ssh/rc` to `fs-startup-persistence` and private keys to
+`secrets-credentials`.
+'''
+
+limits = '''
+Nah decides from the path alone, so it cannot tell a legitimate `useradd` or
+key rotation from an attack. A change it does not see as a write to a listed
+path delegates, as does an edit through a program whose behavior it does not
+trust. Account tools such as `usermod` and `passwd` are not documented as
+covered.
+'''
+
+default_reason = '''
+It ships on because an added key or a blanked password survives the session
+and gives lasting access. `fs-startup-persistence` and `fs-shell-profile`
+protect other startup surfaces the same way, and `secrets-credentials` covers
+reading or overwriting private keys.
+'''
+
+[[blocks]]
+row = "fs-auth-identity.route-bash-authorized-keys"
+why = ">> appends an attacker's public key to ~/.ssh/authorized_keys."
+tui = true
+
+[[blocks]]
+row = "fs-auth-identity.sudo-sed-sshd-root-login"
+why = "sed -i rewrites sshd_config in place to permit root login."
+tui = true
+
+[[blocks]]
+row = "fs-auth-identity.sudo-tee-sudoers-d"
+why = "sudo tee writes a NOPASSWD rule into /etc/sudoers.d."
+tui = true
+
+[[blocks]]
+row = "fs-auth-identity.filesystem-rm-etc-passwd"
+why = "rm deletes /etc/passwd, the account database."
+
+[[blocks]]
+row = "fs-auth-identity.filesystem-rm-rf-dq-var-home-slash-dot-ssh-dq"
+why = "Recursively deleting $HOME/.ssh removes authorized_keys with it."
+
+[[blocks]]
+row = "fs-auth-identity.home-dot-glob-matching-ssh-blocks"
+why = "The pattern ~/.*sh matches ~/.ssh, so the recursive delete reaches authorized_keys."
+
+[[passes]]
+row = "fs-auth-identity.public-read-delegates"
+why = "cat only reads /etc/passwd; nothing is written."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-auth-identity.keys-backup-to-tmp-delegates"
+why = "authorized_keys is only the copy source; the write lands in /tmp."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-auth-identity.project-keys-fixture-delegates"
+why = "deploy/authorized_keys is a project file, not the one in ~/.ssh."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-auth-identity.home-dot-suffix-glob-delegates"
+why = "The pattern ~/.*.swp cannot match ~/.ssh."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-auth-identity.tar-extract-excluded-named-member-delegates"
+why = "--exclude drops the only member bound for ~/.ssh."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-auth-identity.awk-redirect-field-named-file-delegates"
+why = "data.txt's first fields name the output files, which Nah cannot know."
+cause = "unresolved"

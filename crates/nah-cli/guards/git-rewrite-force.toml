@@ -1,0 +1,82 @@
+summary = "Blocks history rewriting that explicitly bypasses safety or backup checks."
+
+description = '''
+This guard prevents history rewriting run with the flag that disables the
+tool's own safety check. `git filter-branch --force` overwrites the previous
+backup, and `git filter-repo --force` runs on a clone that is not fresh. It
+blocks either command with its force flag, including through `sudo` or
+`git -C`.
+'''
+
+limits = '''
+Nah cannot tell a throwaway fresh clone, where forcing is safe, from the
+user's working repository. A mode it cannot resolve delegates with a coverage
+gap.
+'''
+
+default_reason = '''
+It ships on because bypassing the rewrite tool's safety check has little
+everyday use and can destroy history. `git-history-rewrite` covers unforced
+rewrites, and `git-force-push` covers publishing the rewritten history.
+'''
+
+[[blocks]]
+row = "git-rewrite-force.filter-branch-long-force"
+why = "--force skips filter-branch's check for an existing backup."
+tui = true
+
+[[blocks]]
+row = "git-rewrite-force.filter-repo"
+why = "--force skips filter-repo's fresh-clone safety check."
+tui = true
+
+[[blocks]]
+row = "git-rewrite-force.sudo-wrapper"
+why = "sudo still runs filter-repo with --force."
+tui = true
+
+[[blocks]]
+row = "git-rewrite-force.filter-branch-force"
+why = "-f is the short form of --force."
+
+[[blocks]]
+row = "git-rewrite-force.filter-repo-force-last"
+why = "--force may come after the other options."
+
+[[blocks]]
+row = "git-rewrite-force.filter-repo-replace-text-help"
+why = "In --replace-text=--help, --help is the option's value, so --force still applies."
+
+[[blocks]]
+row = "git-rewrite-force.variable-path"
+why = "Whatever $DIR holds, --force bypasses the safety check."
+
+[[passes]]
+row = "git-rewrite-force.help-file-value"
+why = "Given separately, --help is read as the help flag, so nothing is rewritten."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-rewrite-force.filter-repo-force-dry-run-delegates"
+why = "--dry-run writes nothing, even with --force."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-rewrite-force.factory-filter-repo-unforced-delegates"
+why = "Without --force, filter-repo keeps its safety check; git-history-rewrite owns this."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-rewrite-force.find-exec-each-clone-analyze-delegates"
+why = "--analyze only reports on each repository."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-rewrite-force.amend-no-edit-delegates"
+why = "Amending the tip commit bypasses no rewrite safety check."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-rewrite-force.empty-path-rename-delegates"
+why = "The empty --path-rename value leaves the rewrite mode unresolved."
+cause = "unresolved"

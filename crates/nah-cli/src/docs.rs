@@ -3,10 +3,8 @@
 pub(crate) const GUARDS_TOPIC: &str = "guards";
 const GUARDS_SUMMARY: &str = "Inspect built-in behavior, examples, and live guard status.";
 
-// `docs/guard-reference.md` has one `## <guard>` section per shipped guard, in
-// catalog order. `nah docs guards <guard>` prints that section alone, so the
-// budget applies per section.
-const GUARD_REFERENCE: &str = include_str!("../../../docs/guard-reference.md");
+// `nah docs guards <guard>` prints one guard's section of the generated
+// `docs/guard-reference.md`, so the budget applies per section.
 const GUARD_SECTION_MAX_BYTES: usize = 2_560;
 
 struct Topic {
@@ -211,16 +209,6 @@ pub(crate) fn render(name: Option<&str>) -> Result<String, String> {
         .ok_or_else(|| format!("documentation topic not found: {name}; run `nah docs`"))
 }
 
-/// Each guard section of the reference as `(guard name, section text)`.
-fn guard_sections() -> impl Iterator<Item = (&'static str, &'static str)> {
-    GUARD_REFERENCE.split("\n## ").skip(1).map(|section| {
-        let (name, _) = section
-            .split_once('\n')
-            .expect("a guard section has a body");
-        (name, section)
-    })
-}
-
 /// Renders one shipped guard's reference section.
 pub(crate) fn render_guard(name: &str) -> Result<String, String> {
     if !crate::catalog::shipped_names().contains(&name) {
@@ -228,9 +216,7 @@ pub(crate) fn render_guard(name: &str) -> Result<String, String> {
             "built-in guard not found: {name}; run `nah docs guards`"
         ));
     }
-    let (_, section) = guard_sections()
-        .find(|(heading, _)| *heading == name)
-        .expect("every shipped guard has a reference section");
+    let section = crate::guard_knowledge::reference_section(name);
     debug_assert!(section.len() <= GUARD_SECTION_MAX_BYTES);
     Ok(format!("# {}\n", section.trim_end()))
 }
@@ -268,19 +254,8 @@ mod tests {
         assert!(render(Some("missing-topic")).is_err());
         assert!(render(Some("../start")).is_err());
 
-        let guards = crate::catalog::shipped_guard_docs();
-        let sections = guard_sections().collect::<Vec<_>>();
-        assert_eq!(
-            sections.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
-            guards.iter().map(|guard| guard.name).collect::<Vec<_>>(),
-            "docs/guard-reference.md needs one section per shipped guard, in catalog order"
-        );
-        for ((name, section), guard) in sections.iter().zip(&guards) {
-            let default = if guard.default_enabled { "On" } else { "Off" };
-            assert!(
-                section.starts_with(&format!("{name}\n\n{default} by default.\n")),
-                "guard reference for {name} must state its factory default"
-            );
+        for name in crate::catalog::shipped_names() {
+            let section = crate::guard_knowledge::reference_section(name);
             assert!(
                 section.len() <= GUARD_SECTION_MAX_BYTES,
                 "guard reference for {name} is {} bytes; budget is {GUARD_SECTION_MAX_BYTES}",

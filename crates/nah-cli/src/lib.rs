@@ -24,6 +24,7 @@ mod devin_adapter;
 mod dispatch;
 mod docs;
 mod droid_adapter;
+mod guard_knowledge;
 mod hermes_adapter;
 mod hook_adapter;
 mod kiro_adapter;
@@ -49,6 +50,7 @@ mod tui;
 
 pub use catalog::{all_shipped_guard_states_enabled, shipped_guard_states};
 pub use dispatch::run;
+pub use guard_knowledge::{BlockExample, GuardKnowledge, PassCause, PassExample, guard_knowledge};
 pub use nah_effinterp::{DeclaredSource, DeclaredSourceObservations, SourceProvider};
 pub use pipeline::{
     AnalysisRefusal, DecisionResult, EvaluationFailure, EvidenceProvenance, decide_replay,

@@ -1,0 +1,83 @@
+summary = "Blocks encoded, pattern-selected, or unresolved execution."
+
+description = '''
+This guard stops execution whose actual program the reader cannot see. A
+disguised `rm -rf /` then cannot pass review as something harmless. It blocks
+code whose command text is spelled in base64, and a command whose program name
+the shell has to compute at run time from string operations, word splitting,
+or a filename pattern.
+'''
+
+limits = '''
+The guard depends on Nah recognizing how a program name was computed, which it
+does not do for every shell feature. Code Nah cannot see delegates.
+'''
+
+default_reason = '''
+It ships on because hiding the program an agent runs defeats every other
+guard, and ordinary scripts do not compute program names. `exec-decoded` covers
+a separate decode step feeding execution, and `exec-remote` covers network
+content.
+'''
+
+[[blocks]]
+row = "shell-resolution.transformed-program-name-stays-policy-guarded"
+why = "\"${TOOL%x}\" strips a suffix at run time, so the program name rm is computed."
+tui = true
+
+[[blocks]]
+row = "shell-resolution.custom-ifs-hidden-command"
+why = "IFS=: splits $TOOL into rm -rf / only when the shell runs it."
+tui = true
+
+[[blocks]]
+row = "shell-resolution.glob-variable-command"
+why = "The program is whatever file the pattern r* matches when the shell expands it."
+
+[[blocks]]
+row = "exec-obfuscated.substitution-cmd-name"
+why = "The program name is computed by reversing a string in a command substitution."
+
+[[blocks]]
+row = "exec.powershell-encoded"
+why = "-EncodedCommand carries the script as base64 a reader cannot see."
+
+[[passes]]
+row = "exec-obfuscated.static-eval-delegates"
+why = "eval runs a literal string Nah can read; no program is hidden."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-obfuscated.transparent-captured-print-delegates"
+why = "$(echo rm) resolves to rm file, which the filesystem guards judge."
+cause = "out-of-scope"
+
+[[passes]]
+row = "shell-resolution.assignment-brace-is-literal"
+why = "Braces do not expand in an assignment, so TOOL stays the literal {echo,rm}."
+cause = "out-of-scope"
+
+[[passes]]
+row = "shell-resolution.function-local-does-not-leak"
+why = "local keeps rm inside f, so \"$TOOL\" still runs echo."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.powershell-invalid-encoded-delegates"
+why = "--help is not a base64 payload, so no hidden script is passed."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-system-tree.eval-dynamic-delegates"
+why = "$PAYLOAD is never set, so Nah cannot see what eval would run."
+cause = "unresolved"
+
+[[passes]]
+row = "shell-resolution.unknown-source-invalidates-state"
+why = "The unread /tmp/unobserved may reassign TOOL, so the program is unknown."
+cause = "unresolved"
+
+[[passes]]
+row = "exec.obfuscated-eval"
+why = "Nah does not see the contents of script.sh, so the evaluated code is unknown."
+cause = "unresolved"

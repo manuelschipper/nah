@@ -1,0 +1,94 @@
+summary = "Blocks deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree."
+
+description = '''
+This guard stops commands that would delete, relocate, or lock the filesystem
+root or a core system directory, the kind of mistake that leaves a machine
+unbootable. It blocks a recursive delete, or a recursive `chmod`, `chown`, or
+`chgrp`, that selects `/` or a system tree such as `/bin`, `/boot`, `/dev`,
+`/etc`, `/lib`, `/root`, `/run`, `/sbin`, `/proc`, `/sys`, `/usr`, `/var`,
+`/tmp`, `/Library`, `/System`, or a Windows drive root or system directory. A
+pattern that still reaches one of these counts, and so does moving every entry
+of `/` with `mv /* …`.
+'''
+
+limits = '''
+Nah cannot evaluate unknown payloads, lookalike binaries outside system bin
+directories, or wrappers it does not model, and those delegate. As known
+limitations, `find -exec setfacl -b` and a symlink whose final `.` reaches a
+system tree currently delegate. A few child processes that would never
+actually start, such as a Node spawn with a missing working directory,
+currently block.
+'''
+
+default_reason = '''
+It ships on because losing the root or a system tree breaks the host, and
+normal work names child paths. `fs-home` and `fs-project-root` give the same
+protection to other roots, and the optional `fs-outside-workspace-delete`
+covers everything else outside the project.
+'''
+
+[[blocks]]
+row = "fs-system-tree.rm-root"
+why = "/ is the filesystem root."
+tui = true
+
+[[blocks]]
+row = "fs-system-tree.recursive-permission"
+why = "-R 000 strips every permission from the /etc tree."
+tui = true
+
+[[blocks]]
+row = "fs-system-tree.mv-root-pattern-directory"
+why = "/* moves every root entry, /etc and /usr included, into /tmp."
+tui = true
+
+[[blocks]]
+row = "fs-system-tree.rm-system-tree"
+why = "/etc is a system tree the host needs to boot."
+
+[[blocks]]
+row = "fs-system-tree.find-delete"
+why = "find / -delete removes everything under the root."
+
+[[blocks]]
+row = "fs-system-tree.filesystem-rsync-d-delete-source"
+why = "-d with --delete prunes root entries missing from source/."
+
+[[blocks]]
+row = "fs-system-tree.literal-echo-pipe-shell"
+why = "bash runs the piped text rm -rf /."
+
+[[passes]]
+row = "fs-system-tree.tmp-child-delegates"
+why = "/tmp/nah-old-build is a child of /tmp, not the tree itself."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-system-tree.run-child-delegates"
+why = "rm -f removes one socket file below /run."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-system-tree.rm-file-only-directory-delegates"
+why = "Without -r, rm cannot delete the /etc directory."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-system-tree.rsync-delete"
+why = "Without -r or -d, rsync copies no directory, so --delete prunes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-system-tree.literal-shell-noexec-delegates"
+why = "bash -n parses the piped command without running it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-system-tree.eval-dynamic-delegates"
+why = "$PAYLOAD is never set, so Nah cannot see what eval runs."
+cause = "unresolved"
+
+[[passes]]
+row = "fs-system-tree.lookalike-permission-program-delegates"
+why = "/tmp/chmod is outside the trusted bin directories, so Nah cannot assume it is chmod."
+cause = "unresolved"

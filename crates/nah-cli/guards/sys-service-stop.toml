@@ -1,0 +1,79 @@
+summary = "Blocks reviewed service shutdown, target isolation, Podman stop-all or kill-all, and docker or podman stop or kill of every listed container."
+
+description = '''
+This guard stops the agent from shutting down system services or every
+running container, which can cut off SSH access, databases, or the container
+runtime. It blocks stopping or killing a service, isolating a systemd target,
+stopping a macOS `launchctl` job, and stopping or killing every container.
+'''
+
+limits = '''
+Nah cannot tell a disposable service from a connection the user depends on.
+A control it cannot resolve delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships off because stopping services and containers is routine local
+administration. The default-on `sys-power` covers the whole host,
+`fs-startup-management` covers persistent enable, disable, and mask, and the
+container guards cover container data.
+'''
+
+[[blocks]]
+row = "sys-service-stop.podman-stop-all-enabled-blocks"
+why = "--all stops every running Podman container."
+tui = ["macos", "windows"]
+
+[[blocks]]
+row = "sys-service-stop.podman-kill-all"
+why = "--all kills every running Podman container."
+tui = ["windows"]
+
+[[blocks]]
+row = "sys-service-stop.docker-ps-stop-all-enabled-blocks"
+why = "docker ps -q lists every running container, and docker stop stops them all."
+tui = ["windows"]
+
+[[blocks]]
+row = "sys-service-stop.systemctl-stop-enabled-blocks"
+why = "Stopping sshd can cut off remote access to the machine."
+tui = ["linux"]
+
+[[blocks]]
+row = "sys-service-stop.systemctl-isolate-enabled-blocks"
+why = "Isolating rescue.target stops every service the target does not include."
+tui = ["linux"]
+
+[[blocks]]
+row = "sys-service-stop.service-stop-enabled-blocks"
+why = "Stopping the docker service stops every container it runs."
+tui = ["linux"]
+
+[[blocks]]
+row = "sys-service-stop.launchctl-stop-blocks"
+why = "launchctl stop stops the com.example.backup job."
+
+[[passes]]
+row = "sys-service-stop.named-container-stop-delegates"
+why = "One named container is stopped, not every container."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-service-stop.systemctl-restart-delegates"
+why = "A restart brings sshd straight back."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-service-stop.systemctl-reload-delegates"
+why = "reload rereads nginx's configuration without stopping it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-service-stop.xargs-docker-inspect-all-delegates"
+why = "inspect reads every container without stopping any."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-service-stop.xargs-replace-derived-name-delegates"
+why = "Each id becomes prefix-{id}, so Nah cannot tell which containers are named."
+cause = "unresolved"

@@ -1,0 +1,85 @@
+summary = "Blocks destructive writes or deletion selecting durable Git history metadata."
+
+description = '''
+This guard prevents editing or deleting the Git object database and ref store
+directly. Doing so can corrupt the repository or delete history that no Git
+command would remove. It blocks writes, deletions, moves, and permission
+changes that reach the `.git` directory itself or its `objects`, `refs`,
+`logs`, `packed-refs`, or `worktrees` entries. A recursive delete of any
+`*.git` directory, and the same entries under a repository's separate Git
+directory, count too.
+'''
+
+limits = '''
+Nah cannot resolve a path written by a program whose behavior it does not
+trust, or a move whose destination it cannot follow. Those calls delegate with
+a coverage gap.
+'''
+
+default_reason = '''
+It ships on because direct damage to history metadata bypasses every Git
+safety net, and Git commands exist for every legitimate change.
+`git-recovery-destroy` covers Git's own reflog and prune commands, and
+`fs-project-root` covers deleting the whole checkout.
+'''
+
+[[blocks]]
+row = "git-metadata.root"
+why = "rm -rf .git deletes the repository's entire history."
+tui = true
+
+[[blocks]]
+row = "git-metadata.write-objects"
+why = "The redirect overwrites a file in the object store."
+tui = true
+
+[[blocks]]
+row = "git-metadata.live-cp-replacement-git-refs-heads-main"
+why = "cp overwrites the ref file that records main's commit."
+tui = true
+
+[[blocks]]
+row = "git-metadata.refs"
+why = "Deleting .git/refs removes every branch and tag pointer."
+
+[[blocks]]
+row = "git-metadata.truncate-packed-refs"
+why = "truncate empties packed-refs, losing the refs stored there."
+
+[[blocks]]
+row = "git-metadata.move-git-dir"
+why = "Moving .git away detaches the checkout from its history."
+
+[[blocks]]
+row = "git-metadata.bare-objects"
+why = "backup.git/objects is the object store of a bare repository."
+
+[[passes]]
+row = "git-metadata.index-delegates"
+why = "The index is rebuilt from HEAD; it is not durable history."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-metadata.hook-delegates"
+why = "Hooks are local scripts, not history."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-metadata.index-lock-delegates"
+why = "index.lock is a stale lock file, not history."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-metadata.rebase-merge-delegates"
+why = "rebase-merge holds transient rebase state."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-metadata.update-ref-delegates"
+why = "update-ref changes refs through Git's own checked interface."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-metadata.tar-backup-delegates"
+why = "tar only reads .git to build an archive."
+cause = "out-of-scope"

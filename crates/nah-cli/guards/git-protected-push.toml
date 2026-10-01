@@ -1,0 +1,83 @@
+summary = "Blocks Git pushes whose explicit static refspec destination is `main` or `master`; bare pushes are outside this guard."
+
+description = '''
+This guard prevents pushing directly to `main` or `master`, so changes go
+through a pull request. It blocks a push whose explicit refspec names `main` or
+`master` as a destination, including full `refs/heads/` spellings. The remote
+may be unresolved as long as the destination is known.
+'''
+
+limits = '''
+Nah cannot see the current branch's upstream, so a bare `git push` from `main`
+delegates. It also cannot see server-side branch protection. An unresolved
+destination delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships off because solo and trunk-based workflows push to `main` routinely.
+The default-on `git-force-push` still stops unleased force pushes and leased
+force pushes to `main` or `master`, and `git-ref-delete` covers
+`git push origin :main`.
+'''
+
+[[blocks]]
+row = "git-protected-push.literal-main"
+why = "The refspec main names main as the destination."
+tui = true
+
+[[blocks]]
+row = "git-protected-push.mapped-master"
+why = "HEAD:master pushes the current commit onto master."
+tui = true
+
+[[blocks]]
+row = "git-protected-push.lease-main-destination"
+why = "The destination of +feature:main is main, lease or not."
+tui = true
+
+[[blocks]]
+row = "git-protected-push.git-git-push-origin-feature-refs-heads-main"
+why = "refs/heads/main is main spelled as a full ref."
+
+[[blocks]]
+row = "git-protected-push.second-refspec"
+why = "The second refspec, main, is a protected destination."
+
+[[blocks]]
+row = "git-protected-push.variable-branch"
+why = "$B is set to main in the same call."
+
+[[passes]]
+row = "git-protected-push.feature-destination-delegates"
+why = "main:feature pushes from main to the feature branch."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-protected-push.main-prefix-branch-delegates"
+why = "maintenance only starts with main; it is another branch."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-protected-push.main-backup-destination-delegates"
+why = "The destination is main-backup, not main."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-protected-push.dry-run-delegates"
+why = "--dry-run sends nothing to the remote."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-protected-push.fetch-main-delegates"
+why = "fetch reads main from the remote and pushes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-protected-push.bare-delegates"
+why = "With no refspec, the destination is the upstream branch, which Nah cannot see."
+cause = "unresolved"
+
+[[passes]]
+row = "git-protected-push.dynamic-destination-delegates"
+why = "$REF is unset, so the destination branch is unknown."
+cause = "unresolved"

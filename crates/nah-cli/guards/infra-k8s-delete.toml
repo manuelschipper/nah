@@ -1,0 +1,73 @@
+summary = "Blocks static kubectl deletion of namespaces, reviewed cluster-scoped resources, and bulk selections of reviewed namespaced resources. Named application-resource deletion, client/server dry runs, manifest and kustomize input, and unknown resource kinds remain outside the guard; a raw DELETE of a namespace route counts as namespace deletion."
+
+description = '''
+This guard stops `kubectl` deletions that remove a lot at once. It blocks
+deleting whole namespaces, cluster-scoped objects such as nodes,
+PersistentVolumes, CRDs, and cluster roles, and bulk deletions of namespaced
+resources selected with `--all`, `-l`, or `--field-selector`. A raw `DELETE`
+of a namespace route counts as namespace deletion.
+'''
+
+limits = '''
+Nah cannot see which cluster or context is active, so it cannot tell a local
+kind cluster from production. It also cannot read what a manifest file would
+delete. An unknown scope or selection delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships off because deleting namespaces and labeled sets is routine in
+development clusters. `infra-iac-destroy` covers stack teardown, and
+`storage-snapshot-delete` covers cloud disks and snapshots.
+'''
+
+[[blocks]]
+row = "infra-k8s-delete.namespace"
+why = "Deleting a namespace deletes every object inside it."
+tui = true
+
+[[blocks]]
+row = "infra-k8s-delete.persistent-volume"
+why = "A PersistentVolume is cluster-scoped storage; deleting it can release its data."
+tui = true
+
+[[blocks]]
+row = "infra-k8s-delete.pods-all"
+why = "--all selects every pod in the namespace."
+tui = true
+
+[[blocks]]
+row = "infra-k8s-delete.deployments-selector"
+why = "-l selects every deployment carrying the label, however many match."
+
+[[blocks]]
+row = "infra-k8s-delete.node"
+why = "A node is a cluster-scoped object that hosts other workloads."
+
+[[blocks]]
+row = "infra-k8s-boundary.raw-delegates"
+why = "--raw DELETE on /api/v1/namespaces/production deletes that namespace."
+
+[[passes]]
+row = "infra-k8s-delete.named-pod-delegates"
+why = "One named pod in the current namespace is ordinary cleanup."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-k8s-boundary.client-dry-run-delegates"
+why = "--dry-run=client only prints what would be deleted."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-k8s-boundary.apply-delegates"
+why = "kubectl apply creates or updates objects; it deletes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-k8s-boundary.filename-delegates"
+why = "Nah cannot read which objects namespace.yaml names."
+cause = "unresolved"
+
+[[passes]]
+row = "infra-k8s-boundary.dynamic-name-delegates"
+why = "$TARGET is never set, so Nah cannot name the namespace."
+cause = "unresolved"

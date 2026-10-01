@@ -102,8 +102,8 @@ custom guards (exec/v2), and records.
   intake.
 - A built-in guard: its `nah-policy` definition and default (`*_queries.rs`,
   `*_guards.rs`), `shipped_guard_definitions` (`registry.rs`), its
-  behavior and examples (`nah-cli/src/catalog.rs`), its
-  `docs/guard-reference.md` section, and its `corpus/*.jsonl` family.
+  `nah-cli/guards/<guard>.toml` record (source of its
+  `docs/guard-reference.md` section), and its `corpus/*.jsonl` family.
 - Observation: the named module in `nah-observe` and its protocol contract.
 - A custom guard: `nah-extensions`, `nah-proto` execution contracts, and the
   matching `nah-cli` command.

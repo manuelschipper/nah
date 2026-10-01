@@ -1,0 +1,67 @@
+summary = "Blocks reviewed package unpublish, irreversible RubyGems yank, and npm, pnpm, Yarn Classic, Cargo, or RubyGems published-name owner changes. Reversible Cargo yank and npm deprecation, listing and non-identity administration, target-dependent NuGet deletion, web-only PyPI and pub.dev operations, restorable GitHub Packages deletion, and dependency installation or removal remain outside both registry guards, except for lifecycle scripts Nah follows into them."
+
+description = '''
+This guard stops the agent from removing a published package, irreversibly
+yanking a RubyGems version, or changing who owns a published package name.
+Those actions break every downstream user or hand the name to someone else. It
+blocks reviewed unpublish, RubyGems yank, and npm, pnpm, Yarn Classic, Cargo,
+and RubyGems owner commands that add or remove an owner.
+'''
+
+limits = '''
+Nah cannot tell whether an owner change is a planned handover. Web-only PyPI
+and pub.dev operations are outside its reach.
+'''
+
+default_reason = '''
+It ships on because unpublishing or losing a package name is hard or
+impossible to reverse, and these commands are rare in normal work. The
+optional `registry-publish` covers publication.
+'''
+
+[[blocks]]
+row = "registry-unpublish.gem-yank"
+why = "A RubyGems yank cannot be undone, and the version number cannot be reused."
+tui = true
+
+[[blocks]]
+row = "registry-unpublish.npm-owner-remove"
+why = "owner rm takes publish rights to left-pad away from mallory."
+tui = true
+
+[[blocks]]
+row = "registry-unpublish.npm-package-version"
+why = "npm unpublish removes left-pad@1.3.0 from the registry for every downstream user."
+
+[[blocks]]
+row = "registry-unpublish.npm-owner-add"
+why = "owner add hands publish rights to left-pad to alice."
+
+[[blocks]]
+row = "registry-unpublish.cargo-owner-add"
+why = "cargo owner --add gives alice ownership of the crate name."
+
+[[passes]]
+row = "registry-boundary.cargo-yank-delegates"
+why = "A Cargo yank is reversible with cargo yank --undo."
+cause = "out-of-scope"
+
+[[passes]]
+row = "registry-boundary.npm-deprecate-delegates"
+why = "npm deprecate only attaches a warning; the version stays installable."
+cause = "out-of-scope"
+
+[[passes]]
+row = "registry-boundary.npm-owner-list-delegates"
+why = "owner ls only lists the current owners."
+cause = "out-of-scope"
+
+[[passes]]
+row = "registry-unpublish.npm-dry-run"
+why = "--dry-run reports what would be removed without removing it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "registry-boundary.dotnet-delete-delegates"
+why = "Whether nuget delete unlists or removes depends on the target feed."
+cause = "out-of-scope"

@@ -1,0 +1,81 @@
+summary = "Blocks shells attached to a network connection through netcat, ncat, socat, and shell redirection."
+
+description = '''
+This guard prevents a shell or interpreter from being attached to a network
+connection. A reverse or bind shell hands command execution to whoever is on
+the other end. It blocks when bytes received from a listener or an outbound
+connection reach code that a shell runs. It also blocks when downloaded content
+reaches execution while the same call opens a listener.
+'''
+
+limits = '''
+Nah attributes a shell only when it sees network bytes reach the shell's
+input. A handler it cannot resolve delegates without a coverage gap.
+'''
+
+default_reason = '''
+It ships on because a shell bound to a socket is almost never development
+work, and legitimate listeners stay allowed. `exec-remote` covers network
+content reaching execution when no listener is present, and `secrets-exfil`
+covers sensitive data leaving over the network.
+'''
+
+[[blocks]]
+row = "exec.socat-bare-shell"
+why = "The SHELL address runs a shell for every connection the listener accepts."
+tui = true
+
+[[blocks]]
+row = "exec.socat-dccp-shell"
+why = "EXEC:/bin/sh attaches a shell to the DCCP listener's connections."
+tui = true
+
+[[blocks]]
+row = "exec.netcat-listener-shell"
+why = "Bytes the nc listener receives are piped into sh as its script."
+
+[[blocks]]
+row = "exec.socat-explicit-shell"
+why = "EXEC:/bin/sh hands each TCP connection to a shell."
+
+[[blocks]]
+row = "exec.ncat-sh-exec"
+why = "--sh-exec runs an interactive shell for each incoming connection."
+
+[[blocks]]
+row = "exec-network-shell.sh-i-dev-tcp-evil-example-4444-0-1"
+why = "0>&1 makes the shell read its input from the same /dev/tcp socket it writes to."
+
+[[blocks]]
+row = "exec-network-shell.cmd-sh-socat-tcp-evil-example-4444-system-cmd"
+why = "socat's shell expands $CMD to sh, so the outbound connection drives a shell."
+
+[[passes]]
+row = "exec.netcat-listener-delegates"
+why = "The listener has no handler; received bytes reach no shell."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.socat-non-code-handler-delegates"
+why = "EXEC:/bin/cat echoes the bytes back; cat runs no code."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-network-shell.socat-tcp-listen-handler-fdin-delegates"
+why = "fdin=3 makes the shell read fd 3 instead of the connection."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-network-shell.sh-i-dev-tcp-output-only-delegates"
+why = "Only stdout goes to the socket; the shell reads nothing from it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.shell-output-network-delegates"
+why = "The shell's output is sent out, but no network bytes reach its input."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-network-shell.nc-listen-to-file-delegates"
+why = "Received bytes are written to capture.bin, never executed."
+cause = "out-of-scope"

@@ -1,0 +1,83 @@
+summary = "Blocks chmod modes that provably grant world-write or setuid/setgid permission."
+
+description = '''
+This guard prevents permission changes that open a file to every user or make
+it run with its owner's or group's privileges. World-writable files and setuid
+or setgid programs are common privilege-escalation footholds. It blocks a
+`chmod`, `chown`, or `chgrp` that provably grants world write, setuid, or
+setgid, on any path.
+'''
+
+limits = '''
+Nah cannot tell whether a world-writable file is a deliberate shared scratch
+area. It also cannot resolve a mode computed at run time, and those calls
+delegate.
+'''
+
+default_reason = '''
+It ships off because `chmod 777` on a local file is routine and usually
+harmless in a single-user checkout. Whatever the mode, `fs-project-root`,
+`fs-home`, and `fs-system-tree` still stop recursive permission changes on
+their roots.
+'''
+
+[[blocks]]
+row = "fs-permission-weaken.octal-world-write"
+why = "Mode 0777 gives every user write access."
+tui = true
+
+[[blocks]]
+row = "fs-permission-weaken.chmod-symbolic-world"
+why = "o+w adds write permission for every other user."
+tui = true
+
+[[blocks]]
+row = "fs-permission-weaken.symbolic-user-setuid"
+why = "u+s sets the setuid bit, so the file runs as its owner."
+tui = true
+
+[[blocks]]
+row = "fs-permission-weaken.octal-setuid-setgid"
+why = "The leading 6 in 6755 sets both setuid and setgid."
+
+[[blocks]]
+row = "fs-permission-weaken.recursive-system-overlap"
+why = "-R 777 makes all of /etc world-writable."
+
+[[blocks]]
+row = "fs-permission-weaken.install-mode-setuid"
+why = "install -m 4755 creates the copy with setuid set."
+
+[[blocks]]
+row = "fs-permission-weaken.mkdir-world-writable"
+why = "mkdir -m 777 creates a world-writable directory."
+
+[[passes]]
+row = "fs-permission-weaken.safe-mode-delegates"
+why = "0755 grants no world-write, setuid, or setgid."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-permission-weaken.chmod-symbolic-safe-delegates"
+why = "o-w removes world-write instead of granting it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-permission-weaken.umask-dependent-delegates"
+why = "+w names no class, so the umask decides who gains write; it is not provably world-write."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-permission-weaken.reference-delegates"
+why = "--reference copies another file's mode instead of naming a weak one."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-permission-weaken.chmod-unknown-mode-delegates"
+why = "$MODE is unset, so Nah cannot know the mode."
+cause = "unresolved"
+
+[[passes]]
+row = "fs-permission-weaken.node-chmodsync-dynamic-mode-delegates"
+why = "The mode comes from process.argv at run time."
+cause = "unresolved"

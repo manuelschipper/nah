@@ -1,0 +1,83 @@
+summary = "Blocks clearing the full stash collection or immediate repository-wide destruction of Git recovery history."
+
+description = '''
+This guard stops commands that immediately destroy the repository-wide safety
+nets used to recover lost commits: every stash, every reflog entry, or every
+unreachable object. It blocks `git stash clear`, immediate pruning, and
+immediate reflog expiry across all refs. Configuration that makes a plain
+`git gc` prune immediately counts too.
+'''
+
+limits = '''
+Nah cannot tell whether the stashes or unreachable commits still matter. When
+it cannot tell which expiry or prune setting wins, the call delegates with a
+coverage gap.
+'''
+
+default_reason = '''
+It ships on because these commands remove the only copy of work that other
+mistakes left behind. The optional `git-ref-delete` covers single stash
+entries and refs, `git-history-rewrite` covers delayed pruning and aggressive
+`gc`, and `git-metadata` covers deleting `.git/objects` directly.
+'''
+
+[[blocks]]
+row = "git-recovery-destroy.reflog-expire-all-now"
+why = "--expire=now drops every reflog entry of every ref at once."
+tui = true
+
+[[blocks]]
+row = "git-recovery-destroy.gc-prune-now"
+why = "--prune=now deletes unreachable commits immediately, with no grace period."
+tui = true
+
+[[blocks]]
+row = "git-recovery-destroy.stash-clear-factory"
+why = "stash clear deletes every stash entry."
+tui = true
+
+[[blocks]]
+row = "git-recovery-destroy.prune-expire-now"
+why = "--expire=now prunes every unreachable object right away."
+
+[[blocks]]
+row = "git-recovery-destroy.static-prune-config"
+why = "gc.pruneExpire=now makes plain gc prune immediately."
+
+[[blocks]]
+row = "git-recovery-destroy.update-ref-delete-stash"
+why = "Deleting refs/stash drops the whole stash collection."
+
+[[blocks]]
+row = "git-recovery-destroy.repack-all-delete"
+why = "-a -d repacks without unreachable objects and deletes the old packs."
+
+[[passes]]
+row = "git-recovery-destroy.no-prune-overrides-config"
+why = "--no-prune overrides the configured immediate expiry."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-recovery-destroy.stash-clear-invalid"
+why = "Git rejects stash clear with an extra argument."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-recovery-destroy.stash-drop-one-delegates"
+why = "drop removes one stash entry; git-ref-delete covers it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-recovery-destroy.factory-gc-prune-delayed-delegates"
+why = "A two-week prune date keeps recent unreachable commits."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-recovery-destroy.repack-keep-unreachable-delegates"
+why = "--keep-unreachable carries unreachable objects into the new pack."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-recovery-destroy.reflog-expire-now-all-single-worktree-dry-run-delegates"
+why = "-n only reports which entries would expire."
+cause = "out-of-scope"

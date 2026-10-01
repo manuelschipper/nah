@@ -1,0 +1,89 @@
+summary = "Blocks an effective forced Git clean selecting the project root."
+
+description = '''
+This guard prevents `git clean` from deleting every untracked file in the
+project. Untracked files are exactly what Git cannot restore: new source files
+not yet added, local configuration, and build inputs. It blocks a forced,
+non-dry-run clean whose selection is the whole project root, however the force
+is expressed.
+'''
+
+limits = '''
+Nah cannot tell whether the untracked files matter. It also cannot resolve
+which tree an inherited `GIT_WORK_TREE` points at or unresolved flags,
+and those delegate with a coverage gap.
+'''
+
+default_reason = '''
+It ships on because a project-wide forced clean destroys work nothing can
+restore, while preview and targeted forms stay available.
+`git-worktree-discard` covers discarding tracked changes project-wide,
+`git-path-discard` covers named files, and `fs-project-root` covers
+`rm -rf .`.
+'''
+
+[[blocks]]
+row = "git-clean-force.short-root"
+why = "-f at the project root deletes every untracked file."
+tui = true
+
+[[blocks]]
+row = "git-clean-force.ignored-root"
+why = "-x also deletes ignored files such as local config and build inputs."
+tui = true
+
+[[blocks]]
+row = "git-clean-force.inline-config-false"
+why = "clean.requireForce=false removes the need for -f."
+tui = true
+
+[[blocks]]
+row = "git-clean-force.subdir-parent-blocks"
+why = "From a subdirectory, .. selects the project root."
+
+[[blocks]]
+row = "git-clean-force.magic-delegates-partial"
+why = "The :/ pathspec means the top of the repository."
+
+[[blocks]]
+row = "git-clean-force.force-after-negation"
+why = "The later -f overrides --no-force."
+
+[[blocks]]
+row = "git-clean-force.same-call-config-require-force-false"
+why = "The earlier git config turns off requireForce for the clean that follows."
+
+[[passes]]
+row = "git-clean-force.dry-run-delegates"
+why = "-n only lists what would be removed."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.interactive-delegates"
+why = "-i asks before deleting anything."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.named-target-delegates"
+why = "The clean is limited to the named path src/lib.rs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.last-negation-delegates"
+why = "The later --no-force cancels -f."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.unforced-delegates"
+why = "Without -f, requireForce makes git refuse to clean."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.subdir-default-delegates"
+why = "Run from a subdirectory, the clean only covers that subdirectory."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.inherited-git-work-tree-delegates"
+why = "An inherited GIT_WORK_TREE points the clean at a tree Nah cannot resolve."
+cause = "unresolved"

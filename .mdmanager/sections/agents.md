@@ -118,6 +118,12 @@ Before adding or widening a guard, explain:
 Keep the full guard inventory in the README accurate. Keep contributor
 reasoning here; command behavior and options belong in help and product docs.
 
+A guard's prose and examples live only in its record,
+`crates/nah-cli/guards/<guard>.toml`, which generates the TUI text,
+`nah docs guards`, and `docs/guard-reference.md`. Each example names a corpus
+row; `crates/nah-corpus/tests/suite/guard_knowledge.rs` holds the rules that row
+must meet.
+
 ## Documentation scope
 
 Keep documentation changes proportional. Edit the README or homepage only when

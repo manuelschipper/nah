@@ -1,0 +1,89 @@
+summary = "Blocks deletion or recursive permission changes selecting the home root."
+
+description = '''
+This guard stops a command that would wipe or lock the whole home directory,
+destroying dotfiles, keys, unpushed work in other projects, and everything
+else under `~`. It blocks a recursive delete, or a recursive `chmod`, `chown`,
+or `chgrp`, that selects the home directory itself. A pattern that selects
+every entry of home, such as `~/{*,.*}`, counts too.
+'''
+
+limits = '''
+Nah decides from the paths it observes and the command's spelling. A target it
+cannot identify delegates, and so does a program whose filesystem behavior Nah
+does not trust, such as a lookalike binary outside a system bin directory.
+'''
+
+default_reason = '''
+It ships on because wiping home is broad loss with no routine use.
+`fs-system-tree` and `fs-project-root` give the same protection to the
+filesystem root and the project root, `fs-outside-workspace-delete` covers
+subtrees, and `fs-auth-identity`, `fs-startup-persistence`, and
+`secrets-credentials` protect specific files under home.
+'''
+
+[[blocks]]
+row = "fs-home.rm-home"
+why = "rm -rf ~ deletes the home directory itself."
+tui = true
+
+[[blocks]]
+row = "fs-home.filesystem-cd-rm-rf"
+why = "After cd ~, the . operand is the home root."
+tui = true
+
+[[blocks]]
+row = "fs-home.find-implicit-recursive-chown"
+why = "find ~ hands every entry under home to chown, a recursive ownership change."
+tui = true
+
+[[blocks]]
+row = "fs-home.rm-home-brace-glob"
+why = "~/{*,.*} selects every entry in home, hidden ones included."
+
+[[blocks]]
+row = "fs-home.zip-move-home"
+why = "zip -m deletes the home tree after archiving it."
+
+[[blocks]]
+row = "compound.python-rmtree-path-home"
+why = "shutil.rmtree is given Path.home(), the home root."
+
+[[blocks]]
+row = "windows.pwsh.home-variable"
+why = "Remove-Item -Recurse is given $HOME."
+
+[[passes]]
+row = "fs-home.factory-cache-subtree-delegates"
+why = "~/.cache/pip is a subtree of home, not the home root."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-home.home-suffix-glob-delegates"
+why = "~/*.log selects only .log files, not every home entry."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-home.zip-move-show-files-delegates"
+why = "-sf only lists the archive's files, so -m deletes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-home.symlink-no-slash-rm-delegates"
+why = "Without a trailing slash, rm removes the link, not the home it points to."
+cause = "out-of-scope"
+
+[[passes]]
+row = "compound.pwsh-inline-whatif-home-boundary"
+why = "-WhatIf only reports what Remove-Item would delete."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-home.physical-cd-unobserved-pwd-var-delegates"
+why = "Nah cannot observe where unobserved-dir leads, so $PWD is unknown."
+cause = "unresolved"
+
+[[passes]]
+row = "fs-home.npx-scoped-package-binary-unestablished-delegates"
+why = "Nah cannot establish which program the @scope/rimraf package runs."
+cause = "unresolved"

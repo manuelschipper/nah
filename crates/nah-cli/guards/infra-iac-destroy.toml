@@ -1,0 +1,92 @@
+summary = "Blocks fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction."
+
+description = '''
+This guard stops Terraform, OpenTofu, Terragrunt, or Pulumi from tearing down
+an entire managed stack. It blocks a whole-stack destroy that would run, not a
+preview or plan. Destroy options passed through `TF_CLI_ARGS` count.
+'''
+
+limits = '''
+Nah cannot tell a disposable preview environment from production. It cannot
+read `TF_CLI_ARGS` built from an unresolved variable, and it delegates when a
+`-target` could
+narrow the scope. An unresolved destroy mode delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships off because whole-stack teardown may be ordinary cleanup of a
+disposable environment. No other guard covers infrastructure-as-code teardown;
+`infra-k8s-delete` covers cluster objects, and the `storage-*` guards cover
+storage deletion.
+'''
+
+[[blocks]]
+row = "infra-iac-destroy.terraform-destroy"
+why = "destroy tears down every resource in the Terraform state."
+tui = true
+
+[[blocks]]
+row = "infra-iac-destroy.tofu-destroy"
+why = "-auto-approve destroys the whole OpenTofu stack without a prompt."
+tui = true
+
+[[blocks]]
+row = "infra-iac-destroy.pulumi-destroy"
+why = "pulumi destroy deletes every resource in the stack."
+tui = true
+
+[[blocks]]
+row = "infra-iac-destroy.terraform-apply-destroy"
+why = "apply -destroy is the same teardown as terraform destroy."
+
+[[blocks]]
+row = "infra-iac-destroy.terraform-cli-args-apply"
+why = "TF_CLI_ARGS_apply turns the plain apply into an approved destroy."
+
+[[blocks]]
+row = "infra-iac-destroy.pulumi-down-alias"
+why = "down is Pulumi's alias for destroy."
+
+[[blocks]]
+row = "infra-iac-destroy.terraform-refresh-only-final-false"
+why = "The final -refresh-only=false leaves -destroy in effect."
+
+[[passes]]
+row = "infra-iac-destroy.terraform-target-delegates"
+why = "-target narrows the destroy to module.web."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-iac-destroy.tofu-exclude-delegates"
+why = "-exclude keeps module.keep, so the stack is not destroyed whole."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-iac-destroy.terraform-plan-delegates"
+why = "plan -destroy only shows the teardown plan."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-iac-destroy.pulumi-preview-only-delegates"
+why = "--preview-only shows the destroy without running it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-iac-destroy.saved-plan-delegates"
+why = "Applying saved.tfplan runs a plan whose content Nah does not read."
+cause = "unresolved"
+
+[[passes]]
+row = "infra-iac-destroy.cloudformation-delegates"
+why = "CloudFormation stack deletion is outside this guard's tools."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-iac-destroy.dynamic-cli-args-delegates"
+why = "$OPTIONS is unset, so a -target could narrow the destroy."
+cause = "unresolved"
+
+[[passes]]
+row = "infra-iac-destroy.persistent-visible-path-delegates"
+why = "PATH=/tmp changes which terraform runs, and Nah cannot establish it."
+cause = "unresolved"

@@ -1,0 +1,80 @@
+summary = "Blocks definite named-path checkout, restore, and same-path Git show overwrites."
+
+description = '''
+This guard stops Git from overwriting uncommitted edits to specific files. It
+blocks `git checkout`, `git restore`, and `git switch` discards that name paths
+other than the project root. It also blocks `git show REV:PATH` when the same
+command writes the output back over that path.
+'''
+
+limits = '''
+Nah cannot see whether the named file has uncommitted changes. A selection it
+cannot resolve delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships off because restoring one file is the normal way to undo a mistake,
+and doing so is deliberate. The default-on `git-worktree-discard` covers the
+project-wide form, and `git-hard-reset` covers the reset form.
+'''
+
+[[blocks]]
+row = "git-path-discard.checkout-double-dash"
+why = "checkout -- overwrites src/lib.rs with the index copy, discarding edits."
+tui = true
+
+[[blocks]]
+row = "git-path-discard.restore-named"
+why = "restore discards uncommitted edits to src/lib.rs."
+tui = true
+
+[[blocks]]
+row = "git-path-discard.show-overwrite"
+why = "The redirect replaces src/lib.rs with its committed version."
+tui = true
+
+[[blocks]]
+row = "git-path-discard.checkout-older-revision"
+why = "The file is overwritten with its version from HEAD~1."
+
+[[blocks]]
+row = "git-path-discard.subdir-restore"
+why = "From a subdirectory, . names only that subdirectory's files."
+
+[[blocks]]
+row = "git-path-discard.show-pipe-tee-overwrite"
+why = "tee writes the committed version over src/lib.rs."
+
+[[blocks]]
+row = "git-path-discard.find-exec-checkout"
+why = "find hands every .rs file under src to checkout --."
+
+[[passes]]
+row = "git-path-discard.show-different-targets-delegates"
+why = "The historical version is written to build, not back to src/lib.rs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-path-discard.show-to-sibling-copy-delegates"
+why = "The old version lands in src/lib.rs.orig beside the original."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-path-discard.show-pipe-cat-append-delegates"
+why = ">> appends to src/lib.rs instead of replacing it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.restore-staged-delegates"
+why = "--staged only resets the index; working files are kept."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-path-discard.checkout-branch-delegates"
+why = "Switching branches carries local edits along instead of discarding them."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-path-discard.if-false-show-overwrite-delegates"
+why = "The overwrite sits in a branch that never runs."
+cause = "out-of-scope"

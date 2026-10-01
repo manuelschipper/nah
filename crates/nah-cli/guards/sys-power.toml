@@ -1,0 +1,74 @@
+summary = "Blocks fully visible host shutdown, reboot, halt, and suspend actions."
+
+description = '''
+This guard stops the agent from shutting down, rebooting, halting, or
+suspending a machine, which kills running work and every other session on it.
+It blocks these actions through `shutdown`, `reboot`, `halt`, `systemctl`,
+`init`, and PowerShell `Stop-Computer` and `Restart-Computer`, including
+scheduled and remote forms.
+'''
+
+limits = '''
+Nah cannot tell a disposable VM from the user's workstation. When a control it
+needs is left unstated, the call delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships on because an unexpected power action interrupts the human's work and
+every process, and an agent rarely needs one. The optional `sys-service-stop`
+covers stopping individual services and all containers.
+'''
+
+[[blocks]]
+row = "native.sys-power.shutdown-factory-blocks"
+why = "shutdown -h now halts the machine immediately."
+tui = ["linux", "macos"]
+
+[[blocks]]
+row = "native.sys-power.host-power-reboot"
+why = "reboot restarts the machine and ends every session on it."
+tui = ["linux", "macos"]
+
+[[blocks]]
+row = "native.sys-power.host-power-systemctl-suspend"
+why = "Suspending stops every running process until someone wakes the machine."
+tui = ["linux", "macos"]
+
+[[blocks]]
+row = "windows.pwsh.stop-computer-factory-blocks"
+why = "Stop-Computer shuts down the local computer."
+tui = ["windows"]
+
+[[blocks]]
+row = "windows.pwsh.restart-computer-force"
+why = "-Force restarts even while other users are logged on."
+tui = ["windows"]
+
+[[blocks]]
+row = "windows.pwsh.stop-computer-remote"
+why = "-ComputerName srv1 shuts down another machine."
+tui = ["windows"]
+
+[[blocks]]
+row = "native.sys-power.systemctl-scheduled-reboot"
+why = "A reboot scheduled for tomorrow still reboots the machine."
+
+[[passes]]
+row = "sys-power.shutdown-cancel-delegates"
+why = "shutdown -c cancels a scheduled shutdown."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-power.shutdown-help-delegates"
+why = "--help prints usage and changes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "windows.pwsh.restart-computer-whatif-delegates"
+why = "-WhatIf only describes the restart."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-power.who-boot-delegates"
+why = "who -b only reports the last boot time."
+cause = "out-of-scope"

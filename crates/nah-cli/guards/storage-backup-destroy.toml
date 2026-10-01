@@ -1,0 +1,71 @@
+summary = "Blocks deletion of a complete Borg backup repository, every Restic snapshot selected through its explicit remove-all option, and every Velero backup. Empty-only bucket and directory removal stays outside because it destroys no data; bucket teardown also cannot prove whether the namespace contains backups."
+
+description = '''
+This guard stops the agent from deleting a whole backup repository, or every
+backup a tool manages. That removes the recovery set every other mistake
+relies on. It blocks deleting a complete Borg repository, Restic's explicit
+remove-all option, and deleting every Velero backup. Deleting a single Borg
+archive belongs to the optional `storage-snapshot-delete`.
+'''
+
+limits = '''
+Nah cannot see whether other copies of the backups exist. It cannot tell
+whether a bucket being torn down holds backups, and removing an empty bucket
+or directory is outside this guard. An unresolved action delegates with a
+coverage gap.
+'''
+
+default_reason = '''
+It ships on because removing the recovery set makes every other loss
+permanent. The optional `storage-snapshot-delete` covers individual snapshots
+and retention, and the optional `storage-recursive-delete` covers bulk object
+deletion.
+'''
+
+[[blocks]]
+row = "storage-backup-destroy.borg-factory-default"
+why = "With no ::archive suffix, borg delete removes the whole repository."
+tui = true
+
+[[blocks]]
+row = "storage-backup-destroy.restic-forget-unsafe-allow-remove-all-tag-old"
+why = "--unsafe-allow-remove-all lets forget remove every snapshot tagged old."
+tui = true
+
+[[blocks]]
+row = "storage-backup-destroy.velero-backup-delete-all-confirm"
+why = "--all deletes every Velero backup, and --confirm skips the prompt."
+tui = true
+
+[[blocks]]
+row = "storage-backup-destroy.borg-repo-delete-force"
+why = "repo-delete removes the Borg repository; --force skips its checks."
+
+[[blocks]]
+row = "storage-backup-destroy.confirmation-pipe"
+why = "The piped y answers repo-delete's confirmation prompt."
+
+[[passes]]
+row = "storage-boundary.restic-prune-delegates"
+why = "prune drops only data no remaining snapshot references."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-backup-destroy.borg-compact-delegates"
+why = "compact frees space from already-deleted archives."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-backup-destroy.borg-list-archives-delegates"
+why = "borg list only lists the archives."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-backup-destroy.restic-prune-dry-run-delegates"
+why = "--dry-run reports what prune would remove."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-backup-destroy.borg-repo-delete"
+why = "--yes is not an option Nah recognizes, so it cannot tell how borg parses the command."
+cause = "unresolved"

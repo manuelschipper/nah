@@ -1,0 +1,71 @@
+summary = "Blocks reviewed package publication commands. Dry runs supported by npm, pnpm, Cargo, Poetry, and Flit remain outside the guard. Maven and Gradle do not prove the target repository; Hex, Dart, Deno, container, and chart publication are separate unmodeled scopes."
+
+description = '''
+This guard stops the agent from publishing a package to a registry. A release
+that reaches users cannot be cleanly taken back and may carry unreviewed code
+or secrets. It blocks reviewed publish commands for npm, pnpm, Cargo, Python
+uploaders, and NuGet, and release tools that publish for you (Lerna,
+Changesets, semantic-release, np, release-it, PDM, Rye, maturin, cargo-release,
+cargo-workspaces), when they would actually publish.
+'''
+
+limits = '''
+Nah cannot tell whether the version, package, and registry are the intended
+release, and a release tool's packages and registry come from project
+configuration it does not read. Maven, Gradle, Hex, Dart, Deno, container, and
+chart publication are not modeled.
+'''
+
+default_reason = '''
+It ships off because publishing is the routine end of a release the user
+usually asked for. The default-on `registry-unpublish` covers removal and
+ownership changes.
+'''
+
+[[blocks]]
+row = "registry-publish.npm"
+why = "npm publish uploads the current package to the npm registry."
+tui = true
+
+[[blocks]]
+row = "registry-publish.cargo"
+why = "cargo publish uploads the crate to crates.io, where versions are permanent."
+tui = true
+
+[[blocks]]
+row = "registry-publish.twine"
+why = "twine upload sends every built distribution in dist/ to PyPI."
+tui = true
+
+[[blocks]]
+row = "registry-publish.npm-negated-dry-run"
+why = "--no-dry-run turns the dry run off, so the package is published."
+
+[[blocks]]
+row = "registry-publish.dotnet-nuget"
+why = "dotnet nuget push uploads the package to nuget.org."
+
+[[passes]]
+row = "registry-publish.npm-dry-run-delegates"
+why = "--dry-run packs and reports without uploading."
+cause = "out-of-scope"
+
+[[passes]]
+row = "registry-publish.cargo-dry-run-delegates"
+why = "--dry-run verifies the crate without uploading it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "registry-publish.cargo-release-default-dry-run-delegates"
+why = "cargo release only rehearses unless --execute is given."
+cause = "out-of-scope"
+
+[[passes]]
+row = "registry-boundary.npm-pack-delegates"
+why = "npm pack writes a local tarball and uploads nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "registry-publish.python-build-delegates"
+why = "python -m build only produces local distributions."
+cause = "out-of-scope"

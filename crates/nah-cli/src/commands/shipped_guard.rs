@@ -3,6 +3,7 @@
 use std::fmt::Write;
 
 use crate::catalog::{shipped_defaults, shipped_guard_docs, shipped_names};
+use crate::guard_knowledge::{knowledge, tui_examples};
 use crate::live_state::{home, host_platform};
 use crate::shipped_state::{ShippedState, reset, set_enabled, state_path};
 
@@ -100,11 +101,10 @@ pub(crate) fn shipped_guard_entries() -> Result<(Vec<GuardEntry>, Vec<String>), 
             } else {
                 GuardStatus::Disabled
             },
-            behavior: Some(guard.behavior.to_owned()),
-            examples: guard
-                .examples
-                .iter()
-                .map(|example| (*example).into())
+            behavior: Some(knowledge(guard.name).summary.clone()),
+            examples: tui_examples(knowledge(guard.name), platform)
+                .into_iter()
+                .map(Into::into)
                 .collect(),
             match_programs: vec![],
             current_hash: None,

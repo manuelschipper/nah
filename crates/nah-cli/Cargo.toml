@@ -20,6 +20,11 @@ serde_json = "1"
 serde_yaml_ng = "0.10"
 sha2 = "0.10"
 tempfile = "3"
+toml = "1.1"
+
+# The guard knowledge test regenerates the referenced corpus commands.
+[dev-dependencies]
+nah-corpus-schema = { path = "../nah-corpus-schema" }
 
 [target.'cfg(all(unix, not(target_os = "redox")))'.dependencies]
 rustix = { version = "1", features = ["fs"] }

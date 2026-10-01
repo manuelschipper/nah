@@ -1405,6 +1405,7 @@ dependencies = [
  "clap",
  "getrandom 0.4.3",
  "hmac",
+ "nah-corpus-schema",
  "nah-effinterp",
  "nah-extensions",
  "nah-observe",
@@ -1417,6 +1418,7 @@ dependencies = [
  "serde_yaml_ng",
  "sha2",
  "tempfile",
+ "toml",
  "windows-sys",
 ]
 

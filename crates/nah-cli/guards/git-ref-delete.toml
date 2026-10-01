@@ -1,0 +1,85 @@
+summary = "Blocks reviewed local and remote ref, stash entry, worktree, and submodule worktree deletion."
+
+description = '''
+This guard stops the agent from deleting branches, tags, stash entries,
+remotes, worktrees, and submodule working trees, locally or on the remote. It
+blocks `git branch -d` and `-D`, `git tag --delete`, `git stash drop`,
+`git remote remove`, pushes that delete a destination (`:ref`, `--delete`,
+`--prune`, `--mirror`), `git worktree remove` and `prune`, and
+`git submodule deinit`.
+'''
+
+limits = '''
+Nah cannot tell whether a branch was merged elsewhere or is still needed, so
+even the merged-only `git branch -d` blocks when the guard is enabled. A
+selection it cannot resolve delegates with a coverage gap.
+'''
+
+default_reason = '''
+It ships off because pruning branches and worktrees is daily housekeeping, and
+refs are usually recoverable from the reflog or the remote. With it off,
+`git-recovery-destroy` still stops clearing every stash, `git-worktree-discard`
+stops forced worktree removal and submodule deinit, and
+`git-remote-repo-delete` stops hosted repository deletion.
+'''
+
+[[blocks]]
+row = "git-ref-delete.branch-force-delete"
+why = "-D deletes the branch even if it is not merged."
+tui = true
+
+[[blocks]]
+row = "git-ref-delete.stash-clear"
+why = "stash clear deletes every stash entry."
+tui = true
+
+[[blocks]]
+row = "git-ref-delete.push-delete-refspec"
+why = "An empty source in :old deletes the remote branch old."
+tui = true
+
+[[blocks]]
+row = "git-ref-delete.git-git-branch-d-topic"
+why = "-d still deletes a ref; Nah cannot see whether it was merged elsewhere."
+
+[[blocks]]
+row = "git-ref-delete.stash-drop"
+why = "drop deletes the stash@{0} entry."
+
+[[blocks]]
+row = "git-ref-delete.worktree-remove"
+why = "worktree remove deletes the linked worktree ../old."
+
+[[blocks]]
+row = "git-ref-delete.gh-api-delete-ref"
+why = "The DELETE request removes the branch ref on GitHub."
+
+[[passes]]
+row = "git-ref-delete.branch-rename-delegates"
+why = "-M renames the branch; its commits stay referenced."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-ref-delete.remote-prune-dry-run-delegates"
+why = "--dry-run only lists stale remote-tracking refs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-ref-delete.stash-show-delegates"
+why = "stash show only displays the entry."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-ref-delete.update-ref-stdin-uncommitted-transaction-delegates"
+why = "The transaction is prepared but never committed, so no ref changes."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-ref-delete.gh-api-read-ref-delegates"
+why = "Without -X DELETE, gh api only reads the ref."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-ref-delete.worktree-add-delegates"
+why = "worktree add creates a worktree and deletes nothing."
+cause = "out-of-scope"
