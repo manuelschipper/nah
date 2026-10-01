@@ -169,6 +169,11 @@
       "missing_effect": 0,
       "missing_flow": 0
     },
+    "infra-cloud-delete": {
+      "explained_partial": 0,
+      "missing_effect": 0,
+      "missing_flow": 0
+    },
     "infra-container-reset": {
       "explained_partial": 0,
       "missing_effect": 0,

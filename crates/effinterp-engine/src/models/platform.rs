@@ -69,6 +69,8 @@ enum Target {
     Operand,
     /// The operand or, instead, one of these options names it.
     OperandOr(&'static [&'static str]),
+    /// One of these options names it, and the command takes no operand.
+    Named(&'static [&'static str]),
     /// One of these options names it; without one the CLI deletes the
     /// resource the directory is linked to or configured for.
     Linked(&'static [&'static str]),
@@ -107,7 +109,7 @@ const RAILWAY: Tool = Tool {
             words: &[&["volume", "volumes"], &["delete", "remove", "rm"]],
             service: "volume",
             kind: "volume",
-            target: Target::Linked(&["--volume", "-v"]),
+            target: Target::Named(&["--volume", "-v"]),
             values: &["--volume", "-v", "--project", "-p", "--2fa-code"],
             switches: RAILWAY_DELETE_SWITCHES,
             dry_run: &[],
@@ -469,7 +471,7 @@ impl Tool {
             (Target::OperandOr(flags), [operand]) if named(flags).is_none() => {
                 (Some(literals[*operand].to_string()), *operand)
             }
-            (Target::OperandOr(flags), []) => match named(flags) {
+            (Target::OperandOr(flags) | Target::Named(flags), []) => match named(flags) {
                 Some(named) => named,
                 None => return Request::Unreviewed,
             },

@@ -268,6 +268,15 @@ because the owner accepted the conservative rule over a narrower model.
 
 Accepted limitations with no corpus row that asserts a desired block.
 
+- Cloud deletes outside `infra-cloud-delete`'s reviewed reading — an AWS
+  global value option before the service word (`aws --output json ec2
+  terminate-instances …`, row
+  `infra-cloud-delete.aws-value-option-before-service-delegates`) is read as
+  the service, because the AWS model locates the service with only its scope
+  options, so the call delegates as an unmodeled service. `az vm delete --ids`,
+  `wrangler delete <script>`, and verbs outside the reviewed tables (`fly apps
+  destroy`, `heroku apps:destroy`, `doctl kubernetes cluster delete`) also
+  delegate.
 - A symlinked parent inside a pattern — a `..` after a component that is
   a symlink to a directory resolves at the link target's parent, but a
   pattern's `..` is collapsed lexically. After a wildcard (`X/*/../Y`,

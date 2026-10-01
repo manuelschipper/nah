@@ -403,3 +403,4 @@
 {"v":1,"id":"infra-cloud-delete.railway-unknown-option-delegates","command":"railway delete --bogus","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate","coverage":"partial"}}
 {"v":1,"id":"infra-cloud-delete.kamal-short-hosts-delegates","command":"kamal remove -h web1","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate","coverage":"partial"}}
 {"v":1,"id":"infra-cloud-delete.modal-volume-path-delegates","command":"modal volume rm vol /tmp/x","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate","coverage":"partial"}}
+{"v":1,"id":"infra-cloud-delete.aws-value-option-before-service-delegates","command":"aws --output json ec2 terminate-instances --instance-ids i-0abc123","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate","coverage":"partial"}}

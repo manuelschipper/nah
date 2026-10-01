@@ -35,19 +35,15 @@ protected-state changes outside maintenance.
   default off.
 - `infra-container-reset` (on) blocks Podman reset; `infra-container-volume-delete`
   (off), broad volume prune and Compose `down`/`rm` volume removal;
-  `infra-iac-destroy` (off), whole-stack IaC. Compose files are not inspected,
-  and Compose excludes external volumes from `down -v`. Narrow/dry-run and named
-  container or volume removal, plus targeted/saved/ambient/other IaC, delegates.
+  `infra-iac-destroy` (off), whole-stack IaC; `infra-cloud-delete` (off), cloud
+  deletes. Compose files are not inspected, and Compose excludes external
+  volumes from `down -v`. Narrow/dry-run, named container/volume removal, and
+  targeted/saved/ambient/other IaC delegate.
 - `infra-k8s-delete` defaults off and blocks static namespace deletion,
   reviewed cluster-resource deletion, and bulk reviewed namespaced-resource
   deletion through `kubectl`. Named application resources and client/server
   dry runs delegate; manifest, kustomize, stdin, dynamic, and unknown-kind
   selections are partial and do not reach the guard.
-- `infra-cloud-delete` defaults off and blocks reviewed delete verbs naming a
-  provisioned resource through `aws`, `gcloud`, `az`, Railway, Modal, Kamal,
-  Wrangler, Fastly, Supabase, and the managed-database CLIs. Unreviewed verbs,
-  unknown options, help, dry runs, and dynamic names delegate; secrets stores,
-  object storage, disks, snapshots, and IaC teardown stay with their own guards.
 - `storage-backup-destroy` is on for whole Borg repos or all Restic/Velero backups.
 - `storage-recursive-delete` is off: deletion/sync is routine; argv hides purpose.
 - `storage-snapshot-delete` is off: backup rotation routinely deletes snapshots.
