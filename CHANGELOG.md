@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Lookalike hosts** — The new default-on `net-lookalike-host` guard blocks downloads, uploads, and connections to a host whose name mixes Unicode scripts within one label, such as `git clone https://gіthub.com/org/repo` with a Cyrillic `і`, including its punycode form `xn--gthub-n2e.com`. Hosts written in a single script, such as `münchen.de` or an all-Cyrillic domain, pass.
+
 ## nah 1.6.1 — Sep 30, 2026
 
 - **Guard reference** — Guard descriptions in `nah docs guards`, the TUI, and nahguard.ai's guard docs now come from one record per guard, with block and pass examples checked against the public corpus. Entries that said a call passes where Nah now blocks it were corrected.

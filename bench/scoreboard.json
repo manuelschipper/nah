@@ -112,14 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "038778ac82fefb5f22b6dfaee746d48d945cc4dd",
-      "corpus_digest": "40940ad9f3957d914c7c8e046d9441809ea79d496923f29444447077b1ba12bd",
+      "nah_commit": "18f40da209dc2e32600a57ab93dc85714f145ccc",
+      "corpus_digest": "1a4f96c8ea99cbe9d4d1b6b952b89a004c9b099bf99239dfaae01029ead270ed",
       "classes": {
-        "effect_match": 5085,
-        "missing_effect": 11,
+        "effect_match": 5109,
+        "silent_symbolic_drop": 2,
+        "missing_effect": 12,
         "missing_flow": 2,
-        "covered": 1417,
-        "explained_partial": 1740
+        "covered": 1424,
+        "explained_partial": 1746
       },
       "per_file": {
         "code.jsonl": {
@@ -184,6 +185,13 @@
           "effect_match": 55,
           "covered": 20,
           "explained_partial": 4
+        },
+        "network.jsonl": {
+          "effect_match": 24,
+          "silent_symbolic_drop": 2,
+          "missing_effect": 1,
+          "covered": 7,
+          "explained_partial": 6
         },
         "project.jsonl": {
           "effect_match": 4,
@@ -347,6 +355,12 @@
         },
         "infra-k8s-delete": {
           "effect_match": 42
+        },
+        "net-lookalike-host": {
+          "effect_match": 24,
+          "silent_symbolic_drop": 2,
+          "missing_effect": 1,
+          "explained_partial": 1
         },
         "registry-publish": {
           "effect_match": 62
@@ -594,6 +608,7 @@
         "observe:/workspace/outside/local.awk": 1,
         "observe:/workspace/outside/local.rb": 1,
         "observe:/workspace/outside/local.ts": 1,
+        "observe:/workspace/outside/notes.txt": 1,
         "observe:/workspace/outside/objects.json": 1,
         "observe:/workspace/outside/ordinary": 3,
         "observe:/workspace/outside/payload": 1,
@@ -601,6 +616,7 @@
         "observe:/workspace/outside/payload.bin": 1,
         "observe:/workspace/outside/payload.txt": 1,
         "observe:/workspace/outside/poetry.lock": 1,
+        "observe:/workspace/outside/report.txt": 1,
         "observe:/workspace/outside/src": 1,
         "observe:/workspace/outside/src/lib.rs": 1,
         "observe:/workspace/outside/table-name.txt": 3,
@@ -787,6 +803,10 @@
         },
         "infra-k8s-delete": {
           "match": 42
+        },
+        "net-lookalike-host": {
+          "deferred": 26,
+          "no_match": 2
         },
         "registry-publish": {
           "match": 62
@@ -11224,10 +11244,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.7942,
-        "p99_ms": 132.6716,
-        "max_ms": 9890.9386,
-        "max_rss_kb": 363424
+        "p50_ms": 0.8326,
+        "p99_ms": 131.9704,
+        "max_ms": 10017.4506,
+        "max_rss_kb": 353232
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11251,13 +11271,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261001T194021Z-correctness-62578",
-      "measured_at": "2026-10-01T19:40:21Z",
-      "source_fingerprint": "blake3:7fb0994c6062a58b499e1ed37908d52e7df2e086647d5ed0f7ad1bdaf01f79a0",
-      "binary_hash": "blake3:ea19207bd6db7f1f6584f3e095c362d62f805567b846560a5df87215fcb1b09f",
+      "run_id": "20261001T201031Z-correctness-38397",
+      "measured_at": "2026-10-01T20:10:31Z",
+      "source_fingerprint": "blake3:3eaa1b3d1fa954aeee9a2cdea0fae0d5268c30b689c00170458e9d870473d92c",
+      "binary_hash": "blake3:906daf45f5e7c21cc00f93300d4f6cd6e0cee7be054a23eb37008f7764fcce43",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "038778ac82fefb5f22b6dfaee746d48d945cc4dd",
+      "git_head": "18f40da209dc2e32600a57ab93dc85714f145ccc",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

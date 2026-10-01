@@ -14,6 +14,7 @@ pub enum GuardFamily {
     Filesystem,
     Git,
     Infrastructure,
+    Network,
     Registry,
     Secrets,
     System,
@@ -26,6 +27,7 @@ impl GuardFamily {
             Self::Filesystem => "FILESYSTEM",
             Self::Git => "GIT",
             Self::Infrastructure => "INFRASTRUCTURE",
+            Self::Network => "NETWORK",
             Self::Registry => "REGISTRY",
             Self::Secrets => "SECRETS",
             Self::System => "SYSTEM",
@@ -38,6 +40,7 @@ impl GuardFamily {
             Self::Filesystem => "filesystem",
             Self::Git => "git",
             Self::Infrastructure => "infrastructure",
+            Self::Network => "network",
             Self::Registry => "registry",
             Self::Secrets => "secrets",
             Self::System => "system",
@@ -50,9 +53,10 @@ impl GuardFamily {
             Self::Filesystem => 1,
             Self::Git => 2,
             Self::Infrastructure => 3,
-            Self::Registry => 4,
-            Self::Secrets => 5,
-            Self::System => 6,
+            Self::Network => 4,
+            Self::Registry => 5,
+            Self::Secrets => 6,
+            Self::System => 7,
         }
     }
 }
@@ -116,6 +120,7 @@ pub(crate) fn shipped_guard_definitions() -> Vec<GuardDefinition> {
         crate::secret_guards::credentials(),
         crate::secret_guards::environment(),
         crate::flow_queries::secrets_exfil(),
+        crate::network_guards::lookalike_host(),
     ]);
     definitions.extend(crate::git_queries::definitions());
     definitions.extend(crate::filesystem_queries::definitions());

@@ -33,10 +33,11 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-47 guards, 29 on by default, covering seven classes of disaster: **execution
+48 guards, 30 on by default, covering eight classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
-**infrastructure, storage, and backup teardown**, **package-registry operations**,
-and **host power and service-stop actions**.
+**infrastructure, storage, and backup teardown**, **lookalike-host network
+access**, **package-registry operations**, and **host power and service-stop
+actions**.
 
 | Guard | Blocks |
 | --- | --- |
@@ -83,6 +84,7 @@ and **host power and service-stop actions**.
 | `storage-backup-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, and Velero commands. |
 | `storage-recursive-delete` | Broad remote deletion and destination-deleting synchronization through reviewed cloud and sync CLIs. Off by default. |
 | `storage-snapshot-delete` | Reviewed snapshot, archive, volume, and retention deletion. Off by default. |
+| `net-lookalike-host` | Network access to a host whose DNS label mixes Unicode scripts, such as `gіthub.com` with a Cyrillic `і`, including its punycode form. |
 | `registry-publish` | Reviewed package publication commands. Off by default. |
 | `registry-unpublish` | Reviewed package unpublish, irreversible RubyGems yank, and published-name owner changes. |
 | `sys-power` | Fully visible local host shutdown, reboot, halt, and suspend actions. |
