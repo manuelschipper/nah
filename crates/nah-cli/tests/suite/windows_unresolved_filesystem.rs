@@ -199,6 +199,7 @@ fn windows_static_destructive_target_reaches_outside_workspace_guard() {
 /// spelled that way keeps its block.
 #[cfg(windows)]
 #[test]
+#[allow(clippy::disallowed_methods)]
 fn windows_root_relative_paths_keep_credential_and_nap_state_blocks() {
     let home = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
