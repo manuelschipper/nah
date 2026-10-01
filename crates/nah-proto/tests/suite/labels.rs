@@ -1127,19 +1127,26 @@ fn hidden_characters_are_the_display_changing_classes_at_their_boundaries() {
     assert!(!has_hidden_characters(
         r"printf '\e[31m\x1b[0m\033[1m'; echo $'\e'"
     ));
-    // Subdivision flags, and emoji with joiners and skin tones.
+    // The recommended subdivision flags, and emoji with joiners and skin tones.
     for text in [
-        flag("gbsct"),
-        format!("{}{}", flag("gbeng"), flag("gbwls")),
+        flag("gbeng"),
+        format!("{}{}", flag("gbsct"), flag("gbwls")),
         format!(
             "{} \u{1F469}\u{200D}\u{1F4BB} \u{1F44D}\u{1F3FD}",
-            flag("usca")
+            flag("gbsct")
         ),
     ] {
         assert!(!has_hidden_characters(&text), "{text:?}");
     }
-    // Tag runs that only look like a flag hide text.
+    // Every other tag run hides text: invalid flags (`ushuh`, `uksct`), valid
+    // ones outside the recommended set (`usca`, region `001`), and runs that
+    // only look like a flag.
     for text in [
+        flag("ushuh"),
+        flag("uksct"),
+        flag("rmrf"),
+        flag("usca"),
+        flag("001"),
         flag("gb"),
         flag("gbabcdef"),
         flag("GBSCT"),

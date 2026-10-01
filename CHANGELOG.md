@@ -4,7 +4,7 @@
 
 - **Lookalike hosts** — The new default-on `net-lookalike-host` guard blocks downloads, uploads, and connections to a host whose name mixes Unicode scripts within one label, such as `git clone https://gіthub.com/org/repo` with a Cyrillic `і`, including its punycode form `xn--gthub-n2e.com`. Hosts written in a single script, such as `münchen.de` or an all-Cyrillic domain, pass.
 
-- **Hidden characters in commands** — `exec-obfuscated` now also blocks a shell or PowerShell command whose text holds characters that make the approval prompt show something other than what runs: raw control bytes such as ESC, bidirectional overrides and isolates, zero-width spaces and similar invisible format characters, and Unicode tag characters outside a flag emoji. Emoji with joiners, subdivision flags, right-to-left text with its direction marks, and escapes written as text such as `printf '\e[31m'` pass.
+- **Hidden characters in commands** — `exec-obfuscated` now also blocks a shell or PowerShell command whose text holds characters that make the approval prompt show something other than what runs: raw control bytes such as ESC, bidirectional overrides and isolates, zero-width spaces and similar invisible format characters, and Unicode tag characters outside the England, Scotland and Wales flags. Emoji with joiners, those three flags, right-to-left text with its direction marks, and escapes written as text such as `printf '\e[31m'` pass.
 
 ## nah 1.6.1 — Sep 30, 2026
 

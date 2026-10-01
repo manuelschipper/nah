@@ -2,14 +2,14 @@
 
 | plane | run | measured | engine | models |
 |---|---|---|---|---|
-| correctness | `20261001T192730Z-correctness-40857` | 2026-10-01T19:27:30Z | `0.1.0` | `builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468` |
+| correctness | `20261001T195639Z-correctness-20865` | 2026-10-01T19:56:39Z | `0.1.0` | `builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468` |
 | coverage | `20260927T155829Z-coverage-54709` | 2026-09-27T15:58:29Z | `0.1.0` | `builtin:blake3:e4a3aa943d572fb4a6c4ee6fa4eb7d50bafc33cdde32b27864e9d8f1a97b5272` |
 | repositories | `20260921T153340Z-repositories-53884` | 2026-09-21T15:33:40Z | `0.1.0` | `builtin:blake3:f4c5b1246f8269fed8c419ed2832d4607967f1357aec6027b0f2bcac2d787f40` |
 | performance | `20260921T150325Z-performance-62642` | 2026-09-21T15:03:25Z | `0.1.0` | `builtin:blake3:a73d1a25123b9661020f9e13dbb1528964df754bf91f93b64e2df5b98b703606` |
 
 ## 1. Invocation correctness
 
-run `20261001T192730Z-correctness-40857` measured 2026-10-01T19:27:30Z
+run `20261001T195639Z-correctness-20865` measured 2026-10-01T19:56:39Z
 
 Independent effect, flow, and uncertainty expectations.
 
@@ -39,11 +39,11 @@ silent drops: 326 rows tested, 71 mutants, 0 drops
 
 ### nah parity
 
-nah `eab3a6fd5f25342a83cedf5909bfc96f88ef0f8f` / corpus `f61733eb21a76175b24d84c7cf1fd383165fa8aa391fe3938290fbe15044e00c`
+nah `7212fc23ad6bd9047de3ffd2f607bb1bffe1c6e2` / corpus `194a19978c2c483ad263c486f2b61ca1053a160168f2fbab704993b7e66c7b92`
 
 | class | count |
 |---|---|
-| effect_match | 5092 |
+| effect_match | 5094 |
 | silent_symbolic_drop | 2 |
 | missing_effect | 12 |
 | missing_flow | 5 |
@@ -69,7 +69,7 @@ nah `eab3a6fd5f25342a83cedf5909bfc96f88ef0f8f` / corpus `f61733eb21a76175b24d84c
 | registry.jsonl | 188 | 0 | 0 | 0 | 6 | 102 |
 | secrets.jsonl | 734 | 0 | 3 | 5 | 177 | 192 |
 | self-protection.jsonl | 639 | 0 | 2 | 0 | 111 | 286 |
-| shell-resolution.jsonl | 181 | 0 | 0 | 0 | 26 | 25 |
+| shell-resolution.jsonl | 183 | 0 | 0 | 0 | 26 | 25 |
 | storage.jsonl | 138 | 0 | 0 | 0 | 8 | 51 |
 | threat-model.jsonl | 9 | 0 | 0 | 0 | 12 | 6 |
 | windows.jsonl | 121 | 0 | 0 | 0 | 37 | 34 |
@@ -80,7 +80,7 @@ nah `eab3a6fd5f25342a83cedf5909bfc96f88ef0f8f` / corpus `f61733eb21a76175b24d84c
 | db-destroy | 373 | 0 | 5 | 0 | 0 | 38 |
 | exec-decoded | 55 | 0 | 0 | 0 | 0 | 4 |
 | exec-network-shell | 56 | 0 | 0 | 0 | 0 | 1 |
-| exec-obfuscated | 47 | 0 | 0 | 0 | 0 | 1 |
+| exec-obfuscated | 49 | 0 | 0 | 0 | 0 | 1 |
 | exec-remote | 236 | 0 | 0 | 0 | 0 | 4 |
 | fs-auth-identity | 103 | 0 | 0 | 0 | 0 | 2 |
 | fs-forkbomb | 24 | 0 | 0 | 0 | 0 | 0 |
@@ -2256,7 +2256,7 @@ nah cold catalog + first analyze median: 2731 us (target 5000 us)
 
 | source | p50 ms | p99 ms | max ms | max RSS MB |
 |---|---|---|---|---|
-| adversarial | 0.8 | 130.6 | 9928.1 | 339.7 |
+| adversarial | 0.8 | 130.5 | 9918.9 | 350.3 |
 | nah | 0.9 | 9.1 | 39.6 | 158.0 |
 | swe | 1.0 | 17.6 | 783.0 | 214.2 |
 | wild | 1.1 | 105.5 | 10000.0 | 318.3 |

@@ -112,10 +112,10 @@
       }
     },
     "parity": {
-      "nah_commit": "eab3a6fd5f25342a83cedf5909bfc96f88ef0f8f",
-      "corpus_digest": "f61733eb21a76175b24d84c7cf1fd383165fa8aa391fe3938290fbe15044e00c",
+      "nah_commit": "7212fc23ad6bd9047de3ffd2f607bb1bffe1c6e2",
+      "corpus_digest": "194a19978c2c483ad263c486f2b61ca1053a160168f2fbab704993b7e66c7b92",
       "classes": {
-        "effect_match": 5092,
+        "effect_match": 5094,
         "silent_symbolic_drop": 2,
         "missing_effect": 12,
         "missing_flow": 5,
@@ -217,7 +217,7 @@
           "explained_partial": 286
         },
         "shell-resolution.jsonl": {
-          "effect_match": 181,
+          "effect_match": 183,
           "covered": 26,
           "explained_partial": 25
         },
@@ -257,7 +257,7 @@
           "explained_partial": 1
         },
         "exec-obfuscated": {
-          "effect_match": 47,
+          "effect_match": 49,
           "explained_partial": 1
         },
         "exec-remote": {
@@ -663,6 +663,7 @@
         "observe:/workspace/project/input.bin": 2,
         "observe:/workspace/project/input.dat": 1,
         "observe:/workspace/project/invoice‮txt.sh": 2,
+        "observe:/workspace/project/invoice🏴󠁵󠁳󠁨󠁵󠁨󠁿.txt": 1,
         "observe:/workspace/project/local": 2,
         "observe:/workspace/project/main.c": 1,
         "observe:/workspace/project/mode.txt": 1,
@@ -707,7 +708,7 @@
         },
         "exec-obfuscated": {
           "match": 39,
-          "deferred": 9
+          "deferred": 11
         },
         "exec-remote": {
           "deferred": 236,
@@ -11251,10 +11252,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.7765,
-        "p99_ms": 130.6221,
-        "max_ms": 9928.1188,
-        "max_rss_kb": 347840
+        "p50_ms": 0.7979,
+        "p99_ms": 130.54,
+        "max_ms": 9918.8891,
+        "max_rss_kb": 358704
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11278,13 +11279,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261001T192730Z-correctness-40857",
-      "measured_at": "2026-10-01T19:27:30Z",
-      "source_fingerprint": "blake3:54e82f5f5325ac8d02e61fb5bbcbb477b5661f662e8b71d3bdbbd24233671616",
-      "binary_hash": "blake3:ac3bc3dfb0a2bdc3d9a4ad42e07abd0401a3b83a5a35d6d47891ac829efab0be",
+      "run_id": "20261001T195639Z-correctness-20865",
+      "measured_at": "2026-10-01T19:56:39Z",
+      "source_fingerprint": "blake3:e12de205975401831c5dee05253cc34ed90f2b9bd3b0e8509737d41dbda49d81",
+      "binary_hash": "blake3:16d2666647553cfddfc4bde2fe2683fff94fe0c1b23fd75810d310f82485d239",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "eab3a6fd5f25342a83cedf5909bfc96f88ef0f8f",
+      "git_head": "7212fc23ad6bd9047de3ffd2f607bb1bffe1c6e2",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

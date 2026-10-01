@@ -168,7 +168,7 @@ the shell has to compute at run time from string operations, word splitting,
 or a filename pattern. It also blocks a shell or PowerShell command holding
 characters that make the approval prompt show other text than what runs:
 control bytes such as ESC, bidi overrides and isolates, zero-width spaces, and
-tag characters outside a flag emoji.
+tag characters outside the England, Scotland and Wales flags.
 
 Blocked examples:
 
@@ -185,7 +185,7 @@ Outside the guard:
 - `X=$(echo rm); $X file`: $(echo rm) resolves to rm file, which the filesystem guards judge.
 - `TOOL={echo,rm}; "$TOOL" -rf /`: Braces do not expand in an assignment, so TOOL stays the literal {echo,rm}.
 - `TOOL=echo; f(){ local TOOL=rm; }; f; "$TOOL" -rf /`: local keeps rm inside f, so "$TOOL" still runs echo.
-- `git commit -m 'Ship 👩‍💻 support 👍🏽 for 🏴󠁧󠁢󠁳󠁣󠁴󠁿 users'`: Joiners, skin tones and a subdivision flag are ordinary emoji.
+- `git commit -m 'Ship 👩‍💻 support 👍🏽 for 🏴󠁧󠁢󠁳󠁣󠁴󠁿 users'`: Joiners, skin tones and the Scotland flag are ordinary emoji.
 - `printf '\e[31merror\e[0m\n'; echo $'\x1b[0m'`: \e and \x1b are text the program interprets, not raw bytes.
 - `powershell -EncodedCommand --help`: --help is not a base64 payload, so no hidden script is passed.
 

@@ -86007,6 +86007,32 @@
       ]
     },
     {
+      "id": "shell-resolution.hidden-invalid-flag-path",
+      "guard": "exec-obfuscated",
+      "derivation": "Tags spelling ushuh after a black flag name no flag; they hide text in the path cat reads while the prompt shows a black flag.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/invoice🏴\udb40\udc75\udb40\udc73\udb40\udc68\udb40\udc75\udb40\udc68\udb40\udc7f.txt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-non-rgi-flag-commit-message",
+      "guard": "exec-obfuscated",
+      "derivation": "Only the England, Scotland and Wales flags are allowed tag sequences, so the California flag's tags in the commit message are treated as hidden text.",
+      "require": [
+        {
+          "op": "git.ref_update",
+          "resource": {
+            "eq": "git:worktree=\"fs:/workspace/project\";git_dir=null;pathspec=null"
+          }
+        }
+      ]
+    },
+    {
       "id": "fs-system-tree.split-positional-param-error-guard-etc",
       "guard": "fs-system-tree",
       "derivation": "set -- $(echo a b) sets $2, so ${2:?} does not abort and rm deletes /etc",

@@ -252,6 +252,13 @@ because the owner accepted the conservative rule over a narrower model.
   can never hold). Telling a false marker from one that holds needs the
   target interpreter and platform, and a marked dependency on a mixed-script
   host has no workflow worth the risk of evaluating it wrong.
+- `shell-resolution.hidden-non-rgi-flag-commit-message` — the California
+  subdivision flag (black flag, tags `usca`, cancel tag) is a valid emoji tag
+  sequence, but `exec-obfuscated` allows only the recommended England,
+  Scotland and Wales flags, so its tags count as hidden text and the commit
+  blocks. Telling a valid flag from tags spelling hidden text such as `ushuh`
+  or `rmrf` needs pinned CLDR subdivision validity data, and a non-recommended
+  flag in a command is rare enough that blocking it is cheaper.
 
 ## Documented gaps
 

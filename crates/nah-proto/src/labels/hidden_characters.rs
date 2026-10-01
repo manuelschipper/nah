@@ -4,8 +4,14 @@
 
 /// The black flag that begins an emoji tag sequence such as a subdivision flag.
 const TAG_BASE: char = '\u{1F3F4}';
-/// The cancel tag that ends an emoji tag sequence.
-const CANCEL_TAG: char = '\u{E007F}';
+/// The tags after the black flag, through the cancel tag, of the only
+/// recommended (RGI) subdivision flags: England `gbeng`, Scotland `gbsct` and
+/// Wales `gbwls`. Any other tag sequence, valid flag or not, is hidden text.
+const RGI_FLAG_TAGS: [&str; 3] = [
+    "\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}",
+    "\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}",
+    "\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}",
+];
 
 /// Whether `text` holds a character that makes its display differ from what
 /// runs:
@@ -13,7 +19,8 @@ const CANCEL_TAG: char = '\u{E007F}';
 ///   controls (U+0080–U+009F);
 /// - bidi embeddings, overrides and isolates (U+202A–U+202E, U+2066–U+2069);
 /// - the invisible format characters U+200B, U+2060, U+FEFF and U+180E;
-/// - Unicode tag characters (U+E0000–U+E007F) outside a subdivision flag.
+/// - Unicode tag characters (U+E0000–U+E007F) outside the flags of England,
+///   Scotland and Wales.
 ///
 /// Joiners (U+200C, U+200D), variation selectors, the directional marks LRM,
 /// RLM and ALM, and escapes spelled as text (`\e[31m`) are ordinary text.
@@ -22,7 +29,9 @@ pub fn has_hidden_characters(text: &str) -> bool {
     while let Some(character) = rest.chars().next() {
         rest = &rest[character.len_utf8()..];
         if character == TAG_BASE
-            && let Some(after) = after_subdivision_tags(rest)
+            && let Some(after) = RGI_FLAG_TAGS
+                .iter()
+                .find_map(|tags| rest.strip_prefix(tags))
         {
             rest = after;
         } else if hidden(character) {
@@ -48,19 +57,4 @@ fn hidden(character: char) -> bool {
             | '\u{180E}'
             | '\u{E0000}'..='\u{E007F}'
     )
-}
-
-/// The text after the tags of an emoji subdivision flag that follows its black
-/// flag: 3 to 7 tag letters or digits, the shape of a Unicode subdivision id
-/// such as `gbsct`, then the cancel tag. Any other tag run is hidden text.
-fn after_subdivision_tags(text: &str) -> Option<&str> {
-    let end = text
-        .find(
-            |character| !matches!(character, '\u{E0030}'..='\u{E0039}' | '\u{E0061}'..='\u{E007A}'),
-        )
-        .unwrap_or(text.len());
-    let rest = text[end..].strip_prefix(CANCEL_TAG)?;
-    (3..=7)
-        .contains(&text[..end].chars().count())
-        .then_some(rest)
 }
