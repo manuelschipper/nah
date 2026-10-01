@@ -105681,6 +105681,201 @@
           "path_provenance": true
         }
       ]
+    },
+    {
+      "id": "net-lookalike-host.git-clone-cyrillic-i",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/org/repo"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.curl-output-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/org/tool/releases/download/v1/tool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.wget-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/org/tool/archive/main.tar.gz"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.curl-upload",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://gіthub.com/upload"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.sh-c-git-clone",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/org/repo"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.punycode-git-clone",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; the punycode label decodes to Latin with a Cyrillic i",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://xn--gthub-n2e.com/org/repo"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.fallback-clone-mirror",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; the clone after || is reachable when the first fails",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/org/repo"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.nc-connect",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.connect",
+          "resource": {
+            "eq": "tcp://gіthub.com:443"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.curl-post-upload",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://gіthub.com/api/issues"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.subdomain-label-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://raw.gіthubusercontent.com/org/tool/main/install.sh"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.greek-omicron-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://micrοsoft.com/download/tool.zip"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.ssh-connect",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.connect",
+          "resource": {
+            "eq": "ssh://gіthub.com"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-vcs-install",
+      "guard": "net-lookalike-host",
+      "derivation": "pip clones the git+https requirement's repository from the mixed-script host; the engine leaves the download's endpoint unresolved",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.git-submodule-add",
+      "guard": "net-lookalike-host",
+      "derivation": "git submodule add clones the URL's repository from the mixed-script host; the engine does not model submodule add",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.git-remote-add-push",
+      "guard": "net-lookalike-host",
+      "derivation": "git push origin sends to the URL that git remote add origin just configured, a mixed-script host; the engine does not carry the configured URL to the push",
+      "require": [
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
     }
   ]
 }
