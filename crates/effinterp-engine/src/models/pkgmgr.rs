@@ -581,6 +581,18 @@ fn npm_rebuild(
     }
 }
 
+/// The repository a pip VCS requirement (`git+https://…`, `git+http://…` or
+/// `git+ssh://…`, optionally `-e`) clones: pip hands the URL after `git+`,
+/// up to its `@rev` or `#egg=` suffix, to Git.
+fn pip_vcs_endpoint(requirement: &str) -> Option<ResourceIdentity> {
+    let url = requirement.strip_prefix("git+")?;
+    ["http://", "https://", "ssh://"]
+        .iter()
+        .any(|scheme| url.to_ascii_lowercase().starts_with(scheme))
+        .then(|| crate::value::parse_url_endpoint(url))
+        .flatten()
+}
+
 fn bun_package_operand_index(ctx: &InvocationCtx<'_>, sub_index: usize) -> u32 {
     // Value-taking options from Bun 1.4.2 add/install/remove --help.
     let mut words = ctx.argv.iter().enumerate().skip(sub_index + 1);
@@ -2639,6 +2651,23 @@ impl CommandModel for PkgMgr {
                 },
                 Default::default(),
             );
+            // A literal VCS requirement also names the repository pip clones;
+            // its dependencies still come from the index above.
+            if mgr.starts_with("pip") && installs {
+                for (index, word) in ctx.argv.iter().enumerate() {
+                    if let Some(identity) = word.as_literal().and_then(pip_vcs_endpoint) {
+                        arg_effect(
+                            builder,
+                            ctx,
+                            model_node,
+                            index as u32,
+                            "network.download",
+                            ResourceExpr::Concrete { identity },
+                            Default::default(),
+                        );
+                    }
+                }
+            }
             let op = if removes && mgr != "bun" {
                 "filesystem.delete"
             } else {

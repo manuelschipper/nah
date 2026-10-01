@@ -112,15 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "6051fc81eb8684a38f807e790f151291f03a45c1",
-      "corpus_digest": "c1cfeb2b2818e704f518b48311b2751e531e35cfe5a9a0c31b8f4765be82a555",
+      "nah_commit": "96e9ac1321c2e7522f021ed7a60951242ac32fa3",
+      "corpus_digest": "c3e50beb45ae9a402ccc3861ea8e91c18855c2d8b4553d27f68a2270ce2ad083",
       "classes": {
-        "effect_match": 5069,
+        "effect_match": 5075,
         "silent_symbolic_drop": 2,
         "missing_effect": 12,
         "missing_flow": 5,
-        "covered": 1409,
-        "explained_partial": 1730
+        "covered": 1412,
+        "explained_partial": 1729
       },
       "per_file": {
         "code.jsonl": {
@@ -187,11 +187,11 @@
           "explained_partial": 4
         },
         "network.jsonl": {
-          "effect_match": 10,
+          "effect_match": 16,
           "silent_symbolic_drop": 2,
           "missing_effect": 1,
-          "covered": 4,
-          "explained_partial": 2
+          "covered": 7,
+          "explained_partial": 1
         },
         "project.jsonl": {
           "effect_match": 4,
@@ -357,10 +357,10 @@
           "effect_match": 42
         },
         "net-lookalike-host": {
-          "effect_match": 10,
+          "effect_match": 16,
           "silent_symbolic_drop": 2,
           "missing_effect": 1,
-          "explained_partial": 2
+          "explained_partial": 1
         },
         "registry-publish": {
           "effect_match": 62
@@ -805,8 +805,8 @@
           "match": 42
         },
         "net-lookalike-host": {
-          "deferred": 12,
-          "no_match": 3
+          "deferred": 18,
+          "no_match": 2
         },
         "registry-publish": {
           "match": 62
@@ -11244,10 +11244,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.8033,
-        "p99_ms": 131.4549,
-        "max_ms": 9869.5158,
-        "max_rss_kb": 391088
+        "p50_ms": 0.7735,
+        "p99_ms": 132.9155,
+        "max_ms": 10019.3987,
+        "max_rss_kb": 350528
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11271,13 +11271,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261001T172940Z-correctness-76267",
-      "measured_at": "2026-10-01T17:29:40Z",
-      "source_fingerprint": "blake3:f2d8b87aa6a56acd482a58115dce0dfbdf0c71157f480f8cc823cfa0f0a1c8a9",
-      "binary_hash": "blake3:450ab22e3595d460b078df5522fc4a2dbd7ce5d91ce9b0fabc92e9da8f047144",
+      "run_id": "20261001T175522Z-correctness-45676",
+      "measured_at": "2026-10-01T17:55:22Z",
+      "source_fingerprint": "blake3:920656c8ea6fdfe4ff5443e66f01c0d02adc8b21651bc292003fafecbd54a20d",
+      "binary_hash": "blake3:048580dd9a927c66df1442b6e42bfe34ae0d2fdfb6e55ba89c1b79c6e590b1f3",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "6051fc81eb8684a38f807e790f151291f03a45c1",
+      "git_head": "96e9ac1321c2e7522f021ed7a60951242ac32fa3",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

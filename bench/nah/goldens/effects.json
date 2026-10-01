@@ -105841,7 +105841,7 @@
     {
       "id": "net-lookalike-host.pip-vcs-install",
       "guard": "net-lookalike-host",
-      "derivation": "pip clones the git+https requirement's repository from the mixed-script host; the engine leaves the download's endpoint unresolved",
+      "derivation": "pip clones the git+https requirement's repository from the mixed-script host",
       "require": [
         {
           "op": "network.download",
@@ -105873,6 +105873,71 @@
           "op": "network.upload",
           "resource": {
             "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.sh-c-pip-vcs-install",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the git+https requirement's repository",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.percent-escaped-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; %D1%96 decodes to the Cyrillic i a URL client resolves",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://g%d1%96thub.com/org/tool/releases/download/v1/tool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.fully-escaped-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; every escape decodes, giving Latin with a Cyrillic i",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://%67%d1%96%74%68%75%62.com/org/tool/releases/download/v1/tool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.mathematical-letters-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; UTS #46 maps the mathematical letters to Latin beside the Cyrillic i",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://𝕘і𝕥𝕙𝕦𝕓.com/org/tool/releases/download/v1/tool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.fragment-after-host-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; the authority ends at the fragment, leaving the mixed host",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com#overview"
           }
         }
       ]

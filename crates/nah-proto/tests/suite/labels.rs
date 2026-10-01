@@ -1056,6 +1056,13 @@ fn lookalike_hosts_mix_scripts_within_one_label() {
         "XN--gthub-n2e.com",
         // Digits and a hyphen do not make a mixed label single-script.
         "g\u{456}thub-2.com",
+        // URL clients decode escapes, partial or complete, before resolving.
+        "g%D1%96thub.com",
+        "%67%d1%96%74%68%75%62.com",
+        // UTS #46 maps mathematical letters to the Latin ones they draw.
+        "\u{1d558}\u{456}\u{1d565}\u{1d559}\u{1d566}\u{1d553}.com",
+        // An ideographic full stop separates labels like a dot.
+        "g\u{456}thub\u{3002}com",
     ] {
         assert!(mixes_scripts(host), "{host}");
     }
@@ -1068,6 +1075,8 @@ fn lookalike_hosts_mix_scripts_within_one_label() {
         "\u{43f}\u{440}\u{438}\u{43c}\u{435}\u{440}-1.\u{440}\u{444}",
         // A combining mark is Inherited, so it joins the Latin it follows.
         "cafe\u{301}.fr",
+        // Han beside Latin is one writing system under UTS #39 revision 34.
+        "\u{6f22}\u{5b57}api.example",
         // Han beside Katakana and Hiragana is one writing system, Japanese.
         "\u{65e5}\u{672c}\u{30c9}\u{30e1}\u{30a4}\u{30f3}\u{306e}.jp",
         // Scripts may differ between labels.

@@ -2,14 +2,14 @@
 
 | plane | run | measured | engine | models |
 |---|---|---|---|---|
-| correctness | `20261001T172940Z-correctness-76267` | 2026-10-01T17:29:40Z | `0.1.0` | `builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468` |
+| correctness | `20261001T175522Z-correctness-45676` | 2026-10-01T17:55:22Z | `0.1.0` | `builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468` |
 | coverage | `20260927T155829Z-coverage-54709` | 2026-09-27T15:58:29Z | `0.1.0` | `builtin:blake3:e4a3aa943d572fb4a6c4ee6fa4eb7d50bafc33cdde32b27864e9d8f1a97b5272` |
 | repositories | `20260921T153340Z-repositories-53884` | 2026-09-21T15:33:40Z | `0.1.0` | `builtin:blake3:f4c5b1246f8269fed8c419ed2832d4607967f1357aec6027b0f2bcac2d787f40` |
 | performance | `20260921T150325Z-performance-62642` | 2026-09-21T15:03:25Z | `0.1.0` | `builtin:blake3:a73d1a25123b9661020f9e13dbb1528964df754bf91f93b64e2df5b98b703606` |
 
 ## 1. Invocation correctness
 
-run `20261001T172940Z-correctness-76267` measured 2026-10-01T17:29:40Z
+run `20261001T175522Z-correctness-45676` measured 2026-10-01T17:55:22Z
 
 Independent effect, flow, and uncertainty expectations.
 
@@ -39,16 +39,16 @@ silent drops: 326 rows tested, 71 mutants, 0 drops
 
 ### nah parity
 
-nah `6051fc81eb8684a38f807e790f151291f03a45c1` / corpus `c1cfeb2b2818e704f518b48311b2751e531e35cfe5a9a0c31b8f4765be82a555`
+nah `96e9ac1321c2e7522f021ed7a60951242ac32fa3` / corpus `c3e50beb45ae9a402ccc3861ea8e91c18855c2d8b4553d27f68a2270ce2ad083`
 
 | class | count |
 |---|---|
-| effect_match | 5069 |
+| effect_match | 5075 |
 | silent_symbolic_drop | 2 |
 | missing_effect | 12 |
 | missing_flow | 5 |
-| covered | 1409 |
-| explained_partial | 1730 |
+| covered | 1412 |
+| explained_partial | 1729 |
 
 | file | effect_match | silent_symbolic_drop | missing_effect | missing_flow | covered | explained_partial |
 |---|---|---|---|---|---|---|
@@ -64,7 +64,7 @@ nah `6051fc81eb8684a38f807e790f151291f03a45c1` / corpus `c1cfeb2b2818e704f518b48
 | local-utilities.jsonl | 4 | 0 | 0 | 0 | 42 | 9 |
 | macos.jsonl | 61 | 0 | 0 | 0 | 30 | 16 |
 | native.jsonl | 55 | 0 | 0 | 0 | 20 | 4 |
-| network.jsonl | 10 | 2 | 1 | 0 | 4 | 2 |
+| network.jsonl | 16 | 2 | 1 | 0 | 7 | 1 |
 | project.jsonl | 4 | 0 | 0 | 0 | 17 | 1 |
 | registry.jsonl | 188 | 0 | 0 | 0 | 6 | 102 |
 | secrets.jsonl | 734 | 0 | 3 | 5 | 177 | 192 |
@@ -111,7 +111,7 @@ nah `6051fc81eb8684a38f807e790f151291f03a45c1` / corpus `c1cfeb2b2818e704f518b48
 | infra-container-volume-delete | 51 | 0 | 0 | 0 | 0 | 0 |
 | infra-iac-destroy | 127 | 0 | 0 | 0 | 0 | 0 |
 | infra-k8s-delete | 42 | 0 | 0 | 0 | 0 | 0 |
-| net-lookalike-host | 10 | 2 | 1 | 0 | 0 | 2 |
+| net-lookalike-host | 16 | 2 | 1 | 0 | 0 | 1 |
 | registry-publish | 62 | 0 | 0 | 0 | 0 | 0 |
 | registry-unpublish | 127 | 0 | 0 | 0 | 0 | 0 |
 | secrets-credentials | 179 | 0 | 0 | 0 | 0 | 6 |
@@ -2256,7 +2256,7 @@ nah cold catalog + first analyze median: 2731 us (target 5000 us)
 
 | source | p50 ms | p99 ms | max ms | max RSS MB |
 |---|---|---|---|---|
-| adversarial | 0.8 | 131.5 | 9869.5 | 381.9 |
+| adversarial | 0.8 | 132.9 | 10019.4 | 342.3 |
 | nah | 0.9 | 9.1 | 39.6 | 158.0 |
 | swe | 1.0 | 17.6 | 783.0 | 214.2 |
 | wild | 1.1 | 105.5 | 10000.0 | 318.3 |
