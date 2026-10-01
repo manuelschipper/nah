@@ -112,15 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "b55288e57ee17f159503ad6ec806126552972b31",
-      "corpus_digest": "3a992d821fcde3a4411fb8525baecf1b2d74a9a9da5d2f5b7ac6412df22ff433",
+      "nah_commit": "026b1bc647fb59b84fa657fbf14451d97d59d51c",
+      "corpus_digest": "cc015b6ff76d2675ee28e8751bb9389b55c53901cddc76c1f45f9be42907d1a9",
       "classes": {
-        "effect_match": 5131,
+        "effect_match": 5148,
         "silent_symbolic_drop": 2,
         "missing_effect": 12,
         "missing_flow": 2,
-        "covered": 1429,
-        "explained_partial": 1753
+        "covered": 1430,
+        "explained_partial": 1759
       },
       "per_file": {
         "code.jsonl": {
@@ -204,11 +204,11 @@
           "explained_partial": 102
         },
         "secrets.jsonl": {
-          "effect_match": 765,
+          "effect_match": 782,
           "missing_effect": 3,
           "missing_flow": 2,
-          "covered": 191,
-          "explained_partial": 206
+          "covered": 192,
+          "explained_partial": 212
         },
         "self-protection.jsonl": {
           "effect_match": 639,
@@ -376,7 +376,7 @@
           "effect_match": 119
         },
         "secrets-exfil": {
-          "effect_match": 509,
+          "effect_match": 526,
           "missing_effect": 3,
           "missing_flow": 2,
           "explained_partial": 3
@@ -498,7 +498,7 @@
         "/workspace/project/nah/.crates2.json": 1,
         "/workspace/project/package.json": 8,
         "/workspace/project/payload.py": 1,
-        "/workspace/project/requests/__init__.py": 7,
+        "/workspace/project/requests/__init__.py": 11,
         "/workspace/project/vendor/autoload.php": 2,
         "/workspace/project/vendor/autoload_runtime.php": 1,
         "/workspace/push-config": 2,
@@ -836,7 +836,7 @@
         },
         "secrets-exfil": {
           "deferred": 28,
-          "indeterminate": 482,
+          "indeterminate": 499,
           "no_match": 7
         },
         "secrets-store-delete": {
@@ -11256,10 +11256,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.7856,
-        "p99_ms": 130.5956,
-        "max_ms": 9834.9145,
-        "max_rss_kb": 355888
+        "p50_ms": 0.8005,
+        "p99_ms": 133.0925,
+        "max_ms": 10144.2553,
+        "max_rss_kb": 360800
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11283,13 +11283,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261001T221409Z-correctness-38937",
-      "measured_at": "2026-10-01T22:14:09Z",
-      "source_fingerprint": "blake3:c5b8f9f6b411c4c0542fd0d9fbd254449b6221b4d182fc1db45f3391958ddc26",
-      "binary_hash": "blake3:a492f4b1bb3231ad758ac91359ac488d5c61ac64b533dda108f7ca669da2cc09",
+      "run_id": "20261001T231428Z-correctness-6723",
+      "measured_at": "2026-10-01T23:14:28Z",
+      "source_fingerprint": "blake3:3a364357457524efd44952e161e1034641c9f13fd4edfa7a0931bced0fef85f3",
+      "binary_hash": "blake3:4328e059b107d24762bfefbc523abe1f496f650fa0364a9286920c1716b36a2a",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "b55288e57ee17f159503ad6ec806126552972b31",
+      "git_head": "026b1bc647fb59b84fa657fbf14451d97d59d51c",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

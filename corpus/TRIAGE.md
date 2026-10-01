@@ -268,22 +268,34 @@ because the owner accepted the conservative rule over a narrower model.
 
 Accepted limitations with no corpus row that asserts a desired block.
 
-- Printed secrets transformed as text. Python print provenance follows a
-  value only through names, calls on its value spine, literal containers and
-  `.text`/`.content` (`value_spine` and `flow_expr` in
-  `crates/effinterp-engine/src/python/mod.rs`). String concatenation,
-  f-strings, `%` formatting and a method on a local (`key.strip()`) carry
-  nothing, so `print("key=" + key)` or a helper that returns `key.strip()`
-  piped to an upload delegates, at module level and inside functions alike,
-  while `print(key)` and `return key` block. A row asserting the block would
-  add a `missing_flow` parity miss above the `secrets-exfil` ceiling.
+- Printed secrets transformed as text. Python print and return provenance
+  follows a value only through names, calls on its value spine, literal
+  containers (dict keys included), the arms of a conditional expression its
+  literal test does not rule out, and `.text`/`.content` (`value_spine` and
+  `flow_expr` in `crates/effinterp-engine/src/python/mod.rs`). String
+  concatenation, f-strings, `%` formatting and a method on a local
+  (`key.strip()`) carry nothing, so `print("key=" + key)` or a helper that
+  returns `key.strip()` piped to an upload delegates, at module level and
+  inside functions alike, while `print(key)` and `return key` block. A row
+  asserting the block would add a `missing_flow` parity miss above the
+  `secrets-exfil` ceiling.
 - The runtime `console` passed as a parameter. Node prints are recognized
-  through unbound `console` references and `const` aliases of it
-  (`console_aliases` in `crates/effinterp-engine/src/js/mod.rs`), not through
-  a parameter, so `(function (console) { console.log(key) })(console)` piped
-  to an upload delegates. Telling that parameter apart from a stub passed in
-  its place needs call-site argument binding; a local stub `console` already
-  delegates (`secrets-exfil.node-shadowed-console-key-upload-delegates`).
+  through unbound `console` references, `globalThis.console`, and `const`
+  aliases of either (`console_aliases` in
+  `crates/effinterp-engine/src/js/console.rs`), not through a parameter, so
+  `(function (console) { console.log(key) })(console)` piped to an upload
+  delegates. Telling that parameter apart from a stub passed in its place
+  needs call-site argument binding; a local stub `console` already delegates
+  (`secrets-exfil.node-shadowed-console-key-upload-delegates`).
+- A secret bound outside a Node function and printed inside it.
+  `const key = fs.readFileSync(k); function run() { console.log(key) } run()`
+  piped to an upload delegates: the Node frontend does not carry the
+  producer of an outer binding into the body it walks for the call, so the
+  print inside has no traced source, whatever the console's state. Calling
+  `run()` twice with a console replacement after the print
+  (`function run() { console.log(key); c.log = () => {} } run(); run()`)
+  delegates for this reason, not the replacement: with the read inside the
+  body, the same calls block.
 
 - A symlinked parent inside a pattern — a `..` after a component that is
   a symlink to a directory resolves at the link target's parent, but a

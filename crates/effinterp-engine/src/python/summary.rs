@@ -878,6 +878,12 @@ impl Walker<'_, '_> {
             self.node_budget_hit = false;
         }
         let saved = self.capture.replace(Capture::default());
+        if let Some(def) = self.defs.iter().find(|def| def.name == function)
+            && let Some(capture) = self.capture.as_mut()
+        {
+            capture.live_returns = super::returns::reachable_returns(body, &def.params);
+            capture.params = def.params.iter().cloned().collect();
+        }
         let saved_condition_depth = self.capture_condition_depth;
         self.capture_condition_depth = self.builder.condition_depth();
         let mut saved_imports = self.imports.clone();
