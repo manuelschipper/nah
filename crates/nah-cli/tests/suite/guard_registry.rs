@@ -85,7 +85,10 @@ fn observe_with_credential_env(
 
 #[test]
 fn every_shipped_guard_blocks_end_to_end() {
-    let temp = tempfile::tempdir().unwrap();
+    // Documented examples delete home children such as `~/Downloads`, and
+    // nothing under a temporary root like `/tmp` counts as outside the
+    // workspace, so the test home must live outside the system temp root.
+    let temp = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let home = support::test_temp_path(temp.path());
     let repo = repo(&home);
     std::fs::write(repo.join(".env"), "TOKEN=secret\n").unwrap();
