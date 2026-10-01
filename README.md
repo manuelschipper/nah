@@ -93,7 +93,7 @@ exact scope and three tested examples, plus current custom guard status.
 
 ## How it compares against similar tools
 
-nah is the most complete coding agent guard, and stacks well with Auto modes 
+nah offers deep deterministic analysis, self-protection, scripts understanding, and stacks well with Auto modes 
 
 | | nah | dcg | cc-safety-net |
 | --- | :---: | :---: | :---: |
