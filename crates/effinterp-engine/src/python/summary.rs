@@ -205,6 +205,7 @@ pub(super) fn summarize_ast(
         imported_summaries: std::collections::HashMap::new(),
         control_applications: Vec::new(),
         summary_requirements: std::collections::HashMap::new(),
+        summary_stdout: std::collections::HashMap::new(),
         module_binds: HashSet::new(),
         environment_rewritten: false,
         ipython: None,
@@ -730,6 +731,10 @@ impl Walker<'_, '_> {
                             self.return_receivers.remove(name);
                         }
                     }
+                    changed = true;
+                }
+                if self.summary_stdout.get(name) != Some(&cap.stdout) {
+                    self.summary_stdout.insert(name.clone(), cap.stdout.clone());
                     changed = true;
                 }
                 self.summary_spans

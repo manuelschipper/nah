@@ -335,6 +335,10 @@ impl Frontend for JsFrontend {
                 .chain(global_reference_spans(&semantic, "process"))
                 .collect(),
             global_console_spans: global_reference_spans(&semantic, "console"),
+            replaced_console_methods: replaced_console_methods(
+                program,
+                &global_reference_spans(&semantic, "console"),
+            ),
             // A write to the global itself replaces it for every reader.
             runtime_code_spans: ["eval", "Function"]
                 .into_iter()
@@ -904,6 +908,141 @@ fn readonly_write_spans(semantic: &oxc_semantic::Semantic<'_>) -> Option<HashSet
     Some(spans)
 }
 
+/// The methods of the runtime's own `console` the program may replace: ones
+/// it assigns, updates or deletes through `console`, or every one (`*`) when
+/// it hands `console` itself to other code or another name.
+fn replaced_console_methods(
+    program: &oxc_ast::ast::Program<'_>,
+    console: &HashSet<u32>,
+) -> HashSet<String> {
+    struct Replaced<'s> {
+        console: &'s HashSet<u32>,
+        methods: HashSet<String>,
+    }
+    impl Replaced<'_> {
+        fn is_console(&self, expression: &Expression<'_>) -> bool {
+            matches!(unparen(expression), Expression::Identifier(id)
+                if self.console.contains(&id.span.start))
+        }
+        fn member(&mut self, object: &Expression<'_>, property: Option<&str>) {
+            if self.is_console(object) {
+                self.methods.insert(property.unwrap_or("*").to_string());
+            }
+        }
+        fn escapes(&mut self, expression: Option<&Expression<'_>>) {
+            if expression.is_some_and(|expression| self.is_console(expression)) {
+                self.methods.insert("*".to_string());
+            }
+        }
+    }
+    impl<'a> Visit<'a> for Replaced<'_> {
+        fn visit_simple_assignment_target(&mut self, it: &SimpleAssignmentTarget<'a>) {
+            match it {
+                SimpleAssignmentTarget::StaticMemberExpression(member) => {
+                    self.member(&member.object, Some(member.property.name.as_str()));
+                }
+                SimpleAssignmentTarget::ComputedMemberExpression(member) => {
+                    let property = match &member.expression {
+                        Expression::StringLiteral(key) => Some(key.value.as_str()),
+                        _ => None,
+                    };
+                    self.member(&member.object, property);
+                }
+                _ => {}
+            }
+            walk::walk_simple_assignment_target(self, it);
+        }
+        fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
+            if it.operator == oxc_ast::ast::UnaryOperator::Delete {
+                match unparen(&it.argument) {
+                    Expression::StaticMemberExpression(member) => {
+                        self.member(&member.object, Some(member.property.name.as_str()));
+                    }
+                    Expression::ComputedMemberExpression(member) => {
+                        self.member(&member.object, None);
+                    }
+                    _ => {}
+                }
+            }
+            walk::walk_unary_expression(self, it);
+        }
+        fn visit_argument(&mut self, it: &Argument<'a>) {
+            self.escapes(it.as_expression());
+            walk::walk_argument(self, it);
+        }
+        fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+            self.escapes(it.init.as_ref());
+            walk::walk_variable_declarator(self, it);
+        }
+        fn visit_assignment_expression(&mut self, it: &oxc_ast::ast::AssignmentExpression<'a>) {
+            self.escapes(Some(&it.right));
+            walk::walk_assignment_expression(self, it);
+        }
+    }
+    let mut replaced = Replaced {
+        console,
+        methods: HashSet::new(),
+    };
+    replaced.visit_program(program);
+    replaced.methods
+}
+
+/// The truth of an `if` test that is a literal, whose other arm never runs.
+fn literal_truth(test: &Expression<'_>) -> Option<bool> {
+    match unparen(test) {
+        Expression::BooleanLiteral(literal) => Some(literal.value),
+        Expression::NullLiteral(_) => Some(false),
+        Expression::NumericLiteral(literal) => {
+            Some(literal.value != 0.0 && !literal.value.is_nan())
+        }
+        _ => None,
+    }
+}
+
+/// The arguments whose bytes `console.log` prints. A literal format string
+/// passes a `%d`, `%i` or `%f` argument through a number conversion and drops
+/// a `%c` one as CSS; every other argument is printed as text.
+fn console_printed_arguments<'b, 'a>(arguments: &'b [Argument<'a>]) -> Vec<&'b Expression<'a>> {
+    let printed = || {
+        arguments
+            .iter()
+            .filter_map(Argument::as_expression)
+            .collect()
+    };
+    let Some(Argument::StringLiteral(format)) = arguments.first() else {
+        return printed();
+    };
+    let mut dropped = HashSet::new();
+    let mut next = 1;
+    let mut characters = format.value.chars();
+    while let Some(character) = characters.next() {
+        if character != '%' {
+            continue;
+        }
+        match characters.next() {
+            Some('s' | 'j' | 'o' | 'O') => next += 1,
+            Some('d' | 'i' | 'f' | 'c') => {
+                dropped.insert(next);
+                next += 1;
+            }
+            _ => {}
+        }
+    }
+    // A spread argument shifts which value each specifier consumes.
+    if arguments[..next.min(arguments.len())]
+        .iter()
+        .any(|argument| matches!(argument, Argument::SpreadElement(_)))
+    {
+        return printed();
+    }
+    arguments
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !dropped.contains(index))
+        .filter_map(|(_, argument)| argument.as_expression())
+        .collect()
+}
+
 /// What a bare callee name binds to at its call site.
 #[derive(Clone, Copy)]
 enum CalleeBinding {
@@ -985,6 +1124,9 @@ struct Bindings {
     global_process_spans: HashSet<u32>,
     /// Spans of the `console` references that reach the runtime's own.
     global_console_spans: HashSet<u32>,
+    /// The runtime `console`'s methods the program may replace; `*` when it
+    /// may replace any of them.
+    replaced_console_methods: HashSet<String>,
     /// Spans of the `eval` and `Function` references that reach the
     /// runtime's own, which no scope binds and the program never replaces.
     runtime_code_spans: HashSet<u32>,
@@ -2965,14 +3107,15 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             self.wire_arguments(&it.arguments, c);
         } else if self.prints_to_stdout(&it.callee) {
             let mut producers = Vec::new();
-            for argument in it.arguments.iter().filter_map(Argument::as_expression) {
+            for argument in console_printed_arguments(&it.arguments) {
                 self.collect_producers(argument, &mut producers);
             }
             if !producers.is_empty() {
                 let node = self.span_node(it.span);
                 let execution = self.builder.current_execution();
+                let condition = self.builder.current_condition();
                 self.stage_writer
-                    .print_to_stdout(node, execution, &producers);
+                    .print_to_stdout(node, execution, &producers, condition);
             }
         }
     }
@@ -3559,6 +3702,15 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     // assign it differently), so its tracking is dropped there. Within-block
     // producer→consumer edges still form during the walk.
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+        if let Some(taken) = literal_truth(&it.test) {
+            self.visit_expression(&it.test);
+            if taken {
+                self.visit_statement(&it.consequent);
+            } else if let Some(alternate) = &it.alternate {
+                self.visit_statement(alternate);
+            }
+            return;
+        }
         let flow_entry = self.flow_entry();
         self.visit_expression(&it.test);
         let branch_entry = self.source_string_state();
@@ -7788,10 +7940,14 @@ impl<'a> EffectVisitor<'_, 'a> {
     }
 
     /// `console.log`, `console.info` and `console.debug` write their
-    /// arguments to this program's own stdout.
+    /// arguments to this program's own stdout, unless the program replaced
+    /// the method.
     fn prints_to_stdout(&self, callee: &Expression<'a>) -> bool {
+        let replaced = &self.bindings.replaced_console_methods;
         matches!(unparen(callee), Expression::StaticMemberExpression(member)
             if matches!(member.property.name.as_str(), "log" | "info" | "debug")
+                && !replaced.contains("*")
+                && !replaced.contains(member.property.name.as_str())
                 && matches!(unparen(&member.object), Expression::Identifier(id)
                     if self.bindings.global_console_spans.contains(&id.span.start)))
     }
@@ -9201,6 +9357,12 @@ fn js_guard_regions(
             self.depth -= 1;
         }
         fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+            // A literal test always selects one arm, which then runs
+            // unconditionally; the effect walk never enters the other.
+            if literal_truth(&it.test).is_some() {
+                walk::walk_if_statement(self, it);
+                return;
+            }
             self.guards.add(
                 self.source,
                 span(it),

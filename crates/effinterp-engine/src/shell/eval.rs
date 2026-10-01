@@ -6204,6 +6204,7 @@ impl Shell<'_> {
                         port: Port::Arg(arg),
                     },
                     reason: FlowReason::new("data_flow"),
+                    condition: None,
                     provenance: Vec::new(),
                 });
             }
@@ -6261,6 +6262,7 @@ impl Shell<'_> {
                     port: Port::Code,
                 },
                 reason: FlowReason::new("code input"),
+                condition: None,
                 provenance: Vec::new(),
             });
         }
@@ -10144,6 +10146,7 @@ assurance: effinterp_proto::CausalAssurance::Exact,
                         from,
                         to,
                         reason: FlowReason::new("descriptor child"),
+                        condition: None,
                         provenance: vec![node],
                     });
                 }

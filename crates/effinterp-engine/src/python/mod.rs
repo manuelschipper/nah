@@ -227,7 +227,17 @@ struct Capture {
     control_flow: ControlFlow,
     /// What the body guarantees to a same-file caller.
     requirements: Option<Requirements>,
+    /// Local names and the `effects` slots whose bytes their value may
+    /// carry, for an output call in the body.
+    print_vars: std::collections::HashMap<String, Vec<u32>>,
+    /// `effects` slots a `print` in the body writes to stdout, each with the
+    /// print's condition within the body.
+    stdout: Vec<PrintedEffects>,
 }
+
+/// Summary effect slots whose bytes reach stdout, on the paths the condition
+/// allows.
+type PrintedEffects = (Vec<u32>, Option<effinterp_proto::Condition>);
 
 /// How a call's evaluation was modeled, for its control-flow site.
 enum CallControl {
@@ -313,6 +323,58 @@ fn is_main_guard_test(test: &Expr) -> bool {
 /// Split top-level statements into those the module executes on import and
 /// those under a `__main__` guard (entrypoint-only). TYPE_CHECKING bodies are
 /// dropped entirely; each guard's `else` arm executes on import.
+/// The `print` arguments whose text it writes: every positional argument,
+/// `end`, and `sep` when it separates more than one value.
+fn print_emitted(call: &ast::ExprCall) -> Vec<&Expr> {
+    let separated = call.args.len() > 1
+        || call
+            .args
+            .iter()
+            .any(|argument| matches!(argument, Expr::Starred(_)));
+    call.args
+        .iter()
+        .chain(
+            call.keywords
+                .iter()
+                .filter_map(|keyword| match keyword.arg.as_deref() {
+                    Some("end") => Some(&keyword.value),
+                    Some("sep") if separated => Some(&keyword.value),
+                    _ => None,
+                }),
+        )
+        .collect()
+}
+
+/// The call spans and local names an expression's value is produced by, as
+/// the def-use walk reads it: the call itself, the receiver call a wrapper
+/// such as `open(p).read()` passes through, a response's `.text`/`.content`,
+/// and the elements of a literal container.
+fn value_spine<'e>(expr: &'e Expr, spans: &mut Vec<TextRange>, names: &mut Vec<&'e str>) {
+    match expr {
+        Expr::Name(name) => names.push(name.id.as_str()),
+        Expr::Call(call) => {
+            spans.push(call.range);
+            if let Expr::Attribute(attribute) = call.func.as_ref()
+                && matches!(attribute.value.as_ref(), Expr::Call(_))
+            {
+                value_spine(&attribute.value, spans, names);
+            }
+        }
+        Expr::Attribute(attribute) if matches!(attribute.attr.as_str(), "text" | "content") => {
+            value_spine(&attribute.value, spans, names);
+        }
+        Expr::List(list) => list.elts.iter().for_each(|e| value_spine(e, spans, names)),
+        Expr::Tuple(tuple) => tuple.elts.iter().for_each(|e| value_spine(e, spans, names)),
+        Expr::Set(set) => set.elts.iter().for_each(|e| value_spine(e, spans, names)),
+        Expr::Dict(dict) => dict
+            .values
+            .iter()
+            .for_each(|e| value_spine(e, spans, names)),
+        Expr::Starred(starred) => value_spine(&starred.value, spans, names),
+        _ => {}
+    }
+}
+
 fn partition_top_level(body: &[Stmt]) -> (Vec<Stmt>, Vec<Stmt>) {
     let mut import_stmts = Vec::new();
     let mut main_stmts = Vec::new();
@@ -1099,6 +1161,7 @@ impl<'a, 'b> Walker<'a, 'b> {
             imported_summaries: std::collections::HashMap::new(),
             control_applications: Vec::new(),
             summary_requirements: std::collections::HashMap::new(),
+            summary_stdout: std::collections::HashMap::new(),
             module_binds: HashSet::new(),
             environment_rewritten: false,
             ipython: ipython.map(|cell| IpythonState {
@@ -2417,6 +2480,8 @@ struct Walker<'a, 'b> {
     control_applications: Vec<SiteFacts>,
     /// What each current summary guarantees to a same-file caller.
     summary_requirements: std::collections::HashMap<String, Requirements>,
+    /// The summary effects each callable prints to stdout.
+    summary_stdout: std::collections::HashMap<String, Vec<PrintedEffects>>,
     /// Module-level names that shadow builtins, including assignments and imports.
     module_binds: HashSet<String>,
     /// Whether the program has replaced an environment value, after which a
@@ -3933,6 +3998,13 @@ impl Walker<'_, '_> {
                     self.walk_consumed_arguments(call);
                     continue;
                 }
+                if self.capture.is_some()
+                    && self.imports.resolve_callee(&call.func).as_deref() == Some("print")
+                    && self.prints_to_stdout(call)
+                {
+                    self.capture_print(call);
+                    continue;
+                }
                 self.call(call);
             }
             // `os.environ["X"]` in expression position is an environment read
@@ -4392,7 +4464,17 @@ impl Walker<'_, '_> {
     /// effects, then bind (or drop) the target name's producer stage.
     fn flow_assign(&mut self, targets: &[Expr], value: &Expr) {
         if self.capture.is_some() {
-            self.walk_expr(value);
+            let effects = self.capture_value(value);
+            for target in targets {
+                if let Expr::Name(name) = target {
+                    let carried = if targets.len() == 1 {
+                        effects.clone()
+                    } else {
+                        Vec::new()
+                    };
+                    self.capture_assign(name.id.as_str(), carried);
+                }
+            }
             return;
         }
         let stage = self.flow_expr(value);
@@ -4609,18 +4691,25 @@ impl Walker<'_, '_> {
         }
         let stage = self.new_stage(call.range, before, after);
         if stage.is_none() && callee.as_deref() == Some("print") && self.prints_to_stdout(call) {
+            let emitted = print_emitted(call);
             let mut producers = Vec::new();
-            for arg in &call.args {
-                self.collect_flow_producers(arg, &mut producers);
-            }
-            for keyword in &call.keywords {
-                self.walk_expr(&keyword.value);
+            for argument in call
+                .args
+                .iter()
+                .chain(call.keywords.iter().map(|keyword| &keyword.value))
+            {
+                if emitted.iter().any(|value| std::ptr::eq(*value, argument)) {
+                    self.collect_flow_producers(argument, &mut producers);
+                } else {
+                    self.walk_expr(argument);
+                }
             }
             if !producers.is_empty() {
                 let node = self.span_node(call.range);
                 let execution = self.builder.current_execution();
+                let condition = self.builder.condition_since(self.capture_condition_depth);
                 self.stage_writer
-                    .print_to_stdout(node, execution, &producers);
+                    .print_to_stdout(node, execution, &producers, condition);
             }
             return None;
         }
@@ -4628,13 +4717,103 @@ impl Walker<'_, '_> {
         stage
     }
 
-    /// `print` writes its arguments to this program's own stdout.
+    /// `print` writes its arguments to this program's own stdout: no `file`,
+    /// `file=None`, or `file=sys.stdout`.
     fn prints_to_stdout(&self, call: &ast::ExprCall) -> bool {
         self.imports.ordinary_stdout()
             && call.keywords.iter().all(|keyword| {
                 keyword.arg.as_deref() != Some("file")
+                    || matches!(&keyword.value, Expr::Constant(constant)
+                        if matches!(constant.value, ast::Constant::None))
                     || self.imports.resolve_callee(&keyword.value).as_deref() == Some("sys.stdout")
             })
+    }
+
+    /// Walk a `print` inside a function being summarized: record the body's
+    /// effects whose bytes its emitted values carry, with its condition, so a
+    /// caller connects them to its own stdout.
+    fn capture_print(&mut self, call: &ast::ExprCall) {
+        self.call(call);
+        self.walk_expr(&call.func);
+        let emitted = print_emitted(call);
+        let mut printed = Vec::new();
+        for argument in call
+            .args
+            .iter()
+            .chain(call.keywords.iter().map(|keyword| &keyword.value))
+        {
+            if emitted.iter().any(|value| std::ptr::eq(*value, argument)) {
+                printed.extend(self.capture_value(argument));
+            } else {
+                self.walk_expr(argument);
+            }
+        }
+        printed.sort_unstable();
+        printed.dedup();
+        let condition = self.builder.condition_since(self.capture_condition_depth);
+        if let Some(capture) = self.capture.as_mut()
+            && !printed.is_empty()
+        {
+            capture.stdout.push((printed, condition));
+        }
+    }
+
+    /// Walk an expression inside a function being summarized, returning the
+    /// body's effects whose bytes its value carries: those of the calls on its
+    /// value spine (see [`value_spine`]) and of the locals it names.
+    fn capture_value(&mut self, expr: &Expr) -> Vec<u32> {
+        let before = self
+            .capture
+            .as_ref()
+            .map_or(0, |capture| capture.effects.len());
+        self.walk_expr(expr);
+        let mut spans = Vec::new();
+        let mut names = Vec::new();
+        value_spine(expr, &mut spans, &mut names);
+        let Some(capture) = self.capture.as_ref() else {
+            return Vec::new();
+        };
+        let mut effects = (before..capture.effects.len())
+            .filter(|&slot| {
+                capture.effects[slot].provenance.iter().any(|reference| {
+                    capture
+                        .source_spans
+                        .get(reference.0 as usize)
+                        .is_some_and(|span| spans.contains(span))
+                })
+            })
+            .map(|slot| slot as u32)
+            .collect::<Vec<_>>();
+        for name in names {
+            effects.extend(capture.print_vars.get(name).into_iter().flatten());
+        }
+        effects
+    }
+
+    /// Bind a summarized body's local to the effects its assigned value
+    /// carries. A conditional assignment adds to what the local may hold;
+    /// only an unconditional one replaces it.
+    fn capture_assign(&mut self, name: &str, effects: Vec<u32>) {
+        let conditional = self
+            .builder
+            .condition_since(self.capture_condition_depth)
+            .is_some();
+        let Some(capture) = self.capture.as_mut() else {
+            return;
+        };
+        let mut held = if conditional {
+            capture.print_vars.remove(name).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        held.extend(effects);
+        held.sort_unstable();
+        held.dedup();
+        if held.is_empty() {
+            capture.print_vars.remove(name);
+        } else {
+            capture.print_vars.insert(name.to_string(), held);
+        }
     }
 
     /// Buffer a flow stage for the effects in `[before, after)`, binding each
@@ -7961,6 +8140,46 @@ impl Walker<'_, '_> {
                 continue;
             };
             self.record_transfer(Some(*source), Some(*destination));
+        }
+        // What the callee prints reaches this program's stdout when this call
+        // runs and the callee reaches its print.
+        for (printed, condition) in self.summary_stdout.get(name).cloned().unwrap_or_default() {
+            let printed = printed
+                .iter()
+                .filter_map(|slot| slots.get(*slot as usize).copied().flatten())
+                .collect::<Vec<_>>();
+            if printed.is_empty() {
+                continue;
+            }
+            let mut condition = condition;
+            if let Some(condition) = &mut condition {
+                condition.rebind(
+                    &self
+                        .condition_source
+                        .call_site(&(u32::from(span.start()), u32::from(span.end()))),
+                );
+            }
+            let condition = effinterp_proto::Condition::compose(
+                condition.iter().chain(
+                    self.builder
+                        .condition_since(self.capture_condition_depth)
+                        .iter(),
+                ),
+            );
+            match self.capture.as_mut() {
+                Some(capture) => capture.stdout.push((printed, condition)),
+                None => {
+                    let execution = self.builder.current_execution();
+                    crate::flow::effects_to_stdout(
+                        self.builder,
+                        execution,
+                        printed,
+                        effinterp_proto::CausalAssurance::Conservative,
+                        condition,
+                        vec![node],
+                    );
+                }
+            }
         }
         // A summary still converging in a recursive group proves nothing yet.
         let application = match self.summary_requirements.get(name) {

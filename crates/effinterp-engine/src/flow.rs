@@ -45,6 +45,9 @@ pub(crate) struct Flow {
     pub from: FlowRef,
     pub to: FlowRef,
     pub reason: FlowReason,
+    /// When the edge carries bytes only on some paths, such as an output
+    /// call under a branch.
+    pub condition: Option<effinterp_proto::Condition>,
     pub provenance: Vec<ProvenanceRef>,
 }
 
@@ -125,12 +128,14 @@ impl StageWriter {
         }
         stage
     }
-    /// An output call writes these producers' values to `execution`'s stdout.
+    /// An output call writes these producers' values to `execution`'s stdout
+    /// on the paths `condition` allows: the call's own control condition.
     pub(crate) fn print_to_stdout(
         &mut self,
         node: ProvenanceRef,
         execution: ExecutionNodeRef,
         producers: &[usize],
+        condition: Option<effinterp_proto::Condition>,
     ) {
         let stage = self.stages.len();
         self.stages.push(FlowStage {
@@ -151,6 +156,7 @@ impl StageWriter {
                     port: Port::Stdout,
                 },
                 reason: FlowReason::new("data_flow"),
+                condition: condition.clone(),
                 provenance: Vec::new(),
             });
         }
@@ -170,6 +176,7 @@ impl StageWriter {
                 port: Port::Arg(arg),
             },
             reason: FlowReason::new("data_flow"),
+            condition: None,
             provenance: Vec::new(),
         });
         let effects = self.stages[consumer].effects.clone();
@@ -206,6 +213,57 @@ impl StageWriter {
             builder.flow_edge(edge);
         }
     }
+}
+
+/// These effects' bytes reach `execution`'s stdout on the paths `condition`
+/// allows: the output call's own control condition, beside each effect's.
+pub(crate) fn effects_to_stdout(
+    builder: &mut PlanBuilder,
+    execution: ExecutionNodeRef,
+    effects: Vec<u32>,
+    assurance: CausalAssurance,
+    condition: Option<effinterp_proto::Condition>,
+    provenance: Vec<ProvenanceRef>,
+) {
+    if effects.is_empty() {
+        return;
+    }
+    let source = builder.flow_stage(FlowStage {
+        execution: None,
+        bindings: effects
+            .iter()
+            .map(|&effect| PortBinding {
+                assurance,
+                from: BindEnd::Effect(effect),
+                to: BindEnd::Port(Port::Value),
+            })
+            .collect(),
+        effects,
+        provenance: provenance.clone(),
+    });
+    let sink = builder.flow_stage(FlowStage {
+        execution: Some(execution),
+        effects: Vec::new(),
+        bindings: Vec::new(),
+        provenance: provenance.clone(),
+    });
+    let (Some(source), Some(sink)) = (source, sink) else {
+        return;
+    };
+    builder.flow_edge(Flow {
+        assurance,
+        from: FlowRef {
+            stage: source,
+            port: Port::Value,
+        },
+        to: FlowRef {
+            stage: sink,
+            port: Port::Stdout,
+        },
+        reason: FlowReason::new("data_flow"),
+        condition,
+        provenance,
+    });
 }
 
 /// One command stage handed to the flow builder. Effect ranges are captured
@@ -495,6 +553,7 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
                     from,
                     to,
                     reason: FlowReason::new("descriptor operand"),
+                    condition: None,
                     provenance: spec.span_node.into_iter().collect(),
                 });
             }
@@ -533,6 +592,7 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
                 from,
                 to,
                 reason: FlowReason::new("descriptor channel"),
+                condition: None,
                 provenance: stages[index].span_node.into_iter().collect(),
             });
         }
@@ -561,6 +621,7 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
                             port: Port::Arg(argument as u32),
                         },
                         reason: FlowReason::new("command substitution fields"),
+                        condition: None,
                         provenance: Vec::new(),
                     });
                 }
@@ -582,6 +643,7 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
                         port: Port::Stdout,
                     },
                     reason: FlowReason::new("data_flow"),
+                    condition: None,
                     provenance: Vec::new(),
                 });
             }
@@ -624,6 +686,7 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
                 port: Port::Stdout,
             },
             reason: FlowReason::new("shell stdout"),
+            condition: None,
             provenance: spec.span_node.into_iter().collect(),
         };
         if has_pending_flows {
@@ -666,6 +729,7 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
                         port: Port::Stdin,
                     },
                     reason: FlowReason::new("pipe"),
+                    condition: None,
                     provenance: Vec::new(),
                 };
                 if has_pending_flows {
@@ -2589,7 +2653,7 @@ pub(crate) fn build_causality(
             CausalReason::ValueDependency,
             edge.assurance,
             Modality::May,
-            None,
+            edge.condition.clone(),
             edge.provenance.clone(),
         );
     }
