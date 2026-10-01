@@ -2,14 +2,14 @@
 
 | plane | run | measured | engine | models |
 |---|---|---|---|---|
-| correctness | `20260930T043552Z-correctness-15835` | 2026-09-30T04:35:52Z | `0.1.0` | `builtin:blake3:12a09941cc275c4215be788bd616d60aca9eb1f81ea107b90af4c12e6aaaa30c` |
+| correctness | `20260930T143959Z-correctness-308` | 2026-09-30T14:39:59Z | `0.1.0` | `builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468` |
 | coverage | `20260927T155829Z-coverage-54709` | 2026-09-27T15:58:29Z | `0.1.0` | `builtin:blake3:e4a3aa943d572fb4a6c4ee6fa4eb7d50bafc33cdde32b27864e9d8f1a97b5272` |
 | repositories | `20260921T153340Z-repositories-53884` | 2026-09-21T15:33:40Z | `0.1.0` | `builtin:blake3:f4c5b1246f8269fed8c419ed2832d4607967f1357aec6027b0f2bcac2d787f40` |
 | performance | `20260921T150325Z-performance-62642` | 2026-09-21T15:03:25Z | `0.1.0` | `builtin:blake3:a73d1a25123b9661020f9e13dbb1528964df754bf91f93b64e2df5b98b703606` |
 
 ## 1. Invocation correctness
 
-run `20260930T043552Z-correctness-15835` measured 2026-09-30T04:35:52Z
+run `20260930T143959Z-correctness-308` measured 2026-09-30T14:39:59Z
 
 Independent effect, flow, and uncertainty expectations.
 
@@ -39,7 +39,7 @@ silent drops: 326 rows tested, 71 mutants, 0 drops
 
 ### nah parity
 
-nah `2bf69e074cf0f767e9b4bc76a44e2f22d2ebe0df` / corpus `4cc6e1e73f73305737a7248c23f3fb9c306718a36e11fe85940674f0f4e06001`
+nah `f14baefdbecd23fb0b4aaf1009f791c9114ecb37` / corpus `cf489368370bb759e51995d8377320aa5a189995df485aeca0542d7e34b72a1f`
 
 | class | count |
 |---|---|
@@ -2253,7 +2253,7 @@ nah cold catalog + first analyze median: 2731 us (target 5000 us)
 
 | source | p50 ms | p99 ms | max ms | max RSS MB |
 |---|---|---|---|---|
-| adversarial | 0.8 | 129.6 | 9655.6 | 342.1 |
+| adversarial | 0.8 | 130.7 | 9758.4 | 362.1 |
 | nah | 0.9 | 9.1 | 39.6 | 158.0 |
 | swe | 1.0 | 17.6 | 783.0 | 214.2 |
 | wild | 1.1 | 105.5 | 10000.0 | 318.3 |

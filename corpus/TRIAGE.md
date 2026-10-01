@@ -248,11 +248,6 @@ because the owner accepted the conservative rule over a narrower model.
 
 Accepted limitations with no corpus row that asserts a desired block.
 
-- xi runtime mutations — `nah hook xi install|uninstall` and writes to the
-  installed `~/.xi/hooks/before-bash` hook are protected. An xi invocation is
-  never recognized as a runtime mutation or a launch that bypasses the hook:
-  the engine has no xi model, and xi exposes no established CLI surface that
-  removes, disables or skips its hooks, so there is no grammar to model.
 - A symlinked parent inside a pattern — a `..` after a component that is
   a symlink to a directory resolves at the link target's parent, but a
   pattern's `..` is collapsed lexically. After a wildcard (`X/*/../Y`,
