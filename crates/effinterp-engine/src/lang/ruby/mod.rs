@@ -29,7 +29,7 @@ use crate::lang::frontend::{
     WalkOutcome,
 };
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use effinterp_proto::{
@@ -2878,8 +2878,10 @@ struct Walker<'a> {
     read_effects: HashMap<(usize, usize), Vec<u32>>,
     /// Requests consuming the bytes of an inline file read, keyed by read span.
     request_bodies: HashMap<(usize, usize), Vec<u32>>,
-    /// Locals whose last assignment was a `File.read`-style call, by its span.
-    read_locals: HashMap<String, (usize, usize)>,
+    /// The `File.read`-style call spans whose bytes each local may hold. A
+    /// guarded assignment adds to what the local held; only an unguarded one
+    /// replaces it.
+    read_locals: HashMap<String, BTreeSet<(usize, usize)>>,
     /// Each captured backtick's child execution and the stdout it would
     /// have inherited, so printing the captured value can reconnect it.
     captured_outputs: HashMap<
@@ -3075,17 +3077,19 @@ impl Walker<'_> {
                                 );
                             }
                             Some(Node::Lvar(local)) => {
-                                if let Some(reads) = self
+                                let reads = self
                                     .read_locals
                                     .get(&local.name)
-                                    .and_then(|span| self.read_effects.get(span))
-                                {
-                                    for read in reads {
-                                        for request in &requests {
-                                            self.builder.transfer_binding(TransferBinding::new(
-                                                *read, *request,
-                                            ));
-                                        }
+                                    .into_iter()
+                                    .flatten()
+                                    .filter_map(|span| self.read_effects.get(span))
+                                    .flatten()
+                                    .copied()
+                                    .collect::<BTreeSet<_>>();
+                                for read in reads {
+                                    for request in &requests {
+                                        self.builder
+                                            .transfer_binding(TransferBinding::new(read, *request));
                                     }
                                 }
                             }
@@ -3154,19 +3158,33 @@ impl Walker<'_> {
                     }
                     if let Node::Lvasgn(assignment) = node {
                         if let Some(value) = assignment.value.as_deref() {
-                            match value {
-                                Node::Send(read) if file_read_call(read) => {
-                                    self.read_locals.insert(
-                                        assignment.name.clone(),
-                                        (read.expression_l.begin, read.expression_l.end),
-                                    );
-                                }
-                                // A guarded assignment may not run, so the
-                                // earlier read may still be what it holds.
-                                _ if !guarded => {
-                                    self.read_locals.remove(&assignment.name);
-                                }
-                                _ => {}
+                            // `y = x` copies the bytes of every read `x` may hold.
+                            let assigned = match value {
+                                Node::Send(read) if file_read_call(read) => BTreeSet::from([(
+                                    read.expression_l.begin,
+                                    read.expression_l.end,
+                                )]),
+                                Node::Lvar(source) => self
+                                    .read_locals
+                                    .get(&source.name)
+                                    .cloned()
+                                    .unwrap_or_default(),
+                                _ => BTreeSet::new(),
+                            };
+                            // A guarded assignment may not run, so the
+                            // earlier reads may still be what it holds.
+                            let mut held = if guarded {
+                                self.read_locals
+                                    .remove(&assignment.name)
+                                    .unwrap_or_default()
+                            } else {
+                                BTreeSet::new()
+                            };
+                            held.extend(assigned);
+                            if held.is_empty() {
+                                self.read_locals.remove(&assignment.name);
+                            } else {
+                                self.read_locals.insert(assignment.name.clone(), held);
                             }
                             let (mut held, locals) = capture_sources(value);
                             for (local, exact) in locals {
@@ -3268,9 +3286,40 @@ impl Walker<'_> {
             // Class bodies execute when defined; method bodies execute only
             // when reached through their call edges.
             if assigned_proc(node).is_none() && !matches!(node, Node::Def(_) | Node::Defs(_)) {
-                let guarded = guarded || guarded_ruby_children(node);
-                for child in children(node).into_iter().rev() {
-                    stack.push((child, guarded));
+                // A literal test selects one arm; the other never runs.
+                let literal = match node {
+                    Node::If(branch) => control::constant_truth(&branch.cond).map(|truth| {
+                        (
+                            &branch.cond,
+                            if truth {
+                                &branch.if_true
+                            } else {
+                                &branch.if_false
+                            },
+                        )
+                    }),
+                    Node::IfMod(branch) => control::constant_truth(&branch.cond).map(|truth| {
+                        (
+                            &branch.cond,
+                            if truth {
+                                &branch.if_true
+                            } else {
+                                &branch.if_false
+                            },
+                        )
+                    }),
+                    _ => None,
+                };
+                if let Some((test, arm)) = literal {
+                    if let Some(arm) = arm.as_deref() {
+                        stack.push((arm, guarded));
+                    }
+                    stack.push((test, guarded));
+                } else {
+                    let guarded = guarded || guarded_ruby_children(node);
+                    for child in children(node).into_iter().rev() {
+                        stack.push((child, guarded));
+                    }
                 }
             }
         }
@@ -3678,9 +3727,14 @@ impl Walker<'_> {
                     let reads = self
                         .read_locals
                         .get(&local.name)
-                        .and_then(|span| self.read_effects.get(span))
-                        .cloned()
-                        .unwrap_or_default();
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|span| self.read_effects.get(span))
+                        .flatten()
+                        .copied()
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect();
                     self.bind_reads_to_stdout(
                         reads,
                         assurance,

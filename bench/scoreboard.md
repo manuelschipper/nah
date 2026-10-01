@@ -2,14 +2,14 @@
 
 | plane | run | measured | engine | models |
 |---|---|---|---|---|
-| correctness | `20261001T195639Z-correctness-20865` | 2026-10-01T19:56:39Z | `0.1.0` | `builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468` |
+| correctness | `20261001T202053Z-correctness-45034` | 2026-10-01T20:20:53Z | `0.1.0` | `builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468` |
 | coverage | `20260927T155829Z-coverage-54709` | 2026-09-27T15:58:29Z | `0.1.0` | `builtin:blake3:e4a3aa943d572fb4a6c4ee6fa4eb7d50bafc33cdde32b27864e9d8f1a97b5272` |
 | repositories | `20260921T153340Z-repositories-53884` | 2026-09-21T15:33:40Z | `0.1.0` | `builtin:blake3:f4c5b1246f8269fed8c419ed2832d4607967f1357aec6027b0f2bcac2d787f40` |
 | performance | `20260921T150325Z-performance-62642` | 2026-09-21T15:03:25Z | `0.1.0` | `builtin:blake3:a73d1a25123b9661020f9e13dbb1528964df754bf91f93b64e2df5b98b703606` |
 
 ## 1. Invocation correctness
 
-run `20261001T195639Z-correctness-20865` measured 2026-10-01T19:56:39Z
+run `20261001T202053Z-correctness-45034` measured 2026-10-01T20:20:53Z
 
 Independent effect, flow, and uncertainty expectations.
 
@@ -39,22 +39,22 @@ silent drops: 326 rows tested, 71 mutants, 0 drops
 
 ### nah parity
 
-nah `7212fc23ad6bd9047de3ffd2f607bb1bffe1c6e2` / corpus `194a19978c2c483ad263c486f2b61ca1053a160168f2fbab704993b7e66c7b92`
+nah `3b204d83bd25e16e3a96bcb5887d9b9f4837b6f1` / corpus `36adf1d38666790c196b0b7b36d1a0577ff710d122ede76fe281250dda5e4be4`
 
 | class | count |
 |---|---|
-| effect_match | 5094 |
+| effect_match | 5120 |
 | silent_symbolic_drop | 2 |
 | missing_effect | 12 |
-| missing_flow | 5 |
-| covered | 1413 |
-| explained_partial | 1737 |
+| missing_flow | 2 |
+| covered | 1425 |
+| explained_partial | 1749 |
 
 | file | effect_match | silent_symbolic_drop | missing_effect | missing_flow | covered | explained_partial |
 |---|---|---|---|---|---|---|
 | code.jsonl | 47 | 0 | 0 | 0 | 15 | 9 |
 | compound.jsonl | 196 | 0 | 0 | 0 | 43 | 83 |
-| database-services.jsonl | 208 | 0 | 2 | 0 | 31 | 96 |
+| database-services.jsonl | 209 | 0 | 2 | 0 | 32 | 95 |
 | database.jsonl | 174 | 0 | 3 | 0 | 141 | 152 |
 | execution-flows.jsonl | 527 | 0 | 0 | 0 | 123 | 206 |
 | filesystem.jsonl | 721 | 0 | 1 | 0 | 249 | 145 |
@@ -67,7 +67,7 @@ nah `7212fc23ad6bd9047de3ffd2f607bb1bffe1c6e2` / corpus `194a19978c2c483ad263c48
 | network.jsonl | 24 | 2 | 1 | 0 | 7 | 6 |
 | project.jsonl | 4 | 0 | 0 | 0 | 17 | 1 |
 | registry.jsonl | 188 | 0 | 0 | 0 | 6 | 102 |
-| secrets.jsonl | 734 | 0 | 3 | 5 | 177 | 192 |
+| secrets.jsonl | 759 | 0 | 3 | 2 | 188 | 205 |
 | self-protection.jsonl | 639 | 0 | 2 | 0 | 111 | 286 |
 | shell-resolution.jsonl | 183 | 0 | 0 | 0 | 26 | 25 |
 | storage.jsonl | 138 | 0 | 0 | 0 | 8 | 51 |
@@ -77,7 +77,7 @@ nah `7212fc23ad6bd9047de3ffd2f607bb1bffe1c6e2` / corpus `194a19978c2c483ad263c48
 | guard | effect_match | silent_symbolic_drop | missing_effect | missing_flow | covered | explained_partial |
 |---|---|---|---|---|---|---|
 | (structural) | 660 | 0 | 2 | 0 | 0 | 166 |
-| db-destroy | 373 | 0 | 5 | 0 | 0 | 38 |
+| db-destroy | 374 | 0 | 5 | 0 | 0 | 37 |
 | exec-decoded | 55 | 0 | 0 | 0 | 0 | 4 |
 | exec-network-shell | 56 | 0 | 0 | 0 | 0 | 1 |
 | exec-obfuscated | 49 | 0 | 0 | 0 | 0 | 1 |
@@ -116,7 +116,7 @@ nah `7212fc23ad6bd9047de3ffd2f607bb1bffe1c6e2` / corpus `194a19978c2c483ad263c48
 | registry-unpublish | 127 | 0 | 0 | 0 | 0 | 0 |
 | secrets-credentials | 179 | 0 | 0 | 0 | 0 | 6 |
 | secrets-env | 119 | 0 | 0 | 0 | 0 | 0 |
-| secrets-exfil | 478 | 0 | 3 | 5 | 0 | 3 |
+| secrets-exfil | 503 | 0 | 3 | 2 | 0 | 3 |
 | secrets-store-delete | 40 | 0 | 0 | 0 | 0 | 0 |
 | secrets-store-destroy | 61 | 0 | 0 | 0 | 0 | 0 |
 | secrets-store-read | 57 | 0 | 0 | 0 | 0 | 0 |
@@ -2256,7 +2256,7 @@ nah cold catalog + first analyze median: 2731 us (target 5000 us)
 
 | source | p50 ms | p99 ms | max ms | max RSS MB |
 |---|---|---|---|---|
-| adversarial | 0.8 | 130.5 | 9918.9 | 350.3 |
+| adversarial | 0.8 | 136.1 | 9876.7 | 333.3 |
 | nah | 0.9 | 9.1 | 39.6 | 158.0 |
 | swe | 1.0 | 17.6 | 783.0 | 214.2 |
 | wild | 1.1 | 105.5 | 10000.0 | 318.3 |

@@ -112,15 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "7212fc23ad6bd9047de3ffd2f607bb1bffe1c6e2",
-      "corpus_digest": "194a19978c2c483ad263c486f2b61ca1053a160168f2fbab704993b7e66c7b92",
+      "nah_commit": "3b204d83bd25e16e3a96bcb5887d9b9f4837b6f1",
+      "corpus_digest": "36adf1d38666790c196b0b7b36d1a0577ff710d122ede76fe281250dda5e4be4",
       "classes": {
-        "effect_match": 5094,
+        "effect_match": 5120,
         "silent_symbolic_drop": 2,
         "missing_effect": 12,
-        "missing_flow": 5,
-        "covered": 1413,
-        "explained_partial": 1737
+        "missing_flow": 2,
+        "covered": 1425,
+        "explained_partial": 1749
       },
       "per_file": {
         "code.jsonl": {
@@ -134,10 +134,10 @@
           "explained_partial": 83
         },
         "database-services.jsonl": {
-          "effect_match": 208,
+          "effect_match": 209,
           "missing_effect": 2,
-          "covered": 31,
-          "explained_partial": 96
+          "covered": 32,
+          "explained_partial": 95
         },
         "database.jsonl": {
           "effect_match": 174,
@@ -204,11 +204,11 @@
           "explained_partial": 102
         },
         "secrets.jsonl": {
-          "effect_match": 734,
+          "effect_match": 759,
           "missing_effect": 3,
-          "missing_flow": 5,
-          "covered": 177,
-          "explained_partial": 192
+          "missing_flow": 2,
+          "covered": 188,
+          "explained_partial": 205
         },
         "self-protection.jsonl": {
           "effect_match": 639,
@@ -244,9 +244,9 @@
           "explained_partial": 166
         },
         "db-destroy": {
-          "effect_match": 373,
+          "effect_match": 374,
           "missing_effect": 5,
-          "explained_partial": 38
+          "explained_partial": 37
         },
         "exec-decoded": {
           "effect_match": 55,
@@ -376,9 +376,9 @@
           "effect_match": 119
         },
         "secrets-exfil": {
-          "effect_match": 478,
+          "effect_match": 503,
           "missing_effect": 3,
-          "missing_flow": 5,
+          "missing_flow": 2,
           "explained_partial": 3
         },
         "secrets-store-delete": {
@@ -695,8 +695,8 @@
       },
       "guard_queries": {
         "db-destroy": {
-          "match": 377,
-          "no_match": 39
+          "match": 378,
+          "no_match": 38
         },
         "exec-decoded": {
           "match": 57,
@@ -832,8 +832,8 @@
         },
         "secrets-exfil": {
           "deferred": 28,
-          "indeterminate": 451,
-          "no_match": 10
+          "indeterminate": 476,
+          "no_match": 7
         },
         "secrets-store-delete": {
           "match": 40
@@ -11252,10 +11252,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.7979,
-        "p99_ms": 130.54,
-        "max_ms": 9918.8891,
-        "max_rss_kb": 358704
+        "p50_ms": 0.8228,
+        "p99_ms": 136.0848,
+        "max_ms": 9876.7332,
+        "max_rss_kb": 341264
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11279,13 +11279,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261001T195639Z-correctness-20865",
-      "measured_at": "2026-10-01T19:56:39Z",
-      "source_fingerprint": "blake3:e12de205975401831c5dee05253cc34ed90f2b9bd3b0e8509737d41dbda49d81",
-      "binary_hash": "blake3:16d2666647553cfddfc4bde2fe2683fff94fe0c1b23fd75810d310f82485d239",
+      "run_id": "20261001T202053Z-correctness-45034",
+      "measured_at": "2026-10-01T20:20:53Z",
+      "source_fingerprint": "blake3:36fd27a9d29d9aa2eddcac2ab71df7db0d36776b13ede68a0422663bc51411ba",
+      "binary_hash": "blake3:639183a46cd6fdbe1a31dbebc4fea97131849a4f5f4fd1e93bb5cc91d277f833",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "7212fc23ad6bd9047de3ffd2f607bb1bffe1c6e2",
+      "git_head": "3b204d83bd25e16e3a96bcb5887d9b9f4837b6f1",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

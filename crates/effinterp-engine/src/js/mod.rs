@@ -334,6 +334,7 @@ impl Frontend for JsFrontend {
                 .map(|(span, _)| *span)
                 .chain(global_reference_spans(&semantic, "process"))
                 .collect(),
+            global_console_spans: global_reference_spans(&semantic, "console"),
             // A write to the global itself replaces it for every reader.
             runtime_code_spans: ["eval", "Function"]
                 .into_iter()
@@ -383,6 +384,7 @@ impl Frontend for JsFrontend {
         let entry_condition_depth = builder.condition_depth();
         let mut effects = EffectVisitor {
             condition_site: (0, 0),
+            console_replacements: Vec::new(),
             builder,
             nest,
             source_cwd,
@@ -405,6 +407,7 @@ impl Frontend for JsFrontend {
             visiting: HashSet::new(),
             active_bodies: Vec::new(),
             exception_source_states: Vec::new(),
+            exception_regions: Vec::new(),
             return_source_states: Vec::new(),
             return_source_values: Vec::new(),
             return_aggregate_aliases: Vec::new(),
@@ -903,6 +906,99 @@ fn readonly_write_spans(semantic: &oxc_semantic::Semantic<'_>) -> Option<HashSet
     Some(spans)
 }
 
+/// The truth of an `if` test that is a literal, whose other arm never runs.
+fn literal_truth(test: &Expression<'_>) -> Option<bool> {
+    match unparen(test) {
+        Expression::BooleanLiteral(literal) => Some(literal.value),
+        Expression::NullLiteral(_) => Some(false),
+        Expression::NumericLiteral(literal) => {
+            Some(literal.value != 0.0 && !literal.value.is_nan())
+        }
+        _ => None,
+    }
+}
+
+/// The arguments whose bytes `console.log` prints, a spread's operand
+/// among them. A literal format string drops a `%c` argument as CSS; a
+/// number conversion (`%d`, `%i`, `%f`) keeps whatever digits it holds, so
+/// those arguments still count as printed. A spread of a literal array
+/// expands in place; after a spread of unknown length no position is known,
+/// so every later value counts as printed.
+fn console_printed_arguments<'b, 'a>(arguments: &'b [Argument<'a>]) -> Vec<&'b Expression<'a>> {
+    // Values at known positions (`None` for an array hole), then the
+    // operands past the first spread of unknown length.
+    let mut known = Vec::new();
+    let mut unknown = Vec::new();
+    for argument in arguments {
+        match argument {
+            Argument::SpreadElement(spread) => {
+                if !(unknown.is_empty() && expand_literal_spread(&spread.argument, &mut known)) {
+                    unknown.push(&spread.argument);
+                }
+            }
+            _ => {
+                if let Some(expression) = argument.as_expression() {
+                    if unknown.is_empty() {
+                        known.push(Some(expression));
+                    } else {
+                        unknown.push(expression);
+                    }
+                }
+            }
+        }
+    }
+    let mut dropped = HashSet::new();
+    if let Some(Some(Expression::StringLiteral(format))) = known.first() {
+        let mut next = 1;
+        let mut characters = format.value.chars();
+        while let Some(character) = characters.next() {
+            if character != '%' {
+                continue;
+            }
+            match characters.next() {
+                Some('s' | 'j' | 'o' | 'O' | 'd' | 'i' | 'f') => next += 1,
+                Some('c') => {
+                    dropped.insert(next);
+                    next += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    known
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| !dropped.contains(index))
+        .filter_map(|(_, value)| value)
+        .chain(unknown)
+        .collect()
+}
+
+/// Append the values a spread of `expression` passes when it is a literal
+/// array whose length is known; false, appending nothing, otherwise.
+fn expand_literal_spread<'b, 'a>(
+    expression: &'b Expression<'a>,
+    values: &mut Vec<Option<&'b Expression<'a>>>,
+) -> bool {
+    let Expression::ArrayExpression(array) = unparen(expression) else {
+        return false;
+    };
+    let mut expanded = Vec::new();
+    for element in &array.elements {
+        match element {
+            ArrayExpressionElement::SpreadElement(spread) => {
+                if !expand_literal_spread(&spread.argument, &mut expanded) {
+                    return false;
+                }
+            }
+            ArrayExpressionElement::Elision(_) => expanded.push(None),
+            _ => expanded.push(element.as_expression()),
+        }
+    }
+    values.extend(expanded);
+    true
+}
+
 /// What a bare callee name binds to at its call site.
 #[derive(Clone, Copy)]
 enum CalleeBinding {
@@ -982,6 +1078,8 @@ struct Bindings {
     /// Spans of the references that reach the runtime's own `process`: ones
     /// no enclosing scope binds, and those of a `const` bound to it.
     global_process_spans: HashSet<u32>,
+    /// Spans of the `console` references that reach the runtime's own.
+    global_console_spans: HashSet<u32>,
     /// Spans of the `eval` and `Function` references that reach the
     /// runtime's own, which no scope binds and the program never replaces.
     runtime_code_spans: HashSet<u32>,
@@ -2236,8 +2334,19 @@ struct Reached {
     callbacks: usize,
 }
 
+/// A replacement of a runtime `console` method and the path state it ran
+/// under: its condition and the enclosing try and catch regions.
+struct ConsoleReplacement {
+    method: String,
+    condition: Option<effinterp_proto::Condition>,
+    regions: Vec<u32>,
+}
+
 struct EffectVisitor<'v, 'a> {
     condition_site: (u32, u32),
+    /// Earlier assignments or `delete`s of a runtime `console` method, each
+    /// with the path state it ran under.
+    console_replacements: Vec<ConsoleReplacement>,
     builder: &'v mut PlanBuilder,
     nest: &'v Nest<'v>,
     source_cwd: Option<&'v str>,
@@ -2272,6 +2381,9 @@ struct EffectVisitor<'v, 'a> {
     active_bodies: Vec<ActiveBody>,
     /// Source-string states reaching explicit throws in the active try block.
     exception_source_states: Vec<Vec<SourceStringState>>,
+    /// Starts of the try blocks and catch clauses being walked, innermost
+    /// last: a throw may skip or select the statements in them.
+    exception_regions: Vec<u32>,
     /// Source-string states reaching returns in each entered function body.
     return_source_states: Vec<Vec<SourceStringState>>,
     /// Source-string values returned by each entered function body.
@@ -2960,6 +3072,17 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         self.mark_source_binding_writes_unbounded(&mutation_targets);
         if let Some(c) = stage {
             self.wire_arguments(&it.arguments, c);
+        } else if self.prints_to_stdout(&it.callee) {
+            let mut producers = Vec::new();
+            for argument in console_printed_arguments(&it.arguments) {
+                self.collect_producers(argument, &mut producers);
+            }
+            if !producers.is_empty() {
+                let node = self.span_node(it.span);
+                let execution = self.builder.current_execution();
+                self.stage_writer
+                    .print_to_stdout(node, execution, &producers);
+            }
         }
     }
 
@@ -3404,6 +3527,11 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         {
             self.kill_flow_name(&base);
         }
+        if !it.operator.is_logical()
+            && let Some(member) = it.left.as_member_expression()
+        {
+            self.note_console_replacement(member);
+        }
         self.retain_exception_source_state(it.span());
     }
 
@@ -3430,6 +3558,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             walk::walk_unary_expression(self, it);
         }
         if it.operator.as_str() == "delete" {
+            if let Some(member) = unparen(&it.argument).as_member_expression() {
+                self.note_console_replacement(member);
+            }
             match unparen(&it.argument) {
                 Expression::StaticMemberExpression(member) => {
                     if let Some(name) = resolve::process_env_name(member) {
@@ -3545,6 +3676,15 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     // assign it differently), so its tracking is dropped there. Within-block
     // producer→consumer edges still form during the walk.
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+        if let Some(taken) = literal_truth(&it.test) {
+            self.visit_expression(&it.test);
+            if taken {
+                self.visit_statement(&it.consequent);
+            } else if let Some(alternate) = &it.alternate {
+                self.visit_statement(alternate);
+            }
+            return;
+        }
         let flow_entry = self.flow_entry();
         self.visit_expression(&it.test);
         let branch_entry = self.source_string_state();
@@ -3836,7 +3976,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             .map_or(0, std::vec::Vec::len);
         let entry = self.flow_entry();
         self.exception_source_states.push(Vec::new());
+        self.exception_regions.push(it.block.span.start);
         self.visit_block_statement(&it.block);
+        self.exception_regions.pop();
         let exception_states = self.exception_source_states.pop().unwrap();
         let try_exit = self.source_string_state();
         let mut catch_exception_states = Vec::new();
@@ -3849,7 +3991,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             if it.finalizer.is_some() {
                 self.exception_source_states.push(Vec::new());
             }
+            self.exception_regions.push(handler.span.start);
             self.visit_catch_clause(handler);
+            self.exception_regions.pop();
             if it.finalizer.is_some() {
                 catch_exception_states = self.exception_source_states.pop().unwrap();
             }
@@ -7773,6 +7917,50 @@ impl<'a> EffectVisitor<'_, 'a> {
         (!shadowed).then(|| producers.clone())
     }
 
+    /// `console.log`, `console.info` and `console.debug` write their
+    /// arguments to this program's own stdout, unless a replacement of the
+    /// method has definitely run before this call.
+    fn prints_to_stdout(&self, callee: &Expression<'a>) -> bool {
+        matches!(unparen(callee), Expression::StaticMemberExpression(member)
+            if matches!(member.property.name.as_str(), "log" | "info" | "debug")
+                && !self.console_method_replaced(member.property.name.as_str())
+                && self.is_global_console(&member.object))
+    }
+
+    /// Whether every path reaching here ran an earlier replacement of
+    /// `method`: one made under no condition outside any try block or catch
+    /// clause, or one made under this same condition within the try and catch
+    /// regions still being walked, where a throw skipping the replacement
+    /// also skips this call.
+    fn console_method_replaced(&self, method: &str) -> bool {
+        let condition = self.builder.current_condition();
+        self.console_replacements.iter().any(|replacement| {
+            replacement.method == method
+                && (replacement.condition.is_none() || replacement.condition == condition)
+                && self.exception_regions.starts_with(&replacement.regions)
+        })
+    }
+
+    fn is_global_console(&self, expression: &Expression<'a>) -> bool {
+        matches!(unparen(expression), Expression::Identifier(id)
+            if self.bindings.global_console_spans.contains(&id.span.start))
+    }
+
+    /// An assignment or `delete` of `console.<method>` replaces the runtime
+    /// printer for the later calls it definitely precedes (see
+    /// [`Self::console_method_replaced`]).
+    fn note_console_replacement(&mut self, member: &MemberExpression<'a>) {
+        if self.is_global_console(member.object())
+            && let Some(method) = member.static_property_name()
+        {
+            self.console_replacements.push(ConsoleReplacement {
+                method: method.to_string(),
+                condition: self.builder.current_condition(),
+                regions: self.exception_regions.clone(),
+            });
+        }
+    }
+
     /// Wire def-use edges into `consumer` from each argument that carries a
     /// tracked variable's value or a producer call nested directly in it.
     fn wire_arguments(&mut self, arguments: &[Argument<'a>], consumer: usize) {
@@ -9178,6 +9366,12 @@ fn js_guard_regions(
             self.depth -= 1;
         }
         fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+            // A literal test always selects one arm, which then runs
+            // unconditionally; the effect walk never enters the other.
+            if literal_truth(&it.test).is_some() {
+                walk::walk_if_statement(self, it);
+                return;
+            }
             self.guards.add(
                 self.source,
                 span(it),
