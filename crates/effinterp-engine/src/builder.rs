@@ -3091,7 +3091,6 @@ impl PlanBuilder {
                     port: Port::Arg(0),
                 },
                 reason: FlowReason::new("environment value"),
-                condition: None,
                 provenance: provenance.to_vec(),
             });
         }

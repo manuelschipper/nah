@@ -1122,10 +1122,6 @@ fn formatted_arguments(args: &[Node]) -> Option<Vec<&Node>> {
 /// A backtick's span, with whether a value holds its bytes verbatim.
 type HeldCapture = ((usize, usize), bool);
 
-/// A file read's call span, with the condition on the paths a local holds
-/// its bytes.
-type HeldRead = ((usize, usize), Option<effinterp_proto::Condition>);
-
 /// The backtick spans and local names whose bytes an expression's value
 /// carries. Only forms that keep the text pass them on: interpolation,
 /// concatenation, a branch's result, whitespace trimming and conversions to a
@@ -2874,25 +2870,18 @@ struct Walker<'a> {
     /// Backtick spans a later output call prints: they run with the
     /// program's stdout instead of a captured one.
     printed_captures: HashSet<(usize, usize)>,
-    /// `File.read`-style call spans an output call prints, whether it
+    /// `File.read`-style call spans an output call prints, and whether it
     /// prints them verbatim (`Exact`) or as `inspect` escapes them
-    /// (`Conservative`), and the output call's condition: the file's bytes
-    /// reach the program's stdout.
-    printed_reads: HashMap<
-        (usize, usize),
-        (
-            effinterp_proto::CausalAssurance,
-            Option<effinterp_proto::Condition>,
-        ),
-    >,
+    /// (`Conservative`): the file's bytes reach the program's stdout.
+    printed_reads: HashMap<(usize, usize), effinterp_proto::CausalAssurance>,
     /// The read effects each walked `File.read`-style call emitted.
     read_effects: HashMap<(usize, usize), Vec<u32>>,
     /// Requests consuming the bytes of an inline file read, keyed by read span.
     request_bodies: HashMap<(usize, usize), Vec<u32>>,
-    /// The `File.read`-style call spans whose bytes each local may hold, each
-    /// with the condition on the paths that assigned it. A guarded assignment
-    /// adds to what the local held; only an unguarded one replaces it.
-    read_locals: HashMap<String, Vec<HeldRead>>,
+    /// The `File.read`-style call spans whose bytes each local may hold. A
+    /// guarded assignment adds to what the local held; only an unguarded one
+    /// replaces it.
+    read_locals: HashMap<String, Vec<(usize, usize)>>,
     /// Each captured backtick's child execution and the stdout it would
     /// have inherited, so printing the captured value can reconnect it.
     captured_outputs: HashMap<
@@ -3093,7 +3082,7 @@ impl Walker<'_> {
                                     .get(&local.name)
                                     .into_iter()
                                     .flatten()
-                                    .filter_map(|(span, _)| self.read_effects.get(span))
+                                    .filter_map(|span| self.read_effects.get(span))
                                     .flatten()
                                     .copied()
                                     .collect::<Vec<_>>();
@@ -3114,9 +3103,8 @@ impl Walker<'_> {
                             })
                             .map(|effect| effect as u32)
                             .collect::<Vec<_>>();
-                        if let Some((assurance, condition)) = self.printed_reads.get(&span).cloned()
-                        {
-                            self.bind_reads_to_stdout(reads.clone(), assurance, condition, span);
+                        if let Some(assurance) = self.printed_reads.get(&span).copied() {
+                            self.bind_reads_to_stdout(reads.clone(), assurance, span);
                         }
                         if let Some(requests) = self.request_bodies.remove(&span) {
                             for read in &reads {
@@ -3170,27 +3158,16 @@ impl Walker<'_> {
                     }
                     if let Node::Lvasgn(assignment) = node {
                         if let Some(value) = assignment.value.as_deref() {
-                            let condition = self.builder.current_condition();
                             // `y = x` copies the bytes of every read `x` may hold.
                             let assigned = match value {
-                                Node::Send(read) if file_read_call(read) => vec![(
-                                    (read.expression_l.begin, read.expression_l.end),
-                                    condition,
-                                )],
+                                Node::Send(read) if file_read_call(read) => {
+                                    vec![(read.expression_l.begin, read.expression_l.end)]
+                                }
                                 Node::Lvar(source) => self
                                     .read_locals
                                     .get(&source.name)
-                                    .into_iter()
-                                    .flatten()
-                                    .map(|(span, held)| {
-                                        (
-                                            *span,
-                                            effinterp_proto::Condition::compose(
-                                                held.iter().chain(&condition),
-                                            ),
-                                        )
-                                    })
-                                    .collect(),
+                                    .cloned()
+                                    .unwrap_or_default(),
                                 _ => Vec::new(),
                             };
                             // A guarded assignment may not run, so the
@@ -3308,9 +3285,40 @@ impl Walker<'_> {
             // Class bodies execute when defined; method bodies execute only
             // when reached through their call edges.
             if assigned_proc(node).is_none() && !matches!(node, Node::Def(_) | Node::Defs(_)) {
-                let guarded = guarded || guarded_ruby_children(node);
-                for child in children(node).into_iter().rev() {
-                    stack.push((child, guarded));
+                // A literal test selects one arm; the other never runs.
+                let literal = match node {
+                    Node::If(branch) => control::constant_truth(&branch.cond).map(|truth| {
+                        (
+                            &branch.cond,
+                            if truth {
+                                &branch.if_true
+                            } else {
+                                &branch.if_false
+                            },
+                        )
+                    }),
+                    Node::IfMod(branch) => control::constant_truth(&branch.cond).map(|truth| {
+                        (
+                            &branch.cond,
+                            if truth {
+                                &branch.if_true
+                            } else {
+                                &branch.if_false
+                            },
+                        )
+                    }),
+                    _ => None,
+                };
+                if let Some((test, arm)) = literal {
+                    if let Some(arm) = arm.as_deref() {
+                        stack.push((arm, guarded));
+                    }
+                    stack.push((test, guarded));
+                } else {
+                    let guarded = guarded || guarded_ruby_children(node);
+                    for child in children(node).into_iter().rev() {
+                        stack.push((child, guarded));
+                    }
                 }
             }
         }
@@ -3708,58 +3716,57 @@ impl Walker<'_> {
     /// them binds its reads once the walk reaches it; a local that last held
     /// one binds the reads that call already emitted.
     fn print_reads(&mut self, args: &[&Node], assurance: CausalAssurance, call: &Send) {
-        let condition = self.builder.current_condition();
         for argument in args {
             match argument {
                 Node::Send(read) if file_read_call(read) => {
-                    self.printed_reads.insert(
-                        (read.expression_l.begin, read.expression_l.end),
-                        (assurance, condition.clone()),
-                    );
+                    self.printed_reads
+                        .insert((read.expression_l.begin, read.expression_l.end), assurance);
                 }
                 Node::Lvar(local) => {
-                    for (span, held) in self
+                    let reads = self
                         .read_locals
                         .get(&local.name)
-                        .cloned()
-                        .unwrap_or_default()
-                    {
-                        let reads = self.read_effects.get(&span).cloned().unwrap_or_default();
-                        self.bind_reads_to_stdout(
-                            reads,
-                            assurance,
-                            effinterp_proto::Condition::compose(held.iter().chain(&condition)),
-                            (call.expression_l.begin, call.expression_l.end),
-                        );
-                    }
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|span| self.read_effects.get(span))
+                        .flatten()
+                        .copied()
+                        .collect();
+                    self.bind_reads_to_stdout(
+                        reads,
+                        assurance,
+                        (call.expression_l.begin, call.expression_l.end),
+                    );
                 }
                 _ => {}
             }
         }
     }
 
-    /// These file reads send their bytes to the program's stdout on the
-    /// paths `condition` allows.
+    /// These file reads send their bytes to the program's stdout.
     fn bind_reads_to_stdout(
         &mut self,
         reads: Vec<u32>,
         assurance: CausalAssurance,
-        condition: Option<effinterp_proto::Condition>,
         (begin, end): (usize, usize),
     ) {
         if reads.is_empty() {
             return;
         }
         let node = self.span(begin, end);
-        let execution = self.builder.current_execution();
-        crate::flow::effects_to_stdout(
-            self.builder,
-            execution,
-            reads,
-            assurance,
-            condition,
-            vec![node],
-        );
+        self.builder.flow_stage(crate::flow::FlowStage {
+            execution: Some(self.builder.current_execution()),
+            bindings: reads
+                .iter()
+                .map(|read| crate::flow::PortBinding {
+                    assurance,
+                    from: crate::flow::BindEnd::Effect(*read),
+                    to: crate::flow::BindEnd::Port(effinterp_proto::Port::Stdout),
+                })
+                .collect(),
+            effects: reads,
+            provenance: vec![node],
+        });
     }
 
     /// An output call prints these arguments to the program's stdout. Its

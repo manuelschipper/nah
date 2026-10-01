@@ -66,7 +66,7 @@ fn is_loop_send(call: &Node) -> bool {
     matches!(call, Node::Send(send) if send.recv.is_none() && send.method_name == "loop")
 }
 
-fn constant_truth(node: &Node) -> Option<bool> {
+pub(super) fn constant_truth(node: &Node) -> Option<bool> {
     match node {
         Node::True(_) => Some(true),
         Node::False(_) | Node::Nil(_) => Some(false),

@@ -1872,7 +1872,6 @@ impl CommandModel for Xargs {
                         port: Port::Arg(argument),
                     },
                     reason: crate::flow::FlowReason::new("executor argument"),
-                    condition: None,
                     provenance: vec![model_node, arg],
                 });
             }

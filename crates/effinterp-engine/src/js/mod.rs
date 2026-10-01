@@ -3113,9 +3113,8 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             if !producers.is_empty() {
                 let node = self.span_node(it.span);
                 let execution = self.builder.current_execution();
-                let condition = self.builder.current_condition();
                 self.stage_writer
-                    .print_to_stdout(node, execution, &producers, condition);
+                    .print_to_stdout(node, execution, &producers);
             }
         }
     }

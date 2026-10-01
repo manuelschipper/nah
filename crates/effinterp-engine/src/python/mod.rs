@@ -230,14 +230,9 @@ struct Capture {
     /// Local names and the `effects` slots whose bytes their value may
     /// carry, for an output call in the body.
     print_vars: std::collections::HashMap<String, Vec<u32>>,
-    /// `effects` slots a `print` in the body writes to stdout, each with the
-    /// print's condition within the body.
-    stdout: Vec<PrintedEffects>,
+    /// `effects` slots a `print` in the body writes to stdout.
+    stdout: Vec<u32>,
 }
-
-/// Summary effect slots whose bytes reach stdout, on the paths the condition
-/// allows.
-type PrintedEffects = (Vec<u32>, Option<effinterp_proto::Condition>);
 
 /// How a call's evaluation was modeled, for its control-flow site.
 enum CallControl {
@@ -2481,7 +2476,7 @@ struct Walker<'a, 'b> {
     /// What each current summary guarantees to a same-file caller.
     summary_requirements: std::collections::HashMap<String, Requirements>,
     /// The summary effects each callable prints to stdout.
-    summary_stdout: std::collections::HashMap<String, Vec<PrintedEffects>>,
+    summary_stdout: std::collections::HashMap<String, Vec<u32>>,
     /// Module-level names that shadow builtins, including assignments and imports.
     module_binds: HashSet<String>,
     /// Whether the program has replaced an environment value, after which a
@@ -4707,9 +4702,8 @@ impl Walker<'_, '_> {
             if !producers.is_empty() {
                 let node = self.span_node(call.range);
                 let execution = self.builder.current_execution();
-                let condition = self.builder.condition_since(self.capture_condition_depth);
                 self.stage_writer
-                    .print_to_stdout(node, execution, &producers, condition);
+                    .print_to_stdout(node, execution, &producers);
             }
             return None;
         }
@@ -4730,8 +4724,8 @@ impl Walker<'_, '_> {
     }
 
     /// Walk a `print` inside a function being summarized: record the body's
-    /// effects whose bytes its emitted values carry, with its condition, so a
-    /// caller connects them to its own stdout.
+    /// effects whose bytes its emitted values carry, so a caller connects
+    /// them to its own stdout.
     fn capture_print(&mut self, call: &ast::ExprCall) {
         self.call(call);
         self.walk_expr(&call.func);
@@ -4748,13 +4742,10 @@ impl Walker<'_, '_> {
                 self.walk_expr(argument);
             }
         }
-        printed.sort_unstable();
-        printed.dedup();
-        let condition = self.builder.condition_since(self.capture_condition_depth);
-        if let Some(capture) = self.capture.as_mut()
-            && !printed.is_empty()
-        {
-            capture.stdout.push((printed, condition));
+        if let Some(capture) = self.capture.as_mut() {
+            capture.stdout.extend(printed);
+            capture.stdout.sort_unstable();
+            capture.stdout.dedup();
         }
     }
 
@@ -8141,45 +8132,26 @@ impl Walker<'_, '_> {
             };
             self.record_transfer(Some(*source), Some(*destination));
         }
-        // What the callee prints reaches this program's stdout when this call
-        // runs and the callee reaches its print.
-        for (printed, condition) in self.summary_stdout.get(name).cloned().unwrap_or_default() {
-            let printed = printed
-                .iter()
-                .filter_map(|slot| slots.get(*slot as usize).copied().flatten())
-                .collect::<Vec<_>>();
-            if printed.is_empty() {
-                continue;
+        // What the callee prints reaches this program's stdout too.
+        let printed = self
+            .summary_stdout
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter_map(|slot| slots.get(*slot as usize).copied().flatten())
+            .collect::<Vec<_>>();
+        match self.capture.as_mut() {
+            Some(capture) => {
+                capture.stdout.extend(printed);
+                capture.stdout.sort_unstable();
+                capture.stdout.dedup();
             }
-            let mut condition = condition;
-            if let Some(condition) = &mut condition {
-                condition.rebind(
-                    &self
-                        .condition_source
-                        .call_site(&(u32::from(span.start()), u32::from(span.end()))),
-                );
-            }
-            let condition = effinterp_proto::Condition::compose(
-                condition.iter().chain(
-                    self.builder
-                        .condition_since(self.capture_condition_depth)
-                        .iter(),
-                ),
-            );
-            match self.capture.as_mut() {
-                Some(capture) => capture.stdout.push((printed, condition)),
-                None => {
-                    let execution = self.builder.current_execution();
-                    crate::flow::effects_to_stdout(
-                        self.builder,
-                        execution,
-                        printed,
-                        effinterp_proto::CausalAssurance::Conservative,
-                        condition,
-                        vec![node],
-                    );
-                }
-            }
+            None => crate::flow::effects_to_stdout(
+                self.builder,
+                printed,
+                effinterp_proto::CausalAssurance::Conservative,
+                vec![node],
+            ),
         }
         // A summary still converging in a recursive group proves nothing yet.
         let application = match self.summary_requirements.get(name) {
