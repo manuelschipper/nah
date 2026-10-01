@@ -49,6 +49,9 @@ pub trait GuardHostFacts {
     /// requested, resolved, and its real path, sorted and deduplicated. Empty
     /// for a resource that names no observable path.
     fn observed_path_spellings(&self, resource: &effinterp_proto::ResourceExpr) -> Vec<String>;
+    /// The root call's command text holds characters that make the operator's
+    /// display of it differ from what runs (`EffectCall::hidden_characters`).
+    fn command_has_hidden_characters(&self) -> bool;
 }
 
 /// A coverage gap a shipped guard names for a call whose query was

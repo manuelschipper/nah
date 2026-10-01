@@ -221,6 +221,7 @@ fn graph(resources: Vec<EffectResource>, facts: Vec<EffectFact>) -> EffectGraph 
             kind: InvocationKind::Native,
             identity: Knowledge::Unknown,
             input: None,
+            hidden_characters: false,
             cwd: Knowledge::Unknown,
             payload_group: Knowledge::Unknown,
             visibility_ordinal: Knowledge::Unknown,

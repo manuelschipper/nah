@@ -308,6 +308,7 @@ mod tests {
                 kind: InvocationKind::Argv,
                 identity: Known((*program).into()),
                 input: None,
+                hidden_characters: false,
                 cwd: cwd.clone().map_or(Unknown, Known),
                 payload_group: Known(PayloadGroupId(0)),
                 visibility_ordinal: Known(i as u32),

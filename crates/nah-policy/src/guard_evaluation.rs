@@ -40,6 +40,10 @@ pub enum QueryQualifier {
     /// effect, while a position proven unreachable does not.
     FeasibleCondition,
     LookalikeHost,
+    /// The root call's command text holds characters that make the operator's
+    /// display of it differ from what runs. Queries cannot state it: the plan
+    /// carries no command text, only the bridge's root-call evidence does.
+    HiddenCharacters,
 }
 
 /// The shipped guard registry, built and validated once: the definitions
@@ -158,6 +162,20 @@ impl ShippedGuards {
                         }
                         Outcome::Refused(_) => return Err(EvidenceError::ExceedsLimit),
                         Outcome::NoMatch | Outcome::Indeterminate(_) => {}
+                    }
+                    continue;
+                }
+                // A clause that names no effect states a fact about the call
+                // itself, so it is answered once over the plan, and its
+                // qualifiers read the call rather than an effect.
+                if clause.query.effect_selectors().is_empty() {
+                    match evaluator.evaluate_in(&clause.query, &[], Absence::Conclusive) {
+                        Outcome::Match(_) if qualify_call(host, &clause.qualifiers) => {
+                            matched = true;
+                            break 'clauses;
+                        }
+                        Outcome::Refused(_) => return Err(EvidenceError::ExceedsLimit),
+                        _ => {}
                     }
                     continue;
                 }
@@ -349,6 +367,13 @@ fn qualify(
             QueryQualifier::LookalikeHost => {
                 crate::network_guards::lookalike_host_qualifies(effect)
             }
+            QueryQualifier::HiddenCharacters => {
+                if host.command_has_hidden_characters() {
+                    Qualification::Match
+                } else {
+                    Qualification::NoMatch
+                }
+            }
             QueryQualifier::FeasibleCondition => {
                 if host.condition_reach(effect_index) == Reach::No {
                     Qualification::NoMatch
@@ -364,6 +389,15 @@ fn qualify(
         }
     }
     outcome
+}
+
+/// Applies a clause's qualifiers to the call, for a clause whose query names
+/// no effect: a qualifier about an effect holds of no call.
+fn qualify_call(host: &dyn GuardHostFacts, qualifiers: &[QueryQualifier]) -> bool {
+    qualifiers.iter().all(|qualifier| match qualifier {
+        QueryQualifier::HiddenCharacters => host.command_has_hidden_characters(),
+        _ => false,
+    })
 }
 
 /// A destructive filesystem change selecting durable Git history metadata:

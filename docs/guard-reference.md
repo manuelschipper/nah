@@ -165,7 +165,10 @@ This guard stops execution whose actual program the reader cannot see. A
 disguised `rm -rf /` then cannot pass review as something harmless. It blocks
 code whose command text is spelled in base64, and a command whose program name
 the shell has to compute at run time from string operations, word splitting,
-or a filename pattern.
+or a filename pattern. It also blocks a shell or PowerShell command holding
+characters that make the approval prompt show other text than what runs:
+control bytes such as ESC, bidi overrides and isolates, zero-width spaces, and
+tag characters outside a flag emoji.
 
 Blocked examples:
 
@@ -174,6 +177,7 @@ Blocked examples:
 - `TOOL='r*'; $TOOL -rf /`
 - `$(rev <<< mr) -rf /`
 - `powershell -EncodedCommand ZQBjAGgAbwAgAGgAaQA=`
+- `cp config.yml 'config​.yml'`
 
 Outside the guard:
 
@@ -181,10 +185,14 @@ Outside the guard:
 - `X=$(echo rm); $X file`: $(echo rm) resolves to rm file, which the filesystem guards judge.
 - `TOOL={echo,rm}; "$TOOL" -rf /`: Braces do not expand in an assignment, so TOOL stays the literal {echo,rm}.
 - `TOOL=echo; f(){ local TOOL=rm; }; f; "$TOOL" -rf /`: local keeps rm inside f, so "$TOOL" still runs echo.
+- `git commit -m 'Ship 👩‍💻 support 👍🏽 for 🏴󠁧󠁢󠁳󠁣󠁴󠁿 users'`: Joiners, skin tones and a subdivision flag are ordinary emoji.
+- `printf '\e[31merror\e[0m\n'; echo $'\x1b[0m'`: \e and \x1b are text the program interprets, not raw bytes.
 - `powershell -EncodedCommand --help`: --help is not a base64 payload, so no hidden script is passed.
 
 The guard depends on Nah recognizing how a program name was computed, which it
-does not do for every shell feature. Code Nah cannot see delegates.
+does not do for every shell feature. Code Nah cannot see delegates. Only
+shell and PowerShell command text is checked for hidden characters, not files
+an agent writes or code tools.
 
 Unresolved, so delegated:
 
@@ -193,7 +201,8 @@ Unresolved, so delegated:
 - `eval "$(cat script.sh)"`: Nah does not see the contents of script.sh, so the evaluated code is unknown.
 
 It ships on because hiding the program an agent runs defeats every other
-guard, and ordinary scripts do not compute program names. `exec-decoded` covers
+guard, and ordinary scripts do not compute program names or embed raw control
+or bidi characters. `exec-decoded` covers
 a separate decode step feeding execution, and `exec-remote` covers network
 content.
 

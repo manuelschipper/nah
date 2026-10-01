@@ -43,7 +43,7 @@ actions**.
 | --- | --- |
 | `exec-remote` | Execution of a payload visibly obtained from the network. |
 | `exec-decoded` | Execution reached from a visible decode stage. |
-| `exec-obfuscated` | Encoded, pattern-selected, or unresolved execution. |
+| `exec-obfuscated` | Encoded, pattern-selected, or unresolved execution, and hidden characters in commands. |
 | `exec-network-shell` | Shells attached to a network connection, including netcat, socat, and shell redirection. |
 | `secrets-env` | Reads of `.env` files and sensitive basenames, including contents from Git history, plus direct output of catalogued credential environment variables. |
 | `secrets-credentials` | Reads or writes of private-key and credential-store paths, including content reads from Git history; deleting or moving away private keys; metadata or value reads of the macOS keychain. |

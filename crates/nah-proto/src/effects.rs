@@ -88,6 +88,11 @@ pub struct EffectCall {
     pub identity: Knowledge<String>,
     #[serde(skip)]
     pub input: Option<ToolCallInput>,
+    /// The command text of a shell or PowerShell tool call holds characters
+    /// that make the operator's display of it differ from what runs
+    /// (`labels::hidden_characters`). Only the root call carries it.
+    #[serde(skip)]
+    pub hidden_characters: bool,
     /// Exact arguments for a visible command, omitted for source-bearing invocations.
     /// This is the whole argv, program at index zero, unlike
     /// `FactPayload::ProcessExecution`'s arguments after the program. It is

@@ -72,8 +72,9 @@ pub fn load_guard_queries() -> GuardQueries {
 impl GuardQueries {
     /// The outcome of `guard`'s query over `plan`, or `None` for a guard the
     /// export does not carry. As in Nah, absence is conclusive, a clause that
-    /// binds effects is scoped to every effect, and any other clause is
-    /// evaluated once per effect its selectors name, scoped to that effect.
+    /// binds effects is scoped to every effect, a clause that names no effect
+    /// is evaluated once, and any other clause is evaluated once per effect
+    /// its selectors name, scoped to that effect.
     pub fn evaluate(&self, guard: &str, plan: &Plan) -> Option<GuardQueryOutcome> {
         let clauses = self.0.get(guard)?;
         let evaluator = crate::nah::goldens::evaluator(plan);
@@ -81,6 +82,8 @@ impl GuardQueries {
         for clause in clauses {
             let scopes = if clause.query.binds_effects() {
                 vec![(0..plan.effects.len()).collect()]
+            } else if clause.query.effect_selectors().is_empty() {
+                vec![Vec::new()]
             } else {
                 evaluator
                     .candidate_effects(&clause.query)

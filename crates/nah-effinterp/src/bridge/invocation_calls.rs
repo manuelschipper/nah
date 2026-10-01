@@ -6,9 +6,11 @@ use effinterp_proto as p;
 use effinterp_proto::{ExecutionAssurance, ProvenanceKind, ProvenanceRef, ResourceExpr, Subject};
 use nah_proto::effects as e;
 use nah_proto::effects::Knowledge::{Known, Unknown};
+use nah_proto::labels::hidden_characters::has_hidden_characters;
 use nah_proto::tool::ToolCallInput;
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::input_selection::command_text;
 use super::resource_projection::convert_domain;
 use super::{
     ShippedGuardPolicy,
@@ -149,6 +151,8 @@ pub(super) fn project_invocation_calls(
                 identity
             },
             input: (index == 0).then(|| root.clone()),
+            hidden_characters: index == 0
+                && command_text(&plan.subject).is_some_and(has_hidden_characters),
             cwd: cwd
                 .as_ref()
                 .and_then(|cwd| {
