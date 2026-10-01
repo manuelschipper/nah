@@ -112,15 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "921e5601b88717db7250e97bcaa5cc50455d68b3",
-      "corpus_digest": "1f96fc79f5661785591aeba58ecd1c98a3f5ffbc4e9451e3f43602c043c04caa",
+      "nah_commit": "eab3a6fd5f25342a83cedf5909bfc96f88ef0f8f",
+      "corpus_digest": "f61733eb21a76175b24d84c7cf1fd383165fa8aa391fe3938290fbe15044e00c",
       "classes": {
-        "effect_match": 5083,
+        "effect_match": 5092,
         "silent_symbolic_drop": 2,
         "missing_effect": 12,
         "missing_flow": 5,
-        "covered": 1412,
-        "explained_partial": 1734
+        "covered": 1413,
+        "explained_partial": 1737
       },
       "per_file": {
         "code.jsonl": {
@@ -217,9 +217,9 @@
           "explained_partial": 286
         },
         "shell-resolution.jsonl": {
-          "effect_match": 172,
-          "covered": 25,
-          "explained_partial": 22
+          "effect_match": 181,
+          "covered": 26,
+          "explained_partial": 25
         },
         "storage.jsonl": {
           "effect_match": 138,
@@ -257,7 +257,7 @@
           "explained_partial": 1
         },
         "exec-obfuscated": {
-          "effect_match": 38,
+          "effect_match": 47,
           "explained_partial": 1
         },
         "exec-remote": {
@@ -639,24 +639,30 @@
         "observe:/workspace/project/CHANGELOG.md": 1,
         "observe:/workspace/project/Cargo.toml": 1,
         "observe:/workspace/project/README.md": 13,
+        "observe:/workspace/project/README.md󠁲󠁭": 1,
         "observe:/workspace/project/__pycache__": 1,
         "observe:/workspace/project/a.txt": 1,
         "observe:/workspace/project/b.txt": 1,
         "observe:/workspace/project/backup.git/refs/heads/main": 1,
         "observe:/workspace/project/batch.txt": 1,
         "observe:/workspace/project/build": 2,
+        "observe:/workspace/project/build.log": 1,
         "observe:/workspace/project/build/logs": 4,
         "observe:/workspace/project/built-ins.json": 1,
         "observe:/workspace/project/clean-links": 1,
+        "observe:/workspace/project/config.yml": 1,
         "observe:/workspace/project/crates/nah-cli": 6,
         "observe:/workspace/project/crates/nah-cli/Cargo.toml": 6,
         "observe:/workspace/project/crates/other": 1,
         "observe:/workspace/project/crates/other/Cargo.toml": 1,
         "observe:/workspace/project/data.txt": 4,
+        "observe:/workspace/project/docs/naïve café/中文 Ελληνικά.md": 1,
         "observe:/workspace/project/f": 2,
         "observe:/workspace/project/flags": 1,
+        "observe:/workspace/project/greeting.txt": 1,
         "observe:/workspace/project/input.bin": 2,
         "observe:/workspace/project/input.dat": 1,
+        "observe:/workspace/project/invoice‮txt.sh": 2,
         "observe:/workspace/project/local": 2,
         "observe:/workspace/project/main.c": 1,
         "observe:/workspace/project/mode.txt": 1,
@@ -700,7 +706,8 @@
           "no_match": 1
         },
         "exec-obfuscated": {
-          "match": 39
+          "match": 39,
+          "deferred": 9
         },
         "exec-remote": {
           "deferred": 236,
@@ -11244,10 +11251,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.7775,
-        "p99_ms": 130.3816,
-        "max_ms": 9745.1844,
-        "max_rss_kb": 346800
+        "p50_ms": 0.7765,
+        "p99_ms": 130.6221,
+        "max_ms": 9928.1188,
+        "max_rss_kb": 347840
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11271,13 +11278,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261001T184941Z-correctness-99217",
-      "measured_at": "2026-10-01T18:49:41Z",
-      "source_fingerprint": "blake3:a3a273e646414dc4a9993d800a4aa4f7478c87947d2b87cf05ea22b900d31010",
-      "binary_hash": "blake3:fbe451913cd3c308310a6687fbaef7a495e3e958b5862ee05d4147c8aa968cba",
+      "run_id": "20261001T192730Z-correctness-40857",
+      "measured_at": "2026-10-01T19:27:30Z",
+      "source_fingerprint": "blake3:54e82f5f5325ac8d02e61fb5bbcbb477b5661f662e8b71d3bdbbd24233671616",
+      "binary_hash": "blake3:ac3bc3dfb0a2bdc3d9a4ad42e07abd0401a3b83a5a35d6d47891ac829efab0be",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "921e5601b88717db7250e97bcaa5cc50455d68b3",
+      "git_head": "eab3a6fd5f25342a83cedf5909bfc96f88ef0f8f",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

@@ -85884,6 +85884,129 @@
       ]
     },
     {
+      "id": "shell-resolution.hidden-bidi-override-path",
+      "guard": "exec-obfuscated",
+      "derivation": "A right-to-left override U+202E in the path makes the prompt show invoicehs.txt while cat reads invoice<RLO>txt.sh.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/invoice\u202etxt.sh"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-bidi-isolate-path",
+      "guard": "exec-obfuscated",
+      "derivation": "A left-to-right isolate U+2066 and its closing U+2069 hide inside the name of the file rm deletes.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/workspace/project/build/\u2066debug\u2069.log"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-raw-escape",
+      "guard": "exec-obfuscated",
+      "derivation": "Raw ESC bytes move the cursor up and erase the line, so a terminal hides text of the command that writes build.log.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/workspace/project/build.log"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-c1-control",
+      "guard": "exec-obfuscated",
+      "derivation": "The C1 control U+009B (CSI) is invisible in the name of the file touch creates.",
+      "require": [
+        {
+          "op": "filesystem.create",
+          "resource": {
+            "eq": "/workspace/project/report\u009b8m.txt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-zero-width-space",
+      "guard": "exec-obfuscated",
+      "derivation": "A zero-width space U+200B makes the copy's name differ from the config.yml it displays as.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/workspace/project/config\u200b.yml"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-stray-tag",
+      "guard": "exec-obfuscated",
+      "derivation": "Tag characters spelling rm trail README.md invisibly in the path cat reads.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/README.md\udb40\udc72\udb40\udc6d"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-tag-run-after-flag",
+      "guard": "exec-obfuscated",
+      "derivation": "Uppercase and space tags after a black flag are no subdivision flag; they hide RM -RF in the name touch creates.",
+      "require": [
+        {
+          "op": "filesystem.create",
+          "resource": {
+            "eq": "/workspace/project/release-🏴\udb40\udc52\udb40\udc4d\udb40\udc20\udb40\udc2d\udb40\udc52\udb40\udc46\udb40\udc7f.txt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-bidi-through-sh-c",
+      "guard": "exec-obfuscated",
+      "derivation": "The right-to-left override sits in the script sh -c runs, which reads invoice<RLO>txt.sh.",
+      "require": [
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          }
+        },
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/invoice\u202etxt.sh"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-powershell-bidi",
+      "guard": "exec-obfuscated",
+      "derivation": "A right-to-left override U+202E in the PowerShell command hides the extension of the file Get-Content reads.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "C:/workspace/outside/invoice\u202etxt.ps1"
+          }
+        }
+      ]
+    },
+    {
       "id": "fs-system-tree.split-positional-param-error-guard-etc",
       "guard": "fs-system-tree",
       "derivation": "set -- $(echo a b) sets $2, so ${2:?} does not abort and rm deletes /etc",
