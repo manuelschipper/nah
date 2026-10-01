@@ -106019,6 +106019,32 @@
           }
         }
       ]
+    },
+    {
+      "id": "net-lookalike-host.pip-global-option-install",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the requirement after a global option precedes install",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-unsatisfiable-marker-kept-conservative",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; markers are not evaluated, so the named requirement's repository stays a download",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
     }
   ]
 }

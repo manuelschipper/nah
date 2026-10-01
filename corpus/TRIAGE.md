@@ -245,6 +245,13 @@ because the owner accepted the conservative rule over a narrower model.
   `print(file=)`, `os.write(f.fileno())`, `mmap`), so it cannot establish that
   the protected file is never written. Reading Nah's files through an update
   mode is not a workflow worth that gap.
+- `net-lookalike-host.pip-unsatisfiable-marker-kept-conservative` — the pip
+  model does not evaluate requirement markers, so a named VCS requirement on
+  a lookalike host keeps its download and blocks even when its marker is
+  false and pip skips it (`; python_version < '3' and python_version >= '3'`
+  can never hold). Telling a false marker from one that holds needs the
+  target interpreter and platform, and a marked dependency on a mixed-script
+  host has no workflow worth the risk of evaluating it wrong.
 
 ## Documented gaps
 

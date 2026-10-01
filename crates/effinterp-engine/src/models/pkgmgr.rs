@@ -676,16 +676,34 @@ const PIP_INSTALL_FLAG_OPTIONS: &[&str] = &[
 const PIP_INSTALL_SHORT_VALUE_OPTIONS: &str = "Ccefirt";
 
 /// The requirements a `pip install` whose subcommand is at `sub_index` installs,
-/// each with the argv index that spells it: requirement operands and
-/// `-e`/`--editable` values, read the way pip's optparse parser assigns
-/// arguments to options. Other options' values, such as `--target` or
-/// `-r`, are never requirements. Help installs nothing, so it yields none.
+/// each with the argv index that spells it, or `None` when help, before or
+/// after the subcommand, ends pip before it installs anything.
 fn pip_install_requirements<'a>(
     ctx: &'a InvocationCtx<'_>,
     sub_index: usize,
-) -> Vec<(usize, &'a str)> {
+) -> Option<Vec<(usize, &'a str)>> {
+    // pip parses its global options up to the subcommand, then the install
+    // options after it; either phase's help exits.
+    pip_arguments(ctx, 1..sub_index)?;
+    pip_arguments(ctx, sub_index + 1..ctx.argv.len())
+}
+
+/// The requirement operands and `-e`/`--editable` values among `range` of the
+/// argv, each with its index, read the way pip's optparse parser assigns
+/// arguments to options; `None` when the range asks for help. Other options'
+/// values, such as `--target` or `-r`, are never requirements, and a value
+/// spelled `--help` is not help.
+fn pip_arguments<'a>(
+    ctx: &'a InvocationCtx<'_>,
+    range: std::ops::Range<usize>,
+) -> Option<Vec<(usize, &'a str)>> {
     let mut requirements = Vec::new();
-    let mut words = ctx.argv.iter().enumerate().skip(sub_index + 1);
+    let mut words = ctx
+        .argv
+        .iter()
+        .enumerate()
+        .take(range.end)
+        .skip(range.start);
     while let Some((index, word)) = words.next() {
         let Some(word) = word.as_literal() else {
             continue;
@@ -712,7 +730,7 @@ fn pip_install_requirements<'a>(
                 matches.next().filter(|_| matches.next().is_none())
             });
             if option == Some("--help") {
-                return Vec::new();
+                return None;
             }
             if option.is_some_and(|option| PIP_INSTALL_VALUE_OPTIONS.contains(&option)) {
                 let value = match attached {
@@ -732,7 +750,7 @@ fn pip_install_requirements<'a>(
         if let Some(cluster) = word.strip_prefix('-').filter(|cluster| !cluster.is_empty()) {
             for (offset, short) in cluster.char_indices() {
                 if short == 'h' {
-                    return Vec::new();
+                    return None;
                 }
                 if PIP_INSTALL_SHORT_VALUE_OPTIONS.contains(short) {
                     let rest = &cluster[offset + short.len_utf8()..];
@@ -753,7 +771,7 @@ fn pip_install_requirements<'a>(
         }
         requirements.push((index, word));
     }
-    requirements
+    Some(requirements)
 }
 
 /// The repository a pip VCS requirement clones: a `git+http://`,
@@ -2846,7 +2864,9 @@ impl CommandModel for PkgMgr {
             // A literal VCS requirement also names the repository pip clones;
             // its dependencies still come from the index above.
             if mgr.starts_with("pip") && sub == "install" {
-                for (index, requirement) in pip_install_requirements(ctx, sub_index) {
+                for (index, requirement) in
+                    pip_install_requirements(ctx, sub_index).unwrap_or_default()
+                {
                     if let Some(identity) = pip_vcs_endpoint(requirement) {
                         arg_effect(
                             builder,
