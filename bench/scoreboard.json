@@ -112,14 +112,14 @@
       }
     },
     "parity": {
-      "nah_commit": "f14baefdbecd23fb0b4aaf1009f791c9114ecb37",
-      "corpus_digest": "cf489368370bb759e51995d8377320aa5a189995df485aeca0542d7e34b72a1f",
+      "nah_commit": "37a0bf561bab8379b2bfff2ddefcbc926d3436cf",
+      "corpus_digest": "b0db8a824bdaf611e691fa06e906e90429dcec4dd269c7cef3d4d822d2e39940",
       "classes": {
-        "effect_match": 5041,
+        "effect_match": 5059,
         "missing_effect": 11,
         "missing_flow": 5,
-        "covered": 1403,
-        "explained_partial": 1719
+        "covered": 1405,
+        "explained_partial": 1728
       },
       "per_file": {
         "code.jsonl": {
@@ -224,16 +224,16 @@
           "explained_partial": 6
         },
         "windows.jsonl": {
-          "effect_match": 103,
-          "covered": 35,
-          "explained_partial": 25
+          "effect_match": 121,
+          "covered": 37,
+          "explained_partial": 34
         }
       },
       "per_guard": {
         "(structural)": {
-          "effect_match": 658,
+          "effect_match": 660,
           "missing_effect": 2,
-          "explained_partial": 163
+          "explained_partial": 166
         },
         "db-destroy": {
           "effect_match": 373,
@@ -264,7 +264,7 @@
           "effect_match": 24
         },
         "fs-home": {
-          "effect_match": 208,
+          "effect_match": 212,
           "missing_effect": 1,
           "explained_partial": 8
         },
@@ -290,21 +290,21 @@
           "effect_match": 49
         },
         "fs-system-tree": {
-          "effect_match": 547,
-          "explained_partial": 6
+          "effect_match": 553,
+          "explained_partial": 8
         },
         "fs-volume-destroy": {
           "effect_match": 34
         },
         "git-clean-force": {
-          "effect_match": 52
+          "effect_match": 53
         },
         "git-force-push": {
-          "effect_match": 55,
+          "effect_match": 56,
           "explained_partial": 1
         },
         "git-hard-reset": {
-          "effect_match": 41
+          "effect_match": 42
         },
         "git-history-rewrite": {
           "effect_match": 48
@@ -331,10 +331,10 @@
           "effect_match": 44
         },
         "git-rewrite-force": {
-          "effect_match": 41
+          "effect_match": 43
         },
         "git-worktree-discard": {
-          "effect_match": 65
+          "effect_match": 66
         },
         "infra-container-reset": {
           "effect_match": 37
@@ -488,6 +488,7 @@
         "/workspace/project/vendor/autoload.php": 2,
         "/workspace/project/vendor/autoload_runtime.php": 1,
         "/workspace/push-config": 2,
+        "C:/workspace/project/.git/HEAD": 3,
         "C:/workspace/project/crates/nah-cli/Cargo.toml": 1,
         "observe:/--help": 1,
         "observe:/Users/test/.nah/nap.key": 1,
@@ -698,7 +699,7 @@
           "deferred": 24
         },
         "fs-home": {
-          "deferred": 209,
+          "deferred": 213,
           "no_match": 8
         },
         "fs-outside-workspace-delete": {
@@ -723,21 +724,22 @@
           "deferred": 49
         },
         "fs-system-tree": {
-          "deferred": 553
+          "deferred": 559,
+          "no_match": 2
         },
         "fs-volume-destroy": {
           "deferred": 34
         },
         "git-clean-force": {
           "deferred": 1,
-          "indeterminate": 51
+          "indeterminate": 52
         },
         "git-force-push": {
-          "deferred": 55,
+          "deferred": 56,
           "indeterminate": 1
         },
         "git-hard-reset": {
-          "deferred": 41
+          "deferred": 42
         },
         "git-history-rewrite": {
           "deferred": 48
@@ -766,11 +768,11 @@
           "deferred": 44
         },
         "git-rewrite-force": {
-          "deferred": 41
+          "deferred": 43
         },
         "git-worktree-discard": {
           "deferred": 32,
-          "indeterminate": 32,
+          "indeterminate": 33,
           "no_match": 1
         },
         "infra-container-reset": {
@@ -11222,10 +11224,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.7965,
-        "p99_ms": 130.7062,
-        "max_ms": 9758.4368,
-        "max_rss_kb": 370752
+        "p50_ms": 0.7693,
+        "p99_ms": 132.6145,
+        "max_ms": 9770.7653,
+        "max_rss_kb": 355344
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11249,13 +11251,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20260930T143959Z-correctness-308",
-      "measured_at": "2026-09-30T14:39:59Z",
-      "source_fingerprint": "blake3:0adfaadebecf1da14039f613946097bb586904cad0689a17f5608e217edffab8",
-      "binary_hash": "blake3:40c8503b7e267d99b76c3d43521d1feb0fd3e07ba13c1aaf7f6ee00a729b9f73",
+      "run_id": "20261001T001143Z-correctness-90733",
+      "measured_at": "2026-10-01T00:11:43Z",
+      "source_fingerprint": "blake3:ed19ca11852a41137b648dee2e04a52ad881ab84332cb02d39e41d4c420a1b9b",
+      "binary_hash": "blake3:54f36815ab3841c7e7e355ab89197ad5ecc1e4e357b0de43f2ce579e7d7231a9",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "f14baefdbecd23fb0b4aaf1009f791c9114ecb37",
+      "git_head": "37a0bf561bab8379b2bfff2ddefcbc926d3436cf",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,
