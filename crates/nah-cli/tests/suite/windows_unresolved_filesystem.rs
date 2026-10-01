@@ -201,12 +201,15 @@ fn windows_static_destructive_target_reaches_outside_workspace_guard() {
 #[test]
 #[allow(clippy::disallowed_methods)]
 fn windows_root_relative_paths_keep_credential_and_nap_state_blocks() {
-    let home = tempfile::tempdir().unwrap();
+    let home_dir = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
-    std::fs::create_dir(home.path().join(".ssh")).unwrap();
-    std::fs::write(home.path().join(".ssh").join("id_rsa"), "key").unwrap();
-    std::fs::create_dir(home.path().join(".nah")).unwrap();
-    let home = home.path().to_str().unwrap();
+    // The runner's temp directory can be an 8.3 short name (`RUNNER~1`); the
+    // host observes the long name, so the home must be spelled the same way.
+    let home = support::test_temp_path(home_dir.path());
+    std::fs::create_dir(home.join(".ssh")).unwrap();
+    std::fs::write(home.join(".ssh").join("id_rsa"), "key").unwrap();
+    std::fs::create_dir(home.join(".nah")).unwrap();
+    let home = home.to_str().unwrap();
     // `C:\Users\...` spelled `/Users/...`, on the drive the project shares.
     let rooted = home[2..].replace('\\', "/");
     let context = Ctx::new(
