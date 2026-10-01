@@ -232,6 +232,11 @@ struct Capture {
     print_vars: std::collections::HashMap<String, Vec<u32>>,
     /// `effects` slots a `print` in the body writes to stdout.
     stdout: Vec<u32>,
+    /// `effects` slots whose bytes a `return` in the body may carry.
+    returned: Vec<u32>,
+    /// The `effects` slots each same-file call in the body returns, by the
+    /// call's span.
+    call_returns: std::collections::HashMap<TextRange, Vec<u32>>,
 }
 
 /// How a call's evaluation was modeled, for its control-flow site.
@@ -344,44 +349,36 @@ fn print_emitted(call: &ast::ExprCall) -> Vec<&Expr> {
 /// the def-use walk reads it: the call itself, the receiver call a wrapper
 /// such as `open(p).read()` passes through, a response's `.text`/`.content`,
 /// and the elements of a literal container. A call to a local function or
-/// method (`is_local`) is not on the spine: what it returns is not tracked,
-/// and the reads inside it need not be what it returns.
+/// method (`is_local`) is not on the spine, because the reads inside it need
+/// not be what it returns; its span goes to `locals`, whose summary says what
+/// it returns.
 fn value_spine<'e>(
     expr: &'e Expr,
     is_local: &dyn Fn(&Expr) -> bool,
     spans: &mut Vec<TextRange>,
+    locals: &mut Vec<TextRange>,
     names: &mut Vec<&'e str>,
 ) {
+    let mut spine = |e: &'e Expr| value_spine(e, is_local, spans, locals, names);
     match expr {
         Expr::Name(name) => names.push(name.id.as_str()),
-        Expr::Call(call) if !is_local(&call.func) => {
+        Expr::Call(call) if is_local(&call.func) => locals.push(call.range),
+        Expr::Call(call) => {
             spans.push(call.range);
             if let Expr::Attribute(attribute) = call.func.as_ref()
                 && matches!(attribute.value.as_ref(), Expr::Call(_))
             {
-                value_spine(&attribute.value, is_local, spans, names);
+                value_spine(&attribute.value, is_local, spans, locals, names);
             }
         }
         Expr::Attribute(attribute) if matches!(attribute.attr.as_str(), "text" | "content") => {
-            value_spine(&attribute.value, is_local, spans, names);
+            spine(&attribute.value);
         }
-        Expr::List(list) => list
-            .elts
-            .iter()
-            .for_each(|e| value_spine(e, is_local, spans, names)),
-        Expr::Tuple(tuple) => tuple
-            .elts
-            .iter()
-            .for_each(|e| value_spine(e, is_local, spans, names)),
-        Expr::Set(set) => set
-            .elts
-            .iter()
-            .for_each(|e| value_spine(e, is_local, spans, names)),
-        Expr::Dict(dict) => dict
-            .values
-            .iter()
-            .for_each(|e| value_spine(e, is_local, spans, names)),
-        Expr::Starred(starred) => value_spine(&starred.value, is_local, spans, names),
+        Expr::List(list) => list.elts.iter().for_each(spine),
+        Expr::Tuple(tuple) => tuple.elts.iter().for_each(spine),
+        Expr::Set(set) => set.elts.iter().for_each(spine),
+        Expr::Dict(dict) => dict.values.iter().for_each(spine),
+        Expr::Starred(starred) => spine(&starred.value),
         _ => {}
     }
 }
@@ -1222,6 +1219,8 @@ impl<'a, 'b> Walker<'a, 'b> {
             control_applications: Vec::new(),
             summary_requirements: std::collections::HashMap::new(),
             summary_stdout: std::collections::HashMap::new(),
+            summary_returns: std::collections::HashMap::new(),
+            call_returns: std::collections::HashMap::new(),
             module_binds: HashSet::new(),
             environment_rewritten: false,
             ipython: ipython.map(|cell| IpythonState {
@@ -2542,6 +2541,11 @@ struct Walker<'a, 'b> {
     summary_requirements: std::collections::HashMap<String, Requirements>,
     /// The summary effects each callable prints to stdout.
     summary_stdout: std::collections::HashMap<String, Vec<u32>>,
+    /// The summary effects each callable's returned value may carry.
+    summary_returns: std::collections::HashMap<String, Vec<u32>>,
+    /// The plan effects each same-file call walked outside a summary
+    /// returns, by the call's span, until its value is bound.
+    call_returns: std::collections::HashMap<TextRange, Vec<u32>>,
     /// Module-level names that shadow builtins, including assignments and imports.
     module_binds: HashSet<String>,
     /// Whether the program has replaced an environment value, after which a
@@ -3920,7 +3924,12 @@ impl Walker<'_, '_> {
             }
             Stmt::Return(s) => {
                 if let Some(value) = &s.value {
-                    self.walk_expr(value);
+                    let carried = self.capture_value(value);
+                    if let Some(capture) = self.capture.as_mut() {
+                        capture.returned.extend(carried);
+                        capture.returned.sort_unstable();
+                        capture.returned.dedup();
+                    }
                 }
             }
             _ => {}
@@ -4781,9 +4790,9 @@ impl Walker<'_, '_> {
             return producer;
         }
         // A call into a local user function composes that function's effects at
-        // this site, but the value it returns is not tracked to any single
-        // effect (the function may read a file yet return something unrelated),
-        // so it is not a def-use producer and its arguments are not wired.
+        // this site. Its value is only what its summary returns (the function
+        // may read a file yet return something unrelated), and its arguments
+        // are not wired.
         let is_local_fn = self.is_local_fn(&call.func);
         // An ordinary call: it may itself produce effects (a stage) and may
         // consume tracked variables through its arguments.
@@ -4796,7 +4805,7 @@ impl Walker<'_, '_> {
         if is_local_fn {
             // Still walk arguments for nested effects, but wire nothing.
             self.wire_args(call, None);
-            return None;
+            return self.returned_stage(call.range);
         }
         let stage = self.new_stage(call.range, before, after);
         if stage.is_none() && callee.as_deref() == Some("print") && self.prints_to_stdout(call) {
@@ -4807,14 +4816,17 @@ impl Walker<'_, '_> {
                 .iter()
                 .chain(call.keywords.iter().map(|keyword| &keyword.value))
             {
-                // What a local helper or method returns is not tracked, and
-                // the reads inside it need not be what it returns.
-                let local_call = matches!(argument, Expr::Call(inner)
-                    if self.is_local_callable(&inner.func));
-                if emitted.iter().any(|value| std::ptr::eq(*value, argument)) && !local_call {
-                    self.collect_flow_producers(argument, &mut producers);
-                } else {
-                    self.walk_expr(argument);
+                // A local helper or method prints only what its summary
+                // returns; the reads inside it need not be what it returns.
+                let emits = emitted.iter().any(|value| std::ptr::eq(*value, argument));
+                match argument {
+                    Expr::Call(inner) if self.is_local_callable(&inner.func) => {
+                        self.walk_expr(argument);
+                        let returned = self.returned_stage(inner.range);
+                        producers.extend(returned.filter(|_| emits));
+                    }
+                    _ if emits => self.collect_flow_producers(argument, &mut producers),
+                    _ => self.walk_expr(argument),
                 }
             }
             if !producers.is_empty() {
@@ -4883,11 +4895,13 @@ impl Walker<'_, '_> {
     /// the locals it names, whose bytes the already walked `expr` carries.
     fn carried_effects(&self, expr: &Expr, before: usize) -> Vec<u32> {
         let mut spans = Vec::new();
+        let mut locals = Vec::new();
         let mut names = Vec::new();
         value_spine(
             expr,
             &|func| self.is_local_callable(func),
             &mut spans,
+            &mut locals,
             &mut names,
         );
         let Some(capture) = self.capture.as_ref() else {
@@ -4906,6 +4920,9 @@ impl Walker<'_, '_> {
             .collect::<Vec<_>>();
         for name in names {
             effects.extend(capture.print_vars.get(name).into_iter().flatten());
+        }
+        for call in locals {
+            effects.extend(capture.call_returns.get(&call).into_iter().flatten());
         }
         effects
     }
@@ -5004,6 +5021,13 @@ impl Walker<'_, '_> {
         let node = self.span_node(range);
         let id = self.stage_writer.new_stage(node, before, after)?;
         Some(id)
+    }
+
+    /// A stage for the plan effects the same-file call at `span` returned.
+    fn returned_stage(&mut self, span: TextRange) -> Option<usize> {
+        let returned = self.call_returns.remove(&span)?;
+        let node = self.span_node(span);
+        Some(self.stage_writer.value_stage(node, returned))
     }
 
     /// Walk a call's arguments for effects and dataflow, emitting an edge into
@@ -8340,6 +8364,25 @@ impl Walker<'_, '_> {
                 effinterp_proto::CausalAssurance::Conservative,
                 vec![node],
             ),
+        }
+        // What the callee returns is the value of this call, for the caller
+        // that binds or prints it.
+        let returned = self
+            .summary_returns
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter_map(|slot| slots.get(*slot as usize).copied().flatten())
+            .collect::<Vec<_>>();
+        if !returned.is_empty() {
+            let call_returns = match self.capture.as_mut() {
+                Some(capture) => &mut capture.call_returns,
+                None => &mut self.call_returns,
+            };
+            let held = call_returns.entry(span).or_default();
+            held.extend(returned);
+            held.sort_unstable();
+            held.dedup();
         }
         // A summary still converging in a recursive group proves nothing yet.
         let application = match self.summary_requirements.get(name) {

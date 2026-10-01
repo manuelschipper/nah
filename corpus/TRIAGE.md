@@ -268,6 +268,15 @@ because the owner accepted the conservative rule over a narrower model.
 
 Accepted limitations with no corpus row that asserts a desired block.
 
+- Printed secrets transformed as text. Python print provenance follows a
+  value only through names, calls on its value spine, literal containers and
+  `.text`/`.content` (`value_spine` and `flow_expr` in
+  `crates/effinterp-engine/src/python/mod.rs`). String concatenation,
+  f-strings, `%` formatting and a method on a local (`key.strip()`) carry
+  nothing, so `print("key=" + key)` or a helper that returns `key.strip()`
+  piped to an upload delegates, at module level and inside functions alike,
+  while `print(key)` and `return key` block. A row asserting the block would
+  add a `missing_flow` parity miss above the `secrets-exfil` ceiling.
 - A symlinked parent inside a pattern — a `..` after a component that is
   a symlink to a directory resolves at the link target's parent, but a
   pattern's `..` is collapsed lexically. After a wildcard (`X/*/../Y`,
