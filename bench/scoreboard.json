@@ -112,13 +112,13 @@
       }
     },
     "parity": {
-      "nah_commit": "37a0bf561bab8379b2bfff2ddefcbc926d3436cf",
-      "corpus_digest": "b0db8a824bdaf611e691fa06e906e90429dcec4dd269c7cef3d4d822d2e39940",
+      "nah_commit": "a63e0c550ce3ba49f02e6b106ca6f9889318bcde",
+      "corpus_digest": "392875c9f110f1aff6f3fa4e32b7bc8440e4a1bb9d7d91def1dc029ea493d25f",
       "classes": {
-        "effect_match": 5059,
+        "effect_match": 5063,
         "missing_effect": 11,
-        "missing_flow": 5,
-        "covered": 1405,
+        "missing_flow": 2,
+        "covered": 1408,
         "explained_partial": 1728
       },
       "per_file": {
@@ -133,10 +133,10 @@
           "explained_partial": 83
         },
         "database-services.jsonl": {
-          "effect_match": 208,
+          "effect_match": 209,
           "missing_effect": 2,
-          "covered": 31,
-          "explained_partial": 96
+          "covered": 32,
+          "explained_partial": 95
         },
         "database.jsonl": {
           "effect_match": 174,
@@ -196,11 +196,11 @@
           "explained_partial": 102
         },
         "secrets.jsonl": {
-          "effect_match": 734,
+          "effect_match": 737,
           "missing_effect": 3,
-          "missing_flow": 5,
-          "covered": 177,
-          "explained_partial": 192
+          "missing_flow": 2,
+          "covered": 179,
+          "explained_partial": 193
         },
         "self-protection.jsonl": {
           "effect_match": 639,
@@ -236,9 +236,9 @@
           "explained_partial": 166
         },
         "db-destroy": {
-          "effect_match": 373,
+          "effect_match": 374,
           "missing_effect": 5,
-          "explained_partial": 38
+          "explained_partial": 37
         },
         "exec-decoded": {
           "effect_match": 55,
@@ -362,9 +362,9 @@
           "effect_match": 119
         },
         "secrets-exfil": {
-          "effect_match": 478,
+          "effect_match": 481,
           "missing_effect": 3,
-          "missing_flow": 5,
+          "missing_flow": 2,
           "explained_partial": 3
         },
         "secrets-store-delete": {
@@ -672,8 +672,8 @@
       },
       "guard_queries": {
         "db-destroy": {
-          "match": 377,
-          "no_match": 39
+          "match": 378,
+          "no_match": 38
         },
         "exec-decoded": {
           "match": 57,
@@ -804,8 +804,8 @@
         },
         "secrets-exfil": {
           "deferred": 28,
-          "indeterminate": 451,
-          "no_match": 10
+          "indeterminate": 454,
+          "no_match": 7
         },
         "secrets-store-delete": {
           "match": 40
@@ -11224,10 +11224,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.7693,
-        "p99_ms": 132.6145,
-        "max_ms": 9770.7653,
-        "max_rss_kb": 355344
+        "p50_ms": 0.7748,
+        "p99_ms": 132.9709,
+        "max_ms": 9957.4169,
+        "max_rss_kb": 350288
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11251,13 +11251,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261001T001143Z-correctness-90733",
-      "measured_at": "2026-10-01T00:11:43Z",
-      "source_fingerprint": "blake3:ed19ca11852a41137b648dee2e04a52ad881ab84332cb02d39e41d4c420a1b9b",
-      "binary_hash": "blake3:54f36815ab3841c7e7e355ab89197ad5ecc1e4e357b0de43f2ce579e7d7231a9",
+      "run_id": "20261001T170334Z-correctness-61111",
+      "measured_at": "2026-10-01T17:03:34Z",
+      "source_fingerprint": "blake3:5e71de8e1c9b21fe26e0462555abb8d334208e2ce72547554c79f27e0da2ccba",
+      "binary_hash": "blake3:8a207ae49850577b1850d5ab1bbdf8fc447a9d2904dc3db7aa17ca67ef75b99d",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "37a0bf561bab8379b2bfff2ddefcbc926d3436cf",
+      "git_head": "a63e0c550ce3ba49f02e6b106ca6f9889318bcde",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

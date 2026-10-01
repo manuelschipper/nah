@@ -3161,6 +3161,13 @@ impl Walker<'_> {
                                         (read.expression_l.begin, read.expression_l.end),
                                     );
                                 }
+                                // `y = x` copies the bytes of the read `x` holds.
+                                Node::Lvar(source)
+                                    if self.read_locals.contains_key(&source.name) =>
+                                {
+                                    let span = self.read_locals[&source.name];
+                                    self.read_locals.insert(assignment.name.clone(), span);
+                                }
                                 // A guarded assignment may not run, so the
                                 // earlier read may still be what it holds.
                                 _ if !guarded => {

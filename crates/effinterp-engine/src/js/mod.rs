@@ -334,6 +334,7 @@ impl Frontend for JsFrontend {
                 .map(|(span, _)| *span)
                 .chain(global_reference_spans(&semantic, "process"))
                 .collect(),
+            global_console_spans: global_reference_spans(&semantic, "console"),
             // A write to the global itself replaces it for every reader.
             runtime_code_spans: ["eval", "Function"]
                 .into_iter()
@@ -982,6 +983,8 @@ struct Bindings {
     /// Spans of the references that reach the runtime's own `process`: ones
     /// no enclosing scope binds, and those of a `const` bound to it.
     global_process_spans: HashSet<u32>,
+    /// Spans of the `console` references that reach the runtime's own.
+    global_console_spans: HashSet<u32>,
     /// Spans of the `eval` and `Function` references that reach the
     /// runtime's own, which no scope binds and the program never replaces.
     runtime_code_spans: HashSet<u32>,
@@ -2960,6 +2963,17 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         self.mark_source_binding_writes_unbounded(&mutation_targets);
         if let Some(c) = stage {
             self.wire_arguments(&it.arguments, c);
+        } else if self.prints_to_stdout(&it.callee) {
+            let mut producers = Vec::new();
+            for argument in it.arguments.iter().filter_map(Argument::as_expression) {
+                self.collect_producers(argument, &mut producers);
+            }
+            if !producers.is_empty() {
+                let node = self.span_node(it.span);
+                let execution = self.builder.current_execution();
+                self.stage_writer
+                    .print_to_stdout(node, execution, &producers);
+            }
         }
     }
 
@@ -7771,6 +7785,15 @@ impl<'a> EffectVisitor<'_, 'a> {
             .skip(*depth)
             .any(|body| body.local_names.contains(id.name.as_str()));
         (!shadowed).then(|| producers.clone())
+    }
+
+    /// `console.log`, `console.info` and `console.debug` write their
+    /// arguments to this program's own stdout.
+    fn prints_to_stdout(&self, callee: &Expression<'a>) -> bool {
+        matches!(unparen(callee), Expression::StaticMemberExpression(member)
+            if matches!(member.property.name.as_str(), "log" | "info" | "debug")
+                && matches!(unparen(&member.object), Expression::Identifier(id)
+                    if self.bindings.global_console_spans.contains(&id.span.start)))
     }
 
     /// Wire def-use edges into `consumer` from each argument that carries a

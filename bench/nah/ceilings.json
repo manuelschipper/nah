@@ -4,7 +4,7 @@
     "engine_error": 0,
     "guard_silent": 2,
     "missing_effect": 11,
-    "missing_flow": 5,
+    "missing_flow": 2,
     "regression": 0,
     "unsupported": 0
   },
@@ -15,7 +15,7 @@
       "missing_flow": 0
     },
     "db-destroy": {
-      "explained_partial": 38,
+      "explained_partial": 37,
       "missing_effect": 5,
       "missing_flow": 0
     },
@@ -217,7 +217,7 @@
       "explained_partial": 3,
       "guard_silent": 0,
       "missing_effect": 3,
-      "missing_flow": 5
+      "missing_flow": 2
     },
     "secrets-store-delete": {
       "explained_partial": 0,

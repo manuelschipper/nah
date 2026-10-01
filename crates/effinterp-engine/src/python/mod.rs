@@ -4608,8 +4608,33 @@ impl Walker<'_, '_> {
             return None;
         }
         let stage = self.new_stage(call.range, before, after);
+        if stage.is_none() && callee.as_deref() == Some("print") && self.prints_to_stdout(call) {
+            let mut producers = Vec::new();
+            for arg in &call.args {
+                self.collect_flow_producers(arg, &mut producers);
+            }
+            for keyword in &call.keywords {
+                self.walk_expr(&keyword.value);
+            }
+            if !producers.is_empty() {
+                let node = self.span_node(call.range);
+                let execution = self.builder.current_execution();
+                self.stage_writer
+                    .print_to_stdout(node, execution, &producers);
+            }
+            return None;
+        }
         self.wire_args(call, stage);
         stage
+    }
+
+    /// `print` writes its arguments to this program's own stdout.
+    fn prints_to_stdout(&self, call: &ast::ExprCall) -> bool {
+        self.imports.ordinary_stdout()
+            && call.keywords.iter().all(|keyword| {
+                keyword.arg.as_deref() != Some("file")
+                    || self.imports.resolve_callee(&keyword.value).as_deref() == Some("sys.stdout")
+            })
     }
 
     /// Buffer a flow stage for the effects in `[before, after)`, binding each

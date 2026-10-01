@@ -125,6 +125,36 @@ impl StageWriter {
         }
         stage
     }
+    /// An output call writes these producers' values to `execution`'s stdout.
+    pub(crate) fn print_to_stdout(
+        &mut self,
+        node: ProvenanceRef,
+        execution: ExecutionNodeRef,
+        producers: &[usize],
+    ) {
+        let stage = self.stages.len();
+        self.stages.push(FlowStage {
+            execution: Some(execution),
+            effects: Vec::new(),
+            bindings: Vec::new(),
+            provenance: vec![node],
+        });
+        for &producer in producers {
+            self.edges.push(Flow {
+                assurance: effinterp_proto::CausalAssurance::Conservative,
+                from: FlowRef {
+                    stage: producer as u32,
+                    port: Port::Value,
+                },
+                to: FlowRef {
+                    stage: stage as u32,
+                    port: Port::Stdout,
+                },
+                reason: FlowReason::new("data_flow"),
+                provenance: Vec::new(),
+            });
+        }
+    }
     pub(crate) fn add_edge(&mut self, producer: usize, consumer: usize, arg: u32) {
         if producer == consumer {
             return;
