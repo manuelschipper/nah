@@ -4,6 +4,7 @@
 use nah_proto::action::FilesystemOperation;
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::labels::host_integrity::host_integrity_class;
+use nah_proto::labels::host_script::mixes_scripts;
 use nah_proto::labels::scope::path_scope;
 use nah_proto::labels::sensitivity::sensitivity;
 use nah_proto::labels::tier;
@@ -1042,4 +1043,38 @@ fn installed_nah_identity_and_cargo_destinations_share_one_lexical_path() {
         &[],
         Platform::Linux,
     ));
+}
+
+#[test]
+fn lookalike_hosts_mix_scripts_within_one_label() {
+    for host in [
+        // Latin with a Cyrillic U+0456, in the first label or a later one.
+        "g\u{456}thub.com",
+        "api.g\u{456}thub.com",
+        // The same label in punycode, with an uppercase prefix.
+        "xn--gthub-n2e.com",
+        "XN--gthub-n2e.com",
+        // Digits and a hyphen do not make a mixed label single-script.
+        "g\u{456}thub-2.com",
+    ] {
+        assert!(mixes_scripts(host), "{host}");
+    }
+    for host in [
+        "github.com",
+        "my-site123.example.com",
+        // Single-script internationalized labels, Latin and Cyrillic.
+        "m\u{fc}nchen.de",
+        "xn--mnchen-3ya.de",
+        "\u{43f}\u{440}\u{438}\u{43c}\u{435}\u{440}-1.\u{440}\u{444}",
+        // A combining mark is Inherited, so it joins the Latin it follows.
+        "cafe\u{301}.fr",
+        // Han beside Katakana and Hiragana is one writing system, Japanese.
+        "\u{65e5}\u{672c}\u{30c9}\u{30e1}\u{30a4}\u{30f3}\u{306e}.jp",
+        // Scripts may differ between labels.
+        "\u{43f}\u{440}\u{438}\u{43c}\u{435}\u{440}.com",
+        // Punycode that does not decode is judged as written, all ASCII.
+        "xn--gthub-n2e!.com",
+    ] {
+        assert!(!mixes_scripts(host), "{host}");
+    }
 }

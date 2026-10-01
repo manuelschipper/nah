@@ -33,6 +33,7 @@ Built-in:
 - [ ] infra-container-volume-delete
 - [ ] infra-iac-destroy
 - [ ] infra-k8s-delete
+- [x] net-lookalike-host
 - [ ] registry-publish
 - [x] registry-unpublish
 - [x] secrets-credentials

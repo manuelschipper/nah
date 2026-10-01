@@ -144,8 +144,10 @@ pub fn allowed_nah_deps(krate: &str) -> &'static [&'static str] {
 /// unrestricted by this particular check.
 pub fn allowed_external_deps(krate: &str) -> Option<&'static [&'static str]> {
     match krate {
-        // sha2 only fingerprints observation facts in memory.
-        "nah-proto" => Some(&["serde", "serde_json", "sha2"]),
+        // sha2 only fingerprints observation facts in memory; icu_properties
+        // and idna supply the compiled Unicode script data and punycode
+        // decoding the lookalike-host classifier reads.
+        "nah-proto" => Some(&["serde", "serde_json", "sha2", "icu_properties", "idna"]),
         // blake3 digests canonical plan bytes in memory; serde_path_to_error
         // locates decode failures.
         "effinterp-proto" => Some(&["serde", "serde_json", "blake3", "serde_path_to_error"]),

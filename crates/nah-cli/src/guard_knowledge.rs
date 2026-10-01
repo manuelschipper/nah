@@ -127,6 +127,7 @@ const RECORDS: &[(&str, &str)] = records![
     "infra-container-volume-delete",
     "infra-iac-destroy",
     "infra-k8s-delete",
+    "net-lookalike-host",
     "registry-publish",
     "registry-unpublish",
     "secrets-credentials",

@@ -39,6 +39,7 @@ pub enum QueryQualifier {
     /// a loop body or a condition too large to decide still reaches the
     /// effect, while a position proven unreachable does not.
     FeasibleCondition,
+    LookalikeHost,
 }
 
 /// The shipped guard registry, built and validated once: the definitions
@@ -321,7 +322,7 @@ fn host_rule_holds(plan: &Plan, host: &dyn GuardHostFacts, rule: &HostRule, effe
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Qualification {
+pub(crate) enum Qualification {
     Match,
     NoMatch,
     Indeterminate,
@@ -345,6 +346,9 @@ fn qualify(
                 direct_path_restoration_qualifies(index, host, effect)
             }
             QueryQualifier::GithubRelease => github_release_qualifies(effect),
+            QueryQualifier::LookalikeHost => {
+                crate::network_guards::lookalike_host_qualifies(effect)
+            }
             QueryQualifier::FeasibleCondition => {
                 if host.condition_reach(effect_index) == Reach::No {
                     Qualification::NoMatch

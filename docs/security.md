@@ -7,7 +7,7 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 47 guards span seven classes; 29 default on.
+- 48 guards span eight classes; 30 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
 - Analyzer/custom-guard failure adds no finding by default; other evidence

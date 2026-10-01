@@ -21,6 +21,7 @@ mod filesystem_queries;
 mod flow_queries;
 mod git_queries;
 mod guard_evaluation;
+mod network_guards;
 mod registry;
 mod secret_guards;
 mod shared_queries;

