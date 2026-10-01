@@ -13152,6 +13152,19 @@
       ]
     },
     {
+      "id": "infra-cloud-delete.aws-attached-query-before-service",
+      "guard": "infra-cloud-delete",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ec2/instance/i-0abc123"
+          }
+        }
+      ]
+    },
+    {
       "id": "infra-cloud-delete.aws-cloudformation-stack",
       "guard": "infra-cloud-delete",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
@@ -13212,6 +13225,19 @@
           "op": "cloud.resource.delete",
           "resource": {
             "eq": "cloud:lambda/function/api"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-cloud-delete.aws-output-before-service",
+      "guard": "infra-cloud-delete",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ec2/instance/i-0abc123"
           }
         }
       ]
@@ -13470,14 +13496,40 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.railway-linked-project",
+      "id": "infra-cloud-delete.railway-function-delete",
       "guard": "infra-cloud-delete",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
           "op": "cloud.resource.delete",
           "resource": {
-            "prefix": "cloud:project/project/"
+            "eq": "cloud:function/function/worker"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-cloud-delete.railway-project-delete",
+      "guard": "infra-cloud-delete",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:project/project/prod"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-cloud-delete.railway-service-delete",
+      "guard": "infra-cloud-delete",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:service/service/api"
           }
         }
       ]
@@ -13523,6 +13575,19 @@
     },
     {
       "id": "infra-cloud-delete.wrangler-worker",
+      "guard": "infra-cloud-delete",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:workers/worker/api"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-cloud-delete.wrangler-worker-operand",
       "guard": "infra-cloud-delete",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [

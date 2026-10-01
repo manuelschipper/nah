@@ -112,15 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "fef32a9b326524fd5ff851d9ae72308494bbe80c",
-      "corpus_digest": "6f87b5433329705c556610943395f181a9fd41488fbe3854ab89c2e467efcde6",
+      "nah_commit": "b1de23fa86c7b199aa41e0a2a28f572c5d404fcb",
+      "corpus_digest": "37dd4de9673000a360478676c3c20f9f5152222d15732bd6a2840210d590202c",
       "classes": {
-        "effect_match": 5149,
+        "effect_match": 5154,
         "silent_symbolic_drop": 2,
         "missing_effect": 12,
         "missing_flow": 2,
         "covered": 1427,
-        "explained_partial": 1763
+        "explained_partial": 1766
       },
       "per_file": {
         "code.jsonl": {
@@ -162,9 +162,9 @@
           "explained_partial": 167
         },
         "infrastructure.jsonl": {
-          "effect_match": 258,
+          "effect_match": 263,
           "covered": 12,
-          "explained_partial": 136
+          "explained_partial": 139
         },
         "kubernetes.jsonl": {
           "effect_match": 41,
@@ -345,7 +345,7 @@
           "effect_match": 66
         },
         "infra-cloud-delete": {
-          "effect_match": 29
+          "effect_match": 34
         },
         "infra-container-reset": {
           "effect_match": 37
@@ -803,7 +803,7 @@
           "no_match": 1
         },
         "infra-cloud-delete": {
-          "match": 29
+          "match": 34
         },
         "infra-container-reset": {
           "match": 37
@@ -11258,10 +11258,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.802,
-        "p99_ms": 131.7835,
-        "max_ms": 9951.343,
-        "max_rss_kb": 355744
+        "p50_ms": 0.8182,
+        "p99_ms": 131.5373,
+        "max_ms": 9936.7268,
+        "max_rss_kb": 366880
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11285,13 +11285,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261001T230145Z-correctness-42329",
-      "measured_at": "2026-10-01T23:01:45Z",
-      "source_fingerprint": "blake3:b285797d465d00d7c6fe047e657a3465948323eb42567d98b5a5a05ed984c647",
-      "binary_hash": "blake3:c67ab03f5eee3ce90f5fc7b03a0dd58547af2796ff32467ac41e0b098f243edb",
+      "run_id": "20261001T234442Z-correctness-23167",
+      "measured_at": "2026-10-01T23:44:42Z",
+      "source_fingerprint": "blake3:397df7055d262beaf6f65323784089ce4d70e4b3d075e58cdb7185ad95136d52",
+      "binary_hash": "blake3:6bc15f7dbab89aa701eba607ca8384e23168d2a509b3934a5ae77b9a6eb2168f",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:6e946ee2386327541fcde865d3b6124dec075f5351efba6fbc1714a9d9815f95",
-      "git_head": "fef32a9b326524fd5ff851d9ae72308494bbe80c",
+      "git_head": "b1de23fa86c7b199aa41e0a2a28f572c5d404fcb",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

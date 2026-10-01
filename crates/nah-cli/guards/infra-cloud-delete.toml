@@ -60,3 +60,8 @@ cause = "unresolved"
 row = "infra-cloud-delete.dynamic-name-delegates"
 why = "$CLUSTER is never set, so Nah cannot name the cluster."
 cause = "unresolved"
+
+[[passes]]
+row = "infra-cloud-delete.railway-unnamed-project-delegates"
+why = "Without --project, Railway prompts for the project to delete."
+cause = "unresolved"

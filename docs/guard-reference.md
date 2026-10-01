@@ -1320,6 +1320,7 @@ Unresolved, so delegated:
 
 - `aws eks delete-cluster --name prod --weird x`: Nah does not read --weird, which may change the request.
 - `aws eks delete-cluster --name "$CLUSTER"`: $CLUSTER is never set, so Nah cannot name the cluster.
+- `railway delete --yes`: Without --project, Railway prompts for the project to delete.
 
 It ships off because tearing down the preview environment an agent created is
 routine on some teams. `db-destroy` also blocks managed-database deletes,

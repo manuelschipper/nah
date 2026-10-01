@@ -74,11 +74,19 @@ enum Target {
     /// One of these options names it; without one the CLI deletes the
     /// resource the directory is linked to or configured for.
     Linked(&'static [&'static str]),
+    /// The operand or one of these options names it; without either the CLI
+    /// deletes the resource its configuration names.
+    OperandOrLinked(&'static [&'static str]),
 }
 
 const RAILWAY_DELETE_SWITCHES: &[&str] = &["--yes", "-y", "--json"];
 
-/// <https://docs.railway.com/cli/delete>, `cli/environment`, `cli/volume`.
+/// <https://docs.railway.com/cli/delete>, `cli/environment`, `cli/volume`,
+/// and `src/commands/{project,service,functions}` in railwayapp/cli. Without
+/// `--project` a project delete prompts for the project to delete, and
+/// without `--function` a function delete prompts for the function, so only
+/// the named forms are reviewed. A service delete without `--service` takes
+/// the linked service, which may be none, so it is read only when named too.
 const RAILWAY: Tool = Tool {
     command: "railway",
     provider: "railway",
@@ -91,9 +99,42 @@ const RAILWAY: Tool = Tool {
             words: &[&["delete", "rm", "remove"]],
             service: "project",
             kind: "project",
-            target: Target::Linked(&["--project", "-p"]),
+            target: Target::Named(&["--project", "-p"]),
             values: &["--project", "-p", "--2fa-code"],
             switches: RAILWAY_DELETE_SWITCHES,
+            dry_run: &[],
+        },
+        // `railway projects` runs `railway project`.
+        Delete {
+            words: &[&["project", "projects"], &["delete", "rm", "remove"]],
+            service: "project",
+            kind: "project",
+            target: Target::Named(&["--project", "-p"]),
+            values: &["--project", "-p", "--2fa-code"],
+            switches: RAILWAY_DELETE_SWITCHES,
+            dry_run: &[],
+        },
+        // Deleting a service removes it and every deployment it has from
+        // the environment.
+        Delete {
+            words: &[&["service"], &["delete", "remove", "rm"]],
+            service: "service",
+            kind: "service",
+            target: Target::Named(&["--service", "-s"]),
+            values: &["--project", "-p", "--2fa-code"],
+            switches: RAILWAY_DELETE_SWITCHES,
+            dry_run: &[],
+        },
+        Delete {
+            words: &[
+                &["functions", "function", "func", "fn", "funcs", "fns"],
+                &["delete", "remove", "rm"],
+            ],
+            service: "function",
+            kind: "function",
+            target: Target::Named(&["--function", "-f"]),
+            values: &["--function", "-f", "--2fa-code"],
+            switches: &["--yes", "-y"],
             dry_run: &[],
         },
         Delete {
@@ -249,7 +290,8 @@ const KAMAL: Tool = Tool {
 
 /// <https://www.fastly.com/documentation/reference/cli/service/delete/>.
 /// Without an option naming it, the service is the one `FASTLY_SERVICE_ID`
-/// or `fastly.toml` names.
+/// or `fastly.toml` names. The CLI has no `compute delete`; a Compute
+/// service is deleted with `service delete`.
 const FASTLY: Tool = Tool {
     command: "fastly",
     provider: "fastly",
@@ -264,18 +306,19 @@ const FASTLY: Tool = Tool {
         "--verbose",
     ],
     deletes: &[Delete {
-        words: &[&["service"], &["delete"]],
+        words: &[&["service"], &["delete", "remove"]],
         service: "service",
         kind: "service",
-        target: Target::Linked(&["--service-id", "--service-name"]),
-        values: &["--service-id", "--service-name"],
-        switches: &["--force"],
+        target: Target::Linked(&["--service-id", "-s", "--service-name"]),
+        values: &["--service-id", "-s", "--service-name"],
+        switches: &["--force", "-f"],
         dry_run: &[],
     }],
 };
 
-/// <https://developers.cloudflare.com/workers/wrangler/commands/>. Without
-/// `--name`, `wrangler delete` deletes the Worker its configuration names.
+/// <https://developers.cloudflare.com/workers/wrangler/commands/>. The
+/// operand or `--name` names the Worker `wrangler delete` deletes; without
+/// either it deletes the Worker its configuration names.
 /// R2 deletes only an empty bucket, and object storage has its own guards.
 const WRANGLER: Tool = Tool {
     command: "wrangler",
@@ -296,9 +339,9 @@ const WRANGLER: Tool = Tool {
             words: &[&["delete"]],
             service: "workers",
             kind: "worker",
-            target: Target::Linked(&["--name"]),
+            target: Target::OperandOrLinked(&["--name"]),
             values: &["--name"],
-            switches: &["--dry-run"],
+            switches: &["--dry-run", "--force"],
             dry_run: &["--dry-run"],
         },
         Delete {
@@ -468,14 +511,18 @@ impl Tool {
         let command_word = positionals[delete.words.len() - 1];
         let (id, index) = match (delete.target, operands) {
             (Target::Operand, [operand]) => (Some(literals[*operand].to_string()), *operand),
-            (Target::OperandOr(flags), [operand]) if named(flags).is_none() => {
+            (Target::OperandOr(flags) | Target::OperandOrLinked(flags), [operand])
+                if named(flags).is_none() =>
+            {
                 (Some(literals[*operand].to_string()), *operand)
             }
             (Target::OperandOr(flags) | Target::Named(flags), []) => match named(flags) {
                 Some(named) => named,
                 None => return Request::Unreviewed,
             },
-            (Target::Linked(flags), []) => named(flags).unwrap_or((None, command_word)),
+            (Target::Linked(flags) | Target::OperandOrLinked(flags), []) => {
+                named(flags).unwrap_or((None, command_word))
+            }
             _ => return Request::Unreviewed,
         };
         Request::Delete {

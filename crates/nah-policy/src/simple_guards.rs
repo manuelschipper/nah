@@ -354,6 +354,8 @@ const CLOUD_RESOURCES: &[(&str, &str, &[&str])] = &[
     ("railway", "project", &["project"]),
     ("railway", "environment", &["environment"]),
     ("railway", "volume", &["volume"]),
+    ("railway", "service", &["service"]),
+    ("railway", "function", &["function"]),
     ("modal", "app", &["app"]),
     ("modal", "environment", &["environment"]),
     ("modal", "volume", &["volume"]),

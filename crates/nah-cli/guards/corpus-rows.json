@@ -393,6 +393,7 @@
   "infra-cloud-delete.gcloud-project": "gcloud projects delete my-proj --quiet",
   "infra-cloud-delete.kamal-remove": "kamal remove -y",
   "infra-cloud-delete.railway-environment": "railway environment delete staging --yes",
+  "infra-cloud-delete.railway-unnamed-project-delegates": "railway delete --yes",
   "infra-cloud-delete.unknown-option-delegates": "aws eks delete-cluster --name prod --weird x",
   "infra-container-reset.confirmation-pipe": "printf 'y\\n' | podman system reset",
   "infra-container-reset.force": "podman system reset --force",

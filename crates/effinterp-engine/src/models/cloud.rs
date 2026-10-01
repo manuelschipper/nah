@@ -1426,6 +1426,16 @@ impl CommandModel for Aws {
             resource_delete_effect(builder, ctx, model_node, &delete);
             return;
         }
+        // The scope reading takes a reviewed global option's separate value
+        // (`aws --output json ec2 ...`) as the service; termination is read
+        // with every reviewed global option, as the other deletes are.
+        if let Some(service) = aws_service_after_globals(argv)
+            && argv.get(service).and_then(Word::as_literal) == Some("ec2")
+            && argv.get(service + 1).and_then(Word::as_literal) == Some("terminate-instances")
+        {
+            ec2_lifecycle(builder, ctx, model_node, service + 1);
+            return;
+        }
         match service {
             Some("s3") => s3(builder, ctx, model_node),
             Some("s3api") => s3api(builder, ctx, model_node),
@@ -2435,6 +2445,11 @@ fn ec2_lifecycle(
     let mut dry_run = false;
     let mut skeleton = false;
     let mut uncertain = false;
+    // An option the lifecycle verbs share but termination does not document,
+    // or an unresolved or empty word among the instance IDs: an expansion may
+    // be an option (`--instance-ids i-1 "$EXTRA"` with `EXTRA=--dry-run`), and
+    // the engine also reads it as the empty word it is when unset.
+    let mut unread = false;
     let mut i = verb_index + 1;
     while i < ctx.argv.len() {
         let word = &ctx.argv[i];
@@ -2465,12 +2480,15 @@ fn ec2_lifecycle(
                 }
             }
             "--instance-ids" | "--resources" => {
+                unread |= flag == "--resources";
                 if let Some(value) = assigned {
+                    unread |= value.as_literal().is_none_or(str::is_empty);
                     ids.push((i as u32, value));
                 } else {
                     let start = i;
                     i += 1;
                     while i < ctx.argv.len() && !ctx.argv[i].render_raw().starts_with('-') {
+                        unread |= ctx.argv[i].as_literal().is_none_or(str::is_empty);
                         ids.push((i as u32, ctx.argv[i].clone()));
                         i += 1;
                     }
@@ -2481,6 +2499,7 @@ fn ec2_lifecycle(
                 }
             }
             "--tags" => {
+                unread = true;
                 if assigned.is_none() {
                     let start = i;
                     i += 1;
@@ -2507,6 +2526,16 @@ fn ec2_lifecycle(
             | "--query"
             | "--cli-read-timeout"
             | "--cli-connect-timeout" => {
+                unread |= matches!(
+                    flag,
+                    "--image-id"
+                        | "--count"
+                        | "--min-count"
+                        | "--max-count"
+                        | "--instance-type"
+                        | "--key-name"
+                        | "--subnet-id"
+                );
                 if assigned.is_none() {
                     if ctx
                         .argv
@@ -2528,7 +2557,7 @@ fn ec2_lifecycle(
             | "--no-cli-pager"
             | "--no-paginate"
             | "--no-sign-request"
-            | "--no-verify-ssl" => {}
+            | "--no-verify-ssl" => unread |= matches!(flag, "--hibernate" | "--no-hibernate"),
             _ => {
                 uncertain = true;
                 break;
@@ -2645,12 +2674,14 @@ fn ec2_lifecycle(
         if operation == "cloud.resource.update" {
             attributes.insert("tag_update".into(), AttrValue::Bool(true));
         }
-        // A termination whose every option was read and whose instance ID is
-        // literal is the request argv states.
+        // A termination whose every word was read as an option termination
+        // documents and whose instance ID is literal is the request argv
+        // states.
         let request_assurance = if operation == "cloud.resource.delete"
             && !uncertain
+            && !unread
             && id.is_some()
-            && aws_leading_options_reviewed(ctx.argv, verb_index - 1)
+            && aws_service_after_globals(ctx.argv) == Some(verb_index - 1)
         {
             effinterp_proto::RequestAssurance::Exact
         } else {
@@ -2671,14 +2702,15 @@ fn ec2_lifecycle(
     }
 }
 
-/// Whether every word before the AWS service word at `service` is a global
-/// option the CLI documents, with its value.
-fn aws_leading_options_reviewed(argv: &[Word], service: usize) -> bool {
+/// The argv index of the AWS service word when every word before it is a
+/// global option the CLI documents, with its value.
+fn aws_service_after_globals(argv: &[Word]) -> Option<usize> {
     let mut index = 1;
-    while index < service {
-        let Some(word) = argv[index].as_literal() else {
-            return false;
-        };
+    loop {
+        let word = argv.get(index)?.as_literal()?;
+        if !word.starts_with('-') {
+            return Some(index);
+        }
         let (flag, attached) = match word.split_once('=') {
             Some((flag, _)) => (flag, true),
             None => (word, false),
@@ -2688,10 +2720,9 @@ fn aws_leading_options_reviewed(argv: &[Word], service: usize) -> bool {
         } else if AWS_COMMON_VALUES.contains(&flag) {
             index += if attached { 1 } else { 2 };
         } else {
-            return false;
+            return None;
         }
     }
-    index == service
 }
 
 fn delete_by_flag(
