@@ -370,12 +370,14 @@ fn bash_project_filesystem_effects_are_lowered_compositionally() {
 }
 
 /// Cheap padding before a danger must not push it past an analysis bound.
-/// Each top-level segment gets its own step and byte allowance, so neither
-/// thousands of `echo` operands nor one expensive interpreter prefix can
-/// starve the deletion that follows. The largest padding is the most the
-/// bridge admits: tool input stops at 1 MiB. Those allowances stay within a
-/// fixed total, so costly segments after the danger cannot run the analysis
-/// long enough to lose it either.
+/// Each list item, at any depth, gets its own step and byte allowance, so
+/// neither thousands of `echo` operands nor expensive interpreter prefixes,
+/// at the top level or nested, can starve the deletion that follows. The
+/// largest padding is the most the bridge admits: tool input stops at 1 MiB.
+/// Padding that saturates the causal relations still leaves the deletion
+/// established. Those allowances stay within a fixed total, so costly
+/// segments after the danger cannot run the analysis long enough to lose it
+/// either.
 #[test]
 fn padding_around_a_danger_cannot_push_it_past_a_bound() {
     let temp = tempfile::tempdir().unwrap();
@@ -383,11 +385,35 @@ fn padding_around_a_danger_cannot_push_it_past_a_bound() {
     let context = ctx(temp.path());
     let parens = 20_000;
     let deep = format!("{}1{}", "(".repeat(parens), ")".repeat(parens));
+    let costly = format!("perl -e 'my $x={deep};'");
     let mut shapes = [40, 5_000, (1024 * 1024 - 200) / "echo y && ".len()]
         .map(|count| ("echo y && ".repeat(count), String::new()))
         .to_vec();
-    shapes.push((format!("perl -e 'my $x={deep};'; "), String::new()));
+    shapes.push((format!("{costly}; "), String::new()));
     shapes.push((format!("Rscript -e 'x <- {deep}'; "), String::new()));
+    // The most external commands one list holds, `max_execution_fanout`.
+    shapes.push(("ls; ".repeat(255), String::new()));
+    // More costly top-level segments than may saturate when short; each is
+    // a group, whose first item continues the group's segment.
+    shapes.push((
+        format!(
+            "{{ perl -e 'my $x={}1{};'; }}; ",
+            "(".repeat(8_000),
+            ")".repeat(8_000)
+        )
+        .repeat(33),
+        String::new(),
+    ));
+    for (open, close) in [
+        ("{ ", "; }"),
+        ("( ", " )"),
+        ("if true; then ", "; fi"),
+        ("for i in 1; do ", "; done"),
+        ("f() { ", "; }; f"),
+    ] {
+        shapes.push((format!("{open}{costly}; "), close.to_owned()));
+    }
+    shapes.push((format!("sh -c \"{costly}; "), "\"".to_owned()));
     shapes.push((
         format!("f() {{ perl -e 'my $x={deep};'; }}; "),
         format!("; {}", "f; ".repeat(1_000)),
@@ -415,4 +441,13 @@ fn padding_around_a_danger_cannot_push_it_past_a_bound() {
             assert!(result.refusals().is_empty(), "{shape}");
         }
     }
+
+    // A deletion the plan proves unreachable is no block past the bound.
+    let command = format!("{}if false; then rm -rf ~; fi", "ls; ".repeat(255));
+    let result = decide_with(
+        &call("Bash", json!({ "command": command }), &repo),
+        &context,
+        support::fulfill_observation,
+    );
+    assert_eq!(result.core().verdict(), Verdict::Delegate);
 }

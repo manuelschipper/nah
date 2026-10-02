@@ -11,7 +11,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use effinterp_matcher::{
-    Absence, Evaluator, LabelProvider, Outcome, QueryLimits, Selector, Truth, Witness, success_path,
+    Absence, Evaluator, LabelProvider, Outcome, QueryLimits, Refusal, Selector, Truth, Witness,
+    success_path,
 };
 use nah_proto::effects::{CallId, EvidenceError, Reach};
 use nah_proto::effinterp_proto::{
@@ -117,8 +118,10 @@ impl ShippedGuards {
     /// scope of the unchanged plan's effects, so effect indices and occurrences
     /// stay those of the whole plan. Absence is conclusive: boundaries are not
     /// consulted, as absent effects are absent among Nah's facts, and an
-    /// indeterminate definition names its gap by `gap_code`. A query the
-    /// matcher refuses exceeds the evidence limit.
+    /// indeterminate definition names its gap by `gap_code`. A clause that
+    /// runs out of matcher work leaves its guard in `exceeded` unless another
+    /// clause matches, and never stops another guard; any other refusal is an
+    /// invalid query and exceeds the evidence limit.
     pub fn evaluate(
         &self,
         plan: &Plan,
@@ -136,6 +139,7 @@ impl ShippedGuards {
         for definition in &self.definitions {
             let mut unknown_calls = BTreeSet::new();
             let mut matched = false;
+            let mut exceeded = false;
             'clauses: for clause in &definition.clauses {
                 // A clause that binds effects relates one effect to others in
                 // the plan, a listener beside a download or a route into an
@@ -160,6 +164,7 @@ impl ShippedGuards {
                             matched = plan.effects.iter().any(|effect| &effect.id == bound);
                             break 'clauses;
                         }
+                        Outcome::Refused(Refusal::WorkLimit) => exceeded = true,
                         Outcome::Refused(_) => return Err(EvidenceError::ExceedsLimit),
                         Outcome::NoMatch | Outcome::Indeterminate(_) => {}
                     }
@@ -174,6 +179,7 @@ impl ShippedGuards {
                             matched = true;
                             break 'clauses;
                         }
+                        Outcome::Refused(Refusal::WorkLimit) => exceeded = true,
                         Outcome::Refused(_) => return Err(EvidenceError::ExceedsLimit),
                         _ => {}
                     }
@@ -209,13 +215,19 @@ impl ShippedGuards {
                             unknown_calls.insert(CallId(effect.execution.0));
                         }
                         Outcome::NoMatch => {}
+                        Outcome::Refused(Refusal::WorkLimit) => exceeded = true,
                         Outcome::Refused(_) => return Err(EvidenceError::ExceedsLimit),
                     }
                 }
             }
             if matched {
                 matches.matched.push(definition.id);
-            } else if let Some(code) = definition.gap_code {
+                continue;
+            }
+            if exceeded {
+                matches.exceeded.push(definition.id);
+            }
+            if let Some(code) = definition.gap_code {
                 matches
                     .gaps
                     .extend(unknown_calls.into_iter().map(|call| ShippedGuardGap {

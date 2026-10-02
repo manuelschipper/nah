@@ -3725,6 +3725,10 @@ fn causal_budget_saturation(
                 pending.push_back((successor.clone(), depth + 1));
             }
         }
+        // Nothing further can change the answer.
+        if depth_saturated && pairs_saturated {
+            break;
+        }
     }
     (depth_saturated, pairs_saturated)
 }

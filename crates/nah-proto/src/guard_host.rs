@@ -64,11 +64,16 @@ pub struct ShippedGuardGap {
 }
 
 /// The shipped guard matches of one conversion: the guards that matched, in
-/// evaluation order, and the gaps indeterminate guards named.
+/// evaluation order, the gaps indeterminate guards named, and the guards
+/// whose queries needed more matcher work than one evaluation allows.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ShippedGuardMatches {
     pub matched: Vec<&'static str>,
     pub gaps: Vec<ShippedGuardGap>,
+    /// Guards that matched nothing within the work they were allowed. Their
+    /// silence is no evidence of absence, and it never stops another guard
+    /// from matching.
+    pub exceeded: Vec<&'static str>,
 }
 
 impl ShippedGuardMatches {

@@ -6,6 +6,8 @@
 
 - **Hidden characters in commands** — `exec-obfuscated` now also blocks a shell or PowerShell command whose text holds characters that make the approval prompt show something other than what runs: raw control bytes such as ESC, bidirectional overrides and isolates, zero-width spaces and similar invisible format characters, and Unicode tag characters outside the England, Scotland and Wales flags. Emoji with joiners, those three flags, right-to-left text with its direction marks, and escapes written as text such as `printf '\e[31m'` pass.
 
+- **Padding before a dangerous command** — Harmless commands placed before a dangerous one no longer stop every guard from running. `cat f; ` repeated 18 times or `cat f && ` 46 times before `rm -rf ~`, an expensive interpreter prefix inside a group, branch, loop, function, `sh -c` or `eval`, and more than 32 expensive top-level commands now block. A guard whose own analysis runs out of work no longer prevents the others from deciding; the call reports `guard-work-limit`, which a fail-closed hook blocks.
+
 ## nah 1.6.1 — Sep 30, 2026
 
 - **Guard reference** — Guard descriptions in `nah docs guards`, the TUI, and nahguard.ai's guard docs now come from one record per guard, with block and pass examples checked against the public corpus. Entries that said a call passes where Nah now blocks it were corrected.

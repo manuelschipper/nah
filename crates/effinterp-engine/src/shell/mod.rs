@@ -1982,16 +1982,19 @@ impl Shell<'_> {
                 builder.note_deadline();
                 return None;
             }
-            // Each top-level segment of the analyzed command gets its own
-            // allowance, so what an earlier segment spent cannot starve it. A
-            // function body's items are not segments: every call would grant
-            // its items again.
-            if walk_depth == 0
-                && self.depth == 0
-                && env.active.is_empty()
-                && !self.nest.budget.measuring()
+            // Each list item gets its own allowance, so what an earlier item
+            // spent cannot starve it, however deeply both are nested. The
+            // first item of a nested shell's own source continues the segment
+            // of the command that started that shell.
+            if !self.nest.budget.measuring()
+                && (self.depth == 0 || walk_depth > 0 || index > 0)
+                && let Some(span) = parse::items_span(std::slice::from_ref(item))
             {
-                self.nest.budget.begin_segment();
+                self.nest.budget.begin_segment(
+                    (self.source_digest.clone(), span.start),
+                    (span.end - span.start) as usize,
+                    self.depth > 0 || walk_depth > 0 || !env.active.is_empty(),
+                );
             }
             let mut previous = index.checked_sub(1).and_then(|index| items.get(index));
             for _ in 0..effinterp_proto::MAX_CONDITION_DEPTH {

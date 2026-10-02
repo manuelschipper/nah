@@ -208,7 +208,7 @@ pub(crate) fn terminal_input(provider: &str, tier: NahProtectionTier) -> GuardEv
 pub(crate) fn guard_matches(names: &[&'static str]) -> nah_proto::guard_host::ShippedGuardMatches {
     nah_proto::guard_host::ShippedGuardMatches {
         matched: names.to_vec(),
-        gaps: vec![],
+        ..Default::default()
     }
 }
 

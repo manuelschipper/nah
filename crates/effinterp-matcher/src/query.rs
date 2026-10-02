@@ -723,7 +723,7 @@ pub enum Traversal {
 }
 
 /// How exact the value dependencies on a byte-flow route must be.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ByteFlowAssurance {
     /// Value dependencies must be exact.
@@ -733,7 +733,7 @@ pub enum ByteFlowAssurance {
 }
 
 /// A causal edge kind a byte-flow route may follow.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ByteFlowEdgeKind {
     ValueDependency,

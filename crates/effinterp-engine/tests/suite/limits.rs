@@ -888,9 +888,9 @@ func main() { alpha(); bravo(); charlie(); delta(); echo() }
 
 #[test]
 fn final_gap_index_byte_saturation_rebinds_execution_boundaries() {
-    // One top-level segment: a second would get its own byte allowance past
-    // the limit this test sets one byte short.
-    let subject = shell("{ mystery-one; ssh host rm -rf $(cat list); }");
+    // One simple command and no nested list: every list item draws its own
+    // byte allowance past the limit this test sets one byte short.
+    let subject = shell("docker exec \"$C\" ssh host \"$CMD\"");
     let (baseline, stats) = Engine::new()
         .with_causality_detail(true)
         .analyze_with_stats(&subject)

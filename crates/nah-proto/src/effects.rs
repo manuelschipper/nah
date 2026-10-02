@@ -1133,12 +1133,26 @@ fn unique<T: Ord>(ids: impl Iterator<Item = T>) -> Result<BTreeSet<T>, EvidenceE
     }
     Ok(seen)
 }
+/// Each item by its id, refusing a repeated id. Validation looks references
+/// up here, so its work stays near-linear in the graph's size.
+fn index<K: Ord, V>(items: &[V], id: impl Fn(&V) -> K) -> Result<BTreeMap<K, &V>, EvidenceError> {
+    let mut indexed = BTreeMap::new();
+    for item in items {
+        if indexed.insert(id(item), item).is_some() {
+            return Err(EvidenceError::DuplicateId);
+        }
+    }
+    Ok(indexed)
+}
 fn require(value: bool, error: EvidenceError) -> Result<(), EvidenceError> {
     if value { Ok(()) } else { Err(error) }
 }
 
 fn validate_graph(graph: &EffectGraph) -> Result<(), EvidenceError> {
     use EvidenceError::*;
+    // Conditions count like any other item: a relation between two
+    // conditional occurrences carries its own conjunction, so their number
+    // grows with the relations rather than with the command.
     require(
         graph.calls.len()
             + graph.resources.len()
@@ -1146,25 +1160,25 @@ fn validate_graph(graph: &EffectGraph) -> Result<(), EvidenceError> {
             + graph.occurrences.len()
             + graph.relations.len()
             + graph.gaps.len()
-            <= 65536
-            && graph.conditions.len() <= 1024,
+            + graph.conditions.len()
+            <= 65536,
         ExceedsLimit,
     )?;
-    let calls = unique(graph.calls.iter().map(|v| v.id))?;
-    let resources = unique(graph.resources.iter().map(|v| v.id))?;
-    let facts = unique(graph.facts.iter().map(|v| v.id))?;
+    let calls = index(&graph.calls, |v| v.id)?;
+    let resources = index(&graph.resources, |v| v.id)?;
+    let facts = index(&graph.facts, |v| v.id)?;
     let occurrences = unique(graph.occurrences.iter().map(|v| v.id))?;
-    let conditions = unique(graph.conditions.iter().map(|v| v.id))?;
+    let conditions = index(&graph.conditions, |v| v.id)?;
     let gaps = unique(graph.gaps.iter().map(|v| v.id))?;
     let condition = |v: &Option<ConditionUse>| {
         require(
-            v.as_ref().is_none_or(|c| conditions.contains(&c.id)),
+            v.as_ref().is_none_or(|c| conditions.contains_key(&c.id)),
             DanglingReference,
         )
     };
     for call in &graph.calls {
         require(
-            call.parent.is_none_or(|id| calls.contains(&id)),
+            call.parent.is_none_or(|id| calls.contains_key(&id)),
             DanglingReference,
         )?;
         if let Some(input) = &call.input {
@@ -1180,11 +1194,7 @@ fn validate_graph(graph: &EffectGraph) -> Result<(), EvidenceError> {
         let mut parent = Some(call.id);
         while let Some(id) = parent {
             require(seen.insert(id), Cycle)?;
-            parent = graph
-                .calls
-                .iter()
-                .find(|c| c.id == id)
-                .and_then(|c| c.parent);
+            parent = calls.get(&id).and_then(|c| c.parent);
         }
     }
     for c in &graph.conditions {
@@ -1194,11 +1204,7 @@ fn validate_graph(graph: &EffectGraph) -> Result<(), EvidenceError> {
             work += 1;
             require(work <= 4096, ExceedsLimit)?;
             require(ancestors.insert(id), Cycle)?;
-            let node = graph
-                .conditions
-                .iter()
-                .find(|c| c.id == id)
-                .ok_or(DanglingReference)?;
+            let node = conditions.get(&id).ok_or(DanglingReference)?;
             let children = match &node.expression {
                 ConditionExpr::Literal { .. } => vec![],
                 ConditionExpr::All(ids) | ConditionExpr::Any(ids) => ids.clone(),
@@ -1253,7 +1259,7 @@ fn validate_graph(graph: &EffectGraph) -> Result<(), EvidenceError> {
         }
     }
     for fact in &graph.facts {
-        require(calls.contains(&fact.call), DanglingReference)?;
+        require(calls.contains_key(&fact.call), DanglingReference)?;
         condition(&fact.condition)?;
         let allowed_kinds: Option<&[ResourceKind]> = match &fact.payload {
             FactPayload::FilesystemAccess { .. } | FactPayload::FilesystemSearch { .. } => {
@@ -1281,11 +1287,7 @@ fn validate_graph(graph: &EffectGraph) -> Result<(), EvidenceError> {
             _ => None,
         };
         for id in fact.payload.resource_ids() {
-            let resource = graph
-                .resources
-                .iter()
-                .find(|r| r.id == id)
-                .ok_or(DanglingReference)?;
+            let resource = resources.get(&id).ok_or(DanglingReference)?;
             require(resource.realm == fact.realm, InvalidLabelRealm)?;
             require(
                 allowed_kinds.is_none_or(|allowed| {
@@ -1329,7 +1331,7 @@ fn validate_graph(graph: &EffectGraph) -> Result<(), EvidenceError> {
         } = &fact.payload
         {
             require(
-                nested_subjects.iter().all(|id| calls.contains(id)),
+                nested_subjects.iter().all(|id| calls.contains_key(id)),
                 DanglingReference,
             )?;
         }
@@ -1358,17 +1360,15 @@ fn validate_graph(graph: &EffectGraph) -> Result<(), EvidenceError> {
     for occurrence in &graph.occurrences {
         condition(&occurrence.condition)?;
         if let Some(id) = occurrence.fact {
-            let fact = graph
-                .facts
-                .iter()
-                .find(|fact| fact.id == id)
-                .ok_or(DanglingReference)?;
+            let fact = facts.get(&id).ok_or(DanglingReference)?;
             require(fact.call == occurrence.call, InvalidPayload)?;
         }
         require(
-            calls.contains(&occurrence.call)
-                && occurrence.fact.is_none_or(|id| facts.contains(&id))
-                && occurrence.resource.is_none_or(|id| resources.contains(&id)),
+            calls.contains_key(&occurrence.call)
+                && occurrence.fact.is_none_or(|id| facts.contains_key(&id))
+                && occurrence
+                    .resource
+                    .is_none_or(|id| resources.contains_key(&id)),
             DanglingReference,
         )?;
     }
@@ -1385,7 +1385,7 @@ fn validate_graph(graph: &EffectGraph) -> Result<(), EvidenceError> {
         )?;
     }
     for gap in &graph.gaps {
-        require(calls.contains(&gap.call), DanglingReference)?;
+        require(calls.contains_key(&gap.call), DanglingReference)?;
         require(stable_code(&gap.code), InvalidGap)?;
     }
     let mut claims = BTreeSet::new();
@@ -1395,7 +1395,7 @@ fn validate_graph(graph: &EffectGraph) -> Result<(), EvidenceError> {
             InvalidCoverage,
         )?;
         require(
-            calls.contains(&claim.call) && claim.gaps.iter().all(|id| gaps.contains(id)),
+            calls.contains_key(&claim.call) && claim.gaps.iter().all(|id| gaps.contains(id)),
             DanglingReference,
         )?;
         require(
@@ -1415,23 +1415,23 @@ fn stable_code(s: &str) -> bool {
 
 fn validate_public(graph: &EffectGraph, public: &PublicSelection) -> Result<(), EvidenceError> {
     use EvidenceError::*;
+    let calls = graph.calls.iter().map(|c| c.id).collect::<BTreeSet<_>>();
+    let facts = graph.facts.iter().map(|f| f.id).collect::<BTreeSet<_>>();
+    let resources = graph
+        .resources
+        .iter()
+        .map(|r| r.id)
+        .collect::<BTreeSet<_>>();
+    let occurrences = graph
+        .occurrences
+        .iter()
+        .map(|o| o.id)
+        .collect::<BTreeSet<_>>();
     require(
-        public
-            .calls
-            .iter()
-            .all(|id| graph.calls.iter().any(|c| c.id == *id))
-            && public
-                .facts
-                .iter()
-                .all(|id| graph.facts.iter().any(|f| f.id == *id))
-            && public
-                .resources
-                .iter()
-                .all(|id| graph.resources.iter().any(|r| r.id == *id))
-            && public
-                .occurrences
-                .iter()
-                .all(|id| graph.occurrences.iter().any(|o| o.id == *id))
+        public.calls.is_subset(&calls)
+            && public.facts.is_subset(&facts)
+            && public.resources.is_subset(&resources)
+            && public.occurrences.is_subset(&occurrences)
             && public
                 .relations
                 .iter()
@@ -1510,10 +1510,7 @@ impl EffectGraph {
     /// incomplete, or more than twelve distinct atoms are relevant.
     pub fn conditions_compatible(&self, conditions: &[ConditionUse]) -> Reach {
         let graph = self;
-        if conditions
-            .iter()
-            .any(|c| !graph.conditions.iter().any(|n| n.id == c.id))
-        {
+        if conditions.iter().any(|c| graph.condition(c.id).is_none()) {
             return Reach::Unknown;
         }
         let mut relevant = BTreeSet::new();
@@ -1525,11 +1522,7 @@ impl EffectGraph {
             if !relevant.insert(id) {
                 continue;
             }
-            let node = graph
-                .conditions
-                .iter()
-                .find(|node| node.id == id)
-                .expect("validated condition");
+            let node = graph.condition(id).expect("validated condition");
             if !node.complete {
                 return Reach::Unknown;
             }
@@ -1539,10 +1532,12 @@ impl EffectGraph {
                 ConditionExpr::Not(id) => pending.push(*id),
             }
         }
-        let atoms = graph
-            .conditions
+        let relevant = relevant
+            .into_iter()
+            .map(|id| graph.condition(id).expect("validated condition"))
+            .collect::<Vec<_>>();
+        let atoms = relevant
             .iter()
-            .filter(|node| relevant.contains(&node.id))
             .filter_map(|node| match node.expression {
                 ConditionExpr::Literal { atom, .. } => Some(atom),
                 _ => None,
@@ -1554,13 +1549,7 @@ impl EffectGraph {
             return Reach::Unknown;
         }
         fn evaluate(id: ConditionId, graph: &EffectGraph, atoms: &[u32], assignment: u32) -> bool {
-            match &graph
-                .conditions
-                .iter()
-                .find(|n| n.id == id)
-                .expect("validated condition")
-                .expression
-            {
+            match &graph.condition(id).expect("validated condition").expression {
                 ConditionExpr::Literal { atom, .. } => {
                     assignment & (1 << atoms.binary_search(atom).expect("known atom")) != 0
                 }
@@ -1575,16 +1564,11 @@ impl EffectGraph {
         }
         for assignment in 0..(1 << atoms.len()) {
             let mut groups = BTreeSet::new();
-            if !graph
-                .conditions
-                .iter()
-                .filter(|node| relevant.contains(&node.id))
-                .all(|node| {
-                    node.alternative_group.is_none_or(|group| {
-                        !evaluate(node.id, graph, &atoms, assignment) || groups.insert(group)
-                    })
+            if !relevant.iter().all(|node| {
+                node.alternative_group.is_none_or(|group| {
+                    !evaluate(node.id, graph, &atoms, assignment) || groups.insert(group)
                 })
-            {
+            }) {
                 continue;
             }
             if conditions
@@ -1595,6 +1579,15 @@ impl EffectGraph {
             }
         }
         Reach::No
+    }
+
+    /// The condition `id`. The bridge numbers conditions by position, so that
+    /// is looked at first.
+    fn condition(&self, id: ConditionId) -> Option<&EffectCondition> {
+        self.conditions
+            .get(id.0 as usize)
+            .filter(|node| node.id == id)
+            .or_else(|| self.conditions.iter().find(|node| node.id == id))
     }
 }
 
