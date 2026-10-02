@@ -31,6 +31,9 @@ use crate::validate::{Budget, QueryLimits};
 
 /// Flow endpoint candidates: occurrences with what the endpoint leaves of them.
 type Candidates<'a> = Vec<(&'a OccurrenceId, Truth)>;
+/// A selector's possible effects, by plan index, each with its selection or
+/// the refusal selecting it met.
+type Selections = Vec<(usize, Result<Truth, Refusal>)>;
 /// Byte-flow reach by source occurrence and traversal.
 type ByteReaches<'a> = BTreeMap<
     (&'a OccurrenceId, ByteFlowAssurance, Vec<ByteFlowEdgeKind>),
@@ -53,6 +56,8 @@ pub struct Evaluator<'a> {
     bindings: BTreeMap<ExecutionNodeRef, Bindings>,
     label_provider: &'a dyn LabelProvider,
     limits: QueryLimits,
+    /// What remains of `limits.shared_steps` for later evaluations.
+    shared_steps: Cell<usize>,
     nodes: BTreeMap<&'a OccurrenceId, &'a OccurrenceNode>,
     /// Every causal node by id, in graph order; a repeated id lists each.
     nodes_by_id: BTreeMap<&'a OccurrenceId, Vec<&'a OccurrenceNode>>,
@@ -71,6 +76,11 @@ pub struct Evaluator<'a> {
     /// endpoint's address in the query under evaluation, which every binding
     /// of an enclosing effect would otherwise recompute.
     endpoint_candidates: RefCell<BTreeMap<*const Endpoint, Candidates<'a>>>,
+    /// The scoped effects each unrelated `BindEffect` selector does not rule
+    /// out, by the selector's address in the query under evaluation: a
+    /// selection depends on the effect alone, and every binding of an
+    /// enclosing effect would otherwise scan the plan again.
+    selections: RefCell<BTreeMap<*const Selector, std::rc::Rc<Selections>>>,
     /// The version of the query under evaluation: a schema-3 label keeps its
     /// schema-3 meaning on a selection that is not concrete.
     schema_version: Cell<u32>,
@@ -141,6 +151,7 @@ impl<'a> Evaluator<'a> {
             bindings,
             label_provider,
             limits,
+            shared_steps: Cell::new(limits.shared_steps),
             nodes,
             nodes_by_id,
             edges_from,
@@ -149,6 +160,7 @@ impl<'a> Evaluator<'a> {
             state_transitions: RefCell::new(BTreeMap::new()),
             byte_reaches: RefCell::new(BTreeMap::new()),
             endpoint_candidates: RefCell::new(BTreeMap::new()),
+            selections: RefCell::new(BTreeMap::new()),
             schema_version: Cell::new(SCHEMA_VERSION),
             scope: RefCell::new(Vec::new()),
             absence: Cell::new(Absence::Closure),
@@ -168,6 +180,10 @@ impl<'a> Evaluator<'a> {
     /// and keeps its plan index and occurrence, but is never selected or bound
     /// itself. `absence` says when finding no selected effect is conclusive.
     ///
+    /// The evaluation may spend its own steps and what earlier evaluations
+    /// left of the evaluator's shared steps, never more than `max_steps`, and
+    /// is refused with [`Refusal::WorkLimit`] when it needs more.
+    ///
     /// The query is validated on every call and refused when invalid; the
     /// scope is not. Scope entries must be strictly ascending plan-effect
     /// positions below `plan.effects.len()`, as [`Self::candidate_effects`]
@@ -185,7 +201,12 @@ impl<'a> Evaluator<'a> {
                 .last()
                 .is_none_or(|last| *last < self.plan.effects.len())
         );
-        let mut budget = Budget(self.limits.max_steps);
+        let allowance = self.limits.max_steps.min(
+            self.limits
+                .own_steps
+                .saturating_add(self.shared_steps.get()),
+        );
+        let mut budget = Budget(allowance);
         self.schema_version.set(query.schema_version);
         self.absence.set(absence);
         let mut current = self.scope.borrow_mut();
@@ -193,9 +214,12 @@ impl<'a> Evaluator<'a> {
         current.extend_from_slice(scope);
         drop(current);
         self.endpoint_candidates.borrow_mut().clear();
+        self.selections.borrow_mut().clear();
         let outcome = query
             .validate_with(self.limits, absence)
             .and_then(|()| self.assertion(&query.assertion, &BTreeMap::new(), 0, &mut budget));
+        let drawn = (allowance - budget.0).saturating_sub(self.limits.own_steps);
+        self.shared_steps.set(self.shared_steps.get() - drawn);
         outcome.unwrap_or_else(Outcome::Refused)
     }
 
@@ -395,25 +419,38 @@ impl<'a> Evaluator<'a> {
         budget: &mut Budget,
     ) -> Result<Outcome, Refusal> {
         let mut unknowns = Vec::new();
-        for &index in self.scope.borrow().iter() {
-            let effect = &self.plan.effects[index];
-            if !selector.operation.matches(effect.operation.as_str()) {
-                continue;
-            }
-            budget.charge()?;
-            let selected = match scope.related {
-                Some(related) => self
-                    .relation(
+        let cached = scope.related.is_none().then(|| self.selections(selector));
+        let indices = match &cached {
+            Some(candidates) => candidates.iter().map(|(index, _)| *index).collect(),
+            None => self.scope.borrow().clone(),
+        };
+        for (position, index) in indices.into_iter().enumerate() {
+            let selected = match (&cached, scope.related) {
+                (Some(candidates), _) => {
+                    budget.charge()?;
+                    candidates[position].1.clone()?
+                }
+                (None, Some(related)) => {
+                    if !selector
+                        .operation
+                        .matches(self.plan.effects[index].operation.as_str())
+                    {
+                        continue;
+                    }
+                    budget.charge()?;
+                    self.relation(
                         scope.effect_bindings[&related.binding],
                         index,
                         related.relationship,
                     )
-                    .and(|| self.select_effect(index, selector))?,
-                None => self.select_effect(index, selector)?,
+                    .and(|| self.select_effect(index, selector))?
+                }
+                (None, None) => unreachable!("an unrelated binding is cached"),
             };
             if selected == Truth::False {
                 continue;
             }
+            let effect = &self.plan.effects[index];
             let mut nested_bindings = scope.effect_bindings.clone();
             nested_bindings.insert(name.to_owned(), index);
             let nested = self.assertion(assertion, &nested_bindings, scope.depth + 1, budget)?;
@@ -437,6 +474,33 @@ impl<'a> Evaluator<'a> {
             }
         }
         Ok(self.effect_absence(closure, unknowns))
+    }
+
+    /// The scoped effects `selector` does not rule out, in scope order. The
+    /// search costs no steps: a binding charges one for each candidate it
+    /// considers, never more than a scan of every effect would.
+    fn selections(&self, selector: &Selector) -> std::rc::Rc<Selections> {
+        let key = selector as *const Selector;
+        if let Some(candidates) = self.selections.borrow().get(&key) {
+            return candidates.clone();
+        }
+        let candidates: std::rc::Rc<Selections> = std::rc::Rc::new(
+            self.scope
+                .borrow()
+                .iter()
+                .filter(|&&index| {
+                    selector
+                        .operation
+                        .matches(self.plan.effects[index].operation.as_str())
+                })
+                .filter_map(|&index| match self.select_effect(index, selector) {
+                    Ok(Truth::False) => None,
+                    selected => Some((index, selected)),
+                })
+                .collect(),
+        );
+        self.selections.borrow_mut().insert(key, candidates.clone());
+        candidates
     }
 
     fn related_effect(

@@ -120,8 +120,10 @@ impl ShippedGuards {
     /// consulted, as absent effects are absent among Nah's facts, and an
     /// indeterminate definition names its gap by `gap_code`. A clause that
     /// runs out of matcher work leaves its guard in `exceeded` unless another
-    /// clause matches, and never stops another guard; any other refusal is an
-    /// invalid query and exceeds the evidence limit.
+    /// clause matches. Guards share the evaluator's step budget in definition
+    /// order, so one that spends it leaves each later guard only its own
+    /// steps; any other refusal is an invalid query and exceeds the evidence
+    /// limit.
     pub fn evaluate(
         &self,
         plan: &Plan,

@@ -2337,11 +2337,7 @@ impl Shell<'_> {
                     // Nothing reaches these commands unless the command that
                     // decided so is redefined.
                     GroupKind::Unreachable { head } => {
-                        if head.as_ref().is_some_and(|name| {
-                            env.functions.contains_key(name)
-                                || env.disabled_builtins.contains(name)
-                                || env.aliases.contains_key(name)
-                        }) {
+                        if head.as_ref().is_some_and(|name| env.may_redefine(name)) {
                             self.walk_may_region(builder, env, items, walk_depth + 1);
                             env.status = None;
                         }
@@ -2489,9 +2485,7 @@ impl Shell<'_> {
                             && values.iter().all(|value| literal_word_text(value).is_some())
                             && !values.iter().any(|value| matches!(value.segs.first(),
                                 Some(Seg::Literal { text, quoted: false }) if text.starts_with('~')))
-                            && !env.functions.contains_key("break")
-                            && !env.disabled_builtins.contains("break")
-                            && !env.aliases.contains_key("break")
+                            && !env.may_redefine("break")
                             && let Some(stop) = items.iter().position(|item| matches!(item,
                                 ShellItem::Pipeline { cmds, conditional: false, .. }
                                 if cmds.len() == 1 && cmds[0].redirs.is_empty() && cmds[0].assignments.is_empty()
@@ -2717,22 +2711,18 @@ impl Shell<'_> {
                 && !self.source[cmd.span.start as usize..]
                     .trim_start()
                     .starts_with('!')
-                && !outcome.name.as_ref().is_some_and(|name| {
-                    env.functions.contains_key(name)
-                        || env.disabled_builtins.contains(name)
-                        || env.aliases.contains_key(name)
-                }) {
+                && !outcome
+                    .name
+                    .as_ref()
+                    .is_some_and(|name| env.may_redefine(name))
+            {
                 match outcome.name.as_deref() {
                     Some("true" | ":") if cmd.assignments.is_empty() => Some(true),
                     Some("false" | "") if cmd.assignments.is_empty() => Some(false),
                     // `[` reaches here without a command name.
                     Some("test") | None
                         if cmd.words.first().and_then(parse::literal_text).is_some_and(
-                            |head| {
-                                (head == "test" || head == "[")
-                                    && !env.functions.contains_key(&head)
-                                    && !env.aliases.contains_key(&head)
-                            },
+                            |head| (head == "test" || head == "[") && !env.may_redefine(&head),
                         ) =>
                     {
                         jobs::command_status(cmd)
@@ -3732,6 +3722,17 @@ impl Shell<'_> {
 }
 
 impl ShellEnv {
+    /// Whether `name` may run something other than its builtin on some path:
+    /// a function or alias defines it here or on one branch already walked,
+    /// or the builtin may be disabled.
+    fn may_redefine(&self, name: &str) -> bool {
+        self.functions.contains_key(name)
+            || self.function_alternatives.contains_key(name)
+            || self.aliases.contains_key(name)
+            || self.alias_alternatives.contains_key(name)
+            || self.disabled_builtins.contains(name)
+    }
+
     /// Aliases a nested read (`source`, `eval`, an alias's own text) defined
     /// ended in that read's buffer. The caller's source continues after the
     /// command that started the read, so they take effect from its end.

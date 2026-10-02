@@ -451,6 +451,7 @@ fn padding_around_a_danger_cannot_push_it_past_a_bound() {
         support::fulfill_observation,
     );
     assert_eq!(result.core().verdict(), Verdict::Delegate);
+    let mut shapes = Vec::new();
     for (dead, live) in [
         (
             "while false; do rm -rf ~; done",
@@ -472,6 +473,11 @@ fn padding_around_a_danger_cannot_push_it_past_a_bound() {
             "while true; do break; rm -rf ~; done",
             "for x in 1 2; do [ $x = 2 ] && break; rm -rf ~; done",
         ),
+        // zsh runs on past a stop with more than one operand.
+        (
+            "for x in 1; do break 0; rm -rf ~; done",
+            "for x in 1; do break 1 2; rm -rf ~; done",
+        ),
         (
             "if test 1 = 2; then rm -rf ~; fi",
             "if test 1 = 1; then rm -rf ~; fi",
@@ -482,20 +488,35 @@ fn padding_around_a_danger_cannot_push_it_past_a_bound() {
         ),
         ("if ((0)); then rm -rf ~; fi", "if ((1)); then rm -rf ~; fi"),
     ] {
-        for (shape, verdict) in [(dead, Verdict::Delegate), (live, Verdict::Block)] {
-            for command in [shape.to_owned(), format!("{{ {costly}; {shape}; }}")] {
-                let result = decide_with(
-                    &call("Bash", json!({ "command": command }), &repo),
-                    &context,
-                    support::fulfill_observation,
-                );
-                assert_eq!(
-                    result.core().verdict(),
-                    verdict,
-                    "{shape} ({} bytes)",
-                    command.len()
-                );
-            }
+        shapes.push((dead, Verdict::Delegate));
+        shapes.push((live, Verdict::Block));
+    }
+    // A function of the deciding command's name, defined on every path or
+    // only on some, can run the region.
+    for redefined in [
+        "false(){ return 0; }; while false; do rm -rf ~; break; done",
+        "continue(){ :; }; for i in 1; do continue; rm -rf ~; done",
+        "test(){ return 0; }; if test 1 = 2; then rm -rf ~; fi",
+        "if test -d /tmp; then false(){ return 0; }; fi; while false; do rm -rf ~; break; done",
+        "if test -d /tmp; then continue(){ :; }; fi; for i in 1; do continue; rm -rf ~; done",
+        "if test -d /tmp; then test(){ return 0; }; fi; if test 1 = 2; then rm -rf ~; fi",
+        "if test -d /tmp; then true(){ return 1; }; fi; until true; do rm -rf ~; break; done",
+    ] {
+        shapes.push((redefined, Verdict::Block));
+    }
+    for (shape, verdict) in shapes {
+        for command in [shape.to_owned(), format!("{{ {costly}; {shape}; }}")] {
+            let result = decide_with(
+                &call("Bash", json!({ "command": command }), &repo),
+                &context,
+                support::fulfill_observation,
+            );
+            assert_eq!(
+                result.core().verdict(),
+                verdict,
+                "{shape} ({} bytes)",
+                command.len()
+            );
         }
     }
 }

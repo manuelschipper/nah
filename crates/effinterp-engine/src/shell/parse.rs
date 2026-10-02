@@ -1964,7 +1964,9 @@ fn unreachable_body(head: Option<String>, items: Vec<ShellItem>) -> Vec<ShellIte
 }
 
 /// A loop body whose commands after its first unconditional `break` or
-/// `continue` never run.
+/// `continue` never run. With more than one operand zsh reports an error and
+/// runs on, so only a bare or single-operand stop qualifies; every other
+/// shell leaves the loop or exits even when the operand is invalid.
 fn loop_body(mut items: Vec<ShellItem>) -> Vec<ShellItem> {
     let stop = items.iter().position(|item| {
         matches!(item, ShellItem::Pipeline { cmds, conditional: false, .. }
@@ -1972,7 +1974,7 @@ fn loop_body(mut items: Vec<ShellItem>) -> Vec<ShellItem> {
             && cmds[0].redirs.is_empty()
             && cmds[0].assignments.is_empty()
             && cmds[0].words.iter().map(literal_text).collect::<Option<Vec<_>>>()
-                .is_some_and(|words| matches!(
+                .is_some_and(|words| words.len() <= 2 && matches!(
                     words.first().map(String::as_str),
                     Some("break" | "continue")
                 )))

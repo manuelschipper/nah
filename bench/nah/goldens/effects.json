@@ -106998,6 +106998,58 @@
           }
         }
       ]
+    },
+    {
+      "id": "fs-home.conditional-false-function-while-home-delete",
+      "guard": "fs-home",
+      "derivation": "a function named false defined on one branch can make the while condition succeed, so the loop body's 'rm -rf ~' deletes the fixture home directory on that path",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.conditional-continue-function-loop-home-delete",
+      "guard": "fs-home",
+      "derivation": "a function named continue defined on one branch returns instead of skipping, so the loop body's 'rm -rf ~' deletes the fixture home directory on that path",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.conditional-test-function-if-home-delete",
+      "guard": "fs-home",
+      "derivation": "a function named test defined on one branch succeeds for unequal literals, so the then-arm 'rm -rf ~' deletes the fixture home directory on that path",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.conditional-true-function-until-home-delete",
+      "guard": "fs-home",
+      "derivation": "a function named true defined on one branch fails, so the until body's 'rm -rf ~' deletes the fixture home directory on that path",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
     }
   ]
 }

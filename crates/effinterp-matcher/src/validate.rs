@@ -557,6 +557,12 @@ pub struct QueryLimits {
     /// Each effect, boundary, occurrence or reachable pair examined and each
     /// route searched costs one step.
     pub max_steps: usize,
+    /// Steps each evaluation may spend before it draws on `shared_steps`.
+    pub own_steps: usize,
+    /// Steps every evaluation of one evaluator may spend together beyond
+    /// their own: a plan asked many queries, as every shipped guard asks of
+    /// one call, cannot spend `max_steps` on each.
+    pub shared_steps: usize,
     /// Maximum nesting below the root assertion.
     pub max_assertion_depth: usize,
     /// Maximum nesting below the root resource predicate.
@@ -569,6 +575,8 @@ impl Default for QueryLimits {
     fn default() -> Self {
         Self {
             max_steps: 1 << 20,
+            own_steps: 1 << 10,
+            shared_steps: 1 << 16,
             max_assertion_depth: 32,
             max_resource_depth: 32,
             max_condition_depth: 16,

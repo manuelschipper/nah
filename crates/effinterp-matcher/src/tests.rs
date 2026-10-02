@@ -2939,6 +2939,23 @@ fn invalid_queries_and_exhausted_work_are_refused() {
         bounded.evaluate(&query),
         Outcome::Refused(Refusal::WorkLimit)
     );
+    // Evaluating the query takes one step. Evaluations of one evaluator
+    // share the steps beyond their own: the first spends the one shared
+    // step and refuses the second, while an own step serves every one.
+    for (own_steps, shared_steps, second) in [(0, 1, false), (1, 0, true)] {
+        let shared = Evaluator::new(
+            &plan,
+            BTreeMap::from([(ExecutionNodeRef(0), Bindings::from_subject(&plan.subject))]),
+            &NO_LABELS,
+            QueryLimits {
+                own_steps,
+                shared_steps,
+                ..QueryLimits::default()
+            },
+        );
+        assert!(matches!(shared.evaluate(&query), Outcome::Match(_)));
+        assert_eq!(matches!(shared.evaluate(&query), Outcome::Match(_)), second);
+    }
 
     // Reads chained by exact value dependencies reach nothing a listen
     // could be: with no destination, the byte flow searches no route and
