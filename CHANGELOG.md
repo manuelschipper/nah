@@ -4,9 +4,11 @@
 
 - **Lookalike hosts** — The new default-on `net-lookalike-host` guard blocks downloads, uploads, and connections to a host whose name mixes Unicode scripts within one label, such as `git clone https://gіthub.com/org/repo` with a Cyrillic `і`, including its punycode form `xn--gthub-n2e.com`. Hosts written in a single script, such as `münchen.de` or an all-Cyrillic domain, pass.
 
-- **Hidden characters in commands** — `exec-obfuscated` now also blocks a shell or PowerShell command whose text holds characters that make the approval prompt show something other than what runs: raw control bytes such as ESC, bidirectional overrides and isolates, zero-width spaces and similar invisible format characters, and Unicode tag characters outside the England, Scotland and Wales flags. Emoji with joiners, those three flags, right-to-left text with its direction marks, and escapes written as text such as `printf '\e[31m'` pass.
+- **Hidden characters in commands** — `exec-obfuscated` now also blocks a shell or PowerShell command whose text holds characters that make the approval prompt show something other than what runs: raw control bytes such as ESC, a carriage return that lets later text overwrite the line, bidirectional overrides and isolates, zero-width spaces, soft hyphens and similar invisible format characters, Hangul fillers, and Unicode tag characters outside the England, Scotland and Wales flags. Emoji with joiners, those three flags, right-to-left text with its direction marks, Korean text, Windows CRLF line endings, and escapes written as text such as `printf '\e[31m'` pass.
 
 - **Cloud and platform deletions** — The off-by-default `infra-iac-destroy` guard now also blocks reviewed provider and platform CLI deletions of provisioned resources: instances, clusters, networks, DNS zones, IAM identities, projects and resource groups through `aws`, `gcloud`, and `az`; projects, environments, volumes, deployed apps, Workers and data stores through Railway, Modal, Kamal, Wrangler, Fastly, and Supabase; and managed databases, alongside `db-destroy`. For example, `aws ec2 terminate-instances --instance-ids i-0abc` and `az group delete -n prod -y` block once it is enabled. Unreviewed verbs, unknown options, help, dry runs, and names built at run time pass.
+
+- **Leftover 0.x Claude hooks** — Hooks that Nah 0.x left in `~/.claude/settings.json` now show as reinstall required in `nah hook claude status`, and re-running `nah hook claude install` removes them.
 
 ## nah 1.6.1 — Sep 30, 2026
 

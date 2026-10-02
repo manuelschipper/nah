@@ -112,15 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "5fd3cdec635d82c1a321ef3fe2f5d996aa4a63fe",
-      "corpus_digest": "bb8e54f91d3fe9db6eb20ef4e0ee93038ac5e5f824f09167a1452080d8c47fda",
+      "nah_commit": "40837a87189787e8f11a01ca378a537b44d7ed82",
+      "corpus_digest": "8859799d66318f25ce97979211d01f4844c963fff91078adc670cdac58d62413",
       "classes": {
-        "effect_match": 5155,
+        "effect_match": 5201,
         "silent_symbolic_drop": 2,
         "missing_effect": 12,
         "missing_flow": 2,
-        "covered": 1427,
-        "explained_partial": 1767
+        "covered": 1434,
+        "explained_partial": 1784
       },
       "per_file": {
         "code.jsonl": {
@@ -204,11 +204,11 @@
           "explained_partial": 102
         },
         "secrets.jsonl": {
-          "effect_match": 759,
+          "effect_match": 800,
           "missing_effect": 3,
           "missing_flow": 2,
-          "covered": 188,
-          "explained_partial": 205
+          "covered": 194,
+          "explained_partial": 219
         },
         "self-protection.jsonl": {
           "effect_match": 639,
@@ -217,9 +217,9 @@
           "explained_partial": 286
         },
         "shell-resolution.jsonl": {
-          "effect_match": 183,
-          "covered": 26,
-          "explained_partial": 25
+          "effect_match": 188,
+          "covered": 27,
+          "explained_partial": 28
         },
         "storage.jsonl": {
           "effect_match": 138,
@@ -257,7 +257,7 @@
           "explained_partial": 1
         },
         "exec-obfuscated": {
-          "effect_match": 49,
+          "effect_match": 54,
           "explained_partial": 1
         },
         "exec-remote": {
@@ -376,7 +376,7 @@
           "effect_match": 119
         },
         "secrets-exfil": {
-          "effect_match": 503,
+          "effect_match": 544,
           "missing_effect": 3,
           "missing_flow": 2,
           "explained_partial": 3
@@ -498,7 +498,7 @@
         "/workspace/project/nah/.crates2.json": 1,
         "/workspace/project/package.json": 8,
         "/workspace/project/payload.py": 1,
-        "/workspace/project/requests/__init__.py": 7,
+        "/workspace/project/requests/__init__.py": 17,
         "/workspace/project/vendor/autoload.php": 2,
         "/workspace/project/vendor/autoload_runtime.php": 1,
         "/workspace/push-config": 2,
@@ -650,7 +650,7 @@
         "observe:/workspace/project/build/logs": 4,
         "observe:/workspace/project/built-ins.json": 1,
         "observe:/workspace/project/clean-links": 1,
-        "observe:/workspace/project/config.yml": 1,
+        "observe:/workspace/project/config.yml": 2,
         "observe:/workspace/project/crates/nah-cli": 6,
         "observe:/workspace/project/crates/nah-cli/Cargo.toml": 6,
         "observe:/workspace/project/crates/other": 1,
@@ -675,22 +675,26 @@
         "observe:/workspace/project/normal.txt": 3,
         "observe:/workspace/project/notes.md": 2,
         "observe:/workspace/project/notes.txt": 1,
+        "observe:/workspace/project/notesㅤ.md": 1,
         "observe:/workspace/project/ordinary": 3,
         "observe:/workspace/project/out.log": 1,
         "observe:/workspace/project/passwd": 1,
         "observe:/workspace/project/replacement": 2,
         "observe:/workspace/project/repo": 2,
+        "observe:/workspace/project/run.bat": 1,
         "observe:/workspace/project/socat-pipe": 2,
         "observe:/workspace/project/src": 3,
         "observe:/workspace/project/src/lib.rs.orig": 1,
         "observe:/workspace/project/staged": 3,
         "observe:/workspace/project/staged.zip": 1,
         "observe:/workspace/project/startup": 1,
+        "observe:/workspace/project/status.txt": 1,
         "observe:/workspace/project/table.csv": 1,
         "observe:/workspace/project/unobserved-dir": 1,
         "observe:/workspace/project/unsafe": 1,
-        "observe:/workspace/project/words.txt": 1,
+        "observe:/workspace/project/words.txt": 2,
         "observe:/workspace/project/x": 3,
+        "observe:/workspace/project/한글 문서.md": 1,
         "observe:C:/workspace/project/x.cmd": 1
       },
       "guard_queries": {
@@ -708,7 +712,7 @@
         },
         "exec-obfuscated": {
           "match": 39,
-          "deferred": 11
+          "deferred": 16
         },
         "exec-remote": {
           "deferred": 236,
@@ -832,7 +836,7 @@
         },
         "secrets-exfil": {
           "deferred": 28,
-          "indeterminate": 476,
+          "indeterminate": 517,
           "no_match": 7
         },
         "secrets-store-delete": {
@@ -11252,10 +11256,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.7958,
-        "p99_ms": 130.5485,
-        "max_ms": 9985.5435,
-        "max_rss_kb": 343632
+        "p50_ms": 0.812,
+        "p99_ms": 130.4127,
+        "max_ms": 9817.5678,
+        "max_rss_kb": 361584
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11279,13 +11283,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261002T013946Z-correctness-18439",
-      "measured_at": "2026-10-02T01:39:46Z",
-      "source_fingerprint": "blake3:405fbe0fa0bb258eef63de48c6248e06e7c85cb5c4ec06cb341bf92f3229d636",
-      "binary_hash": "blake3:f64f1872e50d0f9b9f5b0b5b44ca18bf20c9a10a498dae28a235be2557e18f13",
+      "run_id": "20261002T020755Z-correctness-50433",
+      "measured_at": "2026-10-02T02:07:55Z",
+      "source_fingerprint": "blake3:de97f4d1efdf3117251ab84372621537b82cbb41d1d7dbc7aa5f4d9d15b77c1a",
+      "binary_hash": "blake3:d4bd050af43352beb5cd54f5da55eae8eab3c55a084435b70ec3dcc26738bf82",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:6e946ee2386327541fcde865d3b6124dec075f5351efba6fbc1714a9d9815f95",
-      "git_head": "5fd3cdec635d82c1a321ef3fe2f5d996aa4a63fe",
+      "git_head": "40837a87189787e8f11a01ca378a537b44d7ed82",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

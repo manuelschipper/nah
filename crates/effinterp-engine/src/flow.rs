@@ -87,7 +87,10 @@ impl StageWriter {
         if after <= before {
             return None;
         }
-        let effects: Vec<u32> = (before as u32..after as u32).collect();
+        Some(self.value_stage(node, (before as u32..after as u32).collect()))
+    }
+    /// A stage whose value carries the bytes of `effects`.
+    pub(crate) fn value_stage(&mut self, node: ProvenanceRef, effects: Vec<u32>) -> usize {
         let bindings = effects
             .iter()
             .map(|&e| PortBinding {
@@ -103,7 +106,7 @@ impl StageWriter {
             bindings,
             provenance: vec![node],
         });
-        Some(id)
+        id
     }
     /// Carry all constructor inputs through its returned value without adding an effect.
     pub(crate) fn join_values(&mut self, node: ProvenanceRef, producers: &[usize]) -> usize {

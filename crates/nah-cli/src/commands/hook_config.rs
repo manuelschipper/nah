@@ -6,6 +6,7 @@ use serde_json::{Map, Value, json};
 use crate::runtime::FailurePolicy;
 
 use super::RuntimeHookStatus;
+use super::shell_word::quote_posix_shell_word;
 
 pub(super) fn inspect(
     config: &Value,
@@ -128,15 +129,32 @@ pub(super) fn remove(
 ///
 /// Installers use this ownership check to find Nah's handlers when removing or
 /// replacing hooks; each runtime keeps its own command-tail grammar. Matching is
-/// case-insensitive and accepts only a single-quoted `/nah` or a double-quoted
-/// `/nah`, `/nah.exe` or `\nah.exe` path; bare or unquoted words are not Nah's.
+/// case-insensitive and accepts only one single-quoted `/nah` or double-quoted
+/// `/nah`, `/nah.exe` or `\nah.exe` path; bare or unquoted words, and several
+/// quoted words such as `'/bin/echo' '/opt/nah'`, are not Nah's.
 pub(super) fn is_quoted_nah_hook_executable(executable: &str) -> bool {
     let executable = executable.to_ascii_lowercase();
-    (executable.starts_with('\'') && executable.ends_with("/nah'"))
-        || (executable.starts_with('"')
-            && (executable.ends_with("/nah\"")
-                || executable.ends_with("\\nah.exe\"")
-                || executable.ends_with("/nah.exe\"")))
+    is_one_quoted_word(&executable)
+        && ((executable.starts_with('\'') && executable.ends_with("/nah'"))
+            || (executable.starts_with('"')
+                && (executable.ends_with("/nah\"")
+                    || executable.ends_with("\\nah.exe\"")
+                    || executable.ends_with("/nah.exe\""))))
+}
+
+/// Whether `word` is exactly one quoted shell word as installers write an
+/// executable path: POSIX single quotes with each `'` written as `'"'"'`, or
+/// Windows double quotes with no `"` inside.
+pub(super) fn is_one_quoted_word(word: &str) -> bool {
+    if let Some(inner) = word
+        .strip_prefix('\'')
+        .and_then(|word| word.strip_suffix('\''))
+    {
+        return quote_posix_shell_word(&inner.replace("'\"'\"'", "'")) == word;
+    }
+    word.strip_prefix('"')
+        .and_then(|word| word.strip_suffix('"'))
+        .is_some_and(|inner| !inner.contains('"'))
 }
 
 fn matching_handler_count(

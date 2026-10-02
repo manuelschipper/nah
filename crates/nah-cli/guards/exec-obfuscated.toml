@@ -7,8 +7,9 @@ code whose command text is spelled in base64, and a command whose program name
 the shell has to compute at run time from string operations, word splitting,
 or a filename pattern. It also blocks a shell or PowerShell command holding
 characters that make the approval prompt show other text than what runs:
-control bytes such as ESC, bidi overrides and isolates, zero-width spaces, and
-tag characters outside the England, Scotland and Wales flags.
+control bytes like ESC, a mid-line carriage return, bidi controls,
+invisible spaces, hyphens and fillers, and tag characters outside the England,
+Scotland and Wales flags.
 '''
 
 limits = '''

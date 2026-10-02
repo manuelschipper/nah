@@ -1099,12 +1099,13 @@ fn hidden_characters_are_the_display_changing_classes_at_their_boundaries() {
     };
     let flag = |code: &str| format!("\u{1F3F4}{}\u{E007F}", tags(code));
     for character in concat!(
-        // C0 controls other than tab, line feed and carriage return; DEL; C1.
-        "\u{0}\u{8}\u{B}\u{C}\u{E}\u{1B}\u{1F}\u{7F}\u{80}\u{9B}\u{9F}",
+        // C0 controls other than tab and line feed; a carriage return
+        // followed by text; DEL; C1.
+        "\u{0}\u{8}\u{B}\u{C}\r\u{E}\u{1B}\u{1F}\u{7F}\u{80}\u{9B}\u{9F}",
         // Bidi embeddings, overrides and isolates.
         "\u{202A}\u{202E}\u{2066}\u{2069}",
-        // Invisible format characters.
-        "\u{200B}\u{2060}\u{FEFF}\u{180E}",
+        // Invisible format characters, the soft hyphen and Hangul fillers.
+        "\u{200B}\u{2060}\u{FEFF}\u{180E}\u{AD}\u{115F}\u{1160}\u{3164}\u{FFA0}",
         // Tag characters outside a subdivision flag.
         "\u{E0000}\u{E0001}\u{E0041}\u{E007F}",
     )
@@ -1114,7 +1115,9 @@ fn hidden_characters_are_the_display_changing_classes_at_their_boundaries() {
         assert!(has_hidden_characters(&text), "{:X}", character as u32);
     }
     for character in concat!(
-        "\t\n\r ~\u{A0}\u{2029}\u{202F}\u{2065}\u{206A}\u{2061}\u{180F}",
+        "\t\n ~\u{A0}\u{AC}\u{AE}\u{2029}\u{202F}\u{2065}\u{206A}\u{2061}\u{180F}",
+        // Hangul jamo and halfwidth letters beside the fillers.
+        "\u{115E}\u{1161}\u{3163}\u{3165}\u{FF9F}\u{FFA1}",
         // Joiners, directional marks and variation selectors.
         "\u{200C}\u{200D}\u{200E}\u{200F}\u{61C}\u{FE0F}\u{E0100}",
     )
@@ -1122,6 +1125,22 @@ fn hidden_characters_are_the_display_changing_classes_at_their_boundaries() {
     {
         let text = format!("echo a{character}b");
         assert!(!has_hidden_characters(&text), "{:X}", character as u32);
+    }
+    // Windows line endings, a final carriage return such as one left when a
+    // CRLF script's last newline is trimmed, and Korean text composed or
+    // decomposed (NFD, as macOS stores file names) into jamo.
+    for text in [
+        "echo one\r\necho two\r\n",
+        "echo one\r\necho two\r",
+        "cat > run.bat <<'EOF'\r\n@echo off\r\nEOF",
+        "echo '\u{D55C}\u{AD6D}\u{C5B4} \u{D14C}\u{C2A4}\u{D2B8}'",
+        "cat '\u{1112}\u{1161}\u{11AB}\u{1100}\u{1173}\u{11AF}.txt'",
+    ] {
+        assert!(!has_hidden_characters(text), "{text:?}");
+    }
+    // A carriage return followed by anything but a line feed.
+    for text in ["echo safe\rrm -rf ~", "echo a\r\r\nb", "echo a\r b"] {
+        assert!(has_hidden_characters(text), "{text:?}");
     }
     // Escapes spelled as text are the characters `\`, `e` and `x`.
     assert!(!has_hidden_characters(
