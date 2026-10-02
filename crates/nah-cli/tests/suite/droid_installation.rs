@@ -103,11 +103,14 @@ fn install_runs_hook_and_uninstall_preserves_other_hooks() {
     std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
     let path = hooks_path(home);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    // Prints a command line naming Nah without running it, so it is not Nah's
+    let echo = json!({"type":"command","command":"'/bin/echo' '/opt/nah' hook droid run"});
     let original = json!({
         "description": "existing hooks",
+        "PermissionRequest": [{"matcher": "*", "hooks": [echo.clone()]}],
         "PostToolUse": [{
             "matcher": "*",
-            "hooks": [{"type":"command","command":"existing-post"}]
+            "hooks": [{"type":"command","command":"existing-post"}, echo]
         }],
         "PreToolUse": [{
             "matcher": "Task",
@@ -261,6 +264,10 @@ fn install_runs_hook_and_uninstall_preserves_other_hooks() {
     let repaired = nah(home, &["hook", "droid", "install"]);
     assert!(repaired.status.success(), "{repaired:?}");
     assert_eq!(config(&path)["PostToolUse"], original["PostToolUse"]);
+    assert_eq!(
+        config(&path)["PermissionRequest"],
+        original["PermissionRequest"]
+    );
     let current = nah(home, &["hook", "droid", "status"]);
     let current = String::from_utf8_lossy(&current.stdout);
     assert!(current.contains("wiring current"), "{current}");

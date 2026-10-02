@@ -151,12 +151,13 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
     assert_eq!(std::fs::read(&path).unwrap(), first_bytes);
 
     // Another tool's hook appended after Nah's leaves the wiring current, and
-    // install agrees by leaving the file alone
+    // install agrees by leaving the file alone. This one prints a command line
+    // naming Nah without running it.
     let mut followed = hooks(home);
     followed["hooks"]["preToolUse"]
         .as_array_mut()
         .unwrap()
-        .push(json!({"command":"third-party-pre"}));
+        .push(json!({"command":"'/bin/echo' '/opt/nah' hook cursor run"}));
     let followed_bytes = serde_json::to_vec_pretty(&followed).unwrap();
     std::fs::write(&path, &followed_bytes).unwrap();
     let status = nah(home, &["hook", "cursor", "status"]);

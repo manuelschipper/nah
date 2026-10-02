@@ -301,8 +301,13 @@ fn install_and_uninstall_remove_nah_0x_hooks_without_touching_other_handlers() {
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
     let temp = support::test_temp_path(home_temp.path());
-    // 0.x quoted paths holding spaces and apostrophes
-    let canonical_home = temp.join("o'neil home");
+    // 0.x quoted paths holding spaces and apostrophes, and on POSIX kept a
+    // literal backslash in some releases
+    let canonical_home = temp.join(if cfg!(unix) {
+        "o'neil home\\name"
+    } else {
+        "o'neil home"
+    });
     std::fs::create_dir_all(&canonical_home).unwrap();
     // 0.x spelled the shim through HOME as given, here a symlink to the home
     // nah resolves
@@ -323,12 +328,15 @@ fn install_and_uninstall_remove_nah_0x_hooks_without_touching_other_handlers() {
     let canonical_shim = canonical_shim.to_str().unwrap();
     let handler = |command: String| json!({"type": "command", "command": command});
     // Each command is what that release's `_hook_command` wrote
-    let unquoted = handler(format!("/opt/py env/bin/python3 {shim}"));
+    let unquoted = handler(format!("/usr/local/bin/python3.11 {shim}"));
     let shell_quoted = handler(format!(
         "{} {}",
         shlex_quote("/opt/o'brien/bin/python3.12"),
         shlex_quote(shim)
     ));
+    // 0.5.3 to 0.5.5 wrote `as_posix()`, which keeps a POSIX backslash; 0.6.0
+    // replaced backslashes with `/`
+    let native_double_quoted = handler(format!(r#""/usr/bin/python3" "{shim}""#));
     let double_quoted = handler(format!(
         r#""/usr/bin/python3" "{}""#,
         canonical_shim.replace('\\', "/")
@@ -336,11 +344,18 @@ fn install_and_uninstall_remove_nah_0x_hooks_without_touching_other_handlers() {
     let hidden = |nah: &str| handler(format!(r#"{} "_claude-hook""#, quote_claude_word(nah)));
     let other = handler("other-tool".into());
     // Other programs reading the shim, and a hand-written entry naming it
-    // through `~`, are not what 0.x wrote
+    // through `~`, are not what 0.x wrote. An unquoted interpreter path with
+    // spaces may have been 0.x's, but reads the same as a program and its
+    // arguments, so it stays too.
     let readers = [
         handler(format!("/usr/bin/shasum {shim}")),
         handler(format!("/bin/cat {shim}")),
         handler(format!("/usr/bin/nice /usr/bin/python3 {shim}")),
+        handler(format!("/bin/cat -- ./python3 {shim}")),
+        handler(format!("/bin/cat archive/python3 {shim}")),
+        handler(format!("/usr/bin/nice .venv/bin/python3 {shim}")),
+        handler(format!("/usr/bin/env ./venv/bin/python3 {shim}")),
+        handler(format!("/opt/py env/bin/python3 {shim}")),
     ];
     let hand_written = handler("python ~/.claude/hooks/nah_guard.py".into());
     let original = json!({
@@ -348,7 +363,7 @@ fn install_and_uninstall_remove_nah_0x_hooks_without_touching_other_handlers() {
             "PreToolUse": [
                 {"matcher": "Bash", "hooks": [unquoted]},
                 {"matcher": "Read", "hooks": [shell_quoted]},
-                {"matcher": "Glob", "hooks": [double_quoted]},
+                {"matcher": "Glob", "hooks": [native_double_quoted, double_quoted]},
                 {"matcher": "Write", "hooks": [hidden(r#"/opt/say "hi"/nah"#), other.clone()]},
                 {"matcher": "Edit", "hooks": [hand_written.clone()]},
                 {"matcher": "Grep", "hooks": readers.clone()}

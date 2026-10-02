@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_config;
 use super::hook_paths::reject_hook_path_symlink;
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
@@ -204,9 +205,10 @@ fn is_owned_command(command: &str) -> bool {
         return false;
     };
     let executable = executable.to_ascii_lowercase();
-    (executable.starts_with('\'') && executable.ends_with("/nah'"))
-        || (executable.starts_with('"')
-            && (executable.ends_with("\\nah.exe\"") || executable.ends_with("/nah.exe\"")))
+    hook_config::is_one_quoted_word(&executable)
+        && ((executable.starts_with('\'') && executable.ends_with("/nah'"))
+            || (executable.starts_with('"')
+                && (executable.ends_with("\\nah.exe\"") || executable.ends_with("/nah.exe\""))))
 }
 
 fn lock(paths: &CopilotHookPaths) -> Result<File, String> {

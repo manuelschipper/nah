@@ -355,17 +355,19 @@ fn is_legacy_handler(handler: &Value, scripts: &[String]) -> bool {
         });
     }
     scripts.iter().any(|script| {
-        legacy_interpreter(command, script).is_some_and(|interpreter| is_python(&interpreter))
+        legacy_interpreter(command, script)
+            .is_some_and(|interpreter| is_absolute_word(&interpreter) && is_python(&interpreter))
     })
 }
 
 /// The interpreter a 0.2.0 to 0.7.1 `_hook_command` wrote before `script`,
 /// decoded from whichever of its serializations `command` is.
 fn legacy_interpreter(command: &str, script: &str) -> Option<String> {
-    // 0.5.3 to 0.7.1: each word double-quoted, unescaped, with forward slashes
-    let posix = script.replace('\\', "/");
+    // 0.5.3 to 0.7.1: each word double-quoted, unescaped. Callers try both the
+    // native script spelling, which 0.5.3 to 0.5.5's `as_posix()` kept on POSIX
+    // backslashes included, and the forward-slash spelling 0.6.0 wrote.
     if let Some(interpreter) = command
-        .strip_suffix(&format!(r#" "{posix}""#))
+        .strip_suffix(&format!(r#" "{script}""#))
         .and_then(|word| word.strip_prefix('"'))
         .and_then(|word| word.strip_suffix('"'))
         .filter(|interpreter| !interpreter.contains('"'))
@@ -379,15 +381,13 @@ fn legacy_interpreter(command: &str, script: &str) -> Option<String> {
     {
         return Some(interpreter);
     }
-    // 0.2.0 to 0.5.0: both words unquoted, so everything before the script is
-    // the interpreter's absolute path, spaces included. A later word starting
-    // another absolute path means another program runs the interpreter.
+    // 0.2.0 to 0.5.0: both words unquoted. An interpreter path with spaces is
+    // indistinguishable from another program given arguments, so only a single
+    // word without shell syntax counts.
     command
         .strip_suffix(&format!(" {script}"))
         .filter(|interpreter| {
-            is_absolute_word(interpreter)
-                && !interpreter.split_whitespace().skip(1).any(is_absolute_word)
-                && !interpreter.contains(|c: char| "\n;&|<>$`'\"".contains(c))
+            !interpreter.contains(|c: char| c.is_whitespace() || ";&|<>$`'\"".contains(c))
         })
         .map(str::to_owned)
 }
