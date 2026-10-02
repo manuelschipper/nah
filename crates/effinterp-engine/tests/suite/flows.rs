@@ -5058,7 +5058,7 @@ fn multi_arm_guards_preserve_alternatives_without_sibling_resource_transitions()
             "sibling transition in {language}"
         );
     }
-    let plan = shell("f() { if test flag; then return; fi; rm /tail; }; f");
+    let plan = shell("f() { if test -e flag; then return; fi; rm /tail; }; f");
     assert!(
         plan.effects
             .iter()

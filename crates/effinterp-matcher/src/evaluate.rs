@@ -104,16 +104,28 @@ impl<'a> Evaluator<'a> {
         for edge in plan.causality.graph.iter().flat_map(|graph| &graph.edges) {
             edges_from.entry(&edge.from).or_default().push(edge);
         }
+        // Interactions by execution and operation, in graph order, so each
+        // effect searches only the occurrences that could own it.
+        let mut interactions: BTreeMap<_, Vec<_>> = BTreeMap::new();
+        for node in plan.causality.graph.iter().flat_map(|graph| &graph.nodes) {
+            if let (Some(execution), OccurrenceKind::ResourceInteraction { operation, .. }) =
+                (node.execution, &node.occurrence)
+            {
+                interactions
+                    .entry((execution, operation.0.as_str()))
+                    .or_default()
+                    .push(node);
+            }
+        }
         let mut claimed = BTreeSet::new();
         let effect_occurrences = plan
             .effects
             .iter()
             .map(|effect| {
-                let occurrence = plan
-                    .causality
-                    .graph
-                    .iter()
-                    .flat_map(|graph| &graph.nodes)
+                let occurrence = interactions
+                    .get(&(effect.execution, effect.operation.0.as_str()))
+                    .into_iter()
+                    .flatten()
                     .find(|node| {
                         !claimed.contains(&node.id) && occurrence_owns_effect(node, effect)
                     })
@@ -727,10 +739,15 @@ impl<'a> Evaluator<'a> {
                 }
             }
             Traversal::ByteFlow { assurance, edges } => {
-                let sources = self.candidates(source, effect_bindings, budget)?;
                 let destinations = self.candidates(destination, effect_bindings, budget)?;
+                // With nothing to reach, no source is searched.
+                let sources = if destinations.is_empty() {
+                    Vec::new()
+                } else {
+                    self.candidates(source, effect_bindings, budget)?
+                };
                 for (from, from_truth) in &sources {
-                    let reached = self.byte_reach(from, assurance, &edges, budget)?;
+                    let reached = self.byte_reach(from, assurance, &edges);
                     for (to, to_truth) in &destinations {
                         if !reached.contains(*to) {
                             continue;
@@ -1037,26 +1054,25 @@ impl<'a> Evaluator<'a> {
     /// the traversal's kinds reaches from it, `from` included, whatever their
     /// conditions. A byte route needs such a chain, so a destination outside
     /// this set is never searched; one search per source then serves every
-    /// destination. Each occurrence reached costs one step.
+    /// destination. Like the route search it narrows, it costs no steps: a
+    /// step is charged for each destination it reaches instead.
     fn byte_reach(
         &self,
         from: &'a OccurrenceId,
         assurance: ByteFlowAssurance,
         edges: &[ByteFlowEdgeKind],
-        budget: &mut Budget,
-    ) -> Result<std::rc::Rc<BTreeSet<&'a OccurrenceId>>, Refusal> {
+    ) -> std::rc::Rc<BTreeSet<&'a OccurrenceId>> {
         let key = (from, assurance, edges.to_vec());
         if let Some(reached) = self.byte_reaches.borrow().get(&key) {
-            return Ok(reached.clone());
+            return reached.clone();
         }
         let mut reached = BTreeSet::new();
         let Some(source) = self.nodes.get(from) else {
-            return Ok(std::rc::Rc::new(reached));
+            return std::rc::Rc::new(reached);
         };
         let mut pending = vec![from];
         reached.insert(from);
         while let Some(id) = pending.pop() {
-            budget.charge()?;
             for edge in self.edges_from.get(id).into_iter().flatten() {
                 if self.byte_edge_kind(edge, assurance, edges) == Truth::False
                     || self
@@ -1073,7 +1089,7 @@ impl<'a> Evaluator<'a> {
         }
         let reached = std::rc::Rc::new(reached);
         self.byte_reaches.borrow_mut().insert(key, reached.clone());
-        Ok(reached)
+        reached
     }
 
     fn byte_occurrence(

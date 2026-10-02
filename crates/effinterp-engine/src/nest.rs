@@ -218,11 +218,11 @@ const SEGMENT_BYTES_DIVISOR: u64 = 512;
 const RESERVE_STEPS_FACTOR: u64 = 32;
 const RESERVE_BYTES_FACTOR: u64 = 1;
 /// Nested segments, the items of a group, branch, loop, function body or
-/// nested shell, share a smaller part of that reserve, one step limit and an
-/// eighth of the byte limit: enough for a deletion after a costly prefix,
-/// while a long script whose commands all sit in functions does not spend the
+/// nested shell, share a smaller part of that reserve, an eighth of the step
+/// and byte limits: enough for a deletion after a few costly prefixes, while
+/// a long script whose commands all sit in functions does not spend the
 /// whole reserve walking them.
-const NESTED_RESERVE_STEPS_FACTOR: u64 = 1;
+const NESTED_RESERVE_STEPS_DIVISOR: u64 = 8;
 const NESTED_RESERVE_BYTES_DIVISOR: u64 = 8;
 /// A segment that runs out of room is refused a charge before it spends its
 /// grant, and it may already have done work the budget does not meter (a
@@ -302,9 +302,7 @@ impl Budget {
                     .saturating_mul(RESERVE_BYTES_FACTOR),
             ),
             nested_reserve_steps: Cell::new(
-                limits
-                    .max_analysis_steps
-                    .saturating_mul(NESTED_RESERVE_STEPS_FACTOR),
+                limits.max_analysis_steps / NESTED_RESERVE_STEPS_DIVISOR,
             ),
             nested_reserve_bytes: Cell::new(
                 limits.max_analysis_bytes / NESTED_RESERVE_BYTES_DIVISOR,

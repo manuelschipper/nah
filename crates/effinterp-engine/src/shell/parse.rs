@@ -102,6 +102,13 @@ pub(super) enum GroupKind {
         entry: Option<Option<String>>,
     },
     ShortCircuit(Option<(Span, bool)>),
+    /// Commands no path reaches: the body of a loop whose constant condition
+    /// never enters it, or what follows an unconditional `break` or
+    /// `continue` in a loop body. `head` names the command that decided it,
+    /// which a function, alias or disabled builtin of that name could change.
+    Unreachable {
+        head: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -799,6 +806,11 @@ impl<'a> Parser<'a> {
         self.eat_keyword(&stop);
         let (body, stop) = self.list(&["done"], false, depth + 1);
         self.eat_keyword(&stop);
+        let body = if super::jobs::constant_status(&cond) == Some(until) {
+            unreachable_body(super::jobs::condition_head(&cond), body)
+        } else {
+            loop_body(body)
+        };
         let unbounded = super::jobs::unbounded_loop(&cond, &body, until)
             .then(|| super::jobs::condition_head(&cond));
         let entry = (super::jobs::constant_status(&cond) == Some(!until)
@@ -910,8 +922,14 @@ impl<'a> Parser<'a> {
                 },
             });
         }
-        let (mut body, stop) = self.list(&["done"], false, depth + 1);
+        let (body, stop) = self.list(&["done"], false, depth + 1);
         self.eat_keyword(&stop);
+        // `for NAME in; do` has no value to run its body for.
+        let mut body = if var.is_some() && values.as_ref().is_some_and(Vec::is_empty) {
+            unreachable_body(None, body)
+        } else {
+            loop_body(body)
+        };
         if items.is_empty()
             && matches!(sections.as_slice(), [_, 0, _])
             && super::jobs::unbounded_body(&body)
@@ -1932,6 +1950,43 @@ fn retain_header_expansion(tok: &Tok, items: &mut Vec<ShellItem>) {
     {
         items.push(ShellItem::UnwalkedExpansion { span: word.span });
     }
+}
+
+/// `items` as a body nothing enters unless `head` is redefined.
+fn unreachable_body(head: Option<String>, items: Vec<ShellItem>) -> Vec<ShellItem> {
+    if items.is_empty() {
+        return items;
+    }
+    vec![ShellItem::Group {
+        kind: GroupKind::Unreachable { head },
+        items,
+    }]
+}
+
+/// A loop body whose commands after its first unconditional `break` or
+/// `continue` never run.
+fn loop_body(mut items: Vec<ShellItem>) -> Vec<ShellItem> {
+    let stop = items.iter().position(|item| {
+        matches!(item, ShellItem::Pipeline { cmds, conditional: false, .. }
+        if cmds.len() == 1
+            && cmds[0].redirs.is_empty()
+            && cmds[0].assignments.is_empty()
+            && cmds[0].words.iter().map(literal_text).collect::<Option<Vec<_>>>()
+                .is_some_and(|words| matches!(
+                    words.first().map(String::as_str),
+                    Some("break" | "continue")
+                )))
+    });
+    let Some(stop) = stop else {
+        return items;
+    };
+    let tail = items.split_off(stop + 1);
+    let ShellItem::Pipeline { cmds, .. } = &items[stop] else {
+        unreachable!()
+    };
+    let head = cmds[0].words.first().and_then(literal_text);
+    items.extend(unreachable_body(head, tail));
+    items
 }
 
 #[cfg(test)]

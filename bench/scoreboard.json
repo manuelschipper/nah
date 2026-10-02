@@ -112,15 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "b55288e57ee17f159503ad6ec806126552972b31",
-      "corpus_digest": "36adf1d38666790c196b0b7b36d1a0577ff710d122ede76fe281250dda5e4be4",
+      "nah_commit": "84437b08fd3eacebe777116dc28fb6710d303716",
+      "corpus_digest": "5b756cb9d4f8447a7b3d986a4d9774dd642f96f5c6363554803336d96d46eaa0",
       "classes": {
         "effect_match": 5120,
         "silent_symbolic_drop": 2,
         "missing_effect": 12,
         "missing_flow": 2,
-        "covered": 1425,
-        "explained_partial": 1749
+        "covered": 1432,
+        "explained_partial": 1750
       },
       "per_file": {
         "code.jsonl": {
@@ -153,8 +153,8 @@
         "filesystem.jsonl": {
           "effect_match": 721,
           "missing_effect": 1,
-          "covered": 249,
-          "explained_partial": 145
+          "covered": 256,
+          "explained_partial": 146
         },
         "git.jsonl": {
           "effect_match": 791,
@@ -11252,10 +11252,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.8247,
-        "p99_ms": 143.6234,
-        "max_ms": 2791.702,
-        "max_rss_kb": 343760
+        "p50_ms": 0.7562,
+        "p99_ms": 136.538,
+        "max_ms": 2017.7641,
+        "max_rss_kb": 371088
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11279,13 +11279,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261002T000055Z-correctness-5846",
-      "measured_at": "2026-10-02T00:00:55Z",
-      "source_fingerprint": "blake3:6538b773deecc02d561f80ecf6e1c17854241aa5bf1df10bf1f7f9b0b4f4b627",
-      "binary_hash": "blake3:3e9e801bccdae34be82a8bdfd7dafe774a8ac23d4c6861d267495b38adb254ae",
+      "run_id": "20261002T012142Z-correctness-5547",
+      "measured_at": "2026-10-02T01:21:42Z",
+      "source_fingerprint": "blake3:cf1177e752a9a2231d6279710493a1cc54ee9e311310f78b5a2cb955169910a6",
+      "binary_hash": "blake3:a192f3a15c6dfb2847da7fded5499aea480d9382622d1b3e4fbef8ca4af8102a",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "b55288e57ee17f159503ad6ec806126552972b31",
+      "git_head": "84437b08fd3eacebe777116dc28fb6710d303716",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

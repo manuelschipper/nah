@@ -1985,8 +1985,11 @@ impl Shell<'_> {
             // Each list item gets its own allowance, so what an earlier item
             // spent cannot starve it, however deeply both are nested. The
             // first item of a nested shell's own source continues the segment
-            // of the command that started that shell.
+            // of the command that started that shell. Once this scope has
+            // no room for another process, no later item can add one, so
+            // none is granted more.
             if !self.nest.budget.measuring()
+                && !builder.execution_saturated()
                 && (self.depth == 0 || walk_depth > 0 || index > 0)
                 && let Some(span) = parse::items_span(std::slice::from_ref(item))
             {
@@ -2331,6 +2334,18 @@ impl Shell<'_> {
                         self.walk_may_region(builder, env, items, walk_depth + 1);
                         env.status = None;
                     }
+                    // Nothing reaches these commands unless the command that
+                    // decided so is redefined.
+                    GroupKind::Unreachable { head } => {
+                        if head.as_ref().is_some_and(|name| {
+                            env.functions.contains_key(name)
+                                || env.disabled_builtins.contains(name)
+                                || env.aliases.contains_key(name)
+                        }) {
+                            self.walk_may_region(builder, env, items, walk_depth + 1);
+                            env.status = None;
+                        }
+                    }
                     GroupKind::ShortCircuit(selection) => {
                         if selected == Some(true) {
                             if let Some(termination) =
@@ -2385,7 +2400,10 @@ impl Shell<'_> {
                         self.finish_deferred(builder, &mut child);
                         env.status = match kind {
                             GroupKind::Background => Some(true),
-                            GroupKind::Subshell => child.status,
+                            // `(( N ))` is a doubled subshell around N.
+                            GroupKind::Subshell => {
+                                jobs::constant_status(std::slice::from_ref(item)).or(child.status)
+                            }
                             _ => None,
                         };
                     }
@@ -2707,6 +2725,18 @@ impl Shell<'_> {
                 match outcome.name.as_deref() {
                     Some("true" | ":") if cmd.assignments.is_empty() => Some(true),
                     Some("false" | "") if cmd.assignments.is_empty() => Some(false),
+                    // `[` reaches here without a command name.
+                    Some("test") | None
+                        if cmd.words.first().and_then(parse::literal_text).is_some_and(
+                            |head| {
+                                (head == "test" || head == "[")
+                                    && !env.functions.contains_key(&head)
+                                    && !env.aliases.contains_key(&head)
+                            },
+                        ) =>
+                    {
+                        jobs::command_status(cmd)
+                    }
                     None if cmd.words.is_empty()
                         && cmd.assignments.iter().all(|assign| {
                             literal_word_text(&assign.value).is_some()
@@ -4133,7 +4163,9 @@ fn collect_referenced_inputs(
                     | parse::GroupKind::Background
                     | parse::GroupKind::CompoundPipeline
                     | parse::GroupKind::Coprocess { .. } => inputs.current_ifs = entry_ifs,
-                    parse::GroupKind::Conditional { .. } | parse::GroupKind::ShortCircuit(_) => {
+                    parse::GroupKind::Conditional { .. }
+                    | parse::GroupKind::ShortCircuit(_)
+                    | parse::GroupKind::Unreachable { .. } => {
                         inputs.current_ifs.merge(&entry_ifs);
                     }
                 }

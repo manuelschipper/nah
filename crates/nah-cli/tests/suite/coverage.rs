@@ -377,7 +377,7 @@ fn bash_project_filesystem_effects_are_lowered_compositionally() {
 /// Padding that saturates the causal relations still leaves the deletion
 /// established. Those allowances stay within a fixed total, so costly
 /// segments after the danger cannot run the analysis long enough to lose it
-/// either.
+/// either. A deletion no path reaches stays no block whatever precedes it.
 #[test]
 fn padding_around_a_danger_cannot_push_it_past_a_bound() {
     let temp = tempfile::tempdir().unwrap();
@@ -442,7 +442,8 @@ fn padding_around_a_danger_cannot_push_it_past_a_bound() {
         }
     }
 
-    // A deletion the plan proves unreachable is no block past the bound.
+    // A deletion no path reaches is no block, alone or past the bound, while
+    // its reachable twin still blocks.
     let command = format!("{}if false; then rm -rf ~; fi", "ls; ".repeat(255));
     let result = decide_with(
         &call("Bash", json!({ "command": command }), &repo),
@@ -450,4 +451,51 @@ fn padding_around_a_danger_cannot_push_it_past_a_bound() {
         support::fulfill_observation,
     );
     assert_eq!(result.core().verdict(), Verdict::Delegate);
+    for (dead, live) in [
+        (
+            "while false; do rm -rf ~; done",
+            "while true; do rm -rf ~; break; done",
+        ),
+        (
+            "until true; do rm -rf ~; done",
+            "until false; do rm -rf ~; break; done",
+        ),
+        (
+            "for x in; do rm -rf ~; done",
+            "for x in 1; do rm -rf ~; done",
+        ),
+        (
+            "for x in 1; do continue; rm -rf ~; done",
+            "for x in 1; do rm -rf ~; continue; done",
+        ),
+        (
+            "while true; do break; rm -rf ~; done",
+            "for x in 1 2; do [ $x = 2 ] && break; rm -rf ~; done",
+        ),
+        (
+            "if test 1 = 2; then rm -rf ~; fi",
+            "if test 1 = 1; then rm -rf ~; fi",
+        ),
+        (
+            "if [ a != a ]; then rm -rf ~; fi",
+            "if [ a != b ]; then rm -rf ~; fi",
+        ),
+        ("if ((0)); then rm -rf ~; fi", "if ((1)); then rm -rf ~; fi"),
+    ] {
+        for (shape, verdict) in [(dead, Verdict::Delegate), (live, Verdict::Block)] {
+            for command in [shape.to_owned(), format!("{{ {costly}; {shape}; }}")] {
+                let result = decide_with(
+                    &call("Bash", json!({ "command": command }), &repo),
+                    &context,
+                    support::fulfill_observation,
+                );
+                assert_eq!(
+                    result.core().verdict(),
+                    verdict,
+                    "{shape} ({} bytes)",
+                    command.len()
+                );
+            }
+        }
+    }
 }
