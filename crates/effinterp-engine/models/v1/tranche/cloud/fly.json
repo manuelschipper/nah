@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:b6f8d2fdfb5356ae1ca46777f24b175c34828f4e2529ecf777ddeab846e3eebc",
+  "identity": "blake3:0c30e5294d16e96c6cf0d245415b76515b89db473bc58d02f9ab3cee0a5e2924",
   "provenance": {
     "author": "human",
     "sources": [
@@ -240,6 +240,7 @@
                           "kind": "current"
                         }
                       },
+                      "request_assurance": "exact",
                       "attributes": {},
                       "modality": "may"
                     }

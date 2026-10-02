@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:211128446de8e1f178fd0d426f31f514f599019c4183627669a1b57565de6909",
+  "identity": "blake3:31ef6cbdde63133e183dd19d81a2ac8797ca8390de1d3c4f824f3cf9c56d9d36",
   "provenance": {
     "author": "human",
     "sources": [
@@ -202,6 +202,99 @@
                   },
                   "when": {
                     "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "--version",
+                      "-V",
+                      "-h",
+                      "--dry-run"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "cloud.resource.delete",
+                      "resource": {
+                        "kind": "cloud",
+                        "scope": {
+                          "kind": "unsupported",
+                          "identity": {
+                            "partition": {
+                              "state": "unknown"
+                            },
+                            "account": {
+                              "state": "unknown"
+                            },
+                            "project": {
+                              "state": "unknown"
+                            },
+                            "subscription": {
+                              "state": "unknown"
+                            },
+                            "region": {
+                              "state": "unknown"
+                            },
+                            "zone": {
+                              "state": "unknown"
+                            },
+                            "storage_account": {
+                              "state": "unknown"
+                            },
+                            "resource_group": {
+                              "state": "unknown"
+                            },
+                            "cluster": {
+                              "state": "unknown"
+                            },
+                            "namespace": {
+                              "state": "unknown"
+                            }
+                          },
+                          "access": []
+                        },
+                        "provider": {
+                          "kind": "literal",
+                          "value": "upstash"
+                        },
+                        "service": {
+                          "kind": "literal",
+                          "value": "redis"
+                        },
+                        "resource_kind": {
+                          "kind": "literal",
+                          "value": "database"
+                        },
+                        "id": {
+                          "kind": "current"
+                        }
+                      },
+                      "request_assurance": "exact",
+                      "attributes": {
+                        "dry_run": {
+                          "kind": "flag_present",
+                          "flags": [
+                            "--dry-run"
+                          ]
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                },
+                {
+                  "source": {
+                    "kind": "flag_values",
+                    "flags": [
+                      "--db-id"
+                    ]
+                  },
+                  "when": {
+                    "flag_present": [
+                      "--dry-run"
+                    ],
                     "flag_absent": [
                       "--help",
                       "--version",
@@ -467,6 +560,99 @@
                       "--help",
                       "--version",
                       "-V",
+                      "-h",
+                      "--dry-run"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "cloud.resource.delete",
+                      "resource": {
+                        "kind": "cloud",
+                        "scope": {
+                          "kind": "unsupported",
+                          "identity": {
+                            "partition": {
+                              "state": "unknown"
+                            },
+                            "account": {
+                              "state": "unknown"
+                            },
+                            "project": {
+                              "state": "unknown"
+                            },
+                            "subscription": {
+                              "state": "unknown"
+                            },
+                            "region": {
+                              "state": "unknown"
+                            },
+                            "zone": {
+                              "state": "unknown"
+                            },
+                            "storage_account": {
+                              "state": "unknown"
+                            },
+                            "resource_group": {
+                              "state": "unknown"
+                            },
+                            "cluster": {
+                              "state": "unknown"
+                            },
+                            "namespace": {
+                              "state": "unknown"
+                            }
+                          },
+                          "access": []
+                        },
+                        "provider": {
+                          "kind": "literal",
+                          "value": "upstash"
+                        },
+                        "service": {
+                          "kind": "literal",
+                          "value": "vector"
+                        },
+                        "resource_kind": {
+                          "kind": "literal",
+                          "value": "index"
+                        },
+                        "id": {
+                          "kind": "current"
+                        }
+                      },
+                      "request_assurance": "exact",
+                      "attributes": {
+                        "dry_run": {
+                          "kind": "flag_present",
+                          "flags": [
+                            "--dry-run"
+                          ]
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                },
+                {
+                  "source": {
+                    "kind": "flag_values",
+                    "flags": [
+                      "--index-id"
+                    ]
+                  },
+                  "when": {
+                    "flag_present": [
+                      "--dry-run"
+                    ],
+                    "flag_absent": [
+                      "--help",
+                      "--version",
+                      "-V",
                       "-h"
                     ],
                     "flag_value_present": [],
@@ -606,6 +792,99 @@
                   },
                   "when": {
                     "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "--version",
+                      "-V",
+                      "-h",
+                      "--dry-run"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "cloud.resource.delete",
+                      "resource": {
+                        "kind": "cloud",
+                        "scope": {
+                          "kind": "unsupported",
+                          "identity": {
+                            "partition": {
+                              "state": "unknown"
+                            },
+                            "account": {
+                              "state": "unknown"
+                            },
+                            "project": {
+                              "state": "unknown"
+                            },
+                            "subscription": {
+                              "state": "unknown"
+                            },
+                            "region": {
+                              "state": "unknown"
+                            },
+                            "zone": {
+                              "state": "unknown"
+                            },
+                            "storage_account": {
+                              "state": "unknown"
+                            },
+                            "resource_group": {
+                              "state": "unknown"
+                            },
+                            "cluster": {
+                              "state": "unknown"
+                            },
+                            "namespace": {
+                              "state": "unknown"
+                            }
+                          },
+                          "access": []
+                        },
+                        "provider": {
+                          "kind": "literal",
+                          "value": "upstash"
+                        },
+                        "service": {
+                          "kind": "literal",
+                          "value": "search"
+                        },
+                        "resource_kind": {
+                          "kind": "literal",
+                          "value": "index"
+                        },
+                        "id": {
+                          "kind": "current"
+                        }
+                      },
+                      "request_assurance": "exact",
+                      "attributes": {
+                        "dry_run": {
+                          "kind": "flag_present",
+                          "flags": [
+                            "--dry-run"
+                          ]
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                },
+                {
+                  "source": {
+                    "kind": "flag_values",
+                    "flags": [
+                      "--index-id"
+                    ]
+                  },
+                  "when": {
+                    "flag_present": [
+                      "--dry-run"
+                    ],
                     "flag_absent": [
                       "--help",
                       "--version",

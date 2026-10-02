@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:7c2352eecabfc9fb9adf42a9075fcb152b231d601860d0207c16a3dc94d4c926",
+  "identity": "blake3:143a860707426dd392404bac533d48ae3ba9f68ad8650108faf39d1f79abb6e3",
   "provenance": {
     "author": "human",
     "sources": [
@@ -357,6 +357,7 @@
                           "kind": "current"
                         }
                       },
+                      "request_assurance": "exact",
                       "attributes": {},
                       "modality": "may"
                     }
@@ -493,6 +494,7 @@
                           "kind": "current"
                         }
                       },
+                      "request_assurance": "exact",
                       "attributes": {},
                       "modality": "may"
                     }
@@ -804,6 +806,7 @@
                           "kind": "current"
                         }
                       },
+                      "request_assurance": "exact",
                       "attributes": {},
                       "modality": "may"
                     }

@@ -15,9 +15,9 @@ narrow the scope. An unresolved destroy mode delegates with a coverage gap.
 
 default_reason = '''
 It ships off because whole-stack teardown may be ordinary cleanup of a
-disposable environment. No other guard covers infrastructure-as-code teardown;
-`infra-k8s-delete` covers cluster objects, and the `storage-*` guards cover
-storage deletion.
+disposable environment. `infra-cloud-delete` covers a CloudFormation stack
+delete, `infra-k8s-delete` covers cluster objects, and the `storage-*` guards
+cover storage deletion.
 '''
 
 [[blocks]]
@@ -75,11 +75,6 @@ cause = "out-of-scope"
 row = "infra-iac-destroy.saved-plan-delegates"
 why = "Applying saved.tfplan runs a plan whose content Nah does not read."
 cause = "unresolved"
-
-[[passes]]
-row = "infra-iac-destroy.cloudformation-delegates"
-why = "CloudFormation stack deletion is outside this guard's tools."
-cause = "out-of-scope"
 
 [[passes]]
 row = "infra-iac-destroy.dynamic-cli-args-delegates"

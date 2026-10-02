@@ -202,14 +202,21 @@ fn install_rejects_unowned_or_ambiguous_native_hooks() {
 
     let unowned_home = home.join("unowned");
     std::fs::create_dir_all(&unowned_home).unwrap();
-    std::fs::write(
-        unowned_home.join("config.yaml"),
-        "hooks:\n  pre_tool_call:\n    - command: nah hook hermes run\n      timeout: 9\n",
-    )
-    .unwrap();
+    // Beside stale managed wiring, status reports the conflict install refuses
+    // rather than recommending that install
+    let unowned_config = "hooks:\n  pre_tool_call:\n    - command: /old/bin/nah hook hermes run\n      timeout: 5\n      managed_by: nah\n    - command: nah hook hermes run\n      timeout: 9\n";
+    std::fs::write(unowned_home.join("config.yaml"), unowned_config).unwrap();
+    let status = run_lifecycle(home, &unowned_home, &log, &path, "status");
+    assert!(!status.status.success(), "{status:?}");
+    assert!(String::from_utf8_lossy(&status.stderr).contains("hermes-hook-not-owned"));
+    assert!(!String::from_utf8_lossy(&status.stdout).contains("next:"));
     let unowned = run_lifecycle(home, &unowned_home, &log, &path, "install");
     assert!(!unowned.status.success());
     assert!(String::from_utf8_lossy(&unowned.stderr).contains("hermes-hook-not-owned"));
+    assert_eq!(
+        std::fs::read_to_string(unowned_home.join("config.yaml")).unwrap(),
+        unowned_config
+    );
 
     let ambiguous_home = home.join("ambiguous");
     std::fs::create_dir_all(&ambiguous_home).unwrap();

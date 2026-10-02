@@ -103,11 +103,14 @@ fn install_runs_hook_and_uninstall_preserves_other_hooks() {
     std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
     let path = hooks_path(home);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    // Prints a command line naming Nah without running it, so it is not Nah's
+    let echo = json!({"type":"command","command":"'/bin/echo' '/opt/nah' hook droid run"});
     let original = json!({
         "description": "existing hooks",
+        "PermissionRequest": [{"matcher": "*", "hooks": [echo.clone()]}],
         "PostToolUse": [{
             "matcher": "*",
-            "hooks": [{"type":"command","command":"existing-post"}]
+            "hooks": [{"type":"command","command":"existing-post"}, echo]
         }],
         "PreToolUse": [{
             "matcher": "Task",
@@ -233,6 +236,43 @@ fn install_runs_hook_and_uninstall_preserves_other_hooks() {
         json!({"command":"droid plugin remove security@factory-plugins"}),
     );
     assert!(unrelated_plugin.status.success(), "{unrelated_plugin:?}");
+
+    // A copy of Nah's fail-closed handler in another event leaves the wiring
+    // stale until install removes it; uninstall removes it too
+    let strict = nah(home, &["hook", "droid", "install", "--fail-closed"]);
+    assert!(strict.status.success(), "{strict:?}");
+    let copy_to_post_tool_use = || {
+        let mut copied = config(&path);
+        let nah_group = copied["PreToolUse"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|group| group["hooks"][0]["command"] == nah_handler(&copied)["command"])
+            .unwrap()
+            .clone();
+        copied["PostToolUse"]
+            .as_array_mut()
+            .unwrap()
+            .push(nah_group);
+        std::fs::write(&path, serde_json::to_vec_pretty(&copied).unwrap()).unwrap();
+    };
+    copy_to_post_tool_use();
+    let stale = nah(home, &["hook", "droid", "status"]);
+    let stale = String::from_utf8_lossy(&stale.stdout);
+    assert!(stale.contains("reinstall required"), "{stale}");
+    assert!(stale.contains("fail-closed"), "{stale}");
+    let repaired = nah(home, &["hook", "droid", "install"]);
+    assert!(repaired.status.success(), "{repaired:?}");
+    assert_eq!(config(&path)["PostToolUse"], original["PostToolUse"]);
+    assert_eq!(
+        config(&path)["PermissionRequest"],
+        original["PermissionRequest"]
+    );
+    let current = nah(home, &["hook", "droid", "status"]);
+    let current = String::from_utf8_lossy(&current.stdout);
+    assert!(current.contains("wiring current"), "{current}");
+    assert!(current.contains("fail-closed"), "{current}");
+    copy_to_post_tool_use();
 
     let uninstalled = nah(home, &["hook", "droid", "uninstall"]);
     assert!(uninstalled.status.success(), "{uninstalled:?}");

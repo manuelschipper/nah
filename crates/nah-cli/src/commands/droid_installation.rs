@@ -16,6 +16,10 @@ use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
 use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
+/// The events where status counts Nah's handlers, so install and uninstall
+/// remove owned handlers from each of them.
+const EVENTS: [&str; 3] = ["PreToolUse", "PermissionRequest", "PostToolUse"];
+
 pub(crate) fn mutate_droid_hook(
     install: bool,
     policy: FailurePolicy,
@@ -92,6 +96,12 @@ pub(crate) fn droid_hook_status() -> Result<RuntimeHookStatus, String> {
         .into_iter()
         .flat_map(owned_fail_closed_modes)
         .collect::<Vec<_>>();
+    // Install removes any other owned handler, so the wiring is not current
+    let status = if status == RuntimeHookStatus::WiringCurrent && modes.len() != 1 {
+        RuntimeHookStatus::NeedsReinstall
+    } else {
+        status
+    };
     if status == RuntimeHookStatus::NeedsReinstall
         && strict_current == RuntimeHookStatus::WiringCurrent
         && modes == [true]
@@ -134,16 +144,13 @@ fn install_hook(
         .collect::<Result<Vec<_>, _>>()?;
     let desired = desired_handler(executable, policy)?;
     let mut hooks_changed = migrate_nested_hooks(&mut hooks)?;
+    hooks_changed |= remove_owned(&mut hooks, &EVENTS[1..])?;
     hooks_changed |= add_standalone(&mut hooks, desired)?;
     if hooks_changed {
         save(&paths.hooks, &hooks)?;
     }
     for (path, config) in &mut legacy_configs {
-        let mut changed = hook_config::remove(config, is_owned_handler, "invalid-droid-settings")?;
-        if path.as_path() == paths.legacy_nested_hooks.as_path() {
-            changed |= remove_standalone(config)?;
-        }
-        if changed {
+        if remove_owned(config, &EVENTS)? {
             save(path, config)?;
         }
     }
@@ -165,11 +172,7 @@ fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     .map(|path| load(path).map(|config| (path, config)))
     .collect::<Result<Vec<_>, _>>()?;
     for (path, config) in &mut configs {
-        let mut changed = hook_config::remove(config, is_owned_handler, "invalid-droid-settings")?;
-        if path.as_path() != paths.legacy_settings.as_path() {
-            changed |= remove_standalone(config)?;
-        }
-        if changed {
+        if remove_owned(config, &EVENTS)? {
             save(path, config)?;
         }
     }
@@ -280,14 +283,60 @@ fn add_standalone(config: &mut Value, desired: Value) -> Result<bool, String> {
     Ok(changed)
 }
 
-fn remove_standalone(config: &mut Value) -> Result<bool, String> {
-    let mut wrapped = json!({"hooks": config.clone()});
-    let changed = hook_config::remove(&mut wrapped, is_owned_handler, "invalid-droid-settings")?;
-    if changed {
-        *config = wrapped
-            .as_object_mut()
-            .and_then(|root| root.remove("hooks"))
-            .unwrap_or_else(|| Value::Object(Map::new()));
+/// Removes owned handlers from `events`, at the top level and under a nested
+/// `hooks` object, dropping only the groups, events and `hooks` object that
+/// removal empties.
+fn remove_owned(config: &mut Value, events: &[&str]) -> Result<bool, String> {
+    let mut changed = false;
+    for event in events {
+        changed |= remove_owned_groups(config, event)?;
+    }
+    let root = config
+        .as_object_mut()
+        .ok_or_else(|| "invalid-droid-settings".to_owned())?;
+    if let Some(nested) = root.get_mut("hooks") {
+        let mut nested_changed = false;
+        for event in events {
+            nested_changed |= remove_owned_groups(nested, event)?;
+        }
+        if nested_changed && nested.as_object().is_some_and(Map::is_empty) {
+            root.remove("hooks");
+        }
+        changed |= nested_changed;
+    }
+    Ok(changed)
+}
+
+fn remove_owned_groups(container: &mut Value, event: &str) -> Result<bool, String> {
+    let container = container
+        .as_object_mut()
+        .ok_or_else(|| "invalid-droid-settings".to_owned())?;
+    let Some(groups_value) = container.get_mut(event) else {
+        return Ok(false);
+    };
+    let groups = groups_value
+        .as_array_mut()
+        .ok_or_else(|| "invalid-droid-settings".to_owned())?;
+    if groups.iter().any(|group| {
+        group
+            .get("hooks")
+            .is_some_and(|handlers| !handlers.is_array())
+    }) {
+        return Err("invalid-droid-settings".into());
+    }
+    let mut changed = false;
+    groups.retain_mut(|group| {
+        let Some(handlers) = group.get_mut("hooks").and_then(Value::as_array_mut) else {
+            return true;
+        };
+        let before = handlers.len();
+        handlers.retain(|handler| !is_owned_handler(handler));
+        let dropped = handlers.len() != before;
+        changed |= dropped;
+        !dropped || !handlers.is_empty()
+    });
+    if changed && groups.is_empty() {
+        container.remove(event);
     }
     Ok(changed)
 }

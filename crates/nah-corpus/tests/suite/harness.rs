@@ -64,7 +64,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 8380);
+    assert_eq!(summary.cases, 8435);
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("execution-flows.jsonl".to_owned(), 856),
             ("filesystem.jsonl".to_owned(), 1116),
             ("git.jsonl".to_owned(), 1265),
-            ("infrastructure.jsonl".to_owned(), 361),
+            ("infrastructure.jsonl".to_owned(), 416),
             ("kubernetes.jsonl".to_owned(), 67),
             ("local-utilities.jsonl".to_owned(), 55),
             ("macos.jsonl".to_owned(), 107),
@@ -307,6 +307,11 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "infra-container-volume-delete.filter-delegates",
         "infra-container-volume-delete.dry-run-delegates",
         "infra-container-volume-delete.named-volume-control",
+        "infra-cloud-delete.aws-ec2-terminate",
+        "infra-cloud-delete.az-resource-group",
+        "infra-cloud-delete.railway-environment",
+        "infra-cloud-delete.factory-delegates",
+        "infra-cloud-delete.unknown-option-delegates",
         "infra-k8s-delete.namespace",
         "infra-k8s-delete.persistent-volume",
         "infra-k8s-delete.pods-all",

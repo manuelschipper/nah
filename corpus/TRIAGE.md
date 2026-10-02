@@ -421,6 +421,18 @@ Accepted limitations with no corpus row that asserts a desired block.
   delegates for this reason, not the replacement: with the read inside the
   body, the same calls block.
 
+- Cloud deletes outside `infra-cloud-delete`'s reviewed reading — `az vm
+  delete --ids …` (row `infra-cloud-delete.az-vm-ids-delegates`) and verbs
+  outside the reviewed tables (`fly apps destroy`, `heroku apps:destroy`,
+  `doctl kubernetes cluster delete`) delegate. By owner decision the guard
+  also leaves out secrets and variables (`wrangler secret`, `supabase secrets
+  unset`, `modal secret`, `railway variable`), which belong to the Secrets
+  family; object or data contents (`r2 bucket delete`, `kv key delete`,
+  `modal volume rm`, `dict`/`queue clear`), which are storage and data, not
+  provisioned-resource teardown; `railway deployment remove` and `volume
+  detach`, which are not teardown of the resource; and Fastly service
+  sub-objects (domain, backend, vcl, dictionary, acl, logging), which are
+  config edits on a live service.
 - A symlinked parent inside a pattern — a `..` after a component that is
   a symlink to a directory resolves at the link target's parent, but a
   pattern's `..` is collapsed lexically. After a wildcard (`X/*/../Y`,

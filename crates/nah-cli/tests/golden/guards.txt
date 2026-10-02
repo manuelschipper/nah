@@ -29,6 +29,7 @@ Built-in:
 - [ ] git-remote-resource-delete
 - [x] git-rewrite-force
 - [x] git-worktree-discard
+- [ ] infra-cloud-delete
 - [x] infra-container-reset
 - [ ] infra-container-volume-delete
 - [ ] infra-iac-destroy

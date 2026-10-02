@@ -123,6 +123,7 @@ const RECORDS: &[(&str, &str)] = records![
     "git-remote-resource-delete",
     "git-rewrite-force",
     "git-worktree-discard",
+    "infra-cloud-delete",
     "infra-container-reset",
     "infra-container-volume-delete",
     "infra-iac-destroy",
