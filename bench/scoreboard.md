@@ -2,14 +2,14 @@
 
 | plane | run | measured | engine | models |
 |---|---|---|---|---|
-| correctness | `20261001T202053Z-correctness-45034` | 2026-10-01T20:20:53Z | `0.1.0` | `builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468` |
+| correctness | `20261002T002058Z-correctness-64931` | 2026-10-02T00:20:58Z | `0.1.0` | `builtin:blake3:6e946ee2386327541fcde865d3b6124dec075f5351efba6fbc1714a9d9815f95` |
 | coverage | `20260927T155829Z-coverage-54709` | 2026-09-27T15:58:29Z | `0.1.0` | `builtin:blake3:e4a3aa943d572fb4a6c4ee6fa4eb7d50bafc33cdde32b27864e9d8f1a97b5272` |
 | repositories | `20260921T153340Z-repositories-53884` | 2026-09-21T15:33:40Z | `0.1.0` | `builtin:blake3:f4c5b1246f8269fed8c419ed2832d4607967f1357aec6027b0f2bcac2d787f40` |
 | performance | `20260921T150325Z-performance-62642` | 2026-09-21T15:03:25Z | `0.1.0` | `builtin:blake3:a73d1a25123b9661020f9e13dbb1528964df754bf91f93b64e2df5b98b703606` |
 
 ## 1. Invocation correctness
 
-run `20261001T202053Z-correctness-45034` measured 2026-10-01T20:20:53Z
+run `20261002T002058Z-correctness-64931` measured 2026-10-02T00:20:58Z
 
 Independent effect, flow, and uncertainty expectations.
 
@@ -23,12 +23,12 @@ corpus `e7885f6d6e4ecc33d633408561ea540feeef8831c9b6a187cf618e62198cb396`
 
 | category | sound | boundary_only | silent_miss | wrong_resource | crash | deadline |
 |---|---|---|---|---|---|---|
-| all | 303 | 23 | 0 | 0 | 0 | 0 |
+| all | 304 | 22 | 0 | 0 | 0 | 0 |
 | bounds | 18 | 0 | 0 | 0 | 0 | 0 |
 | controlflow | 22 | 0 | 0 | 0 | 0 | 0 |
 | indirection | 70 | 4 | 0 | 0 | 0 | 0 |
 | inline | 30 | 4 | 0 | 0 | 0 | 0 |
-| modality | 45 | 6 | 0 | 0 | 0 | 0 |
+| modality | 46 | 5 | 0 | 0 | 0 | 0 |
 | netsecret | 16 | 4 | 0 | 0 | 0 | 0 |
 | path | 21 | 1 | 0 | 0 | 0 | 0 |
 | quoting | 40 | 0 | 0 | 0 | 0 | 0 |
@@ -39,16 +39,16 @@ silent drops: 326 rows tested, 71 mutants, 0 drops
 
 ### nah parity
 
-nah `3b204d83bd25e16e3a96bcb5887d9b9f4837b6f1` / corpus `36adf1d38666790c196b0b7b36d1a0577ff710d122ede76fe281250dda5e4be4`
+nah `f779fb8bb30848758df615079d4f361ffc9911e9` / corpus `4b26ffde9b267801c77bb69fce54c6d9c728121188b272a84462cc456712151e`
 
 | class | count |
 |---|---|
-| effect_match | 5120 |
+| effect_match | 5155 |
 | silent_symbolic_drop | 2 |
 | missing_effect | 12 |
 | missing_flow | 2 |
-| covered | 1425 |
-| explained_partial | 1749 |
+| covered | 1427 |
+| explained_partial | 1767 |
 
 | file | effect_match | silent_symbolic_drop | missing_effect | missing_flow | covered | explained_partial |
 |---|---|---|---|---|---|---|
@@ -59,7 +59,7 @@ nah `3b204d83bd25e16e3a96bcb5887d9b9f4837b6f1` / corpus `36adf1d38666790c196b0b7
 | execution-flows.jsonl | 527 | 0 | 0 | 0 | 123 | 206 |
 | filesystem.jsonl | 721 | 0 | 1 | 0 | 249 | 145 |
 | git.jsonl | 791 | 0 | 0 | 0 | 307 | 167 |
-| infrastructure.jsonl | 229 | 0 | 0 | 0 | 10 | 122 |
+| infrastructure.jsonl | 264 | 0 | 0 | 0 | 12 | 140 |
 | kubernetes.jsonl | 41 | 0 | 0 | 0 | 1 | 25 |
 | local-utilities.jsonl | 4 | 0 | 0 | 0 | 42 | 9 |
 | macos.jsonl | 61 | 0 | 0 | 0 | 30 | 16 |
@@ -107,6 +107,7 @@ nah `3b204d83bd25e16e3a96bcb5887d9b9f4837b6f1` / corpus `36adf1d38666790c196b0b7
 | git-remote-resource-delete | 44 | 0 | 0 | 0 | 0 | 0 |
 | git-rewrite-force | 43 | 0 | 0 | 0 | 0 | 0 |
 | git-worktree-discard | 66 | 0 | 0 | 0 | 0 | 0 |
+| infra-cloud-delete | 35 | 0 | 0 | 0 | 0 | 0 |
 | infra-container-reset | 37 | 0 | 0 | 0 | 0 | 0 |
 | infra-container-volume-delete | 51 | 0 | 0 | 0 | 0 | 0 |
 | infra-iac-destroy | 127 | 0 | 0 | 0 | 0 | 0 |
@@ -2256,7 +2257,7 @@ nah cold catalog + first analyze median: 2731 us (target 5000 us)
 
 | source | p50 ms | p99 ms | max ms | max RSS MB |
 |---|---|---|---|---|
-| adversarial | 0.8 | 136.1 | 9876.7 | 333.3 |
+| adversarial | 0.8 | 132.0 | 10250.8 | 328.2 |
 | nah | 0.9 | 9.1 | 39.6 | 158.0 |
 | swe | 1.0 | 17.6 | 783.0 | 214.2 |
 | wild | 1.1 | 105.5 | 10000.0 | 318.3 |

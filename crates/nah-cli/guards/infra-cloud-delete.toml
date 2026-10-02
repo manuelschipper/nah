@@ -1,0 +1,67 @@
+summary = "Blocks reviewed deletion of provisioned cloud and hosted-platform resources through aws, gcloud, az, Railway, Modal, Kamal, Wrangler, Fastly, Supabase, and the managed-database CLIs. Unreviewed verbs, unknown options, help, dry runs, and dynamic names delegate."
+
+description = '''
+This guard stops an agent from deleting infrastructure a provider hosts:
+instances, clusters, networks, DNS zones, identities, projects, resource
+groups, managed databases, deployed apps, environments, and volumes. It covers
+a reviewed set of delete verbs for each CLI and blocks only when every option
+is one Nah reads and the resource is named literally or is the one the
+directory is linked to.
+'''
+
+limits = '''
+Nah cannot see which account, project, or environment the CLI targets, so it
+cannot tell a disposable preview from production. Verbs outside the reviewed
+set, unknown options, and names built at run time delegate. Secrets stores,
+object storage, disks, and snapshots are left to their own guards.
+'''
+
+default_reason = '''
+It ships off because tearing down the preview environment an agent created is
+routine on some teams. `db-destroy` also blocks managed-database deletes,
+`infra-iac-destroy` covers Terraform and Pulumi teardown, and the `storage-*`
+guards cover buckets, disks, and snapshots.
+'''
+
+[[blocks]]
+row = "infra-cloud-delete.aws-ec2-terminate"
+why = "terminate-instances permanently deletes the instance."
+tui = true
+
+[[blocks]]
+row = "infra-cloud-delete.az-resource-group"
+why = "Deleting a resource group deletes every resource in it."
+tui = true
+
+[[blocks]]
+row = "infra-cloud-delete.railway-environment"
+why = "Deleting an environment removes its services and data."
+tui = true
+
+[[blocks]]
+row = "infra-cloud-delete.gcloud-project"
+why = "Deleting a project shuts down every resource it holds."
+
+[[blocks]]
+row = "infra-cloud-delete.kamal-remove"
+why = "kamal remove deletes accessories with their data directories."
+
+[[passes]]
+row = "infra-cloud-delete.aws-dry-run-delegates"
+why = "--dry-run checks permissions and terminates nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "infra-cloud-delete.unknown-option-delegates"
+why = "Nah does not read --weird, which may change the request."
+cause = "unresolved"
+
+[[passes]]
+row = "infra-cloud-delete.dynamic-name-delegates"
+why = "$CLUSTER is never set, so Nah cannot name the cluster."
+cause = "unresolved"
+
+[[passes]]
+row = "infra-cloud-delete.railway-unnamed-project-delegates"
+why = "Without --project, Railway prompts for the project to delete."
+cause = "unresolved"

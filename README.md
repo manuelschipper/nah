@@ -33,7 +33,7 @@ Extensions are just programs. Point your agent to nah's docs and ask it to build
 
 ## It knows a disaster when it sees one.
 
-48 guards, 30 on by default, covering eight classes of disaster: **execution
+49 guards, 30 on by default, covering eight classes of disaster: **execution
 hijacks**, **secret theft**, **filesystem destruction**, **git disasters**,
 **infrastructure, storage, and backup teardown**, **lookalike-host network
 access**, **package-registry operations**, and **host power and service-stop
@@ -77,6 +77,7 @@ actions**.
 | `git-remote-resource-delete` | Statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes. Off by default. |
 | `git-worktree-discard` | Project-wide checkout or restore, proven forced branch changes, and forced worktree removal or submodule deinitialization. |
 | `db-destroy` | Dropping, truncating, flushing, resetting, or overwriting live database data, and deleting managed databases. Off by default. |
+| `infra-cloud-delete` | Reviewed deletion of provisioned cloud and hosted-platform resources through `aws`, `gcloud`, `az`, Railway, Modal, Kamal, Wrangler, Fastly, Supabase, and managed-database CLIs. Off by default. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
 | `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands, and Compose `down -v`/`rm -v` volume removal. Off by default. |
 | `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction. Off by default. |

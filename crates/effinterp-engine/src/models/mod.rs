@@ -25,6 +25,7 @@ pub(crate) mod nodeexec;
 mod osascript;
 mod phpexec;
 pub(crate) mod pkgmgr;
+mod platform;
 pub(crate) mod pyexec;
 mod registry;
 mod release;
@@ -635,6 +636,11 @@ impl Catalog {
                     kubernetes::with_resource_api(model)
                 } else if model.id() == "coreutils/chmod@v1" {
                     sysutils::with_macos_acl(model)
+                } else if matches!(
+                    model.id(),
+                    "p18b/cloud/wrangler@v1" | "p18b/cloud/supabase@v1"
+                ) {
+                    platform::with_platform_deletes(model)
                 } else if model.id() == "p18b/transfer-archive-process/rclone@v1" {
                     cloud::with_rclone_storage(model)
                 } else if model.id() == "p18b/transfer-archive-process/http@v1" {
@@ -657,6 +663,7 @@ impl Catalog {
         models.extend(wrappers::models());
         models.extend(container::container_models());
         models.extend(cloud::cloud_models());
+        models.extend(platform::platform_models());
         models.extend(infrastructure::infrastructure_models());
         models.extend(credential::credential_models());
         models.extend(messaging::messaging_models());
