@@ -32,13 +32,13 @@ impl Guard {
     /// Whether a call passing `argument` for the parameter cannot take this
     /// path: only a literal argument decides it.
     pub(super) fn refuted_by(&self, argument: &Expr) -> bool {
-        let Expr::Constant(argument) = argument else {
-            return false;
-        };
-        let outcome = match &self.test {
-            Test::Truthy => truthy(&Expr::Constant(argument.clone())),
-            Test::Equals(literal) => literal_equals(&argument.value, literal),
-            Test::IsNone => Some(argument.value.is_none()),
+        let outcome = match (&self.test, argument) {
+            (Test::Truthy, _) => literal_truthy(argument),
+            (Test::Equals(literal), Expr::Constant(argument)) => {
+                literal_equals(&argument.value, literal)
+            }
+            (Test::IsNone, Expr::Constant(argument)) => Some(argument.value.is_none()),
+            _ => None,
         };
         outcome == Some(!self.holds)
     }
@@ -49,6 +49,25 @@ impl Guard {
             ..self.clone()
         }
     }
+}
+
+/// The truth value of a literal constant, list, tuple, set or dict whose
+/// size the source fixes.
+fn literal_truthy(expr: &Expr) -> Option<bool> {
+    let elements = match expr {
+        Expr::List(list) => &list.elts,
+        Expr::Tuple(tuple) => &tuple.elts,
+        Expr::Set(set) => &set.elts,
+        // A `**` entry has no key and may add none.
+        Expr::Dict(dict) if dict.keys.iter().all(Option::is_some) => {
+            return Some(!dict.keys.is_empty());
+        }
+        _ => return truthy(expr),
+    };
+    if elements.iter().any(|element| element.is_starred_expr()) {
+        return None;
+    }
+    Some(!elements.is_empty())
 }
 
 /// `left == right` for two literals, when Python's answer does not depend
@@ -165,8 +184,7 @@ impl Reach {
                 if truthy(&s.test) == Some(true) && !jumps(&s.body, false) {
                     return None;
                 }
-                self.block(&s.orelse, guards, out);
-                Some(Vec::new())
+                self.loop_else(&s.body, &s.orelse, guards, out)
             }
             Stmt::For(s) => {
                 let body = self.block(&s.body, guards, out);
@@ -174,13 +192,11 @@ impl Reach {
                 if body.is_none() && nonempty(&s.iter) && !jumps(&s.body, true) {
                     return None;
                 }
-                self.block(&s.orelse, guards, out);
-                Some(Vec::new())
+                self.loop_else(&s.body, &s.orelse, guards, out)
             }
             Stmt::AsyncFor(s) => {
                 self.block(&s.body, guards, out);
-                self.block(&s.orelse, guards, out);
-                Some(Vec::new())
+                self.loop_else(&s.body, &s.orelse, guards, out)
             }
             Stmt::With(s) => self.block(&s.body, guards, out),
             Stmt::AsyncWith(s) => self.block(&s.body, guards, out),
@@ -200,8 +216,26 @@ impl Reach {
         }
     }
 
+    /// A loop's `else`: without a `break`, the loop completes only through
+    /// it, so it falls through only when the `else` does.
+    fn loop_else(
+        &self,
+        body: &[Stmt],
+        orelse: &[Stmt],
+        guards: &mut Vec<Guard>,
+        out: &mut HashMap<TextRange, Vec<Guard>>,
+    ) -> Falls {
+        let after = self.block(orelse, guards, out);
+        if jumps(body, false) {
+            Some(Vec::new())
+        } else {
+            after
+        }
+    }
+
     /// A `try`: each part contributes its returns, which complete only when
-    /// the `finally` falls through, under the guards that let it.
+    /// the `finally` falls through, under the guards that let it. Without a
+    /// handler, the `try` falls through only as its body and `else` do.
     fn try_stmt(
         &self,
         body: &[Stmt],
@@ -212,19 +246,18 @@ impl Reach {
         out: &mut HashMap<TextRange, Vec<Guard>>,
     ) -> Falls {
         let mut pending = HashMap::new();
-        let mut falls = match self.block(body, guards, &mut pending) {
-            Some(after) => {
-                let depth = guards.len();
-                guards.extend(after);
-                let falls = self.block(orelse, guards, &mut pending).is_some();
-                guards.truncate(depth);
-                falls
-            }
-            None => false,
-        };
+        let mut falls = self.block(body, guards, &mut pending).and_then(|after| {
+            let depth = guards.len();
+            guards.extend(after.iter().cloned());
+            let orelse = self.block(orelse, guards, &mut pending);
+            guards.truncate(depth);
+            orelse.map(|orelse| after.into_iter().chain(orelse).collect::<Vec<_>>())
+        });
         for handler in handlers {
             let ast::ExceptHandler::ExceptHandler(handler) = handler;
-            falls |= self.block(&handler.body, guards, &mut pending).is_some();
+            if self.block(&handler.body, guards, &mut pending).is_some() {
+                falls = Some(Vec::new());
+            }
         }
         let mut finally = HashMap::new();
         let after = self.block(finalbody, guards, &mut finally);
@@ -234,7 +267,7 @@ impl Reach {
             site.extend(after.iter().cloned());
             out.insert(range, site);
         }
-        falls.then_some(after)
+        falls.map(|falls| falls.into_iter().chain(after).collect())
     }
 
     /// The parameter test a branch reads: `p`, `p == <literal>`,

@@ -8111,15 +8111,19 @@ impl<'a> EffectVisitor<'_, 'a> {
 
     /// Record an assignment or `delete` of a runtime console method, in
     /// program order (see [`Self::console_method_prints`]). A computed name
-    /// Nah cannot read may be any method, and a write through anything but
-    /// the global `console` may be undone where Nah does not look, so either
-    /// can only make methods print.
+    /// Nah cannot read may be any method, so a value that may print makes
+    /// every method print and a silent one changes nothing. A write through
+    /// anything but the global `console` may be undone where Nah does not
+    /// look, so it can only make methods print.
     fn note_console_assignment(&mut self, member: &MemberExpression<'a>, silences: bool) {
         let console = &self.bindings.console;
         if !console.is_console(member.object()) {
             return;
         }
         let method = member.static_property_name().map(|name| name.to_string());
+        if silences && method.is_none() {
+            return;
+        }
         let silences = silences && method.is_some() && console.is_global_console(member.object());
         self.console_assignments.push(ConsoleAssignment {
             silences,

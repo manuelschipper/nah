@@ -290,7 +290,53 @@ because the owner accepted the conservative rule over a narrower model.
   interrupted. `reachable_returns` keeps every handler reachable, since
   telling which statements can raise needs a model of every call and
   operator in the body, and a wrong "cannot raise" would drop a real secret
-  return.
+  return. For the same reason a handler that falls through drops the guards
+  the `try` body established: `try: if public: return "ping"` /
+  `except Exception: pass` followed by `return key` keeps the key return for
+  `helper(True)`.
+- `secrets-exfil.python-helper-rebound-guard-after-early-return-print-key-upload-kept-conservative`
+  and `secrets-exfil.python-forwarded-guard-false-return-print-key-upload-kept-conservative`
+  — `if public: return "ping"` called with `True` never reaches a later
+  `return key` even when the body rebinds `public` after that test, and
+  `outer(key, False)` forwarding its flag to `inner(value, secret)`, which
+  returns `value` only under `secret`, returns `"ping"`; a helper that reuses
+  its flag variable or a wrapper that forwards a public/private flag is
+  interrupted. Return guards apply only to parameters the body never rebinds
+  and only to the literal arguments of the call they guard
+  (`reachable_returns` in `crates/effinterp-engine/src/python/returns.rs`):
+  ordering rebinds against the test, or carrying a callee's guard onto the
+  caller's parameter, is new path inference for a shape whose miss would
+  return a real secret.
+- `secrets-exfil.node-file-console-logger-key-upload-kept-conservative` —
+  `console.log = (x) => { require("fs").writeFileSync("debug.log", x) }`
+  writes the key to a local file, not to stdout, so a script that redirects
+  its logging to a file is interrupted, whether the path is a literal, a
+  `const` (`const path = "/tmp/app.log"`) or an `appendFileSync`. A
+  replacement that writes anywhere through `fs` stays a possible printer
+  (`ConsoleAliases::silent_function` in
+  `crates/effinterp-engine/src/js/console.rs`): `/dev/stdout`,
+  `/usr/../dev/stdout`, `/proc/self/fd/1` and file descriptor 1 all name
+  stdout, and telling a file from them needs the resolved destination
+  (`secrets-exfil.node-normalized-stdout-console-logger-key-upload` blocks a
+  live one).
+- `secrets-exfil.node-saved-console-error-assigned-to-log-key-upload-kept-conservative`
+  — `const err = console.error; console.log = err` sends later prints to
+  stderr, so a script routing its output to stderr through a saved method is
+  interrupted. A console method assignment is silent only for a value Nah
+  proves writes nothing to stdout at that point (`is_silent` in
+  `crates/effinterp-engine/src/js/mod.rs`): a function literal that does
+  nothing, a console method that does not print, its `.bind(...)`, or a
+  never-reassigned no-op function; a binding's printer state records only
+  whether it may print, not that it is silent. The direct
+  `console.log = console.error` and `console.error.bind(console)` spellings
+  delegate.
+- `secrets-exfil.node-muted-console-log-or-assigned-writer-key-upload-kept-conservative`
+  — after `console.log = () => {}`, `console.log ||= writer` keeps the
+  no-op, since a function is truthy, so a script that installs a fallback
+  logger only when none is set is interrupted. `||=` and `??=` with a value
+  that may print make the method print: Nah tracks whether a method prints,
+  not whether it holds a truthy value, and a deleted method is falsy, so the
+  writer could be installed.
 
 ## Documented gaps
 
@@ -333,6 +379,18 @@ Accepted limitations with no corpus row that asserts a desired block.
   (8) times (`crates/effinterp-engine/src/js/console.rs`), one hop per round,
   so an alias more than eight hops from `console` (`c8`, `c9`) is not
   recognized. Chains of up to eight block.
+- A replaced `Object.keys` that restores a muted console method.
+  `Object.keys = (c) => { c.log = orig; return [] }`, then a mute, then
+  `Object.keys(console)` and `console.log(key)` piped to an upload
+  delegates: passing the console to the global `Object.keys`, `values` or
+  `entries` counts as inspection (`ConsoleAliases::inert_call` in
+  `crates/effinterp-engine/src/js/console.rs`) whether or not the program
+  replaced that method, so the restore inside it is not seen.
+- A Python helper forwarding its parameter through destructuring.
+  `def h(p): (a,) = (p,); return a` then `print(h(key))` piped to an upload
+  delegates: a returned parameter follows plain assignment `x = p` (the
+  `params` origins in `crates/effinterp-engine/src/python/mod.rs`), but an
+  unpacking target gets no origin, so the argument is not passed back.
 - A secret bound outside a Node function and printed inside it.
   `const key = fs.readFileSync(k); function run() { console.log(key) } run()`
   piped to an upload delegates: the Node frontend does not carry the

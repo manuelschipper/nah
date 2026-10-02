@@ -112,15 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "db23df476f4c68e9c41812a5987c9eb6b639c37d",
-      "corpus_digest": "11758f67e84c3b0b961bc5515f9f16602434b31650aff40d59b856a3a80840a8",
+      "nah_commit": "b01adef3684b8a54a3fcd151446405972cc8c75b",
+      "corpus_digest": "f8ca8a0845cb21304833384d561616e7ff3a5b804199e4a5291e833349b096de",
       "classes": {
-        "effect_match": 5157,
+        "effect_match": 5163,
         "silent_symbolic_drop": 2,
         "missing_effect": 12,
         "missing_flow": 2,
         "covered": 1432,
-        "explained_partial": 1763
+        "explained_partial": 1766
       },
       "per_file": {
         "code.jsonl": {
@@ -204,11 +204,11 @@
           "explained_partial": 102
         },
         "secrets.jsonl": {
-          "effect_match": 791,
+          "effect_match": 797,
           "missing_effect": 3,
           "missing_flow": 2,
           "covered": 194,
-          "explained_partial": 216
+          "explained_partial": 219
         },
         "self-protection.jsonl": {
           "effect_match": 639,
@@ -376,7 +376,7 @@
           "effect_match": 119
         },
         "secrets-exfil": {
-          "effect_match": 535,
+          "effect_match": 541,
           "missing_effect": 3,
           "missing_flow": 2,
           "explained_partial": 3
@@ -498,7 +498,7 @@
         "/workspace/project/nah/.crates2.json": 1,
         "/workspace/project/package.json": 8,
         "/workspace/project/payload.py": 1,
-        "/workspace/project/requests/__init__.py": 14,
+        "/workspace/project/requests/__init__.py": 17,
         "/workspace/project/vendor/autoload.php": 2,
         "/workspace/project/vendor/autoload_runtime.php": 1,
         "/workspace/push-config": 2,
@@ -836,7 +836,7 @@
         },
         "secrets-exfil": {
           "deferred": 28,
-          "indeterminate": 508,
+          "indeterminate": 514,
           "no_match": 7
         },
         "secrets-store-delete": {
@@ -11256,10 +11256,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.8444,
-        "p99_ms": 169.8539,
-        "max_ms": 11230.9255,
-        "max_rss_kb": 352528
+        "p50_ms": 0.7949,
+        "p99_ms": 134.7513,
+        "max_ms": 10046.3371,
+        "max_rss_kb": 334352
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11283,13 +11283,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261002T001238Z-correctness-11682",
-      "measured_at": "2026-10-02T00:12:38Z",
-      "source_fingerprint": "blake3:b1d1363069d3896e9dc96ecd51b1816075b4617bdbe9a1cd97142f583405f144",
-      "binary_hash": "blake3:387493d14323152f940c197259ef1d655ba9ef5e443f5b1a0aa7b7724ff3a869",
+      "run_id": "20261002T003820Z-correctness-57884",
+      "measured_at": "2026-10-02T00:38:20Z",
+      "source_fingerprint": "blake3:7e52b8e23127408f6ef6bf5cca9fb264452f7988aaaecbb4866ef76de5bd03a0",
+      "binary_hash": "blake3:a1b24f36263051f384d7f3fec38a2442db54c14b36dc61234074ea06911c3850",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "db23df476f4c68e9c41812a5987c9eb6b639c37d",
+      "git_head": "b01adef3684b8a54a3fcd151446405972cc8c75b",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

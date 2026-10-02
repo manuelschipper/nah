@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{
-    Argument, ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, BindingPattern,
+    ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, BindingPattern,
     CallExpression, Class, ComputedMemberExpression, Expression, ExpressionStatement, Function,
     FunctionBody, IdentifierReference, NewExpression, Statement, StaticMemberExpression,
     TaggedTemplateExpression, VariableDeclarationKind, VariableDeclarator,
@@ -49,11 +49,6 @@ pub(super) struct ConsoleAliases {
     pub(super) escapes: HashSet<u32>,
     /// Spans of the references that reach the runtime's own `Object`.
     object_globals: HashSet<u32>,
-    /// Spans of the references that reach the runtime's own `require`.
-    require_globals: HashSet<u32>,
-    /// Span starts of the references to `const` bindings of
-    /// `require("fs")`.
-    fs_modules: HashSet<u32>,
 }
 
 impl ConsoleAliases {
@@ -142,39 +137,14 @@ impl ConsoleAliases {
         !acts.hit
     }
 
-    /// A call that writes nothing to stdout and changes no console method:
-    /// `Object.keys`, `values` or `entries`, or a synchronous `fs` write to
-    /// a literal path outside `/dev` and `/proc`.
+    /// A call that writes nothing and changes no console method:
+    /// `Object.keys`, `values` or `entries`. Any write, even to a file,
+    /// may reach stdout through a path Nah does not resolve.
     fn inert_call(&self, call: &CallExpression<'_>) -> bool {
-        let Expression::StaticMemberExpression(callee) = unparen(&call.callee) else {
-            return false;
-        };
-        let name = callee.property.name.as_str();
-        match unparen(&callee.object) {
-            Expression::Identifier(id) if self.object_globals.contains(&id.span.start) => {
-                matches!(name, "keys" | "values" | "entries")
-            }
-            module if self.is_fs_module(module) => {
-                matches!(name, "writeFileSync" | "appendFileSync")
-                    && matches!(call.arguments.first(), Some(Argument::StringLiteral(path))
-                        if !path.value.starts_with("/dev/") && !path.value.starts_with("/proc/"))
-            }
-            _ => false,
-        }
-    }
-
-    /// `require("fs")` or a `const` bound to it.
-    fn is_fs_module(&self, expression: &Expression<'_>) -> bool {
-        match unparen(expression) {
-            Expression::Identifier(id) => self.fs_modules.contains(&id.span.start),
-            Expression::CallExpression(call) => {
-                matches!(unparen(&call.callee), Expression::Identifier(id)
-                    if self.require_globals.contains(&id.span.start))
-                    && matches!(call.arguments.as_slice(), [Argument::StringLiteral(name)]
-                        if matches!(name.value.as_str(), "fs" | "node:fs"))
-            }
-            _ => false,
-        }
+        matches!(unparen(&call.callee), Expression::StaticMemberExpression(callee)
+            if matches!(unparen(&callee.object), Expression::Identifier(id)
+                if self.object_globals.contains(&id.span.start))
+                && matches!(callee.property.name.as_str(), "keys" | "values" | "entries"))
     }
 
     fn is_global_this(&self, expression: &Expression<'_>) -> bool {
@@ -222,18 +192,8 @@ pub(super) fn console_aliases(
         globals,
         global_this: global_reference_spans(semantic, "globalThis"),
         object_globals: global_reference_spans(semantic, "Object"),
-        require_globals: global_reference_spans(semantic, "require"),
         ..ConsoleAliases::default()
     };
-    let mut fs_modules = FsModules {
-        aliases: &aliases,
-        found: Vec::new(),
-    };
-    fs_modules.visit_program(program);
-    let fs_modules = fs_modules.found;
-    for symbol in fs_modules {
-        aliases.fs_modules.extend(references_of(symbol));
-    }
     for _ in 0..MAX_ALIAS_ROUNDS {
         let mut objects = Collect::new(&aliases, scoping, Find::Objects);
         objects.visit_program(program);
@@ -286,25 +246,6 @@ pub(super) fn console_aliases(
     escapes.visit_program(program);
     aliases.escapes = escapes.escapes;
     aliases
-}
-
-/// `const` bindings of `require("fs")`.
-struct FsModules<'a> {
-    aliases: &'a ConsoleAliases,
-    found: Vec<oxc_semantic::SymbolId>,
-}
-
-impl<'a> Visit<'a> for FsModules<'_> {
-    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
-        if it.kind == VariableDeclarationKind::Const
-            && let (BindingPattern::BindingIdentifier(id), Some(init)) = (&it.id, &it.init)
-            && self.aliases.is_fs_module(init)
-            && let Some(symbol) = id.symbol_id.get()
-        {
-            self.found.push(symbol);
-        }
-        walk::walk_variable_declarator(self, it);
-    }
 }
 
 /// Function declarations and `const` bindings whose function does nothing.
