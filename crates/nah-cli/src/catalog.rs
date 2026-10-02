@@ -245,12 +245,6 @@ mod tests {
         assert!(
             states
                 .iter()
-                .find(|state| state.name() == "infra-cloud-delete")
-                .is_some_and(|state| !state.enabled())
-        );
-        assert!(
-            states
-                .iter()
                 .find(|state| state.name() == "registry-publish")
                 .is_some_and(|state| !state.enabled())
         );
@@ -272,7 +266,7 @@ mod tests {
                 .find(|state| state.name() == "secrets-store-read")
                 .is_some_and(ShippedGuardState::enabled)
         );
-        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 19);
+        assert_eq!(states.iter().filter(|state| !state.enabled()).count(), 18);
         for (name, default_enabled) in shipped_defaults() {
             assert_eq!(
                 states

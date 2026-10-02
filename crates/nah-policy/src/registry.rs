@@ -104,7 +104,6 @@ pub(crate) fn shipped_guard_definitions() -> Vec<GuardDefinition> {
         crate::simple_guards::infra_container_volume_delete(),
         crate::simple_guards::infra_iac_destroy(),
         crate::simple_guards::infra_k8s_delete(),
-        crate::simple_guards::infra_cloud_delete(),
         crate::simple_guards::storage_backup_destroy(),
         crate::simple_guards::storage_recursive_delete(),
         crate::simple_guards::storage_snapshot_delete(),

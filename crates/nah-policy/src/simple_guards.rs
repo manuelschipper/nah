@@ -212,6 +212,14 @@ pub(crate) fn infra_container_volume_delete() -> GuardDefinition {
     }
 }
 
+/// Infrastructure teardown: a whole-stack infrastructure-as-code destroy, or
+/// a reviewed provider or platform CLI delete of a `CLOUD_RESOURCES` kind.
+/// Only an exact request counts: the engine marks one when every option of
+/// the invocation is one the reviewed table documents and the resource is
+/// named literally or is the one the CLI is linked to. Help, dry runs and
+/// unknown options leave the request conservative, and the call delegates.
+/// A CLI delete that states its `mode` is IaC teardown and reaches only the
+/// whole-stack clauses.
 pub(crate) fn infra_iac_destroy() -> GuardDefinition {
     let controls = vec![
         string_attr("mode", "destroy"),
@@ -223,31 +231,46 @@ pub(crate) fn infra_iac_destroy() -> GuardDefinition {
     ];
     let mut unresolved_controls = controls.clone();
     unresolved_controls.push(present_attr("mode"));
+    let mut assertions = vec![
+        effect(
+            "cloud.resource.delete",
+            variant(ResourceVariant::ManagedInfrastructure),
+            controls,
+            Some(RequestAssurance::Exact),
+            None,
+        ),
+        effect(
+            "cloud.resource.delete",
+            family("cloud"),
+            unresolved_controls,
+            Some(RequestAssurance::Exact),
+            None,
+        ),
+    ];
+    for (provider, service, kinds) in CLOUD_RESOURCES {
+        for kind in *kinds {
+            assertions.push(effect_without_attribute(
+                "cloud.resource.delete",
+                ResourcePredicate::CloudResource {
+                    provider: Some(TextPredicate::Equals((*provider).into())),
+                    service: Some(TextPredicate::Equals((*service).into())),
+                    kind: Some(TextPredicate::Equals((*kind).into())),
+                },
+                vec![],
+                Some(RequestAssurance::Exact),
+                None,
+                "mode",
+            ));
+        }
+    }
     GuardDefinition {
         id: "infra-iac-destroy",
-        reason: "infra-iac-destroy blocked whole-stack infrastructure destruction; keep the stack intact and ask the operator to perform any complete teardown",
+        reason: "infra-iac-destroy blocked tearing down provisioned infrastructure; keep it intact and ask the operator to perform the teardown",
         family: GuardFamily::Infrastructure,
         default_enabled: false,
         domain: Domain::Infrastructure,
         gap_code: Some("infrastructure-destruction-mode-unavailable"),
-        clauses: engine_only(Query::new(Assertion::Any {
-            assertions: vec![
-                effect(
-                    "cloud.resource.delete",
-                    variant(ResourceVariant::ManagedInfrastructure),
-                    controls,
-                    Some(RequestAssurance::Exact),
-                    None,
-                ),
-                effect(
-                    "cloud.resource.delete",
-                    family("cloud"),
-                    unresolved_controls,
-                    Some(RequestAssurance::Exact),
-                    None,
-                ),
-            ],
-        })),
+        clauses: engine_only(Query::new(Assertion::Any { assertions })),
     }
 }
 
@@ -367,41 +390,6 @@ const CLOUD_RESOURCES: &[(&str, &str, &[&str])] = &[
     ("kamal", "proxy", &["proxy"]),
     ("fastly", "service", &["service"]),
 ];
-
-/// Only an exact request counts: the engine marks one when every option of
-/// the invocation is one the reviewed table documents and the resource is
-/// named literally or is the one the CLI is linked to. Help, dry runs and
-/// unknown options leave the request conservative, and the call delegates.
-/// Infrastructure-as-code teardown, which states its `mode`, is
-/// infra-iac-destroy's.
-pub(crate) fn infra_cloud_delete() -> GuardDefinition {
-    let mut assertions = Vec::new();
-    for (provider, service, kinds) in CLOUD_RESOURCES {
-        for kind in *kinds {
-            assertions.push(effect_without_attribute(
-                "cloud.resource.delete",
-                ResourcePredicate::CloudResource {
-                    provider: Some(TextPredicate::Equals((*provider).into())),
-                    service: Some(TextPredicate::Equals((*service).into())),
-                    kind: Some(TextPredicate::Equals((*kind).into())),
-                },
-                vec![],
-                Some(RequestAssurance::Exact),
-                None,
-                "mode",
-            ));
-        }
-    }
-    GuardDefinition {
-        id: "infra-cloud-delete",
-        reason: "infra-cloud-delete blocked deleting a provisioned cloud or hosted-platform resource; keep the resource and ask the operator to perform the reviewed deletion",
-        family: GuardFamily::Infrastructure,
-        default_enabled: false,
-        domain: Domain::Infrastructure,
-        gap_code: Some("infrastructure-destruction-mode-unavailable"),
-        clauses: engine_only(Query::new(Assertion::Any { assertions })),
-    }
-}
 
 pub(crate) fn infra_k8s_delete() -> GuardDefinition {
     let controls = vec![

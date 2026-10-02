@@ -13152,8 +13152,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.aws-attached-query-before-service",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.aws-attached-query-before-service",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13165,8 +13165,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.aws-cloudformation-stack",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.aws-cloudformation-stack",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13178,8 +13178,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.aws-ec2-terminate",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.aws-ec2-terminate",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13191,8 +13191,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.aws-eks-cluster",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.aws-eks-cluster",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13204,8 +13204,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.aws-iam-role",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.aws-iam-role",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13217,8 +13217,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.aws-lambda-function",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.aws-lambda-function",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13230,8 +13230,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.aws-output-before-service",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.aws-output-before-service",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13243,8 +13243,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.aws-rds-instance-with-db-destroy",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.aws-rds-instance-with-db-destroy",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13256,8 +13256,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.aws-region-before-service",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.aws-region-before-service",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13269,8 +13269,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.aws-repeated-instance-list",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.aws-repeated-instance-list",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to; a repeated --instance-ids replaces the earlier list.",
       "require": [
         {
@@ -13282,8 +13282,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.aws-route53-zone",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.aws-route53-zone",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13295,8 +13295,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.az-aks-cluster",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.az-aks-cluster",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13308,8 +13308,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.az-resource-group",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.az-resource-group",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13321,8 +13321,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.az-service-principal",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.az-service-principal",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13334,8 +13334,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.doctl-droplet",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.doctl-droplet",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13347,8 +13347,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.fastly-service",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.fastly-service",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13360,8 +13360,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.fly-postgres-with-db-destroy",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.fly-postgres-with-db-destroy",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13373,8 +13373,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.gcloud-compute-instances",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.gcloud-compute-instances",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13392,8 +13392,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.gcloud-gke-cluster",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.gcloud-gke-cluster",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13405,8 +13405,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.gcloud-project",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.gcloud-project",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13418,8 +13418,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.gcloud-service-account",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.gcloud-service-account",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13431,8 +13431,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.gcloud-sql-with-db-destroy",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.gcloud-sql-with-db-destroy",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13444,8 +13444,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.kamal-accessory",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.kamal-accessory",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13457,8 +13457,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.kamal-remove",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.kamal-remove",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13470,8 +13470,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.modal-app-stop",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.modal-app-stop",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13483,8 +13483,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.modal-volume",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.modal-volume",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13496,8 +13496,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.railway-environment",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.railway-environment",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13509,8 +13509,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.railway-function-delete",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.railway-function-delete",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13522,8 +13522,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.railway-project-delete",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.railway-project-delete",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13535,8 +13535,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.railway-service-delete",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.railway-service-delete",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13548,8 +13548,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.supabase-function",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.supabase-function",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13561,8 +13561,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.wrangler-d1-with-db-destroy",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.wrangler-d1-with-db-destroy",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13574,8 +13574,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.wrangler-kv-namespace",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.wrangler-kv-namespace",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13587,8 +13587,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.wrangler-worker",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.wrangler-worker",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {
@@ -13600,8 +13600,8 @@
       ]
     },
     {
-      "id": "infra-cloud-delete.wrangler-worker-operand",
-      "guard": "infra-cloud-delete",
+      "id": "infra-iac-destroy.wrangler-worker-operand",
+      "guard": "infra-iac-destroy",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
       "require": [
         {

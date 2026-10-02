@@ -1288,45 +1288,6 @@ worktree, is broad loss with targeted alternatives. The optional
 `git-clean-force` untracked files, and the optional `git-ref-delete` unforced
 worktree removal.
 
-## infra-cloud-delete
-
-Off by default.
-
-This guard stops an agent from deleting infrastructure a provider hosts:
-instances, clusters, networks, DNS zones, identities, projects, resource
-groups, managed databases, deployed apps, environments, and volumes. It covers
-a reviewed set of delete verbs for each CLI and blocks only when every option
-is one Nah reads and the resource is named literally or is the one the
-directory is linked to.
-
-Blocked examples when enabled:
-
-- `aws ec2 terminate-instances --instance-ids i-0abc123`
-- `az group delete -n prod -y`
-- `railway environment delete staging --yes`
-- `gcloud projects delete my-proj --quiet`
-- `kamal remove -y`
-
-Outside the guard:
-
-- `aws ec2 terminate-instances --instance-ids i-0abc123 --dry-run`: --dry-run checks permissions and terminates nothing.
-
-Nah cannot see which account, project, or environment the CLI targets, so it
-cannot tell a disposable preview from production. Verbs outside the reviewed
-set, unknown options, and names built at run time delegate. Secrets stores,
-object storage, disks, and snapshots are left to their own guards.
-
-Unresolved, so delegated:
-
-- `aws eks delete-cluster --name prod --weird x`: Nah does not read --weird, which may change the request.
-- `aws eks delete-cluster --name "$CLUSTER"`: $CLUSTER is never set, so Nah cannot name the cluster.
-- `railway delete --yes`: Without --project, Railway prompts for the project to delete.
-
-It ships off because tearing down the preview environment an agent created is
-routine on some teams. `db-destroy` also blocks managed-database deletes,
-`infra-iac-destroy` covers Terraform and Pulumi teardown, and the `storage-*`
-guards cover buckets, disks, and snapshots.
-
 ## infra-container-reset
 
 On by default.
@@ -1409,42 +1370,50 @@ container.
 
 Off by default.
 
-This guard stops Terraform, OpenTofu, Terragrunt, or Pulumi from tearing down
-an entire managed stack. It blocks a whole-stack destroy that would run, not a
-preview or plan. Destroy options passed through `TF_CLI_ARGS` count.
+This guard stops an agent from tearing down provisioned infrastructure: a
+Terraform, OpenTofu, Terragrunt, or Pulumi whole-stack destroy that would run,
+including destroy options passed through `TF_CLI_ARGS`, or a reviewed provider
+or platform CLI delete of an instance, cluster, network, DNS zone, identity,
+project, resource group, managed database, app, environment, or volume.
 
 Blocked examples when enabled:
 
 - `terraform destroy`
-- `tofu destroy -auto-approve`
 - `pulumi destroy`
-- `terraform apply -destroy`
+- `aws ec2 terminate-instances --instance-ids i-0abc123`
+- `az group delete -n prod -y`
+- `tofu destroy -auto-approve`
 - `TF_CLI_ARGS_apply='-destroy -auto-approve' terraform apply`
-- `pulumi down -y`
-- `terraform apply -refresh-only -refresh-only=false -destroy`
+- `terraform apply -destroy`
+- `aws cloudformation delete-stack --stack-name prod`
+- `gcloud projects delete my-proj --quiet`
+- `railway environment delete staging --yes`
+- `kamal remove -y`
 
 Outside the guard:
 
 - `terraform destroy -target module.web`: -target narrows the destroy to module.web.
-- `tofu apply -destroy -exclude module.keep`: -exclude keeps module.keep, so the stack is not destroyed whole.
 - `terraform plan -destroy`: plan -destroy only shows the teardown plan.
-- `pulumi destroy --preview-only`: --preview-only shows the destroy without running it.
+- `aws ec2 terminate-instances --instance-ids i-0abc123 --dry-run`: --dry-run checks permissions and terminates nothing.
 
-Nah cannot tell a disposable preview environment from production. It cannot
-read `TF_CLI_ARGS` built from an unresolved variable, and it delegates when a
-`-target` could
-narrow the scope. An unresolved destroy mode delegates with a coverage gap.
+Nah cannot tell a disposable preview environment from production. A CLI delete
+blocks only when Nah reads every option and the resource is named literally or
+linked. A `-target` that could narrow the stack, `TF_CLI_ARGS` or names built at
+run time, unreviewed verbs, and unknown options delegate. Secrets stores,
+object storage, disks, and snapshots are left to their own guards.
 
 Unresolved, so delegated:
 
-- `terraform apply -destroy saved.tfplan`: Applying saved.tfplan runs a plan whose content Nah does not read.
 - `TF_CLI_ARGS_destroy="$OPTIONS" terraform destroy`: $OPTIONS is unset, so a -target could narrow the destroy.
-- `PATH=/tmp; terraform destroy`: PATH=/tmp changes which terraform runs, and Nah cannot establish it.
+- `terraform apply -destroy saved.tfplan`: Applying saved.tfplan runs a plan whose content Nah does not read.
+- `aws eks delete-cluster --name prod --weird x`: Nah does not read --weird, which may change the request.
+- `railway delete --yes`: Without --project, Railway prompts for the project to delete.
+- `aws eks delete-cluster --name "$CLUSTER"`: $CLUSTER is never set, so Nah cannot name the cluster.
 
-It ships off because whole-stack teardown may be ordinary cleanup of a
-disposable environment. `infra-cloud-delete` covers a CloudFormation stack
-delete, `infra-k8s-delete` covers cluster objects, and the `storage-*` guards
-cover storage deletion.
+It ships off because tearing down a disposable environment, including one an
+agent created, is routine on some teams. `db-destroy` also blocks
+managed-database deletes, `infra-k8s-delete` covers cluster objects, and the
+`storage-*` guards cover storage deletion.
 
 ## infra-k8s-delete
 

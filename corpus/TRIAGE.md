@@ -268,8 +268,8 @@ because the owner accepted the conservative rule over a narrower model.
 
 Accepted limitations with no corpus row that asserts a desired block.
 
-- Cloud deletes outside `infra-cloud-delete`'s reviewed reading — `az vm
-  delete --ids …` (row `infra-cloud-delete.az-vm-ids-delegates`) and verbs
+- Cloud deletes outside `infra-iac-destroy`'s reviewed reading — `az vm
+  delete --ids …` (row `infra-iac-destroy.az-vm-ids-delegates`) and verbs
   outside the reviewed tables (`fly apps destroy`, `heroku apps:destroy`,
   `doctl kubernetes cluster delete`) delegate. By owner decision the guard
   also leaves out secrets and variables (`wrangler secret`, `supabase secrets
