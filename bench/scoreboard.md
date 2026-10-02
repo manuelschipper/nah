@@ -2,14 +2,14 @@
 
 | plane | run | measured | engine | models |
 |---|---|---|---|---|
-| correctness | `20261001T234442Z-correctness-23167` | 2026-10-01T23:44:42Z | `0.1.0` | `builtin:blake3:6e946ee2386327541fcde865d3b6124dec075f5351efba6fbc1714a9d9815f95` |
+| correctness | `20261002T002058Z-correctness-64931` | 2026-10-02T00:20:58Z | `0.1.0` | `builtin:blake3:6e946ee2386327541fcde865d3b6124dec075f5351efba6fbc1714a9d9815f95` |
 | coverage | `20260927T155829Z-coverage-54709` | 2026-09-27T15:58:29Z | `0.1.0` | `builtin:blake3:e4a3aa943d572fb4a6c4ee6fa4eb7d50bafc33cdde32b27864e9d8f1a97b5272` |
 | repositories | `20260921T153340Z-repositories-53884` | 2026-09-21T15:33:40Z | `0.1.0` | `builtin:blake3:f4c5b1246f8269fed8c419ed2832d4607967f1357aec6027b0f2bcac2d787f40` |
 | performance | `20260921T150325Z-performance-62642` | 2026-09-21T15:03:25Z | `0.1.0` | `builtin:blake3:a73d1a25123b9661020f9e13dbb1528964df754bf91f93b64e2df5b98b703606` |
 
 ## 1. Invocation correctness
 
-run `20261001T234442Z-correctness-23167` measured 2026-10-01T23:44:42Z
+run `20261002T002058Z-correctness-64931` measured 2026-10-02T00:20:58Z
 
 Independent effect, flow, and uncertainty expectations.
 
@@ -39,16 +39,16 @@ silent drops: 326 rows tested, 71 mutants, 0 drops
 
 ### nah parity
 
-nah `b1de23fa86c7b199aa41e0a2a28f572c5d404fcb` / corpus `37dd4de9673000a360478676c3c20f9f5152222d15732bd6a2840210d590202c`
+nah `f779fb8bb30848758df615079d4f361ffc9911e9` / corpus `4b26ffde9b267801c77bb69fce54c6d9c728121188b272a84462cc456712151e`
 
 | class | count |
 |---|---|
-| effect_match | 5154 |
+| effect_match | 5155 |
 | silent_symbolic_drop | 2 |
 | missing_effect | 12 |
 | missing_flow | 2 |
 | covered | 1427 |
-| explained_partial | 1766 |
+| explained_partial | 1767 |
 
 | file | effect_match | silent_symbolic_drop | missing_effect | missing_flow | covered | explained_partial |
 |---|---|---|---|---|---|---|
@@ -59,7 +59,7 @@ nah `b1de23fa86c7b199aa41e0a2a28f572c5d404fcb` / corpus `37dd4de9673000a36047867
 | execution-flows.jsonl | 527 | 0 | 0 | 0 | 123 | 206 |
 | filesystem.jsonl | 721 | 0 | 1 | 0 | 249 | 145 |
 | git.jsonl | 791 | 0 | 0 | 0 | 307 | 167 |
-| infrastructure.jsonl | 263 | 0 | 0 | 0 | 12 | 139 |
+| infrastructure.jsonl | 264 | 0 | 0 | 0 | 12 | 140 |
 | kubernetes.jsonl | 41 | 0 | 0 | 0 | 1 | 25 |
 | local-utilities.jsonl | 4 | 0 | 0 | 0 | 42 | 9 |
 | macos.jsonl | 61 | 0 | 0 | 0 | 30 | 16 |
@@ -107,7 +107,7 @@ nah `b1de23fa86c7b199aa41e0a2a28f572c5d404fcb` / corpus `37dd4de9673000a36047867
 | git-remote-resource-delete | 44 | 0 | 0 | 0 | 0 | 0 |
 | git-rewrite-force | 43 | 0 | 0 | 0 | 0 | 0 |
 | git-worktree-discard | 66 | 0 | 0 | 0 | 0 | 0 |
-| infra-cloud-delete | 34 | 0 | 0 | 0 | 0 | 0 |
+| infra-cloud-delete | 35 | 0 | 0 | 0 | 0 | 0 |
 | infra-container-reset | 37 | 0 | 0 | 0 | 0 | 0 |
 | infra-container-volume-delete | 51 | 0 | 0 | 0 | 0 | 0 |
 | infra-iac-destroy | 127 | 0 | 0 | 0 | 0 | 0 |
@@ -2257,7 +2257,7 @@ nah cold catalog + first analyze median: 2731 us (target 5000 us)
 
 | source | p50 ms | p99 ms | max ms | max RSS MB |
 |---|---|---|---|---|
-| adversarial | 0.8 | 131.5 | 9936.7 | 358.3 |
+| adversarial | 0.8 | 132.0 | 10250.8 | 328.2 |
 | nah | 0.9 | 9.1 | 39.6 | 158.0 |
 | swe | 1.0 | 17.6 | 783.0 | 214.2 |
 | wild | 1.1 | 105.5 | 10000.0 | 318.3 |

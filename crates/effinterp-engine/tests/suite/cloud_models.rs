@@ -1472,6 +1472,38 @@ fn ec2_lifecycle_verbs_preserve_ids_and_permission_check_modes() {
             .iter()
             .any(|boundary| { boundary.reason == effinterp_proto::BoundaryReason::LIVE_INVENTORY })
     );
+    let deletes = |plan: &effinterp_proto::Plan| {
+        plan.effects
+            .iter()
+            .filter(|e| e.operation.as_str() == "cloud.resource.delete")
+            .map(|e| {
+                let id = match &e.resource {
+                    ResourceExpr::Concrete {
+                        identity: ResourceIdentity::CloudResource { id, .. },
+                    } => id.clone(),
+                    _ => None,
+                };
+                (id, e.request_assurance)
+            })
+            .collect::<Vec<_>>()
+    };
+    // A repeated list option replaces the earlier list, as argparse stores it.
+    let repeated = exec(&[
+        "aws",
+        "ec2",
+        "terminate-instances",
+        "--instance-ids",
+        "i-old",
+        "--instance-ids",
+        "i-new",
+    ]);
+    assert_eq!(
+        deletes(&repeated),
+        [(
+            Some("i-new".to_string()),
+            effinterp_proto::RequestAssurance::Exact
+        )]
+    );
     for indirect in ["file://instances.json", r#"["i-one"]"#] {
         let plan = exec(&[
             "aws",
@@ -1485,6 +1517,21 @@ fn ec2_lifecycle_verbs_preserve_ids_and_permission_check_modes() {
             ResourceExpr::Unresolved { .. }
         ));
         assert!(!plan.boundaries.is_empty());
+        // An overwritten literal list leaves no exact request behind an
+        // effective list Nah does not read.
+        let overwritten = exec(&[
+            "aws",
+            "ec2",
+            "terminate-instances",
+            "--instance-ids",
+            "i-old",
+            "--instance-ids",
+            indirect,
+        ]);
+        assert_eq!(
+            deletes(&overwritten),
+            [(None, effinterp_proto::RequestAssurance::Conservative)]
+        );
     }
 }
 

@@ -13269,6 +13269,19 @@
       ]
     },
     {
+      "id": "infra-cloud-delete.aws-repeated-instance-list",
+      "guard": "infra-cloud-delete",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to; a repeated --instance-ids replaces the earlier list.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ec2/instance/i-0fedcba9876543210"
+          }
+        }
+      ]
+    },
+    {
       "id": "infra-cloud-delete.aws-route53-zone",
       "guard": "infra-cloud-delete",
       "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",

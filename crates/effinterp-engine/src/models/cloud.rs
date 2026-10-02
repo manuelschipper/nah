@@ -2446,9 +2446,8 @@ fn ec2_lifecycle(
     let mut skeleton = false;
     let mut uncertain = false;
     // An option the lifecycle verbs share but termination does not document,
-    // or an unresolved or empty word among the instance IDs: an expansion may
-    // be an option (`--instance-ids i-1 "$EXTRA"` with `EXTRA=--dry-run`), and
-    // the engine also reads it as the empty word it is when unset.
+    // or an unresolved word among the instance IDs, which may be an option
+    // (`--instance-ids i-1 "$EXTRA"` with `EXTRA=--dry-run`).
     let mut unread = false;
     let mut i = verb_index + 1;
     while i < ctx.argv.len() {
@@ -2480,16 +2479,20 @@ fn ec2_lifecycle(
                 }
             }
             "--instance-ids" | "--resources" => {
-                unread |= flag == "--resources";
+                let resources = flag == "--resources";
+                unread |= resources;
+                // argparse stores a list option, so a repeated one replaces
+                // the earlier list rather than adding to it.
+                ids.retain(|(list, _, _)| *list != resources);
                 if let Some(value) = assigned {
-                    unread |= value.as_literal().is_none_or(str::is_empty);
-                    ids.push((i as u32, value));
+                    unread |= value.as_literal().is_none();
+                    ids.push((resources, i as u32, value));
                 } else {
                     let start = i;
                     i += 1;
                     while i < ctx.argv.len() && !ctx.argv[i].render_raw().starts_with('-') {
-                        unread |= ctx.argv[i].as_literal().is_none_or(str::is_empty);
-                        ids.push((i as u32, ctx.argv[i].clone()));
+                        unread |= ctx.argv[i].as_literal().is_none();
+                        ids.push((resources, i as u32, ctx.argv[i].clone()));
                         i += 1;
                     }
                     if i == start + 1 {
@@ -2628,14 +2631,23 @@ fn ec2_lifecycle(
         }
         return;
     }
-    for (_, word) in ids {
-        let id = word.as_literal().filter(|id| {
-            !id.is_empty()
-                && !id.starts_with(['[', '{'])
-                && !id.starts_with("file://")
-                && !id.starts_with("fileb://")
-                && !id.chars().any(char::is_whitespace)
-        });
+    // An ID read from a file, JSON or an empty word is input Nah does not
+    // read, so no instance in that effective list is an exact target.
+    let instance_id = |word: &Word| {
+        word.as_literal()
+            .filter(|id| {
+                !id.is_empty()
+                    && !id.starts_with(['[', '{'])
+                    && !id.starts_with("file://")
+                    && !id.starts_with("fileb://")
+                    && !id.chars().any(char::is_whitespace)
+            })
+            .map(str::to_string)
+    };
+    let ids_readable = ids.iter().all(|(_, _, word)| instance_id(word).is_some());
+    for (_, _, word) in ids {
+        let id = instance_id(&word);
+        let id = id.as_deref();
         if id.is_none() {
             boundary(
                 builder,
@@ -2675,12 +2687,12 @@ fn ec2_lifecycle(
             attributes.insert("tag_update".into(), AttrValue::Bool(true));
         }
         // A termination whose every word was read as an option termination
-        // documents and whose instance ID is literal is the request argv
-        // states.
+        // documents and whose effective instance list is literal is the
+        // request argv states.
         let request_assurance = if operation == "cloud.resource.delete"
             && !uncertain
             && !unread
-            && id.is_some()
+            && ids_readable
             && aws_service_after_globals(ctx.argv) == Some(verb_index - 1)
         {
             effinterp_proto::RequestAssurance::Exact
