@@ -108431,6 +108431,114 @@
           "path_provenance": true
         }
       ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-always-broken-loop-else-return-print-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns the private key from a loop else that an always-taken break skips; Nah keeps the else return reachable whenever the loop has a break, so the printed value is kept as the key reaching stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-dead-break-loop-else-return-print-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns the private key after a loop whose else always returns; Nah lets the never-run break in the body make the loop fall through, so the printed value is kept as the key reaching stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-spread-empty-list-guard-return-print-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns the private key when flag is truthy; Nah leaves the truth of a literal with a starred element undecided, so helper([*[]]) keeps the key return and the printed value reaches stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
     }
   ]
 }

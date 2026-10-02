@@ -307,6 +307,26 @@ because the owner accepted the conservative rule over a narrower model.
   ordering rebinds against the test, or carrying a callee's guard onto the
   caller's parameter, is new path inference for a shape whose miss would
   return a real secret.
+- `secrets-exfil.python-helper-always-broken-loop-else-return-print-key-upload-kept-conservative`
+  and `secrets-exfil.python-helper-dead-break-loop-else-return-print-key-upload-kept-conservative`
+  — `for item in [1]: break` never runs its `else`, so an `else: return key`
+  there is dead, and `while False: break` never runs its body, so its
+  `else: return "ping"` always ends the helper before a later `return key`;
+  a search loop with a break and an `else` fallback is interrupted.
+  `reachable_returns` (`loop_else` in
+  `crates/effinterp-engine/src/python/returns.rs`) always keeps the `else`
+  returns and lets any `break` in the body, taken or not, make the loop fall
+  through. Deciding that a break is always or never taken needs the same
+  per-iteration path facts as the loop body's own returns, and a wrong
+  answer would drop a real secret return.
+- `secrets-exfil.python-helper-spread-empty-list-guard-return-print-key-upload-kept-conservative`
+  — `[*[]]` is an empty list, so `helper([*[]])` with `if flag: return key`
+  returns `"ping"`; a caller building a flag collection from literal spreads
+  is interrupted. A literal list, tuple, set or dict with a starred element
+  or `**` entry has undecided truth (`literal_truthy` in
+  `crates/effinterp-engine/src/python/returns.rs`), since sizing a spread
+  means evaluating what it unpacks; the plain `[]`, `()` and `{}` spellings
+  delegate.
 - `secrets-exfil.node-file-console-logger-key-upload-kept-conservative` —
   `console.log = (x) => { require("fs").writeFileSync("debug.log", x) }`
   writes the key to a local file, not to stdout, so a script that redirects
