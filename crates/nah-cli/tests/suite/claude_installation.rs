@@ -279,6 +279,78 @@ fn install_runs_the_real_hook_and_uninstall_preserves_other_settings() {
 }
 
 #[test]
+fn install_and_uninstall_remove_nah_0x_hooks_without_touching_other_handlers() {
+    let home_temp = tempfile::tempdir().unwrap();
+    // macOS temp directories sit under a symlinked /var, and nah
+    // resolves paths before matching them
+    let home = support::test_temp_path(home_temp.path());
+    let home = home.as_path();
+    let settings_path = home.join(".claude/settings.json");
+    std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+    let script = home.join(".claude/hooks/nah_guard.py");
+    let posix_script = script.to_str().unwrap().replace('\\', "/");
+    let legacy = |command: String| json!({"type": "command", "command": command});
+    let other = json!({"type": "command", "command": "other-tool"});
+    // Not a shape 0.x wrote: a hand-written entry naming the shim through `~`
+    let hand_written = json!({"type": "command", "command": "python ~/.claude/hooks/nah_guard.py"});
+    let hidden = r#""/opt/bin/nah" "_claude-hook""#.to_owned();
+    let original = json!({
+        "hooks": {
+            "PreToolUse": [
+                {"matcher": "Bash", "hooks": [legacy(format!("/usr/bin/python3 {}", script.display()))]},
+                {"matcher": "Read", "hooks": [legacy(format!(r#""/usr/bin/python3" "{posix_script}""#))]},
+                {"matcher": "Write", "hooks": [legacy(hidden.clone()), other.clone()]},
+                {"matcher": "Edit", "hooks": [hand_written.clone()]}
+            ],
+            "PostToolUse": [{"matcher": "Bash", "hooks": [legacy(hidden.clone())]}],
+            "PostToolUseFailure": [{"matcher": "Bash", "hooks": [legacy(hidden)]}]
+        }
+    });
+    let original_bytes = serde_json::to_vec_pretty(&original).unwrap();
+    std::fs::write(&settings_path, &original_bytes).unwrap();
+    let kept = json!({
+        "hooks": {
+            "PreToolUse": [
+                {"matcher": "Write", "hooks": [other]},
+                {"matcher": "Edit", "hooks": [hand_written]}
+            ]
+        }
+    });
+
+    let stale = nah(home, &["hook", "claude", "status"]);
+    assert!(
+        String::from_utf8_lossy(&stale.stdout).contains("reinstall required"),
+        "{stale:?}"
+    );
+
+    let installed = nah(home, &["hook", "claude", "install"]);
+    assert!(installed.status.success(), "{installed:?}");
+    let mut configured = settings(home);
+    assert_eq!(nah_handlers(&configured).len(), 1);
+    let current = nah(home, &["hook", "claude", "status"]);
+    assert!(
+        String::from_utf8_lossy(&current.stdout).contains("wiring current"),
+        "{current:?}"
+    );
+    configured["hooks"]["PreToolUse"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|group| {
+            !group["hooks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(is_nah_handler)
+        });
+    assert_eq!(configured, kept);
+
+    std::fs::write(&settings_path, &original_bytes).unwrap();
+    let uninstalled = nah(home, &["hook", "claude", "uninstall"]);
+    assert!(uninstalled.status.success(), "{uninstalled:?}");
+    assert_eq!(settings(home), kept);
+}
+
+#[test]
 fn malformed_settings_fail_without_overwriting_user_configuration() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
