@@ -278,32 +278,83 @@ fn install_runs_the_real_hook_and_uninstall_preserves_other_settings() {
     }
 }
 
+/// Python's `shlex.quote`, which Nah 0.5.1 and 0.5.2 applied to each word.
+fn shlex_quote(word: &str) -> String {
+    if word
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c))
+    {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', r#"'"'"'"#))
+    }
+}
+
+/// Nah 0.9.0 to 0.11.0's `quote_claude_argv` for one word.
+fn quote_claude_word(word: &str) -> String {
+    format!(r#""{}""#, word.replace('\\', "/").replace('"', r#"\""#))
+}
+
 #[test]
 fn install_and_uninstall_remove_nah_0x_hooks_without_touching_other_handlers() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
-    let home = support::test_temp_path(home_temp.path());
+    let temp = support::test_temp_path(home_temp.path());
+    // 0.x quoted paths holding spaces and apostrophes
+    let canonical_home = temp.join("o'neil home");
+    std::fs::create_dir_all(&canonical_home).unwrap();
+    // 0.x spelled the shim through HOME as given, here a symlink to the home
+    // nah resolves
+    #[cfg(unix)]
+    let home = {
+        let alias = temp.join("alias");
+        std::os::unix::fs::symlink(&canonical_home, &alias).unwrap();
+        alias
+    };
+    #[cfg(not(unix))]
+    let home = canonical_home.clone();
     let home = home.as_path();
     let settings_path = home.join(".claude/settings.json");
     std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
-    let script = home.join(".claude/hooks/nah_guard.py");
-    let posix_script = script.to_str().unwrap().replace('\\', "/");
-    let legacy = |command: String| json!({"type": "command", "command": command});
-    let other = json!({"type": "command", "command": "other-tool"});
-    // Not a shape 0.x wrote: a hand-written entry naming the shim through `~`
-    let hand_written = json!({"type": "command", "command": "python ~/.claude/hooks/nah_guard.py"});
-    let hidden = r#""/opt/bin/nah" "_claude-hook""#.to_owned();
+    let shim = home.join(".claude/hooks/nah_guard.py");
+    let shim = shim.to_str().unwrap();
+    let canonical_shim = canonical_home.join(".claude/hooks/nah_guard.py");
+    let canonical_shim = canonical_shim.to_str().unwrap();
+    let handler = |command: String| json!({"type": "command", "command": command});
+    // Each command is what that release's `_hook_command` wrote
+    let unquoted = handler(format!("/opt/py env/bin/python3 {shim}"));
+    let shell_quoted = handler(format!(
+        "{} {}",
+        shlex_quote("/opt/o'brien/bin/python3.12"),
+        shlex_quote(shim)
+    ));
+    let double_quoted = handler(format!(
+        r#""/usr/bin/python3" "{}""#,
+        canonical_shim.replace('\\', "/")
+    ));
+    let hidden = |nah: &str| handler(format!(r#"{} "_claude-hook""#, quote_claude_word(nah)));
+    let other = handler("other-tool".into());
+    // Other programs reading the shim, and a hand-written entry naming it
+    // through `~`, are not what 0.x wrote
+    let readers = [
+        handler(format!("/usr/bin/shasum {shim}")),
+        handler(format!("/bin/cat {shim}")),
+        handler(format!("/usr/bin/nice /usr/bin/python3 {shim}")),
+    ];
+    let hand_written = handler("python ~/.claude/hooks/nah_guard.py".into());
     let original = json!({
         "hooks": {
             "PreToolUse": [
-                {"matcher": "Bash", "hooks": [legacy(format!("/usr/bin/python3 {}", script.display()))]},
-                {"matcher": "Read", "hooks": [legacy(format!(r#""/usr/bin/python3" "{posix_script}""#))]},
-                {"matcher": "Write", "hooks": [legacy(hidden.clone()), other.clone()]},
-                {"matcher": "Edit", "hooks": [hand_written.clone()]}
+                {"matcher": "Bash", "hooks": [unquoted]},
+                {"matcher": "Read", "hooks": [shell_quoted]},
+                {"matcher": "Glob", "hooks": [double_quoted]},
+                {"matcher": "Write", "hooks": [hidden(r#"/opt/say "hi"/nah"#), other.clone()]},
+                {"matcher": "Edit", "hooks": [hand_written.clone()]},
+                {"matcher": "Grep", "hooks": readers.clone()}
             ],
-            "PostToolUse": [{"matcher": "Bash", "hooks": [legacy(hidden.clone())]}],
-            "PostToolUseFailure": [{"matcher": "Bash", "hooks": [legacy(hidden)]}]
+            "PostToolUse": [{"matcher": "Bash", "hooks": [hidden("/opt/bin/nah")]}],
+            "PostToolUseFailure": [{"matcher": "Bash", "hooks": [hidden("/opt/bin/nah")]}]
         }
     });
     let original_bytes = serde_json::to_vec_pretty(&original).unwrap();
@@ -312,7 +363,8 @@ fn install_and_uninstall_remove_nah_0x_hooks_without_touching_other_handlers() {
         "hooks": {
             "PreToolUse": [
                 {"matcher": "Write", "hooks": [other]},
-                {"matcher": "Edit", "hooks": [hand_written]}
+                {"matcher": "Edit", "hooks": [hand_written]},
+                {"matcher": "Grep", "hooks": readers}
             ]
         }
     });

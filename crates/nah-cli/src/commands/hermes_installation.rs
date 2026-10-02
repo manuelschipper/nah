@@ -67,6 +67,8 @@ pub(crate) fn hermes_hook_status() -> Result<RuntimeHookStatus, String> {
     let Some(entries) = hook_entries(&config)? else {
         return Ok(RuntimeHookStatus::NotConfigured);
     };
+    // Report the conflict install would refuse instead of recommending install
+    reject_unowned(entries)?;
     let owned = entries
         .iter()
         .filter(|entry| owned_hook(entry))
@@ -143,12 +145,7 @@ fn install_hook(
     reject_symlinks(&paths)?;
     let mut config = load_config(&paths.config)?;
     let entries = hook_entries_mut(&mut config)?;
-    if entries
-        .iter()
-        .any(|entry| is_nah_command(command(entry)) && !owned_hook(entry))
-    {
-        return Err("hermes-hook-not-owned".into());
-    }
+    reject_unowned(entries)?;
     let owned = entries
         .iter()
         .enumerate()
@@ -380,6 +377,18 @@ fn is_nah_command(command: Option<&str>) -> bool {
     quote_posix_shell_word(&path) == executable
         && path.starts_with('/')
         && path.rsplit('/').next() == Some("nah")
+}
+
+/// Rejects a hook that runs Nah's Hermes adapter without Nah's ownership
+/// marker, which Nah neither claims nor removes.
+fn reject_unowned(entries: &[Value]) -> Result<(), String> {
+    if entries
+        .iter()
+        .any(|entry| is_nah_command(command(entry)) && !owned_hook(entry))
+    {
+        return Err("hermes-hook-not-owned".into());
+    }
+    Ok(())
 }
 
 fn owned_hook(value: &Value) -> bool {

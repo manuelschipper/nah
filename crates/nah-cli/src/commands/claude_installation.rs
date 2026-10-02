@@ -255,11 +255,7 @@ fn is_nah_handler(handler: &Value) -> bool {
 /// Removes the hook handlers Nah 0.x wrote to Claude settings, which 1.x
 /// cannot run, and reports whether any were found.
 fn remove_legacy(settings: &mut Value, home: &AbsolutePath) -> Result<bool, String> {
-    let script = Path::new(home.as_str()).join(".claude/hooks/nah_guard.py");
-    let script = script
-        .to_str()
-        .ok_or_else(|| "invalid-claude-hooks".to_owned())?
-        .replace('\\', "/");
+    let scripts = legacy_scripts(home);
     let root = settings
         .as_object_mut()
         .ok_or_else(|| "invalid-claude-hooks".to_owned())?;
@@ -290,7 +286,7 @@ fn remove_legacy(settings: &mut Value, home: &AbsolutePath) -> Result<bool, Stri
                 return true;
             };
             let before = handlers.len();
-            handlers.retain(|handler| !is_legacy_handler(handler, &script));
+            handlers.retain(|handler| !is_legacy_handler(handler, &scripts));
             let dropped = handlers.len() != before;
             removed |= dropped;
             !dropped || !handlers.is_empty()
@@ -306,9 +302,36 @@ fn remove_legacy(settings: &mut Value, home: &AbsolutePath) -> Result<bool, Stri
     Ok(changed)
 }
 
-/// Whether `handler` is exactly one Nah 0.x wrote. `script` is the 0.x shim
-/// path, `~/.claude/hooks/nah_guard.py`, with forward slashes.
-fn is_legacy_handler(handler: &Value, script: &str) -> bool {
+/// The spellings of the 0.x shim path, `~/.claude/hooks/nah_guard.py`. 0.x
+/// built it from the configured home, which may be a symlink to the canonical
+/// `home`, and from 0.5.3 wrote it with forward slashes.
+fn legacy_scripts(home: &AbsolutePath) -> Vec<String> {
+    let configured =
+        live_state::configured_home(live_state::host_platform(), |name| std::env::var_os(name))
+            .ok()
+            .and_then(|home| home.into_string().ok());
+    let mut scripts = Vec::new();
+    for home in configured.iter().map(String::as_str).chain([home.as_str()]) {
+        let script = Path::new(home)
+            .join(".claude")
+            .join("hooks")
+            .join("nah_guard.py");
+        let Some(script) = script.to_str() else {
+            continue;
+        };
+        for script in [script.to_owned(), script.replace('\\', "/")] {
+            if !scripts.contains(&script) {
+                scripts.push(script);
+            }
+        }
+    }
+    scripts
+}
+
+/// Whether `handler` is exactly one Nah 0.x wrote: the two keys it set, and a
+/// command its `_hook_command` produced for a nah executable or for a Python
+/// interpreter running one of the shim `scripts`.
+fn is_legacy_handler(handler: &Value, scripts: &[String]) -> bool {
     let Some(handler) = handler.as_object() else {
         return false;
     };
@@ -318,33 +341,108 @@ fn is_legacy_handler(handler: &Value, script: &str) -> bool {
     if handler.len() != 2 || handler.get("type").and_then(Value::as_str) != Some("command") {
         return false;
     }
-    // 0.9.0 to 0.11.0 ran the quoted nah executable's hidden hook command
+    // 0.9.0 to 0.11.0: `quote_claude_argv([nah, "_claude-hook"])`
     if let Some(executable) = command.strip_suffix(r#" "_claude-hook""#) {
-        return quoted_word(executable, '"')
-            && hook_config::is_quoted_nah_hook_executable(executable);
+        return unquote_claude_word(executable).is_some_and(|path| {
+            path.contains('/')
+                && matches!(
+                    path.rsplit('/')
+                        .next()
+                        .map(str::to_ascii_lowercase)
+                        .as_deref(),
+                    Some("nah" | "nah.exe")
+                )
+        });
     }
-    // Earlier releases ran a Python interpreter on the shim script: bare words
-    // until 0.5.0, shell-quoted only where needed in 0.5.1 and 0.5.2, and both
-    // double-quoted with forward slashes from 0.5.3
-    let command = command.replace('\\', "/");
-    if let Some(interpreter) = command.strip_suffix(&format!(r#" "{script}""#)) {
-        return quoted_word(interpreter, '"');
-    }
-    command
-        .strip_suffix(&format!(" {script}"))
-        .or_else(|| command.strip_suffix(&format!(" '{script}'")))
-        .is_some_and(|interpreter| {
-            quoted_word(interpreter, '\'')
-                || (!interpreter.is_empty()
-                    && !interpreter.contains(|c: char| c.is_whitespace() || c == '\'' || c == '"'))
-        })
+    scripts.iter().any(|script| {
+        legacy_interpreter(command, script).is_some_and(|interpreter| is_python(&interpreter))
+    })
 }
 
-fn quoted_word(word: &str, quote: char) -> bool {
-    word.len() >= 2
-        && word.starts_with(quote)
-        && word.ends_with(quote)
-        && !word[1..word.len() - 1].contains(quote)
+/// The interpreter a 0.2.0 to 0.7.1 `_hook_command` wrote before `script`,
+/// decoded from whichever of its serializations `command` is.
+fn legacy_interpreter(command: &str, script: &str) -> Option<String> {
+    // 0.5.3 to 0.7.1: each word double-quoted, unescaped, with forward slashes
+    let posix = script.replace('\\', "/");
+    if let Some(interpreter) = command
+        .strip_suffix(&format!(r#" "{posix}""#))
+        .and_then(|word| word.strip_prefix('"'))
+        .and_then(|word| word.strip_suffix('"'))
+        .filter(|interpreter| !interpreter.contains('"'))
+    {
+        return Some(interpreter.to_owned());
+    }
+    // 0.5.1 and 0.5.2: `shlex.quote` on each word
+    if let Some(interpreter) = command
+        .strip_suffix(&format!(" {}", shlex_quote(script)))
+        .and_then(shlex_unquote)
+    {
+        return Some(interpreter);
+    }
+    // 0.2.0 to 0.5.0: both words unquoted, so everything before the script is
+    // the interpreter's absolute path, spaces included. A later word starting
+    // another absolute path means another program runs the interpreter.
+    command
+        .strip_suffix(&format!(" {script}"))
+        .filter(|interpreter| {
+            is_absolute_word(interpreter)
+                && !interpreter.split_whitespace().skip(1).any(is_absolute_word)
+                && !interpreter.contains(|c: char| "\n;&|<>$`'\"".contains(c))
+        })
+        .map(str::to_owned)
+}
+
+fn is_absolute_word(word: &str) -> bool {
+    word.starts_with(['/', '\\']) || word.as_bytes().get(1) == Some(&b':')
+}
+
+/// Whether `path` names a Python interpreter, as `sys.executable` does.
+fn is_python(path: &str) -> bool {
+    let name = path
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(path)
+        .to_ascii_lowercase();
+    let name = name.strip_suffix(".exe").unwrap_or(&name);
+    matches!(name, "python" | "python3" | "pythonw" | "py")
+        || name
+            .strip_prefix("python3.")
+            .is_some_and(|minor| !minor.is_empty() && minor.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Python's `shlex.quote`: unchanged when every character is safe for a POSIX
+/// shell, otherwise single-quoted with each `'` written as `'"'"'`.
+fn shlex_quote(word: &str) -> String {
+    if word.is_empty() {
+        return "''".into();
+    }
+    if word
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c))
+    {
+        return word.to_owned();
+    }
+    format!("'{}'", word.replace('\'', r#"'"'"'"#))
+}
+
+/// The word `shlex_quote` turned into `quoted`, if it produced exactly that.
+fn shlex_unquote(quoted: &str) -> Option<String> {
+    let word = match quoted
+        .strip_prefix('\'')
+        .and_then(|quoted| quoted.strip_suffix('\''))
+    {
+        Some(inner) => inner.replace(r#"'"'"'"#, "'"),
+        None => quoted.to_owned(),
+    };
+    (shlex_quote(&word) == quoted).then_some(word)
+}
+
+/// The argument 0.x `quote_claude_argv` turned into `quoted`: double-quoted,
+/// with backslashes made forward slashes and `"` escaped as `\"`.
+fn unquote_claude_word(quoted: &str) -> Option<String> {
+    let inner = quoted.strip_prefix('"')?.strip_suffix('"')?;
+    let word = inner.replace(r#"\""#, "\"");
+    (!word.contains('\\') && word.replace('"', r#"\""#) == inner).then_some(word)
 }
 
 fn is_fail_closed_handler(handler: &Value) -> bool {

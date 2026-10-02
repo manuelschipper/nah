@@ -163,7 +163,10 @@ pub(crate) fn nah_executable_paths(platform: Platform) -> Vec<AbsolutePath> {
         .collect()
 }
 
-fn configured_home<F>(platform: Platform, mut get: F) -> Result<std::ffi::OsString, String>
+pub(crate) fn configured_home<F>(
+    platform: Platform,
+    mut get: F,
+) -> Result<std::ffi::OsString, String>
 where
     F: FnMut(&str) -> Option<std::ffi::OsString>,
 {
