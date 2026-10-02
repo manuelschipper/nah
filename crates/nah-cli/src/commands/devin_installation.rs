@@ -46,48 +46,46 @@ pub(crate) fn devin_hook_status() -> Result<RuntimeHookStatus, String> {
     reject_symlinks(&paths)?;
     let mut config = load(&paths.config)?;
     validate_version(&mut config)?;
-    let mut base = config.clone();
-    if !remove_owned(&mut base)? {
+    if !remove_owned(&mut config.clone())? {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    let mut delegate = base.clone();
-    pre_tool_hooks(&mut delegate)?.push(json!({
-        "matcher": "",
-        "hooks": [desired_handler(&executable, FailurePolicy::Delegate)?]
-    }));
-    let mut strict = base;
-    pre_tool_hooks(&mut strict)?.push(json!({
-        "matcher": "",
-        "hooks": [desired_handler(&executable, FailurePolicy::Block)?]
-    }));
-    Ok(if delegate == config {
-        RuntimeHookStatus::WiringCurrent
-    } else if strict == config {
-        RuntimeHookStatus::WiringCurrentFailClosed
-    } else {
-        let mut handlers = config["hooks"]["PreToolUse"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
-            .filter(|handler| is_owned_handler(handler));
-        let strict = handlers.next().is_some_and(|handler| {
-            handler["command"]
-                .as_str()
-                .is_some_and(|command| command.ends_with(" hook devin run --fail-closed"))
-        }) && handlers.all(|handler| {
-            handler["command"]
-                .as_str()
-                .is_some_and(|command| command.ends_with(" hook devin run --fail-closed"))
-        });
-        RuntimeHookStatus::stale(if strict {
-            FailurePolicy::Block
+    // Wiring is current exactly when install would leave the file alone
+    Ok(
+        if !add(
+            &mut config.clone(),
+            desired_handler(&executable, FailurePolicy::Delegate)?,
+        )? {
+            RuntimeHookStatus::WiringCurrent
+        } else if !add(
+            &mut config.clone(),
+            desired_handler(&executable, FailurePolicy::Block)?,
+        )? {
+            RuntimeHookStatus::WiringCurrentFailClosed
         } else {
-            FailurePolicy::Delegate
-        })
-    })
+            let mut handlers = config["hooks"]["PreToolUse"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
+                .filter(|handler| is_owned_handler(handler));
+            let strict = handlers.next().is_some_and(|handler| {
+                handler["command"]
+                    .as_str()
+                    .is_some_and(|command| command.ends_with(" hook devin run --fail-closed"))
+            }) && handlers.all(|handler| {
+                handler["command"]
+                    .as_str()
+                    .is_some_and(|command| command.ends_with(" hook devin run --fail-closed"))
+            });
+            RuntimeHookStatus::stale(if strict {
+                FailurePolicy::Block
+            } else {
+                FailurePolicy::Delegate
+            })
+        },
+    )
 }
 
 pub(crate) fn devin_self_protection_paths() -> Result<Vec<PathBuf>, String> {
@@ -106,13 +104,7 @@ fn install_hook(
     reject_symlinks(&paths)?;
     let mut config = load(&paths.config)?;
     validate_version(&mut config)?;
-    let original = config.clone();
-    remove_owned(&mut config)?;
-    pre_tool_hooks(&mut config)?.push(json!({
-        "matcher": "",
-        "hooks": [desired_handler(executable, policy)?]
-    }));
-    if config != original {
+    if add(&mut config, desired_handler(executable, policy)?)? {
         save(&paths.config, &config)?;
     }
     drop(lock);
@@ -212,6 +204,36 @@ fn validate_version(config: &mut Value) -> Result<(), String> {
         }
         _ => Err("invalid-devin-config".into()),
     }
+}
+
+/// Leaves `config` alone when its only Nah handler is `desired` in a
+/// match-all PreToolUse group, wherever that group sits among the user's
+/// hooks; otherwise replaces every Nah handler with one appended group.
+fn add(config: &mut Value, desired: Value) -> Result<bool, String> {
+    let mut updated = config.clone();
+    remove_owned(&mut updated)?;
+    let owned = EVENTS
+        .iter()
+        .flat_map(|event| config["hooks"][event].as_array().into_iter().flatten())
+        .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
+        .filter(|handler| is_owned_handler(handler))
+        .count();
+    let current = config["hooks"]["PreToolUse"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|group| group["matcher"].as_str() == Some(""))
+        .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
+        .any(|handler| handler == &desired);
+    if owned == 1 && current {
+        return Ok(false);
+    }
+    pre_tool_hooks(&mut updated)?.push(json!({
+        "matcher": "",
+        "hooks": [desired]
+    }));
+    *config = updated;
+    Ok(true)
 }
 
 fn remove_owned(config: &mut Value) -> Result<bool, String> {

@@ -140,6 +140,31 @@ fn install_runs_devin_hook_and_uninstall_preserves_other_config() {
     let installed_again = nah(home, &["hook", "devin", "install"]);
     assert!(installed_again.status.success(), "{installed_again:?}");
     assert_eq!(std::fs::read(&path).unwrap(), first_bytes);
+
+    // Another tool's hook group appended after Nah's leaves the wiring
+    // current, and install agrees by leaving the file alone
+    let mut followed = config(home);
+    followed["hooks"]["PreToolUse"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "matcher": "",
+            "hooks": [{"type":"command","command":"third-party-pre"}]
+        }));
+    let followed_bytes = serde_json::to_vec_pretty(&followed).unwrap();
+    std::fs::write(&path, &followed_bytes).unwrap();
+    let status = nah(home, &["hook", "devin", "status"]);
+    assert!(
+        String::from_utf8_lossy(&status.stdout).contains("wiring current"),
+        "{status:?}"
+    );
+    let installed_followed = nah(home, &["hook", "devin", "install"]);
+    assert!(
+        installed_followed.status.success(),
+        "{installed_followed:?}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), followed_bytes);
+    std::fs::write(&path, &first_bytes).unwrap();
     let handler = nah_handlers(&configured)[0];
 
     for (tool, input) in [

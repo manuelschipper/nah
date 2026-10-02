@@ -150,6 +150,28 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
     assert!(installed_again.status.success(), "{installed_again:?}");
     assert_eq!(std::fs::read(&path).unwrap(), first_bytes);
 
+    // Another tool's hook appended after Nah's leaves the wiring current, and
+    // install agrees by leaving the file alone
+    let mut followed = hooks(home);
+    followed["hooks"]["preToolUse"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"command":"third-party-pre"}));
+    let followed_bytes = serde_json::to_vec_pretty(&followed).unwrap();
+    std::fs::write(&path, &followed_bytes).unwrap();
+    let status = nah(home, &["hook", "cursor", "status"]);
+    assert!(
+        String::from_utf8_lossy(&status.stdout).contains("wiring current"),
+        "{status:?}"
+    );
+    let installed_followed = nah(home, &["hook", "cursor", "install"]);
+    assert!(
+        installed_followed.status.success(),
+        "{installed_followed:?}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), followed_bytes);
+    std::fs::write(&path, &first_bytes).unwrap();
+
     let mut duplicated = hooks(home);
     let duplicate = nah_hooks(&duplicated)[0].clone();
     duplicated["hooks"]["preToolUse"]
