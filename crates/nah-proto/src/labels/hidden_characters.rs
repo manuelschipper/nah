@@ -1,6 +1,6 @@
 //! Characters that make a command's displayed text differ from the text that
 //! runs: control bytes a terminal acts on, bidirectional overrides that reorder
-//! what follows them, and invisible format characters.
+//! what follows them, and invisible format and filler characters.
 
 /// The black flag that begins an emoji tag sequence such as a subdivision flag.
 const TAG_BASE: char = '\u{1F3F4}';
@@ -15,10 +15,16 @@ const RGI_FLAG_TAGS: [&str; 3] = [
 
 /// Whether `text` holds a character that makes its display differ from what
 /// runs:
-/// - C0 controls other than tab, line feed and carriage return, DEL, and C1
-///   controls (U+0080–U+009F);
+/// - C0 controls other than tab and line feed, DEL, and C1 controls
+///   (U+0080–U+009F);
+/// - a carriage return followed by text other than a line feed, which
+///   returns the cursor so that text overwrites the line; a Windows CRLF line
+///   ending, and a final carriage return that overwrites nothing, are ordinary;
 /// - bidi embeddings, overrides and isolates (U+202A–U+202E, U+2066–U+2069);
-/// - the invisible format characters U+200B, U+2060, U+FEFF and U+180E;
+/// - the invisible format characters U+200B, U+2060, U+FEFF, U+180E and the
+///   soft hyphen U+00AD;
+/// - the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, which render as
+///   blank space and which composed or decomposed Korean text never uses;
 /// - Unicode tag characters (U+E0000–U+E007F) outside the flags of England,
 ///   Scotland and Wales.
 ///
@@ -34,7 +40,9 @@ pub fn has_hidden_characters(text: &str) -> bool {
                 .find_map(|tags| rest.strip_prefix(tags))
         {
             rest = after;
-        } else if hidden(character) {
+        } else if hidden(character)
+            || (character == '\r' && rest.chars().next().is_some_and(|next| next != '\n'))
+        {
             return true;
         }
     }
@@ -55,6 +63,11 @@ fn hidden(character: char) -> bool {
             | '\u{2060}'
             | '\u{FEFF}'
             | '\u{180E}'
+            | '\u{AD}'
+            | '\u{115F}'
+            | '\u{1160}'
+            | '\u{3164}'
+            | '\u{FFA0}'
             | '\u{E0000}'..='\u{E007F}'
     )
 }

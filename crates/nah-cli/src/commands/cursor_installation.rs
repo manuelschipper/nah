@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_config;
 use super::hook_paths::reject_hook_path_symlink;
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
@@ -38,47 +39,46 @@ pub(crate) fn cursor_hook_status() -> Result<RuntimeHookStatus, String> {
     reject_symlinks(&paths)?;
     let mut config = load(&paths.hooks)?;
     validate_version(&mut config)?;
-    let mut base = config.clone();
-    if !remove(&mut base)? {
+    if !remove(&mut config.clone())? {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    let mut delegate = base.clone();
-    add(
-        &mut delegate,
-        desired_hook(&executable, FailurePolicy::Delegate)?,
-    )?;
-    let mut strict = base;
-    add(
-        &mut strict,
-        desired_hook(&executable, FailurePolicy::Block)?,
-    )?;
-    Ok(if delegate == config {
-        RuntimeHookStatus::WiringCurrent
-    } else if strict == config {
-        RuntimeHookStatus::WiringCurrentFailClosed
-    } else {
-        let mut hooks = config["hooks"]["preToolUse"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|hook| is_nah_hook(hook));
-        let strict = hooks.next().is_some_and(|hook| {
-            hook["command"]
-                .as_str()
-                .is_some_and(|command| command.ends_with(" hook cursor run --fail-closed"))
-        }) && hooks.all(|hook| {
-            hook["command"]
-                .as_str()
-                .is_some_and(|command| command.ends_with(" hook cursor run --fail-closed"))
-        });
-        RuntimeHookStatus::stale(if strict {
-            FailurePolicy::Block
+    // Wiring is current exactly when install would leave the file alone, so
+    // Nah's entry may sit anywhere among the user's other preToolUse hooks
+    Ok(
+        if !add(
+            &mut config.clone(),
+            desired_hook(&executable, FailurePolicy::Delegate)?,
+        )? {
+            RuntimeHookStatus::WiringCurrent
+        } else if !add(
+            &mut config.clone(),
+            desired_hook(&executable, FailurePolicy::Block)?,
+        )? {
+            RuntimeHookStatus::WiringCurrentFailClosed
         } else {
-            FailurePolicy::Delegate
-        })
-    })
+            let mut hooks = config["hooks"]["preToolUse"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|hook| is_nah_hook(hook));
+            let strict = hooks.next().is_some_and(|hook| {
+                hook["command"]
+                    .as_str()
+                    .is_some_and(|command| command.ends_with(" hook cursor run --fail-closed"))
+            }) && hooks.all(|hook| {
+                hook["command"]
+                    .as_str()
+                    .is_some_and(|command| command.ends_with(" hook cursor run --fail-closed"))
+            });
+            RuntimeHookStatus::stale(if strict {
+                FailurePolicy::Block
+            } else {
+                FailurePolicy::Delegate
+            })
+        },
+    )
 }
 
 pub(crate) fn cursor_self_protection_paths() -> Result<Vec<PathBuf>, String> {
@@ -286,9 +286,10 @@ fn is_nah_hook(hook: &Value) -> bool {
         return false;
     };
     let executable = executable.to_ascii_lowercase();
-    (executable.starts_with('\'') && executable.ends_with("/nah'"))
-        || (executable.starts_with('"')
-            && (executable.ends_with("\\nah.exe\"") || executable.ends_with("/nah.exe\"")))
+    hook_config::is_one_quoted_word(&executable)
+        && ((executable.starts_with('\'') && executable.ends_with("/nah'"))
+            || (executable.starts_with('"')
+                && (executable.ends_with("\\nah.exe\"") || executable.ends_with("/nah.exe\""))))
 }
 
 fn save(path: &Path, config: &Value) -> Result<(), String> {

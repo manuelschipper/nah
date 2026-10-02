@@ -35,9 +35,10 @@ protected-state changes outside maintenance.
   default off.
 - `infra-container-reset` (on) blocks Podman reset; `infra-container-volume-delete`
   (off), broad volume prune and Compose `down`/`rm` volume removal;
-  `infra-iac-destroy` (off), whole-stack IaC. Compose files are not inspected,
-  and Compose excludes external volumes from `down -v`. Narrow/dry-run and named
-  container or volume removal, plus targeted/saved/ambient/other IaC, delegates.
+  `infra-iac-destroy` (off), whole-stack IaC and reviewed cloud deletes. Compose
+  files are not inspected, and Compose excludes external volumes from `down -v`.
+  Narrow/dry-run, named container/volume removal, and
+  targeted/saved/ambient/other IaC delegate.
 - `infra-k8s-delete` defaults off and blocks static namespace deletion,
   reviewed cluster-resource deletion, and bulk reviewed namespaced-resource
   deletion through `kubectl`. Named application resources and client/server

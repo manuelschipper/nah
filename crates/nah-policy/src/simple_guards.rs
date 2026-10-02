@@ -212,6 +212,14 @@ pub(crate) fn infra_container_volume_delete() -> GuardDefinition {
     }
 }
 
+/// Infrastructure teardown: a whole-stack infrastructure-as-code destroy, or
+/// a reviewed provider or platform CLI delete of a `CLOUD_RESOURCES` kind.
+/// Only an exact request counts: the engine marks one when every option of
+/// the invocation is one the reviewed table documents and the resource is
+/// named literally or is the one the CLI is linked to. Help, dry runs and
+/// unknown options leave the request conservative, and the call delegates.
+/// A CLI delete that states its `mode` is IaC teardown and reaches only the
+/// whole-stack clauses.
 pub(crate) fn infra_iac_destroy() -> GuardDefinition {
     let controls = vec![
         string_attr("mode", "destroy"),
@@ -223,33 +231,165 @@ pub(crate) fn infra_iac_destroy() -> GuardDefinition {
     ];
     let mut unresolved_controls = controls.clone();
     unresolved_controls.push(present_attr("mode"));
+    let mut assertions = vec![
+        effect(
+            "cloud.resource.delete",
+            variant(ResourceVariant::ManagedInfrastructure),
+            controls,
+            Some(RequestAssurance::Exact),
+            None,
+        ),
+        effect(
+            "cloud.resource.delete",
+            family("cloud"),
+            unresolved_controls,
+            Some(RequestAssurance::Exact),
+            None,
+        ),
+    ];
+    for (provider, service, kinds) in CLOUD_RESOURCES {
+        for kind in *kinds {
+            assertions.push(effect_without_attribute(
+                "cloud.resource.delete",
+                ResourcePredicate::CloudResource {
+                    provider: Some(TextPredicate::Equals((*provider).into())),
+                    service: Some(TextPredicate::Equals((*service).into())),
+                    kind: Some(TextPredicate::Equals((*kind).into())),
+                },
+                vec![],
+                Some(RequestAssurance::Exact),
+                None,
+                "mode",
+            ));
+        }
+    }
     GuardDefinition {
         id: "infra-iac-destroy",
-        reason: "infra-iac-destroy blocked whole-stack infrastructure destruction; keep the stack intact and ask the operator to perform any complete teardown",
+        reason: "infra-iac-destroy blocked tearing down provisioned infrastructure; keep it intact and ask the operator to perform the teardown",
         family: GuardFamily::Infrastructure,
         default_enabled: false,
         domain: Domain::Infrastructure,
         gap_code: Some("infrastructure-destruction-mode-unavailable"),
-        clauses: engine_only(Query::new(Assertion::Any {
-            assertions: vec![
-                effect(
-                    "cloud.resource.delete",
-                    variant(ResourceVariant::ManagedInfrastructure),
-                    controls,
-                    Some(RequestAssurance::Exact),
-                    None,
-                ),
-                effect(
-                    "cloud.resource.delete",
-                    family("cloud"),
-                    unresolved_controls,
-                    Some(RequestAssurance::Exact),
-                    None,
-                ),
-            ],
-        })),
+        clauses: engine_only(Query::new(Assertion::Any { assertions })),
     }
 }
+
+/// Provisioned cloud and hosted-platform resources whose deletion the engine's
+/// reviewed command tables establish: `(provider, service, kinds)` as the
+/// models name them. Snapshots, backups, disks and storage volumes are the
+/// storage guards', object storage and secrets stores have their own guards,
+/// Cloud SQL users and certificates hold no data, and Timestream deletes only
+/// an empty database.
+const CLOUD_RESOURCES: &[(&str, &str, &[&str])] = &[
+    (
+        "aws",
+        "ec2",
+        &["instance", "vpc", "subnet", "security-group"],
+    ),
+    ("aws", "rds", &["db", "cluster"]),
+    ("aws", "docdb", &["cluster"]),
+    ("aws", "docdb-elastic", &["cluster"]),
+    ("aws", "neptune", &["cluster"]),
+    ("aws", "redshift", &["cluster"]),
+    ("aws", "redshift-serverless", &["namespace"]),
+    ("aws", "dynamodb", &["table"]),
+    ("aws", "keyspaces", &["keyspace", "table"]),
+    ("aws", "timestream", &["table"]),
+    (
+        "aws",
+        "elasticache",
+        &["cache-cluster", "replication-group", "serverless-cache"],
+    ),
+    ("aws", "memorydb", &["cluster"]),
+    ("aws", "lightsail", &["relational-database"]),
+    ("aws", "dsql", &["cluster"]),
+    ("aws", "eks", &["cluster"]),
+    ("aws", "efs", &["file-system"]),
+    ("aws", "kinesis", &["stream"]),
+    ("aws", "logs", &["log-group"]),
+    ("aws", "cloudtrail", &["trail"]),
+    ("aws", "route53", &["hosted-zone"]),
+    ("aws", "elbv2", &["load-balancer"]),
+    ("aws", "cloudfront", &["distribution"]),
+    ("aws", "lambda", &["function"]),
+    ("aws", "ecr", &["repository"]),
+    ("aws", "iam", &["user", "role", "group"]),
+    ("aws", "cloudformation", &["stack"]),
+    ("gcp", "compute", &["instance", "network", "firewall-rule"]),
+    ("gcp", "sql", &["instance", "database"]),
+    ("gcp", "spanner", &["instance", "database"]),
+    ("gcp", "firestore", &["database"]),
+    ("gcp", "bigtable", &["instance", "table"]),
+    ("gcp", "alloydb", &["cluster"]),
+    ("gcp", "redis", &["instance", "cluster"]),
+    ("gcp", "container", &["cluster"]),
+    ("gcp", "dataproc", &["cluster"]),
+    ("gcp", "functions", &["function"]),
+    ("gcp", "run", &["service"]),
+    ("gcp", "dns", &["managed-zone"]),
+    ("gcp", "iam", &["service-account"]),
+    ("gcp", "projects", &["project"]),
+    ("azure", "group", &["resource-group"]),
+    ("azure", "vm", &["instance"]),
+    ("azure", "aks", &["cluster"]),
+    ("azure", "acr", &["registry"]),
+    ("azure", "webapp", &["app"]),
+    ("azure", "functionapp", &["app"]),
+    ("azure", "network", &["vnet", "dns-zone"]),
+    ("azure", "ad", &["service-principal", "application"]),
+    ("azure", "sql", &["database", "server", "managed-instance"]),
+    (
+        "azure",
+        "cosmosdb",
+        &[
+            "account",
+            "database",
+            "keyspace",
+            "container",
+            "collection",
+            "graph",
+            "table",
+        ],
+    ),
+    ("azure", "postgres", &["server", "database"]),
+    ("azure", "mysql", &["server", "database"]),
+    ("azure", "redis", &["cache"]),
+    ("digitalocean", "compute", &["droplet"]),
+    ("digitalocean", "databases", &["cluster", "database"]),
+    ("fly", "mpg", &["cluster"]),
+    ("heroku", "postgresql", &["addon"]),
+    ("heroku", "redis", &["addon"]),
+    ("neon", "postgres", &["project", "branch", "database"]),
+    ("planetscale", "database", &["database", "branch"]),
+    ("turso", "database", &["database", "group"]),
+    ("upstash", "redis", &["database"]),
+    ("upstash", "vector", &["index"]),
+    ("upstash", "search", &["index"]),
+    ("cloudflare", "workers", &["worker"]),
+    ("cloudflare", "d1", &["database"]),
+    ("cloudflare", "kv", &["namespace"]),
+    ("cloudflare", "queues", &["queue"]),
+    ("cloudflare", "hyperdrive", &["config"]),
+    ("cloudflare", "pages", &["project"]),
+    ("supabase", "projects", &["project"]),
+    ("supabase", "branches", &["branch"]),
+    ("supabase", "functions", &["function"]),
+    ("railway", "project", &["project"]),
+    ("railway", "environment", &["environment"]),
+    ("railway", "volume", &["volume"]),
+    ("railway", "service", &["service"]),
+    ("railway", "function", &["function"]),
+    ("modal", "app", &["app"]),
+    ("modal", "environment", &["environment"]),
+    ("modal", "volume", &["volume"]),
+    ("modal", "dict", &["dict"]),
+    ("modal", "queue", &["queue"]),
+    ("kamal", "deployment", &["deployment"]),
+    ("kamal", "app", &["app"]),
+    ("kamal", "accessory", &["accessory"]),
+    ("kamal", "proxy", &["proxy"]),
+    ("fastly", "service", &["service"]),
+];
 
 pub(crate) fn infra_k8s_delete() -> GuardDefinition {
     let controls = vec![

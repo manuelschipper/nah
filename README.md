@@ -79,7 +79,7 @@ actions**.
 | `db-destroy` | Dropping, truncating, flushing, resetting, or overwriting live database data, and deleting managed databases. Off by default. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
 | `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands, and Compose `down -v`/`rm -v` volume removal. Off by default. |
-| `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction. Off by default. |
+| `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction, and reviewed deletion of provisioned cloud and hosted-platform resources through `aws`, `gcloud`, `az`, Railway, Modal, Kamal, Wrangler, Fastly, Supabase, and managed-database CLIs. Off by default. |
 | `infra-k8s-delete` | Static namespace, reviewed cluster-resource, and bulk reviewed namespaced-resource deletion through `kubectl`. Off by default. |
 | `storage-backup-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, and Velero commands. |
 | `storage-recursive-delete` | Broad remote deletion and destination-deleting synchronization through reviewed cloud and sync CLIs. Off by default. |

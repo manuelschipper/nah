@@ -167,8 +167,9 @@ code whose command text is spelled in base64, and a command whose program name
 the shell has to compute at run time from string operations, word splitting,
 or a filename pattern. It also blocks a shell or PowerShell command holding
 characters that make the approval prompt show other text than what runs:
-control bytes such as ESC, bidi overrides and isolates, zero-width spaces, and
-tag characters outside the England, Scotland and Wales flags.
+control bytes like ESC, a mid-line carriage return, bidi controls,
+invisible spaces, hyphens and fillers, and tag characters outside the England,
+Scotland and Wales flags.
 
 Blocked examples:
 
@@ -1370,43 +1371,50 @@ container.
 
 Off by default.
 
-This guard stops Terraform, OpenTofu, Terragrunt, or Pulumi from tearing down
-an entire managed stack. It blocks a whole-stack destroy that would run, not a
-preview or plan. Destroy options passed through `TF_CLI_ARGS` count.
+This guard stops an agent from tearing down provisioned infrastructure: a
+Terraform, OpenTofu, Terragrunt, or Pulumi whole-stack destroy that would run,
+including destroy options passed through `TF_CLI_ARGS`, or a reviewed provider
+or platform CLI delete of an instance, cluster, network, DNS zone, identity,
+project, resource group, managed database, app, environment, or volume.
 
 Blocked examples when enabled:
 
 - `terraform destroy`
-- `tofu destroy -auto-approve`
 - `pulumi destroy`
-- `terraform apply -destroy`
+- `aws ec2 terminate-instances --instance-ids i-0abc123`
+- `az group delete -n prod -y`
+- `tofu destroy -auto-approve`
 - `TF_CLI_ARGS_apply='-destroy -auto-approve' terraform apply`
-- `pulumi down -y`
-- `terraform apply -refresh-only -refresh-only=false -destroy`
+- `terraform apply -destroy`
+- `aws cloudformation delete-stack --stack-name prod`
+- `gcloud projects delete my-proj --quiet`
+- `railway environment delete staging --yes`
+- `kamal remove -y`
 
 Outside the guard:
 
 - `terraform destroy -target module.web`: -target narrows the destroy to module.web.
-- `tofu apply -destroy -exclude module.keep`: -exclude keeps module.keep, so the stack is not destroyed whole.
 - `terraform plan -destroy`: plan -destroy only shows the teardown plan.
-- `pulumi destroy --preview-only`: --preview-only shows the destroy without running it.
-- `aws cloudformation delete-stack --stack-name dev`: CloudFormation stack deletion is outside this guard's tools.
+- `aws ec2 terminate-instances --instance-ids i-0abc123 --dry-run`: --dry-run checks permissions and terminates nothing.
 
-Nah cannot tell a disposable preview environment from production. It cannot
-read `TF_CLI_ARGS` built from an unresolved variable, and it delegates when a
-`-target` could
-narrow the scope. An unresolved destroy mode delegates with a coverage gap.
+Nah cannot tell a disposable preview environment from production. A CLI delete
+blocks only when Nah reads every option and the resource is named literally or
+linked. A `-target` that could narrow the stack, `TF_CLI_ARGS` or names built at
+run time, unreviewed verbs, and unknown options delegate. Secrets stores,
+object storage, disks, and snapshots are left to their own guards.
 
 Unresolved, so delegated:
 
-- `terraform apply -destroy saved.tfplan`: Applying saved.tfplan runs a plan whose content Nah does not read.
 - `TF_CLI_ARGS_destroy="$OPTIONS" terraform destroy`: $OPTIONS is unset, so a -target could narrow the destroy.
-- `PATH=/tmp; terraform destroy`: PATH=/tmp changes which terraform runs, and Nah cannot establish it.
+- `terraform apply -destroy saved.tfplan`: Applying saved.tfplan runs a plan whose content Nah does not read.
+- `aws eks delete-cluster --name prod --weird x`: Nah does not read --weird, which may change the request.
+- `railway delete --yes`: Without --project, Railway prompts for the project to delete.
+- `aws eks delete-cluster --name "$CLUSTER"`: $CLUSTER is never set, so Nah cannot name the cluster.
 
-It ships off because whole-stack teardown may be ordinary cleanup of a
-disposable environment. No other guard covers infrastructure-as-code teardown;
-`infra-k8s-delete` covers cluster objects, and the `storage-*` guards cover
-storage deletion.
+It ships off because tearing down a disposable environment, including one an
+agent created, is routine on some teams. `db-destroy` also blocks
+managed-database deletes, `infra-k8s-delete` covers cluster objects, and the
+`storage-*` guards cover storage deletion.
 
 ## infra-k8s-delete
 
