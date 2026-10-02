@@ -2,14 +2,14 @@
 
 | plane | run | measured | engine | models |
 |---|---|---|---|---|
-| correctness | `20261002T002058Z-correctness-64931` | 2026-10-02T00:20:58Z | `0.1.0` | `builtin:blake3:6e946ee2386327541fcde865d3b6124dec075f5351efba6fbc1714a9d9815f95` |
+| correctness | `20261002T013946Z-correctness-18439` | 2026-10-02T01:39:46Z | `0.1.0` | `builtin:blake3:6e946ee2386327541fcde865d3b6124dec075f5351efba6fbc1714a9d9815f95` |
 | coverage | `20260927T155829Z-coverage-54709` | 2026-09-27T15:58:29Z | `0.1.0` | `builtin:blake3:e4a3aa943d572fb4a6c4ee6fa4eb7d50bafc33cdde32b27864e9d8f1a97b5272` |
 | repositories | `20260921T153340Z-repositories-53884` | 2026-09-21T15:33:40Z | `0.1.0` | `builtin:blake3:f4c5b1246f8269fed8c419ed2832d4607967f1357aec6027b0f2bcac2d787f40` |
 | performance | `20260921T150325Z-performance-62642` | 2026-09-21T15:03:25Z | `0.1.0` | `builtin:blake3:a73d1a25123b9661020f9e13dbb1528964df754bf91f93b64e2df5b98b703606` |
 
 ## 1. Invocation correctness
 
-run `20261002T002058Z-correctness-64931` measured 2026-10-02T00:20:58Z
+run `20261002T013946Z-correctness-18439` measured 2026-10-02T01:39:46Z
 
 Independent effect, flow, and uncertainty expectations.
 
@@ -39,7 +39,7 @@ silent drops: 326 rows tested, 71 mutants, 0 drops
 
 ### nah parity
 
-nah `f779fb8bb30848758df615079d4f361ffc9911e9` / corpus `4b26ffde9b267801c77bb69fce54c6d9c728121188b272a84462cc456712151e`
+nah `5fd3cdec635d82c1a321ef3fe2f5d996aa4a63fe` / corpus `bb8e54f91d3fe9db6eb20ef4e0ee93038ac5e5f824f09167a1452080d8c47fda`
 
 | class | count |
 |---|---|
@@ -107,10 +107,9 @@ nah `f779fb8bb30848758df615079d4f361ffc9911e9` / corpus `4b26ffde9b267801c77bb69
 | git-remote-resource-delete | 44 | 0 | 0 | 0 | 0 | 0 |
 | git-rewrite-force | 43 | 0 | 0 | 0 | 0 | 0 |
 | git-worktree-discard | 66 | 0 | 0 | 0 | 0 | 0 |
-| infra-cloud-delete | 35 | 0 | 0 | 0 | 0 | 0 |
 | infra-container-reset | 37 | 0 | 0 | 0 | 0 | 0 |
 | infra-container-volume-delete | 51 | 0 | 0 | 0 | 0 | 0 |
-| infra-iac-destroy | 127 | 0 | 0 | 0 | 0 | 0 |
+| infra-iac-destroy | 162 | 0 | 0 | 0 | 0 | 0 |
 | infra-k8s-delete | 42 | 0 | 0 | 0 | 0 | 0 |
 | net-lookalike-host | 24 | 2 | 1 | 0 | 0 | 1 |
 | registry-publish | 62 | 0 | 0 | 0 | 0 | 0 |
@@ -2257,7 +2256,7 @@ nah cold catalog + first analyze median: 2731 us (target 5000 us)
 
 | source | p50 ms | p99 ms | max ms | max RSS MB |
 |---|---|---|---|---|
-| adversarial | 0.8 | 132.0 | 10250.8 | 328.2 |
+| adversarial | 0.8 | 130.5 | 9985.5 | 335.6 |
 | nah | 0.9 | 9.1 | 39.6 | 158.0 |
 | swe | 1.0 | 17.6 | 783.0 | 214.2 |
 | wild | 1.1 | 105.5 | 10000.0 | 318.3 |
