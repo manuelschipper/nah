@@ -112,10 +112,10 @@
       }
     },
     "parity": {
-      "nah_commit": "cf85df43b676491306f7d64ae239ee581d814edf",
-      "corpus_digest": "3e5099b158400c472afdec0e12699d735504b429a2fc3dee36e59e5ae7b30964",
+      "nah_commit": "69435ab927e347a58b66c367286cb559201c7ccb",
+      "corpus_digest": "5ef354182617a6b30efd42715adf7f4c080f41e20998749dc6646dcf87a9cb21",
       "classes": {
-        "effect_match": 5124,
+        "effect_match": 5126,
         "silent_symbolic_drop": 2,
         "missing_effect": 12,
         "missing_flow": 2,
@@ -151,7 +151,7 @@
           "explained_partial": 206
         },
         "filesystem.jsonl": {
-          "effect_match": 725,
+          "effect_match": 727,
           "missing_effect": 1,
           "covered": 256,
           "explained_partial": 146
@@ -272,7 +272,7 @@
           "effect_match": 24
         },
         "fs-home": {
-          "effect_match": 216,
+          "effect_match": 218,
           "missing_effect": 1,
           "explained_partial": 8
         },
@@ -723,7 +723,7 @@
           "deferred": 24
         },
         "fs-home": {
-          "deferred": 217,
+          "deferred": 219,
           "no_match": 8
         },
         "fs-outside-workspace-delete": {
@@ -11252,10 +11252,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.7935,
-        "p99_ms": 139.3345,
-        "max_ms": 1990.3712,
-        "max_rss_kb": 373136
+        "p50_ms": 0.8041,
+        "p99_ms": 135.084,
+        "max_ms": 1988.6078,
+        "max_rss_kb": 378048
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11279,13 +11279,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261002T033039Z-correctness-84755",
-      "measured_at": "2026-10-02T03:30:39Z",
-      "source_fingerprint": "blake3:5af02c23a84d92d5a9c14b895de179d880fefd5b6177e2d1ce9dcb881d54f172",
-      "binary_hash": "blake3:9a4ad03965146f4bebc2036bbea13c38309f1fbfaa896165ea04b852cc1ae0fd",
+      "run_id": "20261002T041003Z-correctness-22547",
+      "measured_at": "2026-10-02T04:10:03Z",
+      "source_fingerprint": "blake3:7ca3545b154a7e9476304af312f6799727992a3f9f1fda8c39c587a96cd4a59f",
+      "binary_hash": "blake3:4e10a0277a4c01724c0710237e157209124eba72a2045197fe2fe8f903db5b1f",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:4c074ac0cb46af4c8f2821d70a9302629100db5a8d75d70e5efb7091c8bb7468",
-      "git_head": "cf85df43b676491306f7d64ae239ee581d814edf",
+      "git_head": "69435ab927e347a58b66c367286cb559201c7ccb",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

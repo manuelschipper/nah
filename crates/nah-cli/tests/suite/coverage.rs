@@ -473,9 +473,18 @@ fn padding_around_a_danger_cannot_push_it_past_a_bound() {
             "while true; do break; rm -rf ~; done",
             "for x in 1 2; do [ $x = 2 ] && break; rm -rf ~; done",
         ),
-        // zsh runs on past a stop with more than one operand.
+        // A stop ends the body only bare or with one loop count of at least
+        // one: bash runs on past `--help`, zsh past extra operands.
         (
-            "for x in 1; do break 0; rm -rf ~; done",
+            "for x in 1; do break 2; rm -rf ~; done",
+            "bash -c 'for x in 1; do break --help; rm -rf ~; done'",
+        ),
+        (
+            "for x in 1; do continue 1; rm -rf ~; done",
+            "bash -c 'for x in 1; do continue --help; rm -rf ~; done'",
+        ),
+        (
+            "while true; do break 1; rm -rf ~; done",
             "for x in 1; do break 1 2; rm -rf ~; done",
         ),
         (

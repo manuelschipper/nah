@@ -107050,6 +107050,32 @@
           }
         }
       ]
+    },
+    {
+      "id": "fs-home.bash-break-help-loop-home-delete",
+      "guard": "fs-home",
+      "derivation": "bash's 'break --help' prints help and returns without leaving the loop, so the body's 'rm -rf ~' deletes the fixture home directory",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.bash-break-extra-operand-loop-home-delete",
+      "guard": "fs-home",
+      "derivation": "a stop with more than one operand is not taken as leaving the loop, so the body's 'rm -rf ~' is kept and deletes the fixture home directory; bash itself fails the break and never reaches it, an accepted conservative over-block",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
     }
   ]
 }

@@ -260,6 +260,13 @@ because the owner accepted the conservative rule over a narrower model.
   blocks. Telling a valid flag from tags spelling hidden text such as `ushuh`
   or `rmrf` needs pinned CLDR subdivision validity data, and a non-recommended
   flag in a command is rare enough that blocking it is cheaper.
+- `fs-home.bash-break-extra-operand-loop-home-delete` — a loop `break` or
+  `continue` ends the body only when bare or given one decimal loop count of
+  at least one, so `bash -c 'for x in 1; do break 1 2; rm -rf ~; done'`
+  keeps its deletion and blocks although bash fails the stop and never
+  reaches it. zsh reports the same error and runs on, and the shell frontend
+  does not model per-shell builtin semantics, so any other operand form,
+  including `0`, `--` and `--help`, keeps the tail reachable.
 
 ## Documented gaps
 
