@@ -6,6 +6,8 @@
 
 - **Hidden characters in commands** — `exec-obfuscated` now also blocks a shell or PowerShell command whose text holds characters that make the approval prompt show something other than what runs: raw control bytes such as ESC, bidirectional overrides and isolates, zero-width spaces and similar invisible format characters, and Unicode tag characters outside the England, Scotland and Wales flags. Emoji with joiners, those three flags, right-to-left text with its direction marks, and escapes written as text such as `printf '\e[31m'` pass.
 
+- **Leftover 0.x Claude hooks** — Hooks that Nah 0.x left in `~/.claude/settings.json` now show as reinstall required in `nah hook claude status`, and re-running `nah hook claude install` removes them.
+
 ## nah 1.6.1 — Sep 30, 2026
 
 - **Guard reference** — Guard descriptions in `nah docs guards`, the TUI, and nahguard.ai's guard docs now come from one record per guard, with block and pass examples checked against the public corpus. Entries that said a call passes where Nah now blocks it were corrected.
