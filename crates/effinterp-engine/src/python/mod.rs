@@ -236,8 +236,10 @@ struct Capture {
     /// The body's reachable returns, by statement range, with the
     /// parameter guards on each path (see [`returns::reachable_returns`]).
     live_returns: std::collections::HashMap<TextRange, Vec<returns::Guard>>,
-    /// Parameters that may still hold the value the caller passed.
-    params: HashSet<String>,
+    /// Locals that may still hold a value the caller passed, with the
+    /// parameters that value came from: each parameter starts as its own,
+    /// and `x = p` makes `x` hold `p`'s argument too.
+    params: std::collections::HashMap<String, Vec<String>>,
     /// What each reachable `return` in the body passes back.
     returned: Vec<ReturnSite>,
     /// What each same-file call in the body returns, by the call's span.
@@ -4649,7 +4651,8 @@ impl Walker<'_, '_> {
             for target in targets {
                 if let Expr::Name(name) = target {
                     let effects = self.carried_effects(value, before);
-                    self.capture_assign(name.id.as_str(), effects);
+                    let origins = self.returned_params(value);
+                    self.capture_assign(name.id.as_str(), effects, origins);
                     continue;
                 }
                 let projected = literal_unpack(target, value);
@@ -4659,7 +4662,7 @@ impl Walker<'_, '_> {
                         .find(|(bound, _)| *bound == name)
                         .map(|(_, element)| self.carried_effects(element, before))
                         .unwrap_or_default();
-                    self.capture_assign(&name, effects);
+                    self.capture_assign(&name, effects, Vec::new());
                 }
             }
             return;
@@ -5030,8 +5033,9 @@ impl Walker<'_, '_> {
         effects
     }
 
-    /// The parameters still holding their argument that a returned `value`
-    /// passes back.
+    /// The parameters whose argument a returned or assigned `value` passes
+    /// on, through the locals still holding it and the same-file calls that
+    /// return their own argument.
     fn returned_params(&self, value: &Expr) -> Vec<String> {
         let Some(capture) = self.capture.as_ref() else {
             return Vec::new();
@@ -5046,9 +5050,21 @@ impl Walker<'_, '_> {
         );
         let mut params = names
             .into_iter()
-            .filter(|name| capture.params.contains(*name))
-            .map(str::to_string)
+            .filter_map(|name| capture.params.get(name))
+            .flatten()
+            .cloned()
             .collect::<Vec<_>>();
+        for call in locals {
+            let arguments = call_arguments(call);
+            for returned in capture.call_returns.get(&call.range).into_iter().flatten() {
+                if !self.return_feasible(returned, call) {
+                    continue;
+                }
+                for index in self.returned_arguments(returned, call) {
+                    params.extend(self.returned_params(arguments[index]));
+                }
+            }
+        }
         params.sort_unstable();
         params.dedup();
         params
@@ -5100,13 +5116,12 @@ impl Walker<'_, '_> {
     /// path to a returned site: a literal argument or default decides one.
     fn return_feasible(&self, returned: &CallReturn, call: &ast::ExprCall) -> bool {
         let arguments = call_arguments(call);
-        returned.site.guards.iter().all(|(param, value)| {
-            let literal = match self.bound_argument(&returned.callee, call, param) {
-                Bound::Index(index) => control::truthy(arguments[index]),
-                Bound::Default(default) => control::truthy(&default),
-                Bound::Unknown | Bound::Missing => None,
-            };
-            literal != Some(!value)
+        returned.site.guards.iter().all(|guard| {
+            match self.bound_argument(&returned.callee, call, &guard.param) {
+                Bound::Index(index) => !guard.refuted_by(arguments[index]),
+                Bound::Default(default) => !guard.refuted_by(&default),
+                Bound::Unknown | Bound::Missing => true,
+            }
         })
     }
 
@@ -5188,9 +5203,10 @@ impl Walker<'_, '_> {
     }
 
     /// Bind a summarized body's local to the effects its assigned value
-    /// carries. A conditional assignment adds to what the local may hold;
-    /// only an unconditional one replaces it.
-    fn capture_assign(&mut self, name: &str, effects: Vec<u32>) {
+    /// carries and the parameters whose argument it passes on. A conditional
+    /// assignment adds to what the local may hold; only an unconditional one
+    /// replaces it.
+    fn capture_assign(&mut self, name: &str, effects: Vec<u32>, mut origins: Vec<String>) {
         let conditional = self
             .builder
             .condition_since(self.capture_condition_depth)
@@ -5198,8 +5214,15 @@ impl Walker<'_, '_> {
         let Some(capture) = self.capture.as_mut() else {
             return;
         };
-        if !conditional {
+        if conditional {
+            origins.extend(capture.params.remove(name).unwrap_or_default());
+        }
+        origins.sort_unstable();
+        origins.dedup();
+        if origins.is_empty() {
             capture.params.remove(name);
+        } else {
+            capture.params.insert(name.to_string(), origins);
         }
         let mut held = if conditional {
             capture.print_vars.remove(name).unwrap_or_default()

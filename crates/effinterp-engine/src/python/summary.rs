@@ -882,7 +882,11 @@ impl Walker<'_, '_> {
             && let Some(capture) = self.capture.as_mut()
         {
             capture.live_returns = super::returns::reachable_returns(body, &def.params);
-            capture.params = def.params.iter().cloned().collect();
+            capture.params = def
+                .params
+                .iter()
+                .map(|param| (param.clone(), vec![param.clone()]))
+                .collect();
         }
         let saved_condition_depth = self.capture_condition_depth;
         self.capture_condition_depth = self.builder.condition_depth();

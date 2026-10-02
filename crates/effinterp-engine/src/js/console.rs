@@ -5,9 +5,9 @@
 use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{
-    ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, BindingPattern,
-    CallExpression, Class, ComputedMemberExpression, Expression, Function, FunctionBody,
-    IdentifierReference, NewExpression, Statement, StaticMemberExpression,
+    Argument, ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, BindingPattern,
+    CallExpression, Class, ComputedMemberExpression, Expression, ExpressionStatement, Function,
+    FunctionBody, IdentifierReference, NewExpression, Statement, StaticMemberExpression,
     TaggedTemplateExpression, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
@@ -40,13 +40,20 @@ pub(super) struct ConsoleAliases {
     pub(super) references: HashMap<u32, oxc_semantic::SymbolId>,
     /// Span starts of the references to never reassigned function
     /// declarations and `const` bindings whose function does nothing (see
-    /// [`silent_function`]).
+    /// [`ConsoleAliases::silent_function`]).
     pub(super) silent: HashSet<u32>,
     /// Span starts of the references where the console or `globalThis` is
-    /// used as a value other than the object of a member access or the
-    /// initializer of a `const` alias, where code Nah does not follow may
-    /// rewrite its methods.
+    /// used as a value other than the object of a member access, the
+    /// initializer of a `const` alias, or the argument of a call that only
+    /// inspects it, where code Nah does not follow may rewrite its methods.
     pub(super) escapes: HashSet<u32>,
+    /// Spans of the references that reach the runtime's own `Object`.
+    object_globals: HashSet<u32>,
+    /// Spans of the references that reach the runtime's own `require`.
+    require_globals: HashSet<u32>,
+    /// Span starts of the references to `const` bindings of
+    /// `require("fs")`.
+    fs_modules: HashSet<u32>,
 }
 
 impl ConsoleAliases {
@@ -73,6 +80,101 @@ impl ConsoleAliases {
     pub(super) fn is_global_console(&self, expression: &Expression<'_>) -> bool {
         matches!(unparen(expression), Expression::Identifier(id)
             if self.globals.contains(&id.span.start))
+    }
+
+    /// A function value that cannot write to stdout when called: a function
+    /// or arrow literal whose body acts only by calls that cannot (see
+    /// [`Self::inert_call`]).
+    pub(super) fn silent_function(&self, expression: &Expression<'_>) -> bool {
+        match unparen(expression) {
+            Expression::ArrowFunctionExpression(function) => self.silent_body(&function.body),
+            Expression::FunctionExpression(function) => function
+                .body
+                .as_ref()
+                .is_some_and(|body| self.silent_body(body)),
+            _ => false,
+        }
+    }
+
+    /// A function body that constructs and assigns nothing and whose calls
+    /// are all [`Self::inert_call`]s.
+    fn silent_body(&self, body: &FunctionBody<'_>) -> bool {
+        struct Acts<'a> {
+            aliases: &'a ConsoleAliases,
+            hit: bool,
+        }
+        impl<'a> Visit<'a> for Acts<'_> {
+            fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+                if self.aliases.inert_call(it) {
+                    for argument in &it.arguments {
+                        self.visit_argument(argument);
+                    }
+                } else {
+                    self.hit = true;
+                }
+            }
+            fn visit_new_expression(&mut self, _it: &NewExpression<'a>) {
+                self.hit = true;
+            }
+            fn visit_tagged_template_expression(&mut self, _it: &TaggedTemplateExpression<'a>) {
+                self.hit = true;
+            }
+            fn visit_expression(&mut self, it: &Expression<'a>) {
+                if matches!(
+                    it,
+                    Expression::AssignmentExpression(_)
+                        | Expression::UpdateExpression(_)
+                        | Expression::ImportExpression(_)
+                        | Expression::AwaitExpression(_)
+                        | Expression::YieldExpression(_)
+                ) {
+                    self.hit = true;
+                } else {
+                    walk::walk_expression(self, it);
+                }
+            }
+        }
+        let mut acts = Acts {
+            aliases: self,
+            hit: false,
+        };
+        acts.visit_function_body(body);
+        !acts.hit
+    }
+
+    /// A call that writes nothing to stdout and changes no console method:
+    /// `Object.keys`, `values` or `entries`, or a synchronous `fs` write to
+    /// a literal path outside `/dev` and `/proc`.
+    fn inert_call(&self, call: &CallExpression<'_>) -> bool {
+        let Expression::StaticMemberExpression(callee) = unparen(&call.callee) else {
+            return false;
+        };
+        let name = callee.property.name.as_str();
+        match unparen(&callee.object) {
+            Expression::Identifier(id) if self.object_globals.contains(&id.span.start) => {
+                matches!(name, "keys" | "values" | "entries")
+            }
+            module if self.is_fs_module(module) => {
+                matches!(name, "writeFileSync" | "appendFileSync")
+                    && matches!(call.arguments.first(), Some(Argument::StringLiteral(path))
+                        if !path.value.starts_with("/dev/") && !path.value.starts_with("/proc/"))
+            }
+            _ => false,
+        }
+    }
+
+    /// `require("fs")` or a `const` bound to it.
+    fn is_fs_module(&self, expression: &Expression<'_>) -> bool {
+        match unparen(expression) {
+            Expression::Identifier(id) => self.fs_modules.contains(&id.span.start),
+            Expression::CallExpression(call) => {
+                matches!(unparen(&call.callee), Expression::Identifier(id)
+                    if self.require_globals.contains(&id.span.start))
+                    && matches!(call.arguments.as_slice(), [Argument::StringLiteral(name)]
+                        if matches!(name.value.as_str(), "fs" | "node:fs"))
+            }
+            _ => false,
+        }
     }
 
     fn is_global_this(&self, expression: &Expression<'_>) -> bool {
@@ -119,8 +221,19 @@ pub(super) fn console_aliases(
         objects: globals.clone(),
         globals,
         global_this: global_reference_spans(semantic, "globalThis"),
+        object_globals: global_reference_spans(semantic, "Object"),
+        require_globals: global_reference_spans(semantic, "require"),
         ..ConsoleAliases::default()
     };
+    let mut fs_modules = FsModules {
+        aliases: &aliases,
+        found: Vec::new(),
+    };
+    fs_modules.visit_program(program);
+    let fs_modules = fs_modules.found;
+    for symbol in fs_modules {
+        aliases.fs_modules.extend(references_of(symbol));
+    }
     for _ in 0..MAX_ALIAS_ROUNDS {
         let mut objects = Collect::new(&aliases, scoping, Find::Objects);
         objects.visit_program(program);
@@ -149,12 +262,13 @@ pub(super) fn console_aliases(
             break;
         }
     }
-    let mut escapes = Collect::new(&aliases, scoping, Find::Escapes);
-    escapes.visit_program(program);
-    aliases.escapes = escapes.escapes;
-    let mut silent = SilentBindings::default();
+    let mut silent = SilentBindings {
+        aliases: &aliases,
+        found: Vec::new(),
+    };
     silent.visit_program(program);
-    for symbol in silent.0 {
+    let silent = silent.found;
+    for symbol in silent {
         let references = scoping
             .get_resolved_reference_ids(symbol)
             .iter()
@@ -168,21 +282,45 @@ pub(super) fn console_aliases(
             );
         }
     }
+    let mut escapes = Collect::new(&aliases, scoping, Find::Escapes);
+    escapes.visit_program(program);
+    aliases.escapes = escapes.escapes;
     aliases
 }
 
-/// Function declarations and `const` bindings whose function does nothing.
-#[derive(Default)]
-struct SilentBindings(Vec<oxc_semantic::SymbolId>);
+/// `const` bindings of `require("fs")`.
+struct FsModules<'a> {
+    aliases: &'a ConsoleAliases,
+    found: Vec<oxc_semantic::SymbolId>,
+}
 
-impl<'a> Visit<'a> for SilentBindings {
+impl<'a> Visit<'a> for FsModules<'_> {
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if it.kind == VariableDeclarationKind::Const
+            && let (BindingPattern::BindingIdentifier(id), Some(init)) = (&it.id, &it.init)
+            && self.aliases.is_fs_module(init)
+            && let Some(symbol) = id.symbol_id.get()
+        {
+            self.found.push(symbol);
+        }
+        walk::walk_variable_declarator(self, it);
+    }
+}
+
+/// Function declarations and `const` bindings whose function does nothing.
+struct SilentBindings<'a> {
+    aliases: &'a ConsoleAliases,
+    found: Vec<oxc_semantic::SymbolId>,
+}
+
+impl<'a> Visit<'a> for SilentBindings<'_> {
     fn visit_function(&mut self, it: &Function<'a>, flags: oxc_semantic::ScopeFlags) {
         if let (Some(id), Some(body)) = (&it.id, &it.body)
             && it.is_declaration()
-            && silent_body(body)
+            && self.aliases.silent_body(body)
             && let Some(symbol) = id.symbol_id.get()
         {
-            self.0.push(symbol);
+            self.found.push(symbol);
         }
         walk::walk_function(self, it, flags);
     }
@@ -190,59 +328,13 @@ impl<'a> Visit<'a> for SilentBindings {
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         if it.kind == VariableDeclarationKind::Const
             && let (BindingPattern::BindingIdentifier(id), Some(init)) = (&it.id, &it.init)
-            && silent_function(init)
+            && self.aliases.silent_function(init)
             && let Some(symbol) = id.symbol_id.get()
         {
-            self.0.push(symbol);
+            self.found.push(symbol);
         }
         walk::walk_variable_declarator(self, it);
     }
-}
-
-/// A function value that cannot write anything when called: a function or
-/// arrow literal whose body calls, constructs and assigns nothing.
-pub(super) fn silent_function(expression: &Expression<'_>) -> bool {
-    match unparen(expression) {
-        Expression::ArrowFunctionExpression(function) => silent_body(&function.body),
-        Expression::FunctionExpression(function) => {
-            function.body.as_ref().is_some_and(|body| silent_body(body))
-        }
-        _ => false,
-    }
-}
-
-/// A function body that calls, constructs and assigns nothing.
-fn silent_body(body: &FunctionBody<'_>) -> bool {
-    #[derive(Default)]
-    struct Acts(bool);
-    impl<'a> Visit<'a> for Acts {
-        fn visit_call_expression(&mut self, _it: &CallExpression<'a>) {
-            self.0 = true;
-        }
-        fn visit_new_expression(&mut self, _it: &NewExpression<'a>) {
-            self.0 = true;
-        }
-        fn visit_tagged_template_expression(&mut self, _it: &TaggedTemplateExpression<'a>) {
-            self.0 = true;
-        }
-        fn visit_expression(&mut self, it: &Expression<'a>) {
-            if matches!(
-                it,
-                Expression::AssignmentExpression(_)
-                    | Expression::UpdateExpression(_)
-                    | Expression::ImportExpression(_)
-                    | Expression::AwaitExpression(_)
-                    | Expression::YieldExpression(_)
-            ) {
-                self.0 = true;
-            } else {
-                walk::walk_expression(self, it);
-            }
-        }
-    }
-    let mut acts = Acts::default();
-    acts.visit_function_body(body);
-    !acts.0
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -262,6 +354,8 @@ struct Collect<'c> {
     find: Find,
     found: Vec<(u32, oxc_semantic::SymbolId)>,
     escapes: HashSet<u32>,
+    /// The span start of the call an expression statement discards.
+    discarded: Option<u32>,
     depth: u32,
 }
 
@@ -273,6 +367,7 @@ impl<'c> Collect<'c> {
             find,
             found: Vec::new(),
             escapes: HashSet::new(),
+            discarded: None,
             depth: 0,
         }
     }
@@ -363,6 +458,40 @@ impl<'a> Visit<'a> for Collect<'_> {
             self.visit_binding_pattern(&it.id);
         } else {
             walk::walk_variable_declarator(self, it);
+        }
+    }
+
+    fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
+        if let Expression::CallExpression(call) = unparen(&it.expression) {
+            self.discarded = Some(call.span.start);
+        }
+        walk::walk_expression_statement(self, it);
+    }
+
+    // The console passed to a call that only inspects it, to a silent
+    // function whose result is discarded, or as a console method's `.bind`
+    // receiver does not escape.
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        let inspects = self.aliases.inert_call(it)
+            || (self.discarded == Some(it.span.start)
+                && matches!(unparen(&it.callee), Expression::Identifier(id)
+                    if self.aliases.silent.contains(&id.span.start)))
+            || matches!(unparen(&it.callee), Expression::StaticMemberExpression(member)
+                if member.property.name == "bind"
+                    && (self.aliases.method(&member.object).is_some()
+                        || matches!(unparen(&member.object), Expression::Identifier(id)
+                            if self.aliases.references.contains_key(&id.span.start))));
+        if self.find != Find::Escapes || !inspects {
+            walk::walk_call_expression(self, it);
+            return;
+        }
+        self.visit_expression(&it.callee);
+        for argument in &it.arguments {
+            match argument.as_expression() {
+                Some(value)
+                    if self.aliases.is_console(value) || self.aliases.is_global_this(value) => {}
+                _ => self.visit_argument(argument),
+            }
         }
     }
 

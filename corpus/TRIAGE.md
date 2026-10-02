@@ -273,12 +273,24 @@ Accepted limitations with no corpus row that asserts a desired block.
   containers (dict keys included), the arms of a conditional expression its
   literal test does not rule out, and `.text`/`.content` (`value_spine` and
   `flow_expr` in `crates/effinterp-engine/src/python/mod.rs`). String
-  concatenation, f-strings, `%` formatting and a method on a local
-  (`key.strip()`) carry nothing, so `print("key=" + key)` or a helper that
-  returns `key.strip()` piped to an upload delegates, at module level and
-  inside functions alike, while `print(key)` and `return key` block. A row
-  asserting the block would add a `missing_flow` parity miss above the
-  `secrets-exfil` ceiling.
+  concatenation, f-strings, `%` formatting, a subscript (`helper()[0]` of a
+  helper returning `[key]`) and a method on a local (`key.strip()`) carry
+  nothing, so `print("key=" + key)` or a helper that returns `key.strip()`
+  piped to an upload delegates, at module level and inside functions alike,
+  while `print(key)` and `return key` block. A row asserting the block would
+  add a `missing_flow` parity miss above the `secrets-exfil` ceiling.
+- A secret a Python helper returns from its parameter's default.
+  `def helper(p=open(k).read()): return p` then `print(helper())` piped to an
+  upload delegates: a returned parameter passes on only the argument a call
+  binds (`returned_arguments` in `crates/effinterp-engine/src/python/mod.rs`),
+  and the default is evaluated once at definition, outside any summary.
+- A return after an exception a context manager suppresses.
+  `with suppress(ValueError): raise ValueError()` then `return open(k).read()`
+  in a helper printed into an upload delegates: `reachable_returns`
+  (`crates/effinterp-engine/src/python/returns.rs`) takes a `with` body that
+  cannot complete as ending the function, so the later return is dropped.
+  Honoring suppression needs the context manager's `__exit__`, which only
+  `contextlib.suppress` makes evident.
 - The runtime `console` passed as a parameter. Node prints are recognized
   through unbound `console` references, `globalThis.console`, and `const`
   aliases of either (`console_aliases` in
@@ -287,6 +299,12 @@ Accepted limitations with no corpus row that asserts a desired block.
   delegates. Telling that parameter apart from a stub passed in its place
   needs call-site argument binding; a local stub `console` already delegates
   (`secrets-exfil.node-shadowed-console-key-upload-delegates`).
+- A Node console alias chain longer than eight `const` hops.
+  `const c0 = console; const c1 = c0; ... const c9 = c8; c9.log(key)` piped
+  to an upload delegates: alias discovery repeats at most `MAX_ALIAS_ROUNDS`
+  (8) times (`crates/effinterp-engine/src/js/console.rs`), one hop per round,
+  so an alias more than eight hops from `console` (`c8`, `c9`) is not
+  recognized. Chains of up to eight block.
 - A secret bound outside a Node function and printed inside it.
   `const key = fs.readFileSync(k); function run() { console.log(key) } run()`
   piped to an upload delegates: the Node frontend does not carry the
