@@ -263,6 +263,34 @@ because the owner accepted the conservative rule over a narrower model.
   blocks. Telling a valid flag from tags spelling hidden text such as `ushuh`
   or `rmrf` needs pinned CLDR subdivision validity data, and a non-recommended
   flag in a command is rare enough that blocking it is cheaper.
+- `secrets-exfil.node-console-logged-to-stderr-after-mute-key-upload-kept-conservative`
+  and `secrets-exfil.node-console-let-alias-after-mute-key-upload-kept-conservative`
+  — after `console.log = () => {}`, logging the console object itself
+  (`console.error(console)`) or binding it with `let c = console` leaves the
+  mute in place, so a later `console.log(key)` prints nothing; a script that
+  silences its output and then dumps or keeps a handle on the console is
+  interrupted. Nah treats the console used as any value other than a member
+  object, a `const` alias, an `Object.keys`/`values`/`entries` argument, a
+  `.bind` receiver or the argument of a silent helper whose result is
+  discarded as a possible rewrite of every method (`Find::Escapes` in
+  `crates/effinterp-engine/src/js/console.rs`): a replaced console method or
+  a reassignable alias can restore the printer where Nah does not follow it.
+- `secrets-exfil.python-helper-bool-int-selector-return-print-key-upload-kept-conservative`
+  — `if flag == 1: return key` called with `helper(False)` returns `"ping"`,
+  so a helper selecting its output by a numeric flag passed a boolean is
+  interrupted. Return guards decide `==`, `!=` and `is None` only between
+  literals whose equality does not depend on Python's bool/int coercion
+  (`literal_equals` in `crates/effinterp-engine/src/python/returns.rs`), so
+  the key return stays feasible; mixing `True`/`False` with integer selectors
+  is rare and coercion rules are easy to get wrong.
+- `secrets-exfil.python-helper-unreachable-except-return-print-key-upload-kept-conservative`
+  — an `except` clause after a `try` body that cannot raise
+  (`try: return "ping"` / `except Exception: return key`) never runs, so the
+  helper returns `"ping"`; a defensive fallback that returns a secret is
+  interrupted. `reachable_returns` keeps every handler reachable, since
+  telling which statements can raise needs a model of every call and
+  operator in the body, and a wrong "cannot raise" would drop a real secret
+  return.
 
 ## Documented gaps
 
