@@ -3,7 +3,7 @@
 
 use effinterp_matcher::{Assertion, Query, SubjectKind};
 use effinterp_proto::RequestAssurance;
-use nah_proto::effects::*;
+use nah_proto::effects::Domain;
 
 use crate::guard_evaluation::QueryQualifier;
 use crate::registry::{GuardClause, GuardDefinition, GuardFamily};

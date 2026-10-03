@@ -537,17 +537,6 @@ impl RealmFilter {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn parse_requires_family_and_value() {
-        assert!(ResourceSelector::parse("db:public.users").is_ok());
-        assert!(ResourceSelector::parse("nocolon").is_err());
-        assert!(ResourceSelector::parse("fs:").is_err());
-    }
-}
-
 /// The fixed, collision-free human selector form for a database identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DatabaseIdentitySelector {
@@ -667,4 +656,15 @@ fn scoped_selector_from_needle(needle: &str) -> Option<ScopeNeedle> {
     let selector: ScopeNeedle = serde_json::from_slice(&bytes).ok()?;
     selector.identity.scope()?;
     effinterp_proto::selector_identity_is_valid(&selector.identity).then_some(selector)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn parse_requires_family_and_value() {
+        assert!(ResourceSelector::parse("db:public.users").is_ok());
+        assert!(ResourceSelector::parse("nocolon").is_err());
+        assert!(ResourceSelector::parse("fs:").is_err());
+    }
 }

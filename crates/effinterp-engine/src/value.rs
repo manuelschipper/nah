@@ -590,9 +590,7 @@ pub(crate) fn unresolved_resource(family: &str) -> ResourceExpr {
 /// effect domain. A literal segment establishes a filesystem join; a leading
 /// URL or bounded environment reference establishes a network join.
 pub(crate) fn sink_typed_join(parts: Vec<ResourceExpr>, domain: &str) -> ResourceExpr {
-    let unresolved = || ResourceExpr::Unresolved {
-        family: ResourceFamily::new(domain),
-    };
+    let unresolved = || unresolved_resource(domain);
     let mut flat = Vec::new();
     let mut pending: Vec<_> = parts.into_iter().rev().collect();
     while let Some(part) = pending.pop() {
@@ -1143,9 +1141,7 @@ fn lower_resource(value: &SemanticValue) -> ResourceExpr {
         SemanticValueKind::Union(alternatives) => ResourceExpr::Union {
             alternatives: alternatives.iter().map(lower_resource).collect(),
         },
-        SemanticValueKind::Unresolved { family, .. } => ResourceExpr::Unresolved {
-            family: ResourceFamily::new(family),
-        },
+        SemanticValueKind::Unresolved { family, .. } => unresolved_resource(family),
         SemanticValueKind::Path { parts, .. } => {
             if let [
                 SemanticValue {
@@ -1201,9 +1197,9 @@ fn lower_resource(value: &SemanticValue) -> ResourceExpr {
             base: Box::new(lower_resource(base)),
             name: name.clone(),
         },
-        SemanticValueKind::Object(_) | SemanticValueKind::Callable(_) => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("value"),
-        },
+        SemanticValueKind::Object(_) | SemanticValueKind::Callable(_) => {
+            unresolved_resource("value")
+        }
         SemanticValueKind::Alias { value, .. } => lower_resource(value),
         SemanticValueKind::Join(parts) => ResourceExpr::Join {
             parts: parts.iter().map(lower_resource).collect(),
@@ -1242,12 +1238,12 @@ fn resolved_filesystem_text_concat(parts: &[SemanticValue]) -> Option<String> {
 
 fn lower_resource_for_domain(value: &SemanticValue, domain: &str) -> ResourceExpr {
     match &value.kind {
-        SemanticValueKind::Environment(_) if domain == "environment" => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("environment"),
-        },
-        SemanticValueKind::Object(_) | SemanticValueKind::Callable(_) => ResourceExpr::Unresolved {
-            family: ResourceFamily::new(domain),
-        },
+        SemanticValueKind::Environment(_) if domain == "environment" => {
+            unresolved_resource("environment")
+        }
+        SemanticValueKind::Object(_) | SemanticValueKind::Callable(_) => {
+            unresolved_resource(domain)
+        }
         SemanticValueKind::Unresolved { family, .. }
             if !matches!(
                 family.as_str(),
@@ -1262,9 +1258,7 @@ fn lower_resource_for_domain(value: &SemanticValue, domain: &str) -> ResourceExp
                     | "messaging"
             ) =>
         {
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new(domain),
-            }
+            unresolved_resource(domain)
         }
         SemanticValueKind::Literal(path) if domain == "filesystem" => {
             crate::paths::resolve_fs_path(path, None)
@@ -1397,6 +1391,14 @@ fn endpoint_source(
         endpoint.push_str(path);
     }
     endpoint
+}
+
+/// The network endpoint a literal URL names, or an unresolved network resource
+/// when the URL has no authority.
+pub(crate) fn url_endpoint_resource(url: &str) -> ResourceExpr {
+    parse_url_endpoint(url)
+        .map(|identity| ResourceExpr::Concrete { identity })
+        .unwrap_or(unresolved_resource("network"))
 }
 
 /// Parse a literal URL into a network endpoint identity, or `None` when it has

@@ -278,7 +278,7 @@ fn nah_label(label: NahLabel) -> ResourcePredicate {
     }
 }
 
-pub(crate) fn sensitivity(sensitivity: Sensitivity) -> ResourcePredicate {
+pub(crate) fn sensitivity_label(sensitivity: Sensitivity) -> ResourcePredicate {
     nah_label(NahLabel::Sensitivity(sensitivity))
 }
 
@@ -330,7 +330,7 @@ pub(crate) fn disclosed_filesystem(
     then: Option<Assertion>,
 ) -> Vec<Assertion> {
     let labeled = || ResourcePredicate::AnyOf {
-        predicates: labels.iter().copied().map(sensitivity).collect(),
+        predicates: labels.iter().copied().map(sensitivity_label).collect(),
     };
     let mut carried = vec![None];
     if operation != "filesystem.write" {
@@ -423,14 +423,14 @@ pub(crate) fn removed_filesystem(label: Sensitivity) -> Vec<Assertion> {
         selector,
     };
     let mut labeled_destination = selector("filesystem.write", vec![]);
-    labeled_destination.resource = sensitivity(label);
+    labeled_destination.resource = sensitivity_label(label);
     let kept = Assertion::All {
         assertions: vec![
             same_call(selector("filesystem.move", vec![]), true),
             same_call(labeled_destination, false),
         ],
     };
-    established_filesystem("filesystem.delete", sensitivity(label), vec![])
+    established_filesystem("filesystem.delete", sensitivity_label(label), vec![])
         .into_iter()
         .map(|removal| {
             bind(

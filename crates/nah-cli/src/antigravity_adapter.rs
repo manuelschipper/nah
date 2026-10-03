@@ -123,7 +123,7 @@ fn normalize(input: AntigravityHookInput) -> Result<ToolCallInput, String> {
         .as_object()
         .ok_or_else(|| INVALID_ANTIGRAVITY_TOOL_INPUT.to_owned())
         .and_then(|object| {
-            lower(
+            lower_antigravity_tool(
                 &input.tool_call.name,
                 &input.tool_call.args,
                 object,
@@ -158,7 +158,7 @@ fn normalize(input: AntigravityHookInput) -> Result<ToolCallInput, String> {
     .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_antigravity_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     object: &Map<String, Value>,

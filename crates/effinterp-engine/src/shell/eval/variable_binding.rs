@@ -2,7 +2,27 @@
 //! and `mapfile` builtins bind scalars and arrays, with their value attributes
 //! and transparent writes.
 
-use super::*;
+use std::collections::BTreeSet;
+
+use effinterp_proto::{
+    Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, Modality, Operation,
+    Port, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
+};
+
+use crate::builder::PlanBuilder;
+use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
+use crate::models::StdinValue;
+use crate::shell::lex::{Seg, Span, Tok, WordTok};
+use crate::shell::{
+    ArrayValue, BranchValue, Converted, Shell, ShellEnv, VarEntry, WordExpansion, lex, parse,
+    variable_saturation_key,
+};
+use crate::value::unresolved_resource;
+use crate::word::{Word, WordPart};
+
+use super::NestedShellMode;
+use super::redirection::{descriptor_file_read, descriptor_read_producer, word_descriptor};
+use super::word_expansion::{uses_default_ifs, var_node};
 
 /// The case `declare -l` or `declare -u` applies to a declared value.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -705,9 +725,7 @@ impl Shell<'_> {
             Some(name) => ResourceExpr::Concrete {
                 identity: ResourceIdentity::EnvironmentVariable { name },
             },
-            None => ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("environment"),
-            },
+            None => unresolved_resource("environment"),
         };
         let mut provenance = vec![node];
         provenance.extend(&target.assign_nodes);
@@ -1155,9 +1173,7 @@ impl Shell<'_> {
                         },
                     }
                 }
-                None => ResourceExpr::Unresolved {
-                    family: effinterp_proto::ResourceFamily::new("environment"),
-                },
+                None => unresolved_resource("environment"),
             };
             let mut provenance = vec![self.span_node(builder, span)];
             provenance.extend(input_nodes.iter().copied());

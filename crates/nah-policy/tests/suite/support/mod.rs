@@ -4,7 +4,13 @@ use nah_proto::ctx::{
     AbsolutePath, ActivationProjection, ContentHash, Ctx, ExecProtocolVersion, GuardIdentity,
     Platform, PolicyCtx, SchemaVersion, ShippedGuardState, TrustProjection,
 };
-use nah_proto::effects::*;
+use nah_proto::effects::{
+    AccessPurpose, CallId, CausalAvailability, Certainty, ConditionAtomOrigin, ConditionExpr,
+    ConditionId, ConditionUse, ControlAction, ControlTransport, EffectCall, EffectCondition,
+    EffectFact, EffectGraph, EffectResource, FactId, FactPayload, FilesystemOperation,
+    GuardEvidence, InvocationKind, Knowledge, Modality, PermissionGrants, PublicSelection, Reach,
+    Realm, ResourceId, ResourceIdentity, ResourceKind, ResourceLabels, Selection,
+};
 use nah_proto::labels::{NahProtectionTier, PathScope, Sensitivity};
 use nah_proto::observation::{
     Observation, ObservationFact, ObservationQuery, ObservationValue, Observed,

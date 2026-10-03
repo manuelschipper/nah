@@ -616,7 +616,7 @@ mod tests {
 }
 
 fn pattern_bytes(pattern: &effinterp_proto::ResourcePattern) -> u64 {
-    use effinterp_proto::{Field, ResourcePattern as P, TextField};
+    use effinterp_proto::{Field, ResourcePattern, TextField};
     let field = |field: &Field| {
         NODE_BYTES
             + match field {
@@ -625,26 +625,26 @@ fn pattern_bytes(pattern: &effinterp_proto::ResourcePattern) -> u64 {
             }
     };
     let inner = match pattern {
-        P::FsPath { glob } => glob.len() as u64,
-        P::EnvironmentVariable { name_glob } => name_glob.len() as u64,
-        P::NetworkEndpoint {
+        ResourcePattern::FsPath { glob } => glob.len() as u64,
+        ResourcePattern::EnvironmentVariable { name_glob } => name_glob.len() as u64,
+        ResourcePattern::NetworkEndpoint {
             host_glob,
             scheme,
             path_prefix,
             ..
         } => host_glob.len() as u64 + field(scheme) + NODE_BYTES + optional_text_bytes(path_prefix),
-        P::DatabaseTable {
+        ResourcePattern::DatabaseTable {
             server,
             database,
             schema,
             table,
         } => field(server) + field(database) + field(schema) + field(table),
-        P::DatabaseSchema {
+        ResourcePattern::DatabaseSchema {
             server,
             database,
             schema,
         } => field(server) + field(database) + field(schema),
-        P::Process {
+        ResourcePattern::Process {
             executable,
             argv_prefix,
         } => {
@@ -657,17 +657,17 @@ fn pattern_bytes(pattern: &effinterp_proto::ResourcePattern) -> u64 {
                 + NODE_BYTES
                 + argv_prefix.iter().map(resource_bytes).sum::<u64>()
         }
-        P::ObjectStore {
+        ResourcePattern::ObjectStore {
             provider,
             bucket,
             key_prefix,
         } => field(provider) + bucket.len() as u64 + optional_text_bytes(key_prefix),
-        P::Container {
+        ResourcePattern::Container {
             runtime,
             name_glob,
             image_glob,
         } => field(runtime) + optional_text_bytes(name_glob) + optional_text_bytes(image_glob),
-        P::GitRepository {
+        ResourcePattern::GitRepository {
             worktree,
             git_dir,
             pathspec_glob,
@@ -676,15 +676,19 @@ fn pattern_bytes(pattern: &effinterp_proto::ResourcePattern) -> u64 {
                 + optional_text_bytes(git_dir)
                 + optional_text_bytes(pathspec_glob)
         }
-        P::CloudResource {
+        ResourcePattern::CloudResource {
             provider,
             service,
             kind,
             id_glob,
         } => field(provider) + field(service) + field(kind) + id_glob.len() as u64,
-        P::MessageTopic { system, name_glob } => field(system) + name_glob.len() as u64,
-        P::ArtifactField { glob } => glob.len() as u64,
-        P::ServiceUnit { manager, name_glob } => field(manager) + name_glob.len() as u64,
+        ResourcePattern::MessageTopic { system, name_glob } => {
+            field(system) + name_glob.len() as u64
+        }
+        ResourcePattern::ArtifactField { glob } => glob.len() as u64,
+        ResourcePattern::ServiceUnit { manager, name_glob } => {
+            field(manager) + name_glob.len() as u64
+        }
     };
     NODE_BYTES + inner
 }

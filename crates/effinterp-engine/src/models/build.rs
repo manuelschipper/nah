@@ -14,6 +14,7 @@ use crate::models::common::{
 };
 use crate::models::{CommandModel, InvocationCtx, source_refusal_detail};
 use crate::nest::{SourceResolution, Transition};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 pub(super) fn build_models() -> Vec<Box<dyn CommandModel>> {
@@ -1718,9 +1719,7 @@ fn cargo_metadata_dispatch(
         builder.effect(Effect {
             id: Default::default(),
             operation: Operation::new("artifact.yank_request"),
-            resource: ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("artifact"),
-            },
+            resource: unresolved_resource("artifact"),
             attributes: attrs.clone(),
             request_assurance: effinterp_proto::RequestAssurance::Exact,
             modality: Modality::MustOnSuccess,
@@ -1735,9 +1734,7 @@ fn cargo_metadata_dispatch(
             node,
             command as u32,
             "network.request",
-            ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("network"),
-            },
+            unresolved_resource("network"),
             attrs,
         );
         builder.declare_coverage(Domain::new("artifact"), CoverageLevel::Full);
@@ -1790,9 +1787,7 @@ fn cargo_metadata_dispatch(
                     node,
                     command as u32,
                     "network.request",
-                    ResourceExpr::Unresolved {
-                        family: effinterp_proto::ResourceFamily::new("network"),
-                    },
+                    unresolved_resource("network"),
                     Default::default(),
                 );
                 builder.declare_coverage(Domain::new("network"), CoverageLevel::Full);
@@ -2195,12 +2190,7 @@ fn cargo_install_dispatch(
         // `CARGO_HOME` and yields to `CARGO_INSTALL_ROOT` and `--root`.
         if name == "CARGO_INSTALL_ROOT" && config_root {
             root = ResourceExpr::Union {
-                alternatives: vec![
-                    ResourceExpr::Unresolved {
-                        family: effinterp_proto::ResourceFamily::new("filesystem"),
-                    },
-                    root,
-                ],
+                alternatives: vec![unresolved_resource("filesystem"), root],
             };
         }
         root = match ctx.environment_value(name) {

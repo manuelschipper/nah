@@ -1,12 +1,13 @@
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, Domain, ProvenanceRef, ResourceExpr,
-    ResourceFamily, ResourceScope, ScopeEvidence, ScopeEvidenceKind, ScopeValue,
+    ResourceScope, ScopeEvidence, ScopeEvidenceKind, ScopeValue,
 };
 
 use crate::builder::PlanBuilder;
 use crate::models::InvocationCtx;
 use crate::models::args::attached_value;
 use crate::models::common::arg_node;
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 pub(crate) fn scope_boundary(
@@ -91,9 +92,7 @@ pub(crate) fn scope_option(
 pub(crate) fn access_value(scope: &mut ResourceScope, kind: ScopeEvidenceKind, value: ScopeValue) {
     let value = match value {
         ScopeValue::Value(value) => *value,
-        _ => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("value"),
-        },
+        _ => unresolved_resource("value"),
     };
     scope.access.push(ScopeEvidence {
         kind,
@@ -225,9 +224,7 @@ pub(crate) fn network_resource(scope: &ResourceScope) -> ResourceExpr {
     endpoints.sort_by_cached_key(effinterp_proto::canonical_json);
     endpoints.dedup();
     match endpoints.len() {
-        0 => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        },
+        0 => unresolved_resource("network"),
         1 => endpoints.pop().unwrap(),
         _ => ResourceExpr::Union {
             alternatives: endpoints,

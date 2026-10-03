@@ -61,14 +61,21 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     }
                 }
                 HookOutcome::IrrelevantEvent => 0,
-                HookOutcome::MalformedInput => deny_unavailable(
+                HookOutcome::MalformedInput => hook_adapter::deny_unavailable_on_stderr(
                     stderr,
                     failure_policy,
+                    Runtime::Kiro,
                     hook_adapter::IntegrationUnavailable::MalformedInput,
                 )
                 .unwrap_or(0),
                 HookOutcome::EvaluationUnavailable(kind) => {
-                    deny_unavailable(stderr, failure_policy, kind).unwrap_or_else(|| {
+                    hook_adapter::deny_unavailable_on_stderr(
+                        stderr,
+                        failure_policy,
+                        Runtime::Kiro,
+                        kind,
+                    )
+                    .unwrap_or_else(|| {
                         let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
                         1
                     })
@@ -76,24 +83,14 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             }
         }
         Ok(None) => 0,
-        Err(_) => deny_unavailable(
+        Err(_) => hook_adapter::deny_unavailable_on_stderr(
             stderr,
             failure_policy,
+            Runtime::Kiro,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
         .unwrap_or(0),
     }
-}
-
-fn deny_unavailable<E: Write>(
-    stderr: &mut E,
-    failure_policy: FailurePolicy,
-    unavailable: hook_adapter::IntegrationUnavailable,
-) -> Option<u8> {
-    hook_adapter::unavailable_feedback(failure_policy, Runtime::Kiro, unavailable).map(|reason| {
-        let _ = writeln!(stderr, "nah - {reason}");
-        2
-    })
 }
 
 fn read_input<R: Read>(stdin: &mut R) -> Result<Value, String> {
@@ -126,7 +123,7 @@ fn normalize(input: KiroHookInput) -> Result<Option<ToolCallInput>, String> {
     }
     let original_input = input.tool_input.clone();
     let object = input.tool_input.as_object();
-    let lowered = lower(&input.tool_name, &original_input, object);
+    let lowered = lower_kiro_tool(&input.tool_name, &original_input, object);
     let (tool, tool_input, complete) =
         lowered.unwrap_or_else(|_| (input.tool_name.as_str(), original_input.clone(), false));
     ToolCallInput::new(
@@ -140,7 +137,7 @@ fn normalize(input: KiroHookInput) -> Result<Option<ToolCallInput>, String> {
     .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_kiro_tool<'a>(
     tool_name: &'a str,
     original_input: &Value,
     object: Option<&Map<String, Value>>,

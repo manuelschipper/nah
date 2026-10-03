@@ -187,7 +187,7 @@ impl EvidencePlan {
     /// `observe` can be called more than once, with different query subsets
     /// under the same request ID, so it must answer each request by its
     /// queries. An error from it does not always fail this call: path facts
-    /// can come back as `Unavailable` instead. `path_observation::fulfill`
+    /// can come back as `Unavailable` instead. `path_observation::fulfill_from_observation_manifest`
     /// states when.
     pub fn observe_with<F>(
         &self,
@@ -197,7 +197,12 @@ impl EvidencePlan {
     where
         F: FnMut(&ObservationRequest) -> Result<Observation, String>,
     {
-        crate::path_observation::fulfill(&self.request, &self.path_observations, platform, observe)
+        crate::path_observation::fulfill_from_observation_manifest(
+            &self.request,
+            &self.path_observations,
+            platform,
+            observe,
+        )
     }
     pub fn host(&self) -> &ObservedHost {
         &self.host
@@ -355,7 +360,7 @@ pub fn plan_evidence(
     effinterp_proto::validate_plan(&plan)
         .map_err(|_| refusal(root, RefusalKind::InvalidGraph, "engine-plan"))?;
     let source_observations = sources.observations();
-    let path_observations = crate::path_observation::manifest(&plan);
+    let path_observations = crate::path_observation::host_observation_manifest(&plan);
     let base = crate::plan_observation_request(&plan, &site);
     let mut queries = base.queries().to_vec();
     let source_queries = source_path_queries(&queries, &source_observations);
@@ -523,7 +528,7 @@ fn source_path_queries(
         .map(|(index, path)| ObservationQuery::Path {
             key: format!("effinterp-source-{index:04}"),
             requested: path.to_owned(),
-            cwd_key: crate::observe::CWD_KEY.into(),
+            cwd_key: crate::observation_request::CWD_KEY.into(),
             inspect_descendants: false,
             symlink_traversal: nah_proto::observation::SymlinkTraversal::None,
         })
@@ -578,7 +583,7 @@ fn git_worktree_queries(
         .map(|(index, path)| ObservationQuery::Path {
             key: format!("effinterp-git-worktree-{index:04}"),
             requested: path.to_owned(),
-            cwd_key: crate::observe::CWD_KEY.into(),
+            cwd_key: crate::observation_request::CWD_KEY.into(),
             inspect_descendants: false,
             symlink_traversal: nah_proto::observation::SymlinkTraversal::None,
         })
@@ -704,7 +709,7 @@ struct ObservedLabelSets {
 /// Project `plan`, bound to exactly the observation and values used in
 /// analysis, into guard evidence up to the shipped guards' matches. Each pass
 /// below owns one question; later passes read what earlier ones projected.
-pub fn project<'a>(
+pub fn project_guard_evidence<'a>(
     plan: &'a EvidencePlan,
     observation: &'a Observation,
     ctx: &'a Ctx,
@@ -784,7 +789,7 @@ impl Projection<'_> {
         mut self,
         matches: &ShippedGuardMatches,
     ) -> Result<(effects::GuardEvidence, Vec<EffectAnnotation>), AdapterRefusal> {
-        use effects::*;
+        use effects::{GapPhase, GuardEvidence, PublicSelection};
         for gap in &matches.gaps {
             if !self.graph.gaps.iter().any(|existing| {
                 existing.call == gap.call

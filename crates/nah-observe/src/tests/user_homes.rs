@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 use super::support::{request, value};
-use crate::fulfill;
+use crate::fulfill_observation_request;
 use nah_proto::ctx::SchemaVersion;
 use nah_proto::observation::{
     ObservationQuery, ObservationRequest, ObservationValue, Observed, UserHomeObservation,
@@ -17,9 +17,10 @@ fn user_home_answers_from_the_account_database() {
             name: name.into(),
         });
     }
-    let observation =
-        fulfill(&ObservationRequest::new(SchemaVersion::V1, "request", queries).expect("request"))
-            .expect("observation");
+    let observation = fulfill_observation_request(
+        &ObservationRequest::new(SchemaVersion::V1, "request", queries).expect("request"),
+    )
+    .expect("observation");
 
     let ObservationValue::UserHome {
         observed: Observed::Ok {

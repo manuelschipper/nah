@@ -47,7 +47,7 @@ pub enum EnforcementMode {
 /// only when a guard or self-protection positively identifies it. `coverage` is
 /// the selected public analysis; `matches` are the shipped guard matches
 /// `shipped.evaluate` found for the same evidence.
-pub fn decide(
+pub fn reduce_policy_decision(
     evidence: &nah_proto::effects::GuardEvidence,
     shipped: &ShippedGuards,
     matches: &nah_proto::guard_host::ShippedGuardMatches,

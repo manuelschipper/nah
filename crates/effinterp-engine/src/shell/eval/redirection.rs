@@ -2,7 +2,27 @@
 //! descriptors, which files and sockets they reach, and the literal output a
 //! redirect is predicted to write.
 
-use super::*;
+use std::collections::{BTreeMap, HashMap};
+
+use effinterp_proto::{
+    AttrValue, Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect,
+    ExecutionNodeRef, Modality, Operation, Port, ProvenanceKind, ResourceExpr, ResourceIdentity,
+};
+
+use crate::builder::{PlanBuilder, ScriptInterpreter};
+use crate::flow::{Descriptor, FlowRef};
+use crate::models::StdinValue;
+use crate::shell::lex::{DupTarget, RedirKind, Seg, Span, WordTok};
+use crate::shell::parse::Simple;
+use crate::shell::{
+    Converted, Redirects, Shell, ShellEnv, VarEntry, build_redirections, parse,
+    variable_saturation_key,
+};
+use crate::value::unresolved_resource;
+use crate::word::{Word, WordPart};
+
+use super::literal_output;
+use super::variable_binding::bind_var;
 
 /// Parameter name an allocated descriptor keeps while it flows through a
 /// variable. It stands for one descriptor number the shell chose.
@@ -375,9 +395,7 @@ fn unresolved_socket(
     dynamic: bool,
 ) -> (ResourceExpr, BTreeMap<String, AttrValue>, bool) {
     (
-        ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        },
+        unresolved_resource("network"),
         BTreeMap::from([(
             "protocol".to_string(),
             AttrValue::String(protocol.to_string()),

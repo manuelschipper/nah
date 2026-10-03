@@ -130,7 +130,7 @@ fn normalize(input: HermesHookInput) -> Result<(ToolCallInput, Option<CodeInput>
             Some(code),
         ),
         CodeIntake::NotCode => (
-            lower(&input.tool_name, &input.tool_input, input.cwd.as_str()),
+            lower_hermes_tool(&input.tool_name, &input.tool_input, input.cwd.as_str()),
             None,
         ),
         CodeIntake::Invalid => (Err(INVALID_HERMES_TOOL_INPUT.into()), None),
@@ -158,7 +158,7 @@ fn normalize(input: HermesHookInput) -> Result<(ToolCallInput, Option<CodeInput>
         .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_hermes_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     fallback_cwd: &str,
@@ -167,7 +167,8 @@ fn lower<'a>(
         .as_object()
         .ok_or_else(|| INVALID_HERMES_TOOL_INPUT.to_owned())?;
     let cwd = if tool_name == "terminal" {
-        optional_non_empty(object, "workdir")?.unwrap_or_else(|| fallback_cwd.to_owned())
+        tool_input_nullable_non_empty_string(object, "workdir")?
+            .unwrap_or_else(|| fallback_cwd.to_owned())
     } else {
         fallback_cwd.to_owned()
     };
@@ -222,11 +223,11 @@ fn patch_input(object: &Map<String, Value>) -> Result<(&'static str, Value), Str
 
 fn search_input(object: &Map<String, Value>) -> Result<(&'static str, Value), String> {
     let pattern = tool_input_string(object, "pattern", INVALID_HERMES_TOOL_INPUT)?;
-    let path = optional_non_empty(object, "path")?.unwrap_or_else(|| ".".into());
+    let path = tool_input_nullable_non_empty_string(object, "path")?.unwrap_or_else(|| ".".into());
     // Hermes applies `file_glob` as a filter inside `path` (`rg --glob`,
     // `grep --include`, `find -name`), so it only narrows the search; the
     // lowered search keeps the whole of `path` as its bound.
-    optional_non_empty(object, "file_glob")?;
+    tool_input_nullable_non_empty_string(object, "file_glob")?;
     match object
         .get("target")
         .and_then(Value::as_str)
@@ -250,7 +251,12 @@ fn literal_path(path: &str) -> bool {
         })
 }
 
-fn optional_non_empty(object: &Map<String, Value>, name: &str) -> Result<Option<String>, String> {
+/// Reads an optional string tool input field that Hermes may send as null. A
+/// missing field, null and an empty string are all `None`.
+fn tool_input_nullable_non_empty_string(
+    object: &Map<String, Value>,
+    name: &str,
+) -> Result<Option<String>, String> {
     match object.get(name) {
         Some(Value::String(value)) if !value.is_empty() => Ok(Some(value.clone())),
         // Hermes treats null like an omitted field, and its `hermes_tools`

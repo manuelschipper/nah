@@ -122,8 +122,8 @@ pub(crate) fn shipped_guard_definitions() -> Vec<GuardDefinition> {
         crate::flow_guards::secrets_exfil(),
         crate::network_guards::lookalike_host(),
     ]);
-    definitions.extend(crate::git_guards::definitions());
-    definitions.extend(crate::filesystem_guards::definitions());
+    definitions.extend(crate::git_guards::git_guard_definitions());
+    definitions.extend(crate::filesystem_guards::filesystem_guard_definitions());
     for clause in definitions
         .iter()
         .flat_map(|definition| &definition.clauses)

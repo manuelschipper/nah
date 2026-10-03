@@ -1,4 +1,11 @@
-use super::*;
+use effinterp_engine::{Assurance, ExternalCall, ResolvedObject, classify_python_call};
+use effinterp_proto::CalleeReference;
+
+use super::{
+    Linker, Resolution, find_import, resolve_common_method, resolve_standard_callee,
+    standard_class_candidates,
+};
+use crate::module::{ModuleFile, ModuleRegistry};
 
 pub(crate) struct PythonLinker;
 

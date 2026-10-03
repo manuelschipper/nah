@@ -6,7 +6,8 @@ use super::instance::{
     instance_attrs, receiver_matches_type, resolve_exact_class, type_ref_name, value_from_ref,
 };
 use super::{
-    BoundaryOccurrence, Composition, Dispatch, Env, Walk, is_constructor_fact, push_linker_boundary,
+    BoundaryOccurrence, Composition, CompositionWalk, InstanceEnv, ReceiverContext,
+    is_constructor_fact, push_linker_boundary,
 };
 use crate::dispatch::DispatchVia;
 use crate::linker::Resolution;
@@ -35,7 +36,7 @@ struct Pending {
     pub(super) id: PendingId,
     pub(super) file: String,
     pub(super) function: String,
-    pub(super) dispatch: Dispatch,
+    pub(super) dispatch: ReceiverContext,
     pub(super) registration_path: Vec<String>,
     pub(super) model: &'static str,
     pub(super) assurance: Assurance,
@@ -219,7 +220,7 @@ fn evidence_rank(evidence: SigEvidence) -> u8 {
     }
 }
 
-fn bind_edge_result(importer: &ModuleFile, edge: &CallEdge, env: &mut Env) {
+fn bind_edge_result(importer: &ModuleFile, edge: &CallEdge, env: &mut InstanceEnv) {
     for (index, name) in edge.result_bindings() {
         if let Some(origin) = edge.origin_for_result(index) {
             env.vars.insert(
@@ -371,7 +372,7 @@ fn register_component(
     if let Some(argument) = argument {
         match super::instance::bound_callable(registry, importer, &argument.value) {
             Some(super::BoundCallable::Function { file, function }) => {
-                targets.push((file, function, Dispatch::default()))
+                targets.push((file, function, ReceiverContext::default()))
             }
             Some(super::BoundCallable::Class(instance)) => {
                 alternatives = true;
@@ -386,7 +387,7 @@ fn register_component(
                             targets.push((
                                 file.path.clone(),
                                 function.name.clone(),
-                                Dispatch {
+                                ReceiverContext {
                                     receiver: Some(instance.clone()),
                                     self_attrs: instance_attrs(registry, &instance, &[]),
                                 },
@@ -400,7 +401,11 @@ fn register_component(
     } else {
         for value in importer.summary.module_values.values() {
             if let Some(effinterp_engine::CallableValue::Function { name }) = value.as_callable() {
-                targets.push((importer.path.clone(), name.clone(), Dispatch::default()));
+                targets.push((
+                    importer.path.clone(),
+                    name.clone(),
+                    ReceiverContext::default(),
+                ));
             }
         }
     }
@@ -467,7 +472,7 @@ pub(super) fn apply_lifecycle(
     edge: &CallEdge,
     path: &[String],
     out: &mut Composition,
-    env: &mut Env,
+    env: &mut InstanceEnv,
 ) -> bool {
     bind_edge_result(importer, edge, env);
     if is_constructor_fact(edge)
@@ -615,7 +620,7 @@ pub(super) fn apply_lifecycle(
                     id,
                     file: target.path.clone(),
                     function,
-                    dispatch: Dispatch::default(),
+                    dispatch: ReceiverContext::default(),
                     registration_path: path.to_vec(),
                     model,
                     assurance,
@@ -665,7 +670,7 @@ pub(super) fn apply_lifecycle(
                         id,
                         file: hook.target.path.clone(),
                         function: hook.function,
-                        dispatch: Dispatch {
+                        dispatch: ReceiverContext {
                             receiver: Some(hook.receiver.clone()),
                             self_attrs: instance_attrs(registry, &hook.receiver, &[]),
                         },
@@ -717,7 +722,7 @@ pub(super) fn apply_lifecycle(
                                 id,
                                 file: target.path.clone(),
                                 function,
-                                dispatch: Dispatch {
+                                dispatch: ReceiverContext {
                                     receiver: Some(instance.clone()),
                                     self_attrs: instance.attrs.clone(),
                                 },
@@ -1001,8 +1006,8 @@ pub(super) fn activate_lifecycle(
                 callee: pending.function.clone(),
                 ..Default::default()
             };
-            let mut env = Env::default();
-            Walk::run(
+            let mut env = InstanceEnv::default();
+            CompositionWalk::run(
                 registry,
                 target,
                 out,

@@ -1,13 +1,13 @@
 //! Installs and removes nah's global Prime Agent tool-call extension.
 
 use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
 
 use crate::{live_state, runtime::FailurePolicy};
 
+use super::hook_paths::{HookFileWriteErrorCodes, write_hook_file_atomically};
 use super::{RuntimeHookStatus, RuntimeMutation};
 use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
@@ -23,9 +23,9 @@ pub(crate) fn mutate_prime_agent_hook(
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_extension(&home, &agent_dir, &executable, policy)
+            install_prime_agent_extension(&home, &agent_dir, &executable, policy)
         } else {
-            uninstall_extension(&home, &agent_dir)
+            uninstall_prime_agent_extension(&home, &agent_dir)
         }
     })?;
     Ok(RuntimeMutation::new(
@@ -41,7 +41,7 @@ pub(crate) fn prime_agent_hook_status() -> Result<RuntimeHookStatus, String> {
     let home = live_state::home(platform)?;
     let agent_dir = configured_agent_dir(&home, platform)?;
     let paths = PrimeAgentHookPaths::new(&home, &agent_dir);
-    reject_symlinks(&paths)?;
+    reject_prime_agent_hook_symlinks(&paths)?;
     let bytes = match std::fs::read(&paths.extension) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -111,28 +111,30 @@ fn configured_agent_dir(
     AbsolutePath::new(platform, configured).map_err(|_| "prime-agent-dir-not-absolute".to_owned())
 }
 
-fn install_extension(
+fn install_prime_agent_extension(
     home: &AbsolutePath,
     agent_dir: &AbsolutePath,
     executable: &Path,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = PrimeAgentHookPaths::new(home, agent_dir);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_prime_agent_hook_lock(&paths)?;
+    reject_prime_agent_hook_symlinks(&paths)?;
     let parent = paths
         .extension
         .parent()
         .ok_or_else(|| "invalid-prime-agent-extension-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "prime-agent-extension-write-failed".to_owned())?;
-    reject_symlinks(&paths)?;
+    reject_prime_agent_hook_symlinks(&paths)?;
     let desired = extension(executable, policy)?;
     match std::fs::read(&paths.extension) {
         Ok(bytes) if bytes == desired.as_bytes() => {}
-        Ok(bytes) if owned(&bytes) => save(&paths.extension, desired.as_bytes())?,
+        Ok(bytes) if owned(&bytes) => {
+            save_prime_agent_extension(&paths.extension, desired.as_bytes())?
+        }
         Ok(_) => return Err("prime-agent-extension-not-owned".into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            save(&paths.extension, desired.as_bytes())?;
+            save_prime_agent_extension(&paths.extension, desired.as_bytes())?;
         }
         Err(_) => return Err("prime-agent-extension-read-failed".into()),
     }
@@ -140,10 +142,13 @@ fn install_extension(
     Ok(paths.extension)
 }
 
-fn uninstall_extension(home: &AbsolutePath, agent_dir: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_prime_agent_extension(
+    home: &AbsolutePath,
+    agent_dir: &AbsolutePath,
+) -> Result<PathBuf, String> {
     let paths = PrimeAgentHookPaths::new(home, agent_dir);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_prime_agent_hook_lock(&paths)?;
+    reject_prime_agent_hook_symlinks(&paths)?;
     match std::fs::read(&paths.extension) {
         Ok(bytes) if owned(&bytes) => {
             std::fs::remove_file(&paths.extension)
@@ -175,7 +180,7 @@ impl PrimeAgentHookPaths {
     }
 }
 
-fn lock(paths: &PrimeAgentHookPaths) -> Result<File, String> {
+fn acquire_prime_agent_hook_lock(paths: &PrimeAgentHookPaths) -> Result<File, String> {
     let parent = paths
         .lock
         .parent()
@@ -198,7 +203,7 @@ fn lock(paths: &PrimeAgentHookPaths) -> Result<File, String> {
     Ok(file)
 }
 
-fn reject_symlinks(paths: &PrimeAgentHookPaths) -> Result<(), String> {
+fn reject_prime_agent_hook_symlinks(paths: &PrimeAgentHookPaths) -> Result<(), String> {
     reject_symlink_ancestors(
         &paths.extension,
         "prime-agent-extension-symlink-unsupported",
@@ -219,26 +224,16 @@ fn reject_symlink_ancestors(path: &Path, error: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
+const PRIME_AGENT_EXTENSION_WRITE_ERRORS: HookFileWriteErrorCodes = HookFileWriteErrorCodes {
+    invalid_path: "invalid-prime-agent-extension-path",
+    write_failed: "prime-agent-extension-write-failed",
+    permissions: "prime-agent-extension-permissions-failed",
+    sync_failed: "prime-agent-extension-sync-failed",
+};
+
+fn save_prime_agent_extension(path: &Path, bytes: &[u8]) -> Result<(), String> {
     reject_symlink_ancestors(path, "prime-agent-extension-symlink-unsupported")?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid-prime-agent-extension-path".to_owned())?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|_| "prime-agent-extension-write-failed".to_owned())?;
-    restrict_file_to_owner(temporary.as_file())
-        .map_err(|_| "prime-agent-extension-permissions-failed".to_owned())?;
-    temporary
-        .write_all(bytes)
-        .map_err(|_| "prime-agent-extension-write-failed".to_owned())?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "prime-agent-extension-write-failed".to_owned())?;
-    temporary
-        .persist(path)
-        .map_err(|_| "prime-agent-extension-write-failed".to_owned())?;
-    sync_parent_directory(parent).map_err(|_| "prime-agent-extension-sync-failed".to_owned())
+    write_hook_file_atomically(path, bytes, &PRIME_AGENT_EXTENSION_WRITE_ERRORS)
 }
 
 fn extension(executable: &Path, policy: FailurePolicy) -> Result<String, String> {

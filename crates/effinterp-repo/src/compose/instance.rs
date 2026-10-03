@@ -1,5 +1,5 @@
 use super::accumulation::push_dependency;
-use super::{BoundCallable, Callbacks, Composition, Env, Walk, find_import};
+use super::{BoundCallable, Callbacks, Composition, CompositionWalk, InstanceEnv, find_import};
 use crate::linker::Resolution;
 use crate::module::{ModuleFile, ModuleRegistry};
 use effinterp_engine::{
@@ -149,7 +149,7 @@ pub(super) fn returned_contract_instance(
 pub(super) fn resolve_instance(
     registry: &ModuleRegistry,
     importer: &ModuleFile,
-    env: &Env,
+    env: &InstanceEnv,
     value: &SemanticValue,
     depth: usize,
 ) -> Option<ResolvedObject> {
@@ -274,7 +274,7 @@ pub(super) fn resolve_instance(
 pub(super) fn resolve_obj_args(
     registry: &ModuleRegistry,
     importer: &ModuleFile,
-    env: &Env,
+    env: &InstanceEnv,
     arguments: &[ValueArgument],
     depth: usize,
 ) -> Vec<(Option<String>, usize, ResolvedObject)> {
@@ -320,7 +320,7 @@ pub(super) fn resolved_object_value(value: &ResolvedObject) -> SemanticValue {
 pub(super) fn resolve_runtime_value(
     registry: &ModuleRegistry,
     importer: &ModuleFile,
-    env: &Env,
+    env: &InstanceEnv,
     value: &SemanticValue,
 ) -> SemanticValue {
     let mut bindings = env.values.clone();
@@ -501,7 +501,8 @@ pub(super) fn instance_values(
         if call.callee.rsplit('.').next() != Some("__init__") {
             continue;
         }
-        let Some(base) = resolve_instance(registry, file, &Env::default(), receiver, depth + 1)
+        let Some(base) =
+            resolve_instance(registry, file, &InstanceEnv::default(), receiver, depth + 1)
         else {
             continue;
         };
@@ -645,7 +646,7 @@ fn loader_imports_external(
 pub(super) fn value_from_ref(
     registry: &ModuleRegistry,
     importer: &ModuleFile,
-    env: &Env,
+    env: &InstanceEnv,
     value: &SemanticValue,
 ) -> Option<ResolvedObject> {
     resolve_instance(registry, importer, env, value, 0).or_else(|| {
@@ -777,7 +778,7 @@ pub(super) fn bind_constructor_results(
     target: &ModuleFile,
     class_name: &str,
     edge: &CallEdge,
-    env: &mut Env,
+    env: &mut InstanceEnv,
     out: &mut Composition,
 ) {
     let Some(value) = resolve_exact_class(registry, target, class_name) else {
@@ -791,7 +792,7 @@ pub(super) fn bind_resolved_constructor(
     caller: &ModuleFile,
     mut value: ResolvedObject,
     edge: &CallEdge,
-    env: &mut Env,
+    env: &mut InstanceEnv,
     out: &mut Composition,
 ) {
     push_dependency(out, value.file.clone());
@@ -811,7 +812,7 @@ pub(super) fn bind_resolved_constructor(
 /// Positionals use the callee's declared parameter list; keywords use the
 /// keyword name. Imported values must resolve to one repository module.
 pub(super) fn bind_fn_args(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     caller: &ModuleFile,
     target: &ModuleFile,
     callee: &FunctionEntry,

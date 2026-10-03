@@ -6,8 +6,8 @@
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, Field, Modality, Operation, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity, ResourcePattern,
+    Effect, Field, Modality, Operation, ProvenanceRef, ResourceExpr, ResourceIdentity,
+    ResourcePattern,
 };
 
 use crate::models::args::{FlagSpec, Scanned, scan, scan_literal_flags};
@@ -1267,9 +1267,7 @@ fn symbolic_parts(parts: Vec<WordPart>, family: &str) -> Vec<ResourceExpr> {
 
 /// A symbolic cloud resource of an unknown identity, for a non-literal target.
 fn symbolic_cloud() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("cloud"),
-    }
+    unresolved_resource("cloud")
 }
 
 /// The non-flag operands after `start`, with their argv indices.
@@ -4851,9 +4849,7 @@ impl CommandModel for Gcloud {
                 model_node,
                 verb as u32,
                 "database.write",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("db"),
-                },
+                unresolved_resource("db"),
                 false,
                 false,
                 true,
@@ -5892,7 +5888,7 @@ fn apply_cloud_scope(
     resource: &mut ResourceExpr,
 ) {
     use crate::models::scope::{access_value, endpoint_evidence, scope_boundary, scope_option};
-    use effinterp_proto::{ScopeDimension as D, ScopeEvidenceKind as E, ScopeValue as V};
+    use effinterp_proto::{ScopeDimension, ScopeEvidenceKind, ScopeValue};
     if let ResourceExpr::Join { parts }
     | ResourceExpr::Union {
         alternatives: parts,
@@ -5915,25 +5911,28 @@ fn apply_cloud_scope(
     match provider.as_deref() {
         Some("aws") => {
             let region = scope_option(builder, ctx, provenance, &["--region"], true, "cloud")
-                .or_else(|| cloud_environment(builder, ctx, provenance, "AWS_REGION").map(V::value))
                 .or_else(|| {
-                    cloud_environment(builder, ctx, provenance, "AWS_DEFAULT_REGION").map(V::value)
+                    cloud_environment(builder, ctx, provenance, "AWS_REGION").map(ScopeValue::value)
+                })
+                .or_else(|| {
+                    cloud_environment(builder, ctx, provenance, "AWS_DEFAULT_REGION")
+                        .map(ScopeValue::value)
                 });
             if let Some(region) = region {
-                access_value(scope, E::RequestRegion, region.clone());
+                access_value(scope, ScopeEvidenceKind::RequestRegion, region.clone());
                 if scope.kind == effinterp_proto::NamespaceKind::AwsRegional {
-                    scope.identity.insert(D::Region, region);
+                    scope.identity.insert(ScopeDimension::Region, region);
                 }
             }
             if let Some(profile) =
                 scope_option(builder, ctx, provenance, &["--profile"], true, "cloud")
             {
-                access_value(scope, E::Profile, profile);
+                access_value(scope, ScopeEvidenceKind::Profile, profile);
             }
             if let Some(endpoint) =
                 scope_option(builder, ctx, provenance, &["--endpoint-url"], true, "cloud")
             {
-                endpoint_evidence(scope, E::Endpoint, endpoint);
+                endpoint_evidence(scope, ScopeEvidenceKind::Endpoint, endpoint);
             } else {
                 for name in [
                     "AWS_ENDPOINT_URL",
@@ -5942,24 +5941,35 @@ fn apply_cloud_scope(
                     "AWS_ENDPOINT_URL_RDS",
                 ] {
                     if let Some(endpoint) = cloud_environment(builder, ctx, provenance, name) {
-                        endpoint_evidence(scope, E::Endpoint, V::value(endpoint));
+                        endpoint_evidence(
+                            scope,
+                            ScopeEvidenceKind::Endpoint,
+                            ScopeValue::value(endpoint),
+                        );
                         scope_boundary(builder, provenance, "cloud");
                     }
                 }
             }
             if let Some(config) = cloud_environment(builder, ctx, provenance, "AWS_CONFIG_FILE") {
-                access_value(scope, E::ConfigurationFile, V::value(config));
+                access_value(
+                    scope,
+                    ScopeEvidenceKind::ConfigurationFile,
+                    ScopeValue::value(config),
+                );
                 scope_boundary(builder, provenance, "cloud");
             }
         }
         Some("gcp") => {
             for (flag, dimension) in [
-                ("--project", D::Project),
-                ("--zone", D::Zone),
-                ("--region", D::Region),
+                ("--project", ScopeDimension::Project),
+                ("--zone", ScopeDimension::Zone),
+                ("--region", ScopeDimension::Region),
             ] {
                 if let Some(value) = scope_option(builder, ctx, provenance, &[flag], true, "cloud")
-                    && !matches!(scope.identity.get(&dimension), Some(V::NotApplicable))
+                    && !matches!(
+                        scope.identity.get(&dimension),
+                        Some(ScopeValue::NotApplicable)
+                    )
                 {
                     scope.identity.insert(dimension, value);
                 }
@@ -5967,7 +5977,7 @@ fn apply_cloud_scope(
             for flag in ["--configuration", "--flags-file"] {
                 if let Some(value) = scope_option(builder, ctx, provenance, &[flag], true, "cloud")
                 {
-                    access_value(scope, E::ConfigurationFile, value);
+                    access_value(scope, ScopeEvidenceKind::ConfigurationFile, value);
                     scope_boundary(builder, provenance, "cloud");
                 }
             }
@@ -5978,15 +5988,18 @@ fn apply_cloud_scope(
             // verbs keep their literal reading.
             let strict_names = resource_delete(ctx.argv).is_some_and(|delete| delete.strict_names);
             for (flags, dimension) in [
-                (&["--subscription"][..], D::Subscription),
-                (&["--resource-group", "-g"][..], D::ResourceGroup),
-                (&["--account-name"][..], D::StorageAccount),
+                (&["--subscription"][..], ScopeDimension::Subscription),
+                (
+                    &["--resource-group", "-g"][..],
+                    ScopeDimension::ResourceGroup,
+                ),
+                (&["--account-name"][..], ScopeDimension::StorageAccount),
             ] {
                 if let Some(value) = scope_option(builder, ctx, provenance, flags, true, "cloud") {
                     if strict_names
-                        && matches!(&value, V::Value(v) if matches!(v.as_ref(), ResourceExpr::Literal { value } if value.starts_with('@')))
+                        && matches!(&value, ScopeValue::Value(v) if matches!(v.as_ref(), ResourceExpr::Literal { value } if value.starts_with('@')))
                     {
-                        scope.identity.insert(dimension, V::Unknown);
+                        scope.identity.insert(dimension, ScopeValue::Unknown);
                         builder.boundary(Boundary {
                             reason: BoundaryReason::INPUT_DETERMINED_ARGUMENTS,
                             class: BoundaryClass::Unresolved,
@@ -6001,14 +6014,17 @@ fn apply_cloud_scope(
                                     .into(),
                             ),
                         });
-                    } else if dimension == D::Subscription
-                        && matches!(&value, V::Value(v) if matches!(v.as_ref(), ResourceExpr::Literal { value } if !subscription_uuid(value)))
+                    } else if dimension == ScopeDimension::Subscription
+                        && matches!(&value, ScopeValue::Value(v) if matches!(v.as_ref(), ResourceExpr::Literal { value } if !subscription_uuid(value)))
                     {
-                        access_value(scope, E::SubscriptionName, value);
-                    } else if !matches!(scope.identity.get(&dimension), Some(V::NotApplicable)) {
-                        if matches!(scope.identity.get(&dimension), Some(V::Value(previous)) if V::Value(previous.clone()) != value)
+                        access_value(scope, ScopeEvidenceKind::SubscriptionName, value);
+                    } else if !matches!(
+                        scope.identity.get(&dimension),
+                        Some(ScopeValue::NotApplicable)
+                    ) {
+                        if matches!(scope.identity.get(&dimension), Some(ScopeValue::Value(previous)) if ScopeValue::Value(previous.clone()) != value)
                         {
-                            scope.identity.insert(dimension, V::Unknown);
+                            scope.identity.insert(dimension, ScopeValue::Unknown);
                             scope_boundary(builder, provenance, "cloud");
                         } else {
                             scope.identity.insert(dimension, value);
@@ -6027,12 +6043,18 @@ fn apply_cloud_scope(
         })
     {
         if !matches!(
-            scope.identity.get(&D::StorageAccount),
-            Some(V::NotApplicable)
+            scope.identity.get(&ScopeDimension::StorageAccount),
+            Some(ScopeValue::NotApplicable)
         ) {
-            scope.identity.insert(D::StorageAccount, V::Unknown);
+            scope
+                .identity
+                .insert(ScopeDimension::StorageAccount, ScopeValue::Unknown);
         }
-        access_value(scope, E::UnresolvedConfiguration, V::Unknown);
+        access_value(
+            scope,
+            ScopeEvidenceKind::UnresolvedConfiguration,
+            ScopeValue::Unknown,
+        );
         scope_boundary(builder, provenance, "cloud");
     }
     let gsutil_short_options = ctx.argv[0].as_literal().map(crate::models::args::basename)
@@ -6155,7 +6177,7 @@ fn qualify_cloud_name(
     builder: &mut PlanBuilder,
     provenance: &[ProvenanceRef],
 ) {
-    use effinterp_proto::{ScopeDimension as D, ScopeValue as V};
+    use effinterp_proto::{ScopeDimension, ScopeValue};
     let (scope, name) = match identity {
         ResourceIdentity::ObjectStore { scope, bucket, .. } => (scope, bucket),
         ResourceIdentity::CloudResource {
@@ -6186,16 +6208,16 @@ fn qualify_cloud_name(
                         && !bucket.contains(['/', ':'])
                         && !bucket.is_empty() =>
                 {
-                    fields.push((D::Partition, parts[1]));
+                    fields.push((ScopeDimension::Partition, parts[1]));
                     *name = bucket.to_string();
                 }
                 (effinterp_proto::NamespaceKind::AwsRegional, "ec2", target)
                     if target.starts_with("instance/") =>
                 {
                     fields.extend([
-                        (D::Partition, parts[1]),
-                        (D::Account, parts[4]),
-                        (D::Region, parts[3]),
+                        (ScopeDimension::Partition, parts[1]),
+                        (ScopeDimension::Account, parts[4]),
+                        (ScopeDimension::Region, parts[3]),
                     ]);
                     *name = target[9..].to_string();
                 }
@@ -6203,9 +6225,9 @@ fn qualify_cloud_name(
                     if target.starts_with("db:") =>
                 {
                     fields.extend([
-                        (D::Partition, parts[1]),
-                        (D::Account, parts[4]),
-                        (D::Region, parts[3]),
+                        (ScopeDimension::Partition, parts[1]),
+                        (ScopeDimension::Account, parts[4]),
+                        (ScopeDimension::Region, parts[3]),
                     ]);
                     *name = target[3..].to_string();
                 }
@@ -6242,12 +6264,12 @@ fn qualify_cloud_name(
                     effinterp_proto::ResourceScope::<ResourceExpr>::new(scope.kind).identity;
             }
             if matches!(*location_kind, "zones" | "regions") {
-                fields.push((D::Project, *project));
+                fields.push((ScopeDimension::Project, *project));
                 fields.push((
                     if *location_kind == "zones" {
-                        D::Zone
+                        ScopeDimension::Zone
                     } else {
-                        D::Region
+                        ScopeDimension::Region
                     },
                     *location,
                 ));
@@ -6268,7 +6290,10 @@ fn qualify_cloud_name(
             instance,
         ] = parts.as_slice()
         {
-            fields.extend([(D::Subscription, *subscription), (D::ResourceGroup, *group)]);
+            fields.extend([
+                (ScopeDimension::Subscription, *subscription),
+                (ScopeDimension::ResourceGroup, *group),
+            ]);
             *name = instance.to_string();
         }
     }
@@ -6276,12 +6301,12 @@ fn qualify_cloud_name(
         if value.is_empty() {
             continue;
         }
-        let value = V::value(ResourceExpr::Literal {
+        let value = ScopeValue::value(ResourceExpr::Literal {
             value: value.to_string(),
         });
-        if matches!(scope.identity.get(&dimension), Some(V::Value(previous)) if V::Value(previous.clone()) != value)
+        if matches!(scope.identity.get(&dimension), Some(ScopeValue::Value(previous)) if ScopeValue::Value(previous.clone()) != value)
         {
-            scope.identity.insert(dimension, V::Unknown);
+            scope.identity.insert(dimension, ScopeValue::Unknown);
             crate::models::scope::scope_boundary(builder, provenance, "cloud");
         } else {
             scope.identity.insert(dimension, value);

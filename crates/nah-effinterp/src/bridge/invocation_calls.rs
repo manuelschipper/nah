@@ -68,7 +68,10 @@ pub(super) fn project_invocation_calls(
     root: &ToolCallInput,
     view: &crate::plan_view::PlanView<'_>,
 ) -> Result<effects::EffectGraph, effects::EvidenceError> {
-    use effects::*;
+    use effects::{
+        CallId, CausalAvailability, Domain, EffectCall, EffectGap, EffectGraph, EvidenceError,
+        GapCategory, GapId, GapPhase, InvocationKind, PayloadGroupId,
+    };
     let plan = view.plan();
     let mut graph = EffectGraph {
         calls: vec![],
@@ -202,7 +205,8 @@ pub(super) fn project_invocation_calls(
     for index in view.effect_indices_family("filesystem") {
         let effect = &plan.effects[index];
         let annotation = view.annotation(index);
-        let Some((path, _)) = crate::observe::observation_bound(&effect.resource) else {
+        let Some((path, _)) = crate::observation_request::observation_bound(&effect.resource)
+        else {
             continue;
         };
         if view.path_unavailable(&path)
@@ -233,7 +237,7 @@ pub(super) fn add_untranslated_effect_gap(
     call: effects::CallId,
     guards: &ShippedGuardPolicy<'_>,
 ) {
-    use effects::*;
+    use effects::GapPhase;
     let attr_bool = |key: &str| effect_attr_bool(effect, key);
     let attr_text = |key: &str| effect_attr_text(effect, key);
     // A shipped guard that owns an effect's missing-fact gap names its own
@@ -329,7 +333,10 @@ pub(super) fn add_access_semantics_gaps(
     graph: &mut effects::EffectGraph,
     stated_non_content_access: &BTreeSet<effects::FactId>,
 ) -> BTreeMap<usize, (effects::UnknownKind, Option<effects::ResourceId>)> {
-    use effects::*;
+    use effects::{
+        AccessPurpose, Domain, EnvironmentSelection, FactPayload, FilesystemOperation, GapPhase,
+        NetworkOperation, ResourceDetails, ResourceKind, Selection, UnknownKind,
+    };
     // Access semantics the evidence publishes, after the causal passes have
     // named the purpose of a consumed read and the direction of an answered
     // request. The ports these payloads leave empty are not missing evidence:
@@ -420,7 +427,10 @@ pub(super) fn project_coverage_attribution(
     graph: &mut effects::EffectGraph,
     access_unknowns: &BTreeMap<usize, (effects::UnknownKind, Option<effects::ResourceId>)>,
 ) -> effects::CoverageAttribution {
-    use effects::*;
+    use effects::{
+        BoundaryId, CallId, ClaimLevel, CoverageAttribution, CoverageClaim, Domain, EngineBoundary,
+        EngineClaim, GapId, GapPhase, InvocationUnknown,
+    };
     let plan = view.plan();
     let environmental = |index: usize| environment_boundary(&plan.boundaries[index]);
     for (domain, claim) in plan
@@ -513,27 +523,28 @@ pub(super) fn project_coverage_attribution(
 
 /// What a gap Nah added leaves unknown, read from its phase and code.
 fn unknown_kind(gap: &effects::EffectGap) -> effects::UnknownKind {
-    use effects::UnknownKind::*;
     match (gap.phase, gap.code.as_str()) {
-        (effects::GapPhase::Observation, "descendant-scan-incomplete") => Descendants,
-        (effects::GapPhase::Observation, _) => Realpath,
-        (effects::GapPhase::Projection, _) => Visibility,
+        (effects::GapPhase::Observation, "descendant-scan-incomplete") => {
+            effects::UnknownKind::Descendants
+        }
+        (effects::GapPhase::Observation, _) => effects::UnknownKind::Realpath,
+        (effects::GapPhase::Projection, _) => effects::UnknownKind::Visibility,
         (
             _,
             "resource-components-unavailable"
             | "move-destination-unavailable"
             | "network-delete-resource-kind-unavailable"
             | "git-recovery-selection-unavailable",
-        ) => Selector,
+        ) => effects::UnknownKind::Selector,
         (
             _,
             "causal-detail-unavailable"
             | "effect-occurrence-binding-unavailable"
             | "condition-widened",
-        ) => CausalRoute,
+        ) => effects::UnknownKind::CausalRoute,
         // The remaining translation gaps name request controls and modes the
         // payload needs, sometimes together with the selection they qualify.
-        _ => ActionControl,
+        _ => effects::UnknownKind::ActionControl,
     }
 }
 

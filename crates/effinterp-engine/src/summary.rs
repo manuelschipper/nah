@@ -179,6 +179,18 @@ pub(crate) fn has_text_concat(expr: &ResourceExpr) -> bool {
     }
 }
 
+/// Whether a resource expression contains an unresolved part anywhere in its
+/// joins, unions or property bases.
+pub(crate) fn contains_unresolved(resource: &ResourceExpr) -> bool {
+    match resource {
+        ResourceExpr::Unresolved { .. } => true,
+        ResourceExpr::Join { parts } => parts.iter().any(contains_unresolved),
+        ResourceExpr::Union { alternatives } => alternatives.iter().any(contains_unresolved),
+        ResourceExpr::Property { base, .. } => contains_unresolved(base),
+        _ => false,
+    }
+}
+
 fn substitute_identity(
     identity: &ResourceIdentity,
     bindings: &HashMap<String, ResourceExpr>,

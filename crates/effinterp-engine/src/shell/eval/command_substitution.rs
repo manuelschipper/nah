@@ -1,7 +1,16 @@
 //! Shell command substitution: the value and producer a `$(...)` or backtick
 //! substitution yields, including literal output recovered without running it.
 
-use super::*;
+use effinterp_proto::{ExecutionNodeRef, Port, ResourceExpr};
+
+use crate::builder::PlanBuilder;
+use crate::flow::{BindEnd, FlowStage, PortBinding};
+use crate::shell::lex::{RedirKind, Seg, Span, WordTok};
+use crate::shell::parse::{ShellItem, Simple};
+use crate::shell::{FnEntry, MAX_BRACE_EXPANSIONS, Shell, ShellEnv, brace, lex, parse};
+use crate::word::{Word, WordPart};
+
+use super::literal_output;
 
 fn substitution_stdout_redirect_spans(items: &[ShellItem]) -> Vec<Span> {
     let mut spans = Vec::new();

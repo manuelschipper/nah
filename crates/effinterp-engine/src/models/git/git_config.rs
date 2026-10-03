@@ -2,7 +2,14 @@
 //! config files, `-c` and `GIT_CONFIG_*` parameters, remote settings, and the
 //! aliases they define.
 
-use super::*;
+use effinterp_proto::{ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity};
+
+use crate::builder::PlanBuilder;
+use crate::models::InvocationCtx;
+use crate::paths::resolve_fs_word_with_cwd;
+use crate::word::Word;
+
+use super::{Globals, ScopedRepo, environment_path, superproject_and_submodule, worktree_base};
 
 /// One setting the invocation may read.
 pub(super) struct ConfigEntry {

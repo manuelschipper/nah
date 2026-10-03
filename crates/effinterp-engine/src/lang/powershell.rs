@@ -3,13 +3,14 @@ use std::collections::BTreeSet;
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain, Effect,
     ListedEntry, Modality, ObservationOutcome, Operation, PathKind, PathPlatform, ProvenanceKind,
-    ProvenanceRef, RequestAssurance, ResourceExpr, ResourceFamily, ResourceIdentity,
-    ResourcePattern, filesystem_path, normalize_path,
+    ProvenanceRef, RequestAssurance, ResourceExpr, ResourceIdentity, ResourcePattern,
+    filesystem_path, normalize_path,
 };
 
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::nest::{Nest, Transition, word_resource};
 use crate::resource_transfer::TransferBinding;
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 /// Statements nested through `Invoke-Expression` that themselves nest again.
@@ -2712,9 +2713,7 @@ fn upload(
     );
     let endpoint = match crate::value::parse_url_endpoint(uri) {
         Some(identity) => ResourceExpr::Concrete { identity },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        },
+        None => unresolved_resource("network"),
     };
     let sent = builder.effect(Effect {
         id: Default::default(),
@@ -3104,9 +3103,7 @@ fn remote_execution(builder: &mut PlanBuilder, url: Option<String>, node: Proven
     };
     let endpoint = match url.as_deref().and_then(crate::value::parse_url_endpoint) {
         Some(identity) => ResourceExpr::Concrete { identity },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        },
+        None => unresolved_resource("network"),
     };
     let source = builder.effect(effect("network.download", endpoint, Default::default()));
     // Invoke-Expression runs the content inside the PowerShell process itself.
@@ -3117,9 +3114,7 @@ fn remote_execution(builder: &mut PlanBuilder, url: Option<String>, node: Proven
                 builder.current_execution_cwd(),
             ),
         },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("process"),
-        },
+        None => unresolved_resource("process"),
     };
     let execution = builder.effect(effect(
         "process.code_execution",
@@ -3175,9 +3170,7 @@ fn download(
     };
     let endpoint = match crate::value::parse_url_endpoint(url) {
         Some(identity) => ResourceExpr::Concrete { identity },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        },
+        None => unresolved_resource("network"),
     };
     let source = builder.effect(effect("network.download", endpoint, Default::default()));
     let destination = builder.effect(effect(

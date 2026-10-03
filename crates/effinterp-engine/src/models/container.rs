@@ -8,13 +8,14 @@ use crate::models::args::{
     DOCKER_BUILD, DOCKER_COMPOSE_EXEC, DOCKER_COMPOSE_RUN, DOCKER_EXEC, DOCKER_RUN, FlagSpec,
     Scanned, inner_start, scan, strip_literal_prefix,
 };
+use crate::value::unresolved_resource;
 
 use std::collections::BTreeMap;
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CausalAssurance,
     ContainerStorage, CoverageLevel, Domain, Effect, ExecutionEdgeKind, Modality, Operation, Port,
-    ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity,
+    ProvenanceRef, ResourceExpr, ResourceIdentity,
 };
 
 use crate::builder::PlanBuilder;
@@ -388,9 +389,7 @@ impl Docker {
                 model_node,
                 index,
                 "container.remove",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("container"),
-                },
+                unresolved_resource("container"),
                 attributes,
             );
         }
@@ -587,9 +586,7 @@ impl Docker {
                 "container.remove",
                 if filtered {
                     // A filtered sweep names no member of the runtime inventory.
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("container"),
-                    }
+                    unresolved_resource("container")
                 } else {
                     ResourceExpr::Pattern {
                         pattern: effinterp_proto::ResourcePattern::Container {
@@ -885,9 +882,7 @@ impl Docker {
                             model_node,
                             sub_index as u32,
                             "network.download",
-                            ResourceExpr::Unresolved {
-                                family: ResourceFamily::new("network"),
-                            },
+                            unresolved_resource("network"),
                             Attrs::new(),
                         );
                     }
@@ -977,9 +972,7 @@ impl Docker {
                 model_node,
                 verb_index as u32,
                 operation,
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                },
+                unresolved_resource("network"),
                 Attrs::new(),
             );
         } else {
@@ -1555,9 +1548,7 @@ impl Docker {
                 model_node,
                 start.saturating_sub(1) as u32,
                 "filesystem.read",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                },
+                unresolved_resource("filesystem"),
                 Attrs::new(),
             );
         } else if !operand_ambiguous && let Some(context) = ctx.argv.get(i) {
@@ -1757,9 +1748,7 @@ impl Docker {
                         reason: BoundaryReason::UNRESOLVED_SOURCE,
                         class: BoundaryClass::Unresolved,
                         scope: BoundaryScope::Invocation,
-                        affected_resource: Some(ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("container"),
-                        }),
+                        affected_resource: Some(unresolved_resource("container")),
                         callee: None,
                         domains: vec![Domain::new("container")],
                         provenance: vec![model_node],
@@ -2027,9 +2016,7 @@ fn container_effect(
                 storage: Vec::new(),
             },
         },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("container"),
-        },
+        None => unresolved_resource("container"),
     };
     arg_effect(
         builder, ctx, model_node, index, operation, resource, attributes,
@@ -2098,9 +2085,7 @@ fn run_effect(
                 storage,
             },
         },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("container"),
-        },
+        None => unresolved_resource("container"),
     };
     if identity_provenance.is_empty() {
         arg_effect(

@@ -1,4 +1,13 @@
-use super::*;
+use std::collections::{HashSet, VecDeque};
+
+use effinterp_engine::{Assurance, ExternalCall, ResolvedObject, classify_ruby_require};
+use effinterp_proto::BoundaryReason;
+
+use super::{
+    Linker, MAX_DISPATCH_CANDIDATES, Resolution, class_defined, dedup_targets, instance,
+    resolve_method_in_class, resolve_standard_callee, standard_class_candidates,
+};
+use crate::module::{ModuleFile, ModuleRegistry};
 
 pub(crate) struct RubyLinker;
 

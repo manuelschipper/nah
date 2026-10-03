@@ -1,17 +1,19 @@
 //! Installs and removes nah's global OpenCode tool hook plugin.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
 
 use crate::{live_state, runtime::FailurePolicy};
 
-use super::hook_paths::{HookLockErrorCodes, acquire_hook_lock, reject_hook_path_symlink};
+use super::hook_paths::{
+    HookFileWriteErrorCodes, HookLockErrorCodes, acquire_hook_lock, reject_hook_path_symlink,
+    write_hook_file_atomically,
+};
 use super::javascript_bridge::javascript_decision_bridge;
 use super::runtime::reject_unsupported_windows_runtime;
 use super::{RuntimeHookStatus, RuntimeMutation};
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
+use crate::private_files::sync_parent_directory;
 
 const MARKER: &str = "// Managed by nah.";
 
@@ -26,9 +28,9 @@ pub(crate) fn mutate_opencode_hook(
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_plugin(&home, &executable, policy)
+            install_opencode_plugin(&home, &executable, policy)
         } else {
-            uninstall_plugin(&home)
+            uninstall_opencode_plugin(&home)
         }
     })?;
     Ok(RuntimeMutation::new(
@@ -49,7 +51,7 @@ pub(crate) fn opencode_hook_status() -> Result<RuntimeHookStatus, String> {
     let home = live_state::home(platform)?;
     reject_custom_home(&home)?;
     let paths = OpenCodeHookPaths::new(&home);
-    reject_symlinks(&paths)?;
+    reject_opencode_hook_symlinks(&paths)?;
     let bytes = match std::fs::read(&paths.plugin) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -101,27 +103,27 @@ fn reject_custom_home(home: &AbsolutePath) -> Result<(), String> {
     }
 }
 
-fn install_plugin(
+fn install_opencode_plugin(
     home: &AbsolutePath,
     executable: &Path,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = OpenCodeHookPaths::new(home);
     let lock = acquire_hook_lock(&paths.lock, &OPENCODE_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
+    reject_opencode_hook_symlinks(&paths)?;
     let parent = paths
         .plugin
         .parent()
         .ok_or_else(|| "invalid-opencode-plugin-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "opencode-plugin-write-failed")?;
-    reject_symlinks(&paths)?;
+    reject_opencode_hook_symlinks(&paths)?;
     let desired = plugin(executable, policy)?;
     match std::fs::read(&paths.plugin) {
         Ok(bytes) if bytes == desired.as_bytes() => {}
-        Ok(bytes) if owned(&bytes) => save(&paths.plugin, desired.as_bytes())?,
+        Ok(bytes) if owned(&bytes) => save_opencode_plugin(&paths.plugin, desired.as_bytes())?,
         Ok(_) => return Err("opencode-plugin-not-owned".into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            save(&paths.plugin, desired.as_bytes())?;
+            save_opencode_plugin(&paths.plugin, desired.as_bytes())?;
         }
         Err(_) => return Err("opencode-plugin-read-failed".into()),
     }
@@ -129,10 +131,10 @@ fn install_plugin(
     Ok(paths.plugin)
 }
 
-fn uninstall_plugin(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_opencode_plugin(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = OpenCodeHookPaths::new(home);
     let lock = acquire_hook_lock(&paths.lock, &OPENCODE_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
+    reject_opencode_hook_symlinks(&paths)?;
     match std::fs::read(&paths.plugin) {
         Ok(bytes) if owned(&bytes) => {
             std::fs::remove_file(&paths.plugin).map_err(|_| "opencode-plugin-remove-failed")?;
@@ -188,33 +190,23 @@ const OPENCODE_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
     permissions: "opencode-hook-permissions-failed",
 };
 
-fn reject_symlinks(paths: &OpenCodeHookPaths) -> Result<(), String> {
+fn reject_opencode_hook_symlinks(paths: &OpenCodeHookPaths) -> Result<(), String> {
     for directory in &paths.checked_directories {
         reject_hook_path_symlink(directory, "opencode-plugin-symlink-unsupported")?;
     }
     reject_hook_path_symlink(&paths.plugin, "opencode-plugin-symlink-unsupported")
 }
 
-fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
+const OPENCODE_PLUGIN_WRITE_ERRORS: HookFileWriteErrorCodes = HookFileWriteErrorCodes {
+    invalid_path: "invalid-opencode-plugin-path",
+    write_failed: "opencode-plugin-write-failed",
+    permissions: "opencode-plugin-permissions-failed",
+    sync_failed: "opencode-plugin-sync-failed",
+};
+
+fn save_opencode_plugin(path: &Path, bytes: &[u8]) -> Result<(), String> {
     reject_hook_path_symlink(path, "opencode-plugin-symlink-unsupported")?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid-opencode-plugin-path".to_owned())?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "opencode-plugin-write-failed")?;
-    restrict_file_to_owner(temporary.as_file())
-        .map_err(|_| "opencode-plugin-permissions-failed".to_owned())?;
-    temporary
-        .write_all(bytes)
-        .map_err(|_| "opencode-plugin-write-failed")?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "opencode-plugin-write-failed")?;
-    temporary
-        .persist(path)
-        .map_err(|_| "opencode-plugin-write-failed")?;
-    sync_parent_directory(parent).map_err(|_| "opencode-plugin-sync-failed".to_owned())
+    write_hook_file_atomically(path, bytes, &OPENCODE_PLUGIN_WRITE_ERRORS)
 }
 
 fn plugin(executable: &Path, policy: FailurePolicy) -> Result<String, String> {

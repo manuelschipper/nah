@@ -108,93 +108,6 @@ pub fn validate_conformance_bytes(input: &[u8]) -> Result<(), ConformanceError> 
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use std::fs;
-    use std::path::PathBuf;
-
-    use effinterp_proto::{
-        FileReadArgs, HostContext, RepoQueryEnvelope, Subject, ToolCall, from_repo_query_json,
-        stable_hash, validate_repo_query,
-    };
-
-    use super::validate_conformance_bytes;
-
-    #[test]
-    fn proto_accepted_tool_call_envelope_passes_conformance() {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../effinterp-proto/fixtures/analysis-v1/valid/minimal.json");
-        let mut envelope: RepoQueryEnvelope =
-            from_repo_query_json(&fs::read_to_string(path).unwrap()).unwrap();
-        envelope.subjects[0].subject = Subject::ToolCall {
-            call: ToolCall::FileRead(FileReadArgs {
-                path: "src/main.rs".to_string(),
-                range: None,
-            }),
-            cwd: None,
-            context: HostContext::default(),
-        };
-        envelope.subjects[0].subject_digest = stable_hash(
-            "effinterp/analysis-subject/v1",
-            &envelope.subjects[0].subject,
-        );
-        envelope.reseal();
-
-        validate_repo_query(&envelope).unwrap();
-        validate_conformance_bytes(envelope.to_canonical_json().as_bytes()).unwrap();
-    }
-}
-
-#[cfg(test)]
-mod redacted_tests {
-    use super::validate_conformance_bytes;
-    #[test]
-    fn redacted_vectors_and_unknown_schema() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../effinterp-proto/fixtures/redacted-v1");
-        for directory in ["valid", "invalid"] {
-            for entry in std::fs::read_dir(root.join(directory)).unwrap() {
-                let path = entry.unwrap().path();
-                let result = validate_conformance_bytes(&std::fs::read(&path).unwrap());
-                assert_eq!(
-                    result.is_ok(),
-                    directory == "valid",
-                    "{}: {result:?}",
-                    path.display()
-                );
-                if let Err(error) = result {
-                    assert_eq!(error.code, "redacted");
-                }
-            }
-        }
-        assert_eq!(
-            validate_conformance_bytes(br#"{"schema":"unknown"}"#)
-                .unwrap_err()
-                .code,
-            "schema"
-        );
-    }
-}
-
-#[cfg(test)]
-#[test]
-fn satisfies_schema_dispatch_replays_cases() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../effinterp-proto/fixtures/satisfies-v1");
-    for directory in ["valid", "invalid"] {
-        for entry in std::fs::read_dir(root.join(directory)).unwrap() {
-            let path = entry.unwrap().path();
-            let result = validate_conformance_bytes(&std::fs::read(&path).unwrap());
-            assert_eq!(
-                result.is_ok(),
-                directory == "valid",
-                "{}: {result:?}",
-                path.display()
-            );
-        }
-    }
-}
-
 fn validate_condition_value(value: &Value, depth: usize, remaining: &mut usize) -> bool {
     if depth > 16 || *remaining == 0 {
         return false;
@@ -337,6 +250,93 @@ fn validate_condition_fields(value: &Value) -> Result<(), ConformanceError> {
         _ => (),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+
+    use effinterp_proto::{
+        FileReadArgs, HostContext, RepoQueryEnvelope, Subject, ToolCall, from_repo_query_json,
+        stable_hash, validate_repo_query,
+    };
+
+    use super::validate_conformance_bytes;
+
+    #[test]
+    fn proto_accepted_tool_call_envelope_passes_conformance() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../effinterp-proto/fixtures/analysis-v1/valid/minimal.json");
+        let mut envelope: RepoQueryEnvelope =
+            from_repo_query_json(&fs::read_to_string(path).unwrap()).unwrap();
+        envelope.subjects[0].subject = Subject::ToolCall {
+            call: ToolCall::FileRead(FileReadArgs {
+                path: "src/main.rs".to_string(),
+                range: None,
+            }),
+            cwd: None,
+            context: HostContext::default(),
+        };
+        envelope.subjects[0].subject_digest = stable_hash(
+            "effinterp/analysis-subject/v1",
+            &envelope.subjects[0].subject,
+        );
+        envelope.reseal();
+
+        validate_repo_query(&envelope).unwrap();
+        validate_conformance_bytes(envelope.to_canonical_json().as_bytes()).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod redacted_tests {
+    use super::validate_conformance_bytes;
+    #[test]
+    fn redacted_vectors_and_unknown_schema() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../effinterp-proto/fixtures/redacted-v1");
+        for directory in ["valid", "invalid"] {
+            for entry in std::fs::read_dir(root.join(directory)).unwrap() {
+                let path = entry.unwrap().path();
+                let result = validate_conformance_bytes(&std::fs::read(&path).unwrap());
+                assert_eq!(
+                    result.is_ok(),
+                    directory == "valid",
+                    "{}: {result:?}",
+                    path.display()
+                );
+                if let Err(error) = result {
+                    assert_eq!(error.code, "redacted");
+                }
+            }
+        }
+        assert_eq!(
+            validate_conformance_bytes(br#"{"schema":"unknown"}"#)
+                .unwrap_err()
+                .code,
+            "schema"
+        );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn satisfies_schema_dispatch_replays_cases() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../effinterp-proto/fixtures/satisfies-v1");
+    for directory in ["valid", "invalid"] {
+        for entry in std::fs::read_dir(root.join(directory)).unwrap() {
+            let path = entry.unwrap().path();
+            let result = validate_conformance_bytes(&std::fs::read(&path).unwrap());
+            assert_eq!(
+                result.is_ok(),
+                directory == "valid",
+                "{}: {result:?}",
+                path.display()
+            );
+        }
+    }
 }
 
 #[cfg(test)]

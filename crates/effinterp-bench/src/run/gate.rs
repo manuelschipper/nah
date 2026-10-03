@@ -18,7 +18,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::score::{Scoreboard, SilentDrops};
+use crate::invocation::score::{Scoreboard, SilentDrops};
 use crate::latency::{COLD_CATALOG_TARGET_US, NAH_P99_TARGET_US};
 use crate::nah::report::{Ceilings, check_ceilings, check_guard_silent};
 use crate::repos::score::ReposSection;

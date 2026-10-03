@@ -12,14 +12,14 @@ use effinterp_proto::{
 use super::package::python_module_program;
 use super::shebang::interpreter;
 use super::{
-    Ctx, Entrypoint, EntrypointEvidence, EntrypointKind, LaunchEdge, ProcessLaunchEvidence,
-    join_rel_path, subject_cwd,
+    Entrypoint, EntrypointCrawl, EntrypointEvidence, EntrypointKind, LaunchEdge,
+    ProcessLaunchEvidence, join_rel_path, subject_cwd,
 };
 
 /// Register repository source files named by typed process effects in shell
 /// and package-script entrypoints. The engine bounds argv alternatives before
 /// this adapter sees them, so symbolic and over-wide commands stay unresolved.
-pub(super) fn launch_local_sources(ctx: &mut Ctx, root: &Path) -> Vec<LaunchEdge> {
+pub(super) fn launch_local_sources(ctx: &mut EntrypointCrawl, root: &Path) -> Vec<LaunchEdge> {
     let wrappers: Vec<Entrypoint> = ctx
         .entrypoints
         .iter()
@@ -769,7 +769,7 @@ fn repository_cwd(expr: Option<&ResourceExpr>) -> Option<String> {
 }
 
 fn resolve_repo_source(
-    ctx: &Ctx,
+    ctx: &EntrypointCrawl,
     root: &Path,
     from_dir: &str,
     spec: &str,
@@ -843,7 +843,7 @@ fn source_line(plan: &effinterp_proto::Plan, roots: &[ProvenanceRef], source: &s
 }
 
 fn add_local_source_program(
-    ctx: &mut Ctx,
+    ctx: &mut EntrypointCrawl,
     root: &Path,
     relpath: &str,
     runtime_cwd: Option<String>,

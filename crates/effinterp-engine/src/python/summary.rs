@@ -13,11 +13,12 @@ use effinterp_proto::{
 use rustpython_parser::ast::Ranged;
 use rustpython_parser::ast::{self, Expr, Stmt};
 
-use super::resolve::Imports;
+use super::import_bindings::extract_imports;
+use super::resolve::PythonImportNames;
 use super::{
     Capture, Def, PythonWalker, collect_class_bases, collect_class_sets, collect_class_strings,
-    collect_classes, collect_defs, collect_path_attrs, extract_imports,
-    materialize_deferred_spawns, partition_top_level,
+    collect_classes, collect_defs, collect_path_attrs, materialize_deferred_spawns,
+    partition_top_level,
 };
 use crate::builder::PlanBuilder;
 use crate::module_summary::{DecoratorShape, FunctionEntry, ModuleSummary};
@@ -131,7 +132,7 @@ pub(super) fn summarize_ast(
         chdir: None,
         scope: None,
         depth: 0,
-        imports: Imports::default(),
+        imports: PythonImportNames::default(),
         defs,
         summaries: std::collections::HashMap::new(),
         demand_summaries: false,

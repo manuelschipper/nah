@@ -1756,7 +1756,7 @@ fn scan(
         }
         if ft.is_dir() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if CRAWL_SKIP_DIRS.contains(&name.as_str()) || name == ".claude" {
+            if CRAWL_SKIP_DIRS.contains(&name.as_str()) {
                 continue;
             }
             scan(

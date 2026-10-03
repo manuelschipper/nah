@@ -128,7 +128,7 @@ fn path_kind(kind: observation::PathKind) -> PathKind {
 /// The engine records the answer actually used, including its own stale/limit
 /// refusals and late-answer rejection. Keep that authoritative manifest rather
 /// than a second log of answers the engine may have rejected.
-pub(crate) fn manifest(plan: &Plan) -> Vec<ProvenanceKind> {
+pub(crate) fn host_observation_manifest(plan: &Plan) -> Vec<ProvenanceKind> {
     plan.provenance
         .iter()
         .filter_map(|node| match &node.kind {
@@ -152,7 +152,7 @@ pub(crate) fn manifest(plan: &Plan) -> Vec<ProvenanceKind> {
 /// Without path queries the first error is returned. A first call that succeeds
 /// but does not bind to its request is an error, with no recovery. Every call
 /// reuses the original request ID.
-pub(crate) fn fulfill<F>(
+pub(crate) fn fulfill_from_observation_manifest<F>(
     request: &nah_proto::observation::ObservationRequest,
     manifest: &[ProvenanceKind],
     platform: nah_proto::ctx::Platform,
@@ -190,7 +190,7 @@ where
                     let value = if answers.any(|answer| answer != first) {
                         None
                     } else if let ObservationOutcome::Path(fact) = first {
-                        crate::observe::recorded_path(fact, platform)
+                        crate::observation_request::recorded_path(fact, platform)
                     } else {
                         None
                     };

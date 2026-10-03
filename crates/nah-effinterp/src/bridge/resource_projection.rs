@@ -18,7 +18,7 @@ pub(super) fn effect_target_resource(
     member_effects: &[(usize, effinterp_proto::Effect)],
     effect_resources: &[effects::ResourceId],
 ) -> (effects::ResourceId, bool) {
-    use effects::*;
+    use effects::{ResourceDetails, ResourceIdentity, ResourceKind, Selection};
     let plan = view.plan();
     // The sync names this invocation's remote alias without resolving a
     // network host. A dry run has no audited request to carry that name.
@@ -96,7 +96,7 @@ pub(super) fn label_effect_target_path(
     target: effects::ResourceId,
     annotation: nah_proto::effect_annotation::EffectAnnotation,
 ) {
-    use effects::*;
+    use effects::{Reach, ResourceKind, ResourceLabels};
     if (matches!(
         effect.resource,
         effinterp_proto::ResourceExpr::Concrete {
@@ -104,7 +104,7 @@ pub(super) fn label_effect_target_path(
         } | effinterp_proto::ResourceExpr::Pattern {
             pattern: effinterp_proto::ResourcePattern::FsPath { .. }
         }
-    ) || crate::observe::subtree_root(&effect.resource).is_some())
+    ) || crate::observation_request::subtree_root(&effect.resource).is_some())
         && let Some(nah_proto::effect_annotation::PathLabel::Resolved {
             path,
             scope,
@@ -122,16 +122,18 @@ pub(super) fn label_effect_target_path(
         let pattern_path = match &effect.resource {
             effinterp_proto::ResourceExpr::Pattern {
                 pattern: effinterp_proto::ResourcePattern::FsPath { .. },
-            } => crate::observe::observation_bound(&effect.resource).and_then(|(bound, tail)| {
-                let platform = view.authority().platform();
-                let glob = format!("{bound}{tail}");
-                let glob = if platform == nah_proto::ctx::Platform::Windows {
-                    glob.replace('/', "\\")
-                } else {
-                    glob
-                };
-                nah_proto::ctx::AbsolutePath::new(platform, glob).ok()
-            }),
+            } => crate::observation_request::observation_bound(&effect.resource).and_then(
+                |(bound, tail)| {
+                    let platform = view.authority().platform();
+                    let glob = format!("{bound}{tail}");
+                    let glob = if platform == nah_proto::ctx::Platform::Windows {
+                        glob.replace('/', "\\")
+                    } else {
+                        glob
+                    };
+                    nah_proto::ctx::AbsolutePath::new(platform, glob).ok()
+                },
+            ),
             _ => None,
         };
         let pattern = matches!(
@@ -227,7 +229,7 @@ pub(super) fn label_effect_target_path(
             effinterp_proto::ResourceExpr::Concrete {
                 identity: effinterp_proto::ResourceIdentity::FsPath { path },
             } => Some(path.as_str()),
-            resource => crate::observe::subtree_root(resource),
+            resource => crate::observation_request::subtree_root(resource),
         };
         if let Some(value) = exact_or_bounded_path.and_then(|path| view.observed_path(path)) {
             labels.lexical = Known(value.resolved().clone());
@@ -883,8 +885,8 @@ pub(super) fn add_resource(
                 };
             }
         }
-        resource if crate::observe::finite_members(resource).is_some() => {
-            let members = crate::observe::finite_members(resource).unwrap();
+        resource if crate::observation_request::finite_members(resource).is_some() => {
+            let members = crate::observation_request::finite_members(resource).unwrap();
             identity.kind = ResourceKind::HostPath;
             selection = Selection::NamedSet {
                 identities: members
@@ -901,8 +903,8 @@ pub(super) fn add_resource(
                 bound: effects::Bound::Finite(members.len() as u64),
             };
         }
-        resource if crate::observe::subtree_root(resource).is_some() => {
-            let root = crate::observe::subtree_root(resource).unwrap();
+        resource if crate::observation_request::subtree_root(resource).is_some() => {
+            let root = crate::observation_request::subtree_root(resource).unwrap();
             let root = nah_proto::ctx::AbsolutePath::new(platform, root)
                 .ok()
                 .map_or(Unknown, Known);
@@ -964,7 +966,10 @@ pub(super) fn add_structural_path_resource(
     operation: effects::FilesystemOperation,
     authority: &crate::plan_view::AuthorityContext,
 ) -> effects::ResourceId {
-    use effects::*;
+    use effects::{
+        EffectResource, FilesystemOperation, Reach, Realm, ResourceDetails, ResourceId,
+        ResourceIdentity, ResourceKind, ResourceLabels, Selection,
+    };
     // The engine spells a Windows selection with `/`; the observed roots its
     // labels are compared with use the host's `\`.
     let path = if authority.platform() == nah_proto::ctx::Platform::Windows {
@@ -1066,7 +1071,10 @@ pub(super) fn convert_condition(
     graph: &mut effects::EffectGraph,
     atoms: &mut BTreeMap<String, u32>,
 ) -> Option<effects::ConditionUse> {
-    use effects::*;
+    use effects::{
+        AlternativeGroupId, CallId, ConditionAtomOrigin, ConditionExpr, ConditionId, ConditionUse,
+        Domain, EffectCondition, GapPhase,
+    };
     let condition = condition?;
     let mut alternative_group = None;
     let expression = match condition {
@@ -1172,7 +1180,7 @@ fn selection_reach(
             .iter()
             .map(|root| root.path().clone()),
     );
-    if let Some(value) = crate::observe::observation_bound(&effect.resource)
+    if let Some(value) = crate::observation_request::observation_bound(&effect.resource)
         .and_then(|(path, _)| view.observed_path(&path))
     {
         identities.insert(value.resolved().clone());
@@ -1228,7 +1236,7 @@ fn selects_every_depth(resource: &effinterp_proto::ResourceExpr) -> bool {
     ) {
         return false;
     }
-    crate::observe::observation_bound(resource)
+    crate::observation_request::observation_bound(resource)
         .is_some_and(|(_, tail)| tail.strip_prefix('/').unwrap_or(tail) == "**/*")
 }
 

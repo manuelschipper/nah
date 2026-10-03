@@ -90,10 +90,10 @@ struct SwiftWalk<'a> {
 }
 
 impl SwiftWalk<'_> {
-    fn apply(&mut self, builder: &mut PlanBuilder, call: &Call) {
+    fn apply(&mut self, builder: &mut PlanBuilder, call: &SwiftFileManagerCall) {
         match call {
             // `removeItem` deletes a directory together with its contents.
-            Call::Remove(path) => {
+            SwiftFileManagerCall::Remove(path) => {
                 self.effect(
                     builder,
                     "filesystem.delete",
@@ -102,7 +102,7 @@ impl SwiftWalk<'_> {
                     None,
                 );
             }
-            Call::Move(from, to) => {
+            SwiftFileManagerCall::Move(from, to) => {
                 self.effect(builder, "filesystem.move", from, &[], None);
                 let source = self.effect(builder, "filesystem.delete", from, &[], None);
                 let destination = self.effect(
@@ -114,7 +114,7 @@ impl SwiftWalk<'_> {
                 );
                 self.transfer(builder, source, destination);
             }
-            Call::Copy(from, to) => {
+            SwiftFileManagerCall::Copy(from, to) => {
                 let source = self.effect(
                     builder,
                     "filesystem.read",
@@ -131,10 +131,10 @@ impl SwiftWalk<'_> {
                 );
                 self.transfer(builder, source, destination);
             }
-            Call::CreateFile(path) => {
+            SwiftFileManagerCall::CreateFile(path) => {
                 self.effect(builder, "filesystem.write", path, &[], None);
             }
-            Call::CreateDirectory(path) => {
+            SwiftFileManagerCall::CreateDirectory(path) => {
                 self.effect(builder, "filesystem.create", path, &[], None);
             }
         }
@@ -156,7 +156,7 @@ impl SwiftWalk<'_> {
         &mut self,
         builder: &mut PlanBuilder,
         operation: &str,
-        value: &[Part],
+        value: &[SwiftPathPart],
         attributes: &[(&str, bool)],
         semantic_attribute: Option<(&str, &str)>,
     ) -> Option<u32> {
@@ -182,16 +182,18 @@ impl SwiftWalk<'_> {
         })
     }
 
-    fn resource(&mut self, builder: &mut PlanBuilder, value: &[Part]) -> ResourceExpr {
+    fn resource(&mut self, builder: &mut PlanBuilder, value: &[SwiftPathPart]) -> ResourceExpr {
         let mut parts = Vec::new();
         for part in value {
             match part {
-                Part::Text(literal) => parts.push(ResourceExpr::Literal {
+                SwiftPathPart::Text(literal) => parts.push(ResourceExpr::Literal {
                     value: literal.clone(),
                 }),
-                Part::Home => parts.push(self.home(builder).unwrap_or(ResourceExpr::Environment {
-                    name: "HOME".into(),
-                })),
+                SwiftPathPart::Home => {
+                    parts.push(self.home(builder).unwrap_or(ResourceExpr::Environment {
+                        name: "HOME".into(),
+                    }))
+                }
             }
         }
         let literal = parts
@@ -237,21 +239,21 @@ impl SwiftWalk<'_> {
 }
 
 /// A modeled `FileManager.default` call with its path operands.
-enum Call {
-    Remove(Vec<Part>),
-    Move(Vec<Part>, Vec<Part>),
-    Copy(Vec<Part>, Vec<Part>),
-    CreateFile(Vec<Part>),
-    CreateDirectory(Vec<Part>),
+enum SwiftFileManagerCall {
+    Remove(Vec<SwiftPathPart>),
+    Move(Vec<SwiftPathPart>, Vec<SwiftPathPart>),
+    Copy(Vec<SwiftPathPart>, Vec<SwiftPathPart>),
+    CreateFile(Vec<SwiftPathPart>),
+    CreateDirectory(Vec<SwiftPathPart>),
 }
 
-enum Part {
+enum SwiftPathPart {
     Text(String),
     Home,
 }
 
 /// Parse the whole program, or name the first statement outside the grammar.
-fn program(source: &str) -> Result<Vec<Call>, String> {
+fn program(source: &str) -> Result<Vec<SwiftFileManagerCall>, String> {
     let mut foundation = false;
     let mut calls = Vec::new();
     for statement in statements(source)? {
@@ -295,17 +297,17 @@ fn program(source: &str) -> Result<Vec<Call>, String> {
             return Err(format!("swift throwing call {method} is not marked try"));
         }
         let call = match (method, labels.as_slice()) {
-            ("removeItem", ["atPath"]) => Call::Remove(value(&arguments[0].1)?),
+            ("removeItem", ["atPath"]) => SwiftFileManagerCall::Remove(value(&arguments[0].1)?),
             ("moveItem", ["atPath", "toPath"]) => {
-                Call::Move(value(&arguments[0].1)?, value(&arguments[1].1)?)
+                SwiftFileManagerCall::Move(value(&arguments[0].1)?, value(&arguments[1].1)?)
             }
             ("copyItem", ["atPath", "toPath"]) => {
-                Call::Copy(value(&arguments[0].1)?, value(&arguments[1].1)?)
+                SwiftFileManagerCall::Copy(value(&arguments[0].1)?, value(&arguments[1].1)?)
             }
             ("createFile", ["atPath", "contents"] | ["atPath", "contents", "attributes"])
                 if arguments[1..].iter().all(|(_, value)| value == "nil") =>
             {
-                Call::CreateFile(value(&arguments[0].1)?)
+                SwiftFileManagerCall::CreateFile(value(&arguments[0].1)?)
             }
             (
                 "createDirectory",
@@ -314,7 +316,7 @@ fn program(source: &str) -> Result<Vec<Call>, String> {
             ) if matches!(arguments[1].1.as_str(), "true" | "false")
                 && arguments.get(2).is_none_or(|(_, value)| value == "nil") =>
             {
-                Call::CreateDirectory(value(&arguments[0].1)?)
+                SwiftFileManagerCall::CreateDirectory(value(&arguments[0].1)?)
             }
             _ => {
                 return Err(format!(
@@ -494,14 +496,14 @@ fn split(source: &str, separator: char) -> Result<Vec<String>, String> {
 
 /// A path value is a `+` concatenation of string literals and
 /// `NSHomeDirectory()`.
-fn value(source: &str) -> Result<Vec<Part>, String> {
+fn value(source: &str) -> Result<Vec<SwiftPathPart>, String> {
     let mut parts = Vec::new();
     for term in split(source, '+')? {
         let term = term.trim();
         if term == "NSHomeDirectory()" {
-            parts.push(Part::Home);
+            parts.push(SwiftPathPart::Home);
         } else if term.starts_with('"') {
-            parts.push(Part::Text(unescape(term)?));
+            parts.push(SwiftPathPart::Text(unescape(term)?));
         } else {
             return Err(format!(
                 "swift value {:?} is outside the literal expression grammar",
@@ -511,7 +513,7 @@ fn value(source: &str) -> Result<Vec<Part>, String> {
     }
     if parts
         .iter()
-        .all(|part| matches!(part, Part::Text(text) if text.is_empty()))
+        .all(|part| matches!(part, SwiftPathPart::Text(text) if text.is_empty()))
     {
         return Err("swift path is empty".into());
     }

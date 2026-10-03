@@ -5,7 +5,7 @@
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
     ExecutionInputReason, ExecutionInputRole, ExecutionPhase, ExecutionSelector, ProvenanceRef,
-    ResourceExpr, ResourceFamily, SourceDialect, Subject,
+    ResourceExpr, SourceDialect, Subject,
 };
 
 use crate::SourcePurpose;
@@ -20,6 +20,7 @@ use crate::models::{
     CommandModel, InvocationCtx, ModelBindingEnd, ModelCausalBinding, source_refusal_detail,
 };
 use crate::nest::SourceResolution;
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 /// Node runtime options that consume the next argument.
@@ -1276,12 +1277,9 @@ impl CommandModel for DenoRun {
                 let resource = ctx.argv[index]
                     .as_literal()
                     .and_then(crate::models::net::parse_endpoint)
-                    .map_or(
-                        ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("network"),
-                        },
-                        |identity| ResourceExpr::Concrete { identity },
-                    );
+                    .map_or(unresolved_resource("network"), |identity| {
+                        ResourceExpr::Concrete { identity }
+                    });
                 builder.effect(effinterp_proto::Effect {
                     request_assurance: conservative,
                     id: Default::default(),

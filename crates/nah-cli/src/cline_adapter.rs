@@ -175,7 +175,7 @@ fn normalize_for_platform(
         .as_object()
         .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())
         .and_then(|parameters| {
-            lower(
+            lower_cline_tool(
                 &input.pre_tool_use.tool_name,
                 &input.pre_tool_use.parameters,
                 parameters,
@@ -205,7 +205,7 @@ fn normalize_for_platform(
     .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_cline_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     parameters: &Map<String, Value>,
@@ -246,7 +246,7 @@ fn lower<'a>(
         "editor" => {
             let path = tool_input_non_empty_string(parameters, "path", INVALID_CLINE_TOOL_INPUT)?;
             let new_text = tool_input_string(parameters, "new_text", INVALID_CLINE_TOOL_INPUT)?;
-            match optional_string(parameters, "old_text")? {
+            match tool_input_nullable_string(parameters, "old_text")? {
                 Some(old_text) => (
                     "Edit",
                     json!({"file_path":path,"old_string":old_text,"new_string":new_text}),
@@ -310,7 +310,13 @@ fn non_empty_alias(object: &Map<String, Value>, names: &[&str]) -> Result<String
     })
 }
 
-fn optional_string(object: &Map<String, Value>, name: &str) -> Result<Option<String>, String> {
+/// Reads an optional string tool input field that Cline may send as null. A
+/// missing field, null and the string `"null"` are all `None`; an empty string
+/// is kept.
+fn tool_input_nullable_string(
+    object: &Map<String, Value>,
+    name: &str,
+) -> Result<Option<String>, String> {
     match object.get(name) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(value)) if value == "null" => Ok(None),

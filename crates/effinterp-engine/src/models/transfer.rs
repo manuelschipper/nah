@@ -20,6 +20,7 @@ use crate::models::common::{
 use crate::models::{CommandModel, InvocationCtx};
 use crate::nest::{Transition, word_resource};
 use crate::paths::resolve_fs_word_with_cwd;
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 pub(super) fn transfer_models() -> Vec<Box<dyn CommandModel>> {
@@ -383,9 +384,7 @@ fn emit(
                 index,
                 &ctx.argv[index as usize],
                 "filesystem.read",
-                ResourceExpr::Unresolved {
-                    family: effinterp_proto::ResourceFamily::new("filesystem"),
-                },
+                unresolved_resource("filesystem"),
                 program_input_attrs(),
             )
         })
@@ -588,9 +587,7 @@ fn remove_source_files(
                 model_node,
                 *index,
                 "filesystem.delete",
-                ResourceExpr::Unresolved {
-                    family: effinterp_proto::ResourceFamily::new("filesystem"),
-                },
+                unresolved_resource("filesystem"),
                 std::collections::BTreeMap::from([(
                     "recursive".into(),
                     AttrValue::Bool(recursive),
@@ -1034,9 +1031,7 @@ impl CommandModel for Rsync {
                     model_node,
                     *index,
                     "filesystem.read",
-                    ResourceExpr::Unresolved {
-                        family: effinterp_proto::ResourceFamily::new("filesystem"),
-                    },
+                    unresolved_resource("filesystem"),
                     std::collections::BTreeMap::from([
                         (
                             "access_purpose".into(),
@@ -1146,9 +1141,7 @@ impl CommandModel for Rsync {
                         reason: BoundaryReason::INPUT_DETERMINED_ARGUMENTS,
                         class: BoundaryClass::Unresolved,
                         scope: BoundaryScope::Invocation,
-                        affected_resource: Some(ResourceExpr::Unresolved {
-                            family: effinterp_proto::ResourceFamily::new("filesystem"),
-                        }),
+                        affected_resource: Some(unresolved_resource("filesystem")),
                         callee: None,
                         domains: vec![Domain::new("filesystem")],
                         provenance: vec![model_node],
@@ -1294,9 +1287,7 @@ impl CommandModel for Scp {
                 index,
                 "process.exec",
                 program.as_literal().map_or_else(
-                    || ResourceExpr::Unresolved {
-                        family: effinterp_proto::ResourceFamily::new("process"),
-                    },
+                    || unresolved_resource("process"),
                     |program| ResourceExpr::Concrete {
                         identity: crate::paths::executable_identity(program, ctx.cwd),
                     },

@@ -1,7 +1,5 @@
 //! Installs and removes nah's user-level Cursor preToolUse hook.
 
-use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
@@ -10,10 +8,12 @@ use serde_json::{Map, Value, json};
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
-use super::hook_paths::{HookLockErrorCodes, acquire_hook_lock, reject_hook_path_symlink};
+use super::hook_paths::{
+    HookFileWriteErrorCodes, HookJsonReadErrorCodes, HookLockErrorCodes, acquire_hook_lock,
+    read_hook_json_object, reject_hook_path_symlink, write_hook_json_atomically,
+};
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 pub(crate) fn mutate_cursor_hook(
     install: bool,
@@ -24,9 +24,9 @@ pub(crate) fn mutate_cursor_hook(
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable, policy)
+            install_cursor_hook(&home, &executable, policy)
         } else {
-            uninstall_hook(&home)
+            uninstall_cursor_hook(&home)
         }
     })?;
     Ok(RuntimeMutation::new(install, "Cursor hook", path, None))
@@ -36,8 +36,8 @@ pub(crate) fn cursor_hook_status() -> Result<RuntimeHookStatus, String> {
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let paths = CursorHookPaths::new(&home);
-    reject_symlinks(&paths)?;
-    let mut config = load(&paths.hooks)?;
+    reject_cursor_hook_symlinks(&paths)?;
+    let mut config = load_cursor_hooks(&paths.hooks)?;
     validate_version(&mut config)?;
     if !remove(&mut config.clone())? {
         return Ok(RuntimeHookStatus::NotConfigured);
@@ -87,33 +87,33 @@ pub(crate) fn cursor_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![CursorHookPaths::new(&home).hooks])
 }
 
-fn install_hook(
+fn install_cursor_hook(
     home: &AbsolutePath,
     executable: &Path,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = CursorHookPaths::new(home);
     let lock = acquire_hook_lock(&paths.lock, &CURSOR_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
-    let mut config = load(&paths.hooks)?;
+    reject_cursor_hook_symlinks(&paths)?;
+    let mut config = load_cursor_hooks(&paths.hooks)?;
     validate_version(&mut config)?;
     let desired = desired_hook(executable, policy)?;
     if add(&mut config, desired)? {
-        save(&paths.hooks, &config)?;
+        save_cursor_hooks(&paths.hooks, &config)?;
     }
     drop(lock);
     Ok(paths.hooks)
 }
 
-fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_cursor_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = CursorHookPaths::new(home);
     let lock = acquire_hook_lock(&paths.lock, &CURSOR_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
+    reject_cursor_hook_symlinks(&paths)?;
     if paths.hooks.exists() {
-        let mut config = load(&paths.hooks)?;
+        let mut config = load_cursor_hooks(&paths.hooks)?;
         validate_version(&mut config)?;
         if remove(&mut config)? {
-            save(&paths.hooks, &config)?;
+            save_cursor_hooks(&paths.hooks, &config)?;
         }
     }
     drop(lock);
@@ -144,21 +144,14 @@ const CURSOR_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
     permissions: "cursor-hook-permissions-failed",
 };
 
-fn load(path: &Path) -> Result<Value, String> {
+const CURSOR_HOOKS_READ_ERRORS: HookJsonReadErrorCodes = HookJsonReadErrorCodes {
+    read_failed: "cursor-hooks-read-failed",
+    invalid: "invalid-cursor-hooks",
+};
+
+fn load_cursor_hooks(path: &Path) -> Result<Value, String> {
     reject_hook_path_symlink(path, "cursor-hooks-symlink-unsupported")?;
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Value::Object(Map::new()));
-        }
-        Err(_) => return Err("cursor-hooks-read-failed".into()),
-    };
-    let value: Value =
-        serde_json::from_reader(file).map_err(|_| "invalid-cursor-hooks".to_owned())?;
-    if !value.is_object() {
-        return Err("invalid-cursor-hooks".into());
-    }
-    Ok(value)
+    read_hook_json_object(path, &CURSOR_HOOKS_READ_ERRORS)
 }
 
 fn validate_version(config: &mut Value) -> Result<(), String> {
@@ -276,32 +269,19 @@ fn is_nah_hook(hook: &Value) -> bool {
                 && (executable.ends_with("\\nah.exe\"") || executable.ends_with("/nah.exe\""))))
 }
 
-fn save(path: &Path, config: &Value) -> Result<(), String> {
+const CURSOR_HOOKS_WRITE_ERRORS: HookFileWriteErrorCodes = HookFileWriteErrorCodes {
+    invalid_path: "invalid-cursor-hooks-path",
+    write_failed: "cursor-hooks-write-failed",
+    permissions: "cursor-hook-permissions-failed",
+    sync_failed: "cursor-hook-sync-failed",
+};
+
+fn save_cursor_hooks(path: &Path, config: &Value) -> Result<(), String> {
     reject_hook_path_symlink(path, "cursor-hooks-symlink-unsupported")?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid-cursor-hooks-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "cursor-hooks-write-failed")?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "cursor-hooks-write-failed")?;
-    restrict_file_to_owner(temporary.as_file())
-        .map_err(|_| "cursor-hook-permissions-failed".to_owned())?;
-    serde_json::to_writer_pretty(&mut temporary, config)
-        .map_err(|_| "cursor-hooks-write-failed")?;
-    temporary
-        .write_all(b"\n")
-        .map_err(|_| "cursor-hooks-write-failed")?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "cursor-hooks-write-failed")?;
-    temporary
-        .persist(path)
-        .map_err(|_| "cursor-hooks-write-failed")?;
-    sync_parent_directory(parent).map_err(|_| "cursor-hook-sync-failed".to_owned())
+    write_hook_json_atomically(path, config, &CURSOR_HOOKS_WRITE_ERRORS)
 }
 
-fn reject_symlinks(paths: &CursorHookPaths) -> Result<(), String> {
+fn reject_cursor_hook_symlinks(paths: &CursorHookPaths) -> Result<(), String> {
     for directory in &paths.directories {
         reject_hook_path_symlink(directory, "cursor-hooks-symlink-unsupported")?;
     }

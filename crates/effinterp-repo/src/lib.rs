@@ -69,6 +69,19 @@ fn walked_repo_path(root: &Path, path: &Path) -> String {
     canonical_repo_path(root, path).expect("walked repository path is canonical")
 }
 
+/// Whether a file carries any Unix execute bit; never true on other platforms.
+#[cfg(unix)]
+fn is_executable(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    metadata.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn is_executable(_: &std::fs::Metadata) -> bool {
+    false
+}
+
 pub use compose::{
     ComposeBudget, ComposedBoundary, ComposedEffect, ComposedOccurrence, Composition,
 };

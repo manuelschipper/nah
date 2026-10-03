@@ -6,10 +6,11 @@
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
     Effect, ExecutionInputRole, ExecutionPhase, ExecutionSelector, Modality, Operation,
-    ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity,
+    ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
 };
 
 use crate::models::args::{FlagSpec, Scanned, matches_long_option, scan, scan_literal};
+use crate::value::unresolved_resource;
 
 use crate::builder::PlanBuilder;
 use crate::models::common::{
@@ -20,7 +21,7 @@ use crate::models::net::parse_endpoint;
 use crate::models::{CommandModel, InvocationCtx};
 use crate::paths::{fs_word_uses_cwd, resolve_fs_word, resolve_fs_word_with_cwd};
 use crate::resource_transfer::TransferBinding;
-use crate::word::{Word, WordPart};
+use crate::word::Word;
 
 mod git_checkout;
 mod git_config;
@@ -28,9 +29,9 @@ pub(super) mod git_push;
 
 use git_checkout::checkout;
 use git_config::{
-    Alias, ConfigEntry, GIT_ALIAS_DEPTH, RemoteSetting, command_parameters, config_env_setting,
+    Alias, ConfigEntry, GIT_ALIAS_DEPTH, command_parameters, config_env_setting,
     config_option_setting, config_parameters, config_value, config_values, expand_includes,
-    git_bool, inherited_configs, remote_settings, repository_aliases, split_alias,
+    git_bool, inherited_configs, repository_aliases, split_alias,
 };
 use git_push::{PushArgs, push, send_pack};
 
@@ -436,9 +437,7 @@ fn environment_path(
             &Word::literal(value),
             base.or_else(|| ctx.cwd_resource()),
         )),
-        Some(_) => Some(ResourceExpr::Unresolved {
-            family: effinterp_proto::ResourceFamily::new("filesystem"),
-        }),
+        Some(_) => Some(unresolved_resource("filesystem")),
         None => None,
     }
 }
@@ -1494,9 +1493,7 @@ impl SubCtx<'_> {
             Some((_, identity)) => ResourceExpr::Concrete {
                 identity: identity.clone(),
             },
-            None => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            },
+            None => unresolved_resource("network"),
         };
         let arg = arg_node(builder, self.ctx, self.sub_index);
         let mut provenance = vec![arg];

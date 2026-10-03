@@ -10,7 +10,8 @@ use nah_proto::effects::Domain;
 
 use crate::registry::{GuardDefinition, GuardFamily, engine_only};
 use crate::shared_queries::{
-    bool_attr, family, present_attr, selection, success_path_effect, variant,
+    bool_attr, present_attr, resource_family, resource_selection, resource_variant,
+    success_path_effect,
 };
 
 pub(crate) fn sys_power() -> GuardDefinition {
@@ -23,7 +24,7 @@ pub(crate) fn sys_power() -> GuardDefinition {
         gap_code: Some("system-action-controls-unavailable"),
         clauses: engine_only(Query::new(success_path_effect(
             "system.power",
-            variant(ResourceVariant::HostSystem),
+            resource_variant(ResourceVariant::HostSystem),
             system_controls(),
             None,
             Some(ExecutionAssurance::Exact),
@@ -45,11 +46,11 @@ pub(crate) fn sys_service_stop() -> GuardDefinition {
                     "system.service_stop",
                     ResourcePredicate::AnyOf {
                         predicates: vec![
-                            variant(ResourceVariant::ServiceUnit),
+                            resource_variant(ResourceVariant::ServiceUnit),
                             ResourcePredicate::All {
                                 predicates: vec![
-                                    family("system"),
-                                    selection(SelectionShape::Pattern),
+                                    resource_family("system"),
+                                    resource_selection(SelectionShape::Pattern),
                                 ],
                             },
                         ],

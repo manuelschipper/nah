@@ -260,6 +260,30 @@ pub(crate) fn tool_input_optional_bool(
     }
 }
 
+/// Reads the required `edits` tool input field that OpenClaw and Pi send: a
+/// non-empty array of text edits, each an object whose `oldText` and `newText`
+/// are strings. Returns the array unchanged.
+pub(crate) fn tool_input_text_edits(
+    object: &Map<String, Value>,
+    invalid: &str,
+) -> Result<Value, String> {
+    let edits = object
+        .get("edits")
+        .and_then(Value::as_array)
+        .filter(|edits| !edits.is_empty())
+        .ok_or_else(|| invalid.to_owned())?;
+    edits
+        .iter()
+        .all(|edit| {
+            edit.as_object().is_some_and(|edit| {
+                edit.get("oldText").is_some_and(Value::is_string)
+                    && edit.get("newText").is_some_and(Value::is_string)
+            })
+        })
+        .then(|| Value::Array(edits.clone()))
+        .ok_or_else(|| invalid.to_owned())
+}
+
 fn only_fields(input: &Value, allowed: &[&str]) -> bool {
     input
         .as_object()

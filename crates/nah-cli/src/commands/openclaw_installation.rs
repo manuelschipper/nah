@@ -26,9 +26,9 @@ pub(crate) fn mutate_openclaw_hook(
             if install {
                 let executable = std::env::current_exe()
                     .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-                install_plugin(&home, &executable, policy)
+                install_openclaw_plugin(&home, &executable, policy)
             } else {
-                uninstall_plugin(&home)
+                uninstall_openclaw_plugin(&home)
             }
         })
     }?;
@@ -47,7 +47,7 @@ pub(crate) fn openclaw_hook_status() -> Result<RuntimeHookStatus, String> {
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let paths = OpenClawHookPaths::new(&home);
-    reject_symlinks(&paths)?;
+    reject_openclaw_hook_symlinks(&paths)?;
     if !paths.plugin.exists() {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
@@ -110,33 +110,33 @@ fn unsupported_environment() -> bool {
         || custom_profile
 }
 
-fn install_plugin(
+fn install_openclaw_plugin(
     home: &AbsolutePath,
     executable: &Path,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = OpenClawHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_openclaw_hook_lock(&paths)?;
+    reject_openclaw_hook_symlinks(&paths)?;
     validate_target(&paths)?;
     if !paths.state.exists() && paths.legacy_state.exists() {
         return Err("legacy-openclaw-state-unsupported".into());
     }
     std::fs::create_dir_all(&paths.state).map_err(|_| "openclaw-plugin-write-failed")?;
-    reject_symlinks(&paths)?;
+    reject_openclaw_hook_symlinks(&paths)?;
 
     std::fs::create_dir_all(&paths.plugin).map_err(|_| "openclaw-plugin-write-failed")?;
-    reject_symlinks(&paths)?;
+    reject_openclaw_hook_symlinks(&paths)?;
     save_source(&paths.plugin, executable, policy)?;
     validate_owned_target(&paths)?;
     drop(lock);
     Ok(paths.plugin)
 }
 
-fn uninstall_plugin(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_openclaw_plugin(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = OpenClawHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_openclaw_hook_lock(&paths)?;
+    reject_openclaw_hook_symlinks(&paths)?;
     if !paths.plugin.exists() {
         return Ok(paths.plugin);
     }
@@ -179,7 +179,7 @@ impl OpenClawHookPaths {
     }
 }
 
-fn lock(paths: &OpenClawHookPaths) -> Result<File, String> {
+fn acquire_openclaw_hook_lock(paths: &OpenClawHookPaths) -> Result<File, String> {
     let parent = paths
         .lock
         .parent()
@@ -200,7 +200,7 @@ fn lock(paths: &OpenClawHookPaths) -> Result<File, String> {
     Ok(file)
 }
 
-fn reject_symlinks(paths: &OpenClawHookPaths) -> Result<(), String> {
+fn reject_openclaw_hook_symlinks(paths: &OpenClawHookPaths) -> Result<(), String> {
     for path in [
         &paths.state,
         &paths.extensions,

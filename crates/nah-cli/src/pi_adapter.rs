@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
-    adapter_fields::runtime_field_names_covered,
+    adapter_fields::{runtime_field_names_covered, tool_input_text_edits},
     hook_adapter,
     runtime::{FailurePolicy, Runtime},
 };
@@ -46,34 +46,30 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     json!({"block": false, "evaluation_failed":decision.evaluation_failed()})
                 }
                 hook_adapter::HookOutcome::IrrelevantEvent => return 0,
-                hook_adapter::HookOutcome::MalformedInput => unavailable(
-                    failure_policy,
-                    hook_adapter::IntegrationUnavailable::MalformedInput,
-                )
-                .unwrap_or_else(|| delegated(false)),
+                hook_adapter::HookOutcome::MalformedInput => {
+                    hook_adapter::unavailable_plugin_reply(
+                        failure_policy,
+                        Runtime::Pi,
+                        hook_adapter::IntegrationUnavailable::MalformedInput,
+                    )
+                    .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false))
+                }
                 hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
-                    { unavailable(failure_policy, kind) }.unwrap_or_else(|| delegated(true))
+                    { hook_adapter::unavailable_plugin_reply(failure_policy, Runtime::Pi, kind) }
+                        .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(true))
                 }
             }
         }
-        Err(_) => unavailable(
+        Err(_) => hook_adapter::unavailable_plugin_reply(
             failure_policy,
+            Runtime::Pi,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
-        .unwrap_or_else(|| delegated(false)),
+        .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
     };
     let _ = serde_json::to_writer(&mut *stdout, &output);
     let _ = writeln!(stdout);
     0
-}
-
-fn unavailable(
-    failure_policy: FailurePolicy,
-    unavailable: hook_adapter::IntegrationUnavailable,
-) -> Option<Value> {
-    hook_adapter::unavailable_feedback(failure_policy, Runtime::Pi, unavailable).map(
-        |reason| json!({"block":true,"reason":format!("nah - {reason}"),"evaluation_failed":true}),
-    )
 }
 
 /// The tool call `run` hands the pipeline for this Pi tool call.
@@ -95,7 +91,7 @@ fn normalize(input: PiHookInput) -> Result<ToolCallInput, String> {
         .tool_input
         .as_object()
         .ok_or_else(|| "invalid-pi-tool-input".to_owned())
-        .and_then(|object| lower(&input.tool_name, &input.tool_input, object));
+        .and_then(|object| lower_pi_tool(&input.tool_name, &input.tool_input, object));
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
             tool,
@@ -109,7 +105,7 @@ fn normalize(input: PiHookInput) -> Result<ToolCallInput, String> {
         .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_pi_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     object: &serde_json::Map<String, Value>,
@@ -136,7 +132,7 @@ fn lower<'a>(
         ),
         "edit" => (
             "Edit",
-            json!({"file_path": string("path")?, "edits": edits(object)?}),
+            json!({"file_path": string("path")?, "edits": tool_input_text_edits(object, "invalid-pi-tool-input")?}),
         ),
         "grep" => (
             "Grep",
@@ -157,28 +153,6 @@ fn string_value(object: &serde_json::Map<String, Value>, name: &str) -> Result<S
         .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| "invalid-pi-tool-input".to_owned())
-}
-
-fn edits(object: &serde_json::Map<String, Value>) -> Result<Value, String> {
-    let edits = object
-        .get("edits")
-        .and_then(Value::as_array)
-        .filter(|edits| !edits.is_empty())
-        .ok_or_else(|| "invalid-pi-tool-input".to_owned())?;
-    if edits.iter().all(|edit| {
-        edit.as_object().is_some_and(|edit| {
-            edit.get("oldText").is_some_and(Value::is_string)
-                && edit.get("newText").is_some_and(Value::is_string)
-        })
-    }) {
-        Ok(Value::Array(edits.clone()))
-    } else {
-        Err("invalid-pi-tool-input".to_owned())
-    }
-}
-
-fn delegated(evaluation_failed: bool) -> Value {
-    json!({"block": false, "evaluation_failed":evaluation_failed})
 }
 
 #[cfg(test)]

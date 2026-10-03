@@ -8,8 +8,8 @@
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, Modality, Operation, ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity,
-    SqlConnection, SqlDialect, Subject,
+    Effect, Modality, Operation, ProvenanceRef, ResourceExpr, ResourceIdentity, SqlConnection,
+    SqlDialect, Subject,
 };
 
 use crate::SourcePurpose;
@@ -21,6 +21,7 @@ use crate::models::common::{
 use crate::models::{CommandModel, InvocationCtx, source_refusal_detail};
 use crate::nest::SourceResolution;
 use crate::paths::parent_dir;
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 pub(super) fn db_models() -> Vec<Box<dyn CommandModel>> {
@@ -99,9 +100,7 @@ fn endpoint_effect(
                     path: None,
                 },
             })
-            .unwrap_or(ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("network"),
-            }),
+            .unwrap_or(unresolved_resource("network")),
         attributes: Default::default(),
         modality: Modality::May,
         realm: effinterp_proto::ExecutionRealm::Host,
@@ -182,7 +181,11 @@ fn gap(builder: &mut PlanBuilder, provenance: &[ProvenanceRef], domains: &[&str]
     });
 }
 
-fn unmodeled_subcommand(builder: &mut PlanBuilder, model_node: ProvenanceRef, detail: &str) {
+fn db_client_unmodeled_subcommand(
+    builder: &mut PlanBuilder,
+    model_node: ProvenanceRef,
+    detail: &str,
+) {
     for domain in CLIENT_DOMAINS {
         builder.declare_coverage(Domain::new(*domain), CoverageLevel::Partial);
     }
@@ -1727,9 +1730,7 @@ impl Run<'_, '_> {
                                 schema: None,
                             },
                         },
-                        _ => ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("db"),
-                        },
+                        _ => unresolved_resource("db"),
                     };
                     database_effect(
                         builder,
@@ -2967,7 +2968,7 @@ fn subcommand_client(
     match ctx.argv.get(1).map(Word::as_literal) {
         Some(Some(name)) if name == subcommand => sql_client(builder, ctx, model_node, spec, 1),
         None | Some(Some("help" | "--help" | "-h" | "--version")) => {}
-        Some(name) => unmodeled_subcommand(
+        Some(name) => db_client_unmodeled_subcommand(
             builder,
             model_node,
             &format!("subcommand {} is not modeled", name.unwrap_or("(dynamic)")),
@@ -3188,9 +3189,7 @@ pub(crate) fn bq_query(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_nod
         let arg = arg_node(builder, ctx, index as u32);
         let resource = match text.and_then(|text| bq_table(text, project.as_deref())) {
             Some(identity) => ResourceExpr::Concrete { identity },
-            None => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("db"),
-            },
+            None => unresolved_resource("db"),
         };
         let action = if replace { "overwrite" } else { "insert" };
         database_effect(
@@ -3278,9 +3277,7 @@ fn drop_database(
                 schema: None,
             },
         },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("db"),
-        },
+        None => unresolved_resource("db"),
     };
     database_effect(
         builder,
@@ -3604,9 +3601,7 @@ impl CommandModel for Mysqladmin {
                                 schema: None,
                             },
                         },
-                        None => ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("db"),
-                        },
+                        None => unresolved_resource("db"),
                     };
                     let arg = arg_node(builder, ctx, name_index);
                     database_effect(
@@ -3622,7 +3617,7 @@ impl CommandModel for Mysqladmin {
             }
         }
         if !unmodeled.is_empty() {
-            unmodeled_subcommand(
+            db_client_unmodeled_subcommand(
                 builder,
                 model_node,
                 &format!("mysqladmin commands not modeled: {}", unmodeled.join(", ")),
@@ -3825,9 +3820,7 @@ impl CommandModel for PgRestore {
             database_effect(
                 builder,
                 "database.schema_drop",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("db"),
-                },
+                unresolved_resource("db"),
                 object_kind("database"),
                 provenance,
             );

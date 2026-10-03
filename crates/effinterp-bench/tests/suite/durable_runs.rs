@@ -8,10 +8,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use effinterp_bench::bench::score::{
+use effinterp_bench::fingerprint;
+use effinterp_bench::invocation::score::{
     AdversarialScore, ExeShare, Invocation, SCOREBOARD_SCHEMA, Scoreboard, SourceScore, to_json,
 };
-use effinterp_bench::fingerprint;
 use effinterp_bench::latency::machine::Machine;
 use effinterp_bench::nah::report::{Ceilings, Parity};
 use effinterp_bench::repos::expectations::Matched;
@@ -76,7 +76,7 @@ fn board() -> Scoreboard {
         .collect();
     Scoreboard {
         schema: SCOREBOARD_SCHEMA.into(),
-        correctness: effinterp_bench::bench::score::Correctness {
+        correctness: effinterp_bench::invocation::score::Correctness {
             corpus_digest: "d".into(),
             semantic: Some(effinterp_bench::layered::SemanticScore {
                 cases: 1,

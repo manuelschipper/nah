@@ -57,6 +57,14 @@ fn composer_semantics_do_not_dispatch_on_source_language() {
             include_str!("../../src/compose/instance.rs"),
         ),
         ("compose/mod.rs", include_str!("../../src/compose/mod.rs")),
+        (
+            "compose/module_execution.rs",
+            include_str!("../../src/compose/module_execution.rs"),
+        ),
+        (
+            "compose/control_discharge.rs",
+            include_str!("../../src/compose/control_discharge.rs"),
+        ),
         ("compose/memo.rs", include_str!("../../src/compose/memo.rs")),
         (
             "compose/lifecycle.rs",

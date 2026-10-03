@@ -6,8 +6,37 @@ use super::model::{
     resolve_rust_env_name, resolve_rust_sink, rust_sink_boundary, rust_sink_detail,
     semantic_bindings,
 };
-use super::*;
-use crate::control_flow::{ControlCaps, ControlFact, ControlStack};
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use effinterp_proto::{
+    Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, ResourceExpr,
+};
+use syn::spanned::Spanned;
+use syn::{Block, Expr, FnArg, Item, Local, Pat, Stmt, TraitItem};
+
+use crate::control_flow::{ControlCaps, ControlFact, ControlStack, SiteFacts};
+use crate::lang::frontend::MAX_WALK_DEPTH;
+use crate::module_summary::{
+    CallEdge, DispatchContract, DispatchSignature, FunctionEntry, ImportBinding, ModuleSummary,
+    call_results,
+};
+use crate::resource_transfer::TransferBinding;
+use crate::summary::{Summary, bind_positional, substitute_resource_expr};
+use crate::word::{Word, WordPart};
+use crate::{
+    ObjectIdentity, SemanticValue, TypeRef, ValueArgument, canonical_rust_std_type,
+    merge_arguments, positional_arguments, substitute_value,
+};
+
+use super::{
+    ClosureDef, FnDef, Fns, MAX_CALL_DEPTH, PEEL_METHODS, RUST_DOMAINS, Resolver, ValueFacts,
+    block_exprs, bound_future, call_arg_exprs, chain_base_ident, child_exprs, closure_def,
+    closure_expr, collect_fns, control, cross_file_value_call_key, entry_handoffs, expr_key,
+    future_eager_arguments, future_name, handoff_call, has_drop_impl, is_effectless_call,
+    is_exported, is_unresolved_value, match_preserves_scrutinee, model, over_budget, pat_ident,
+    path_segments, peels_outer_receiver_type, rust_value_facts, simple_boundary, single_ident,
+    span_key, value_facts_or_default,
+};
 
 // ControlStack matches source allocations, so every capture uses this stable key.
 static CAPTURE_SOURCE: &str = "rust-summary";

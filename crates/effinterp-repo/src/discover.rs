@@ -9,8 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use effinterp_engine::{GITHUB_ACTIONS_DRIVER, rust_is_entry_macro_line};
-use effinterp_proto::{ExecutionRealm, ProvenanceRef, ResourceExpr, SourceDialect, Subject};
+use effinterp_proto::{ExecutionRealm, ProvenanceRef, ResourceExpr, Subject};
 use serde::{Deserialize, Serialize};
 
 use crate::index::{CrawlLimits, SkipCategory, SkippedPath};
@@ -31,7 +30,7 @@ use noncode_mask::mask_noncode;
 use package::{
     makefile_targets, package_bin_entrypoints, package_scripts, python_entry_point_scripts,
 };
-use shebang::{could_have_shebang, interpreter, push_shell_file, shebang_file};
+use shebang::{could_have_shebang, push_shell_file, shebang_file};
 use workflow::github_workflow_steps;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -239,7 +238,7 @@ pub(crate) fn discover(
     engine_limits: &effinterp_proto::Limits,
 ) -> Discovery {
     let composer_bins = read_composer_bins(root, limits, budget);
-    let mut ctx = Ctx {
+    let mut ctx = EntrypointCrawl {
         limits,
         budget,
         engine_limits,
@@ -327,7 +326,9 @@ pub(crate) fn discover(
     }
 }
 
-struct Ctx<'a> {
+/// State of one entrypoint crawl: the budgets it charges and the entrypoints,
+/// skipped paths and input manifest it has collected so far.
+struct EntrypointCrawl<'a> {
     limits: &'a CrawlLimits,
     budget: &'a mut crate::index::IndexBudget,
     engine_limits: &'a effinterp_proto::Limits,
@@ -346,7 +347,7 @@ struct Ctx<'a> {
     skips_truncated: bool,
 }
 
-impl Ctx<'_> {
+impl EntrypointCrawl<'_> {
     /// Record a skip and remember when relevant evidence exceeds the cap.
     fn skip(&mut self, path: String, category: SkipCategory, reason: impl Into<String>) {
         if self.skipped.len() >= self.limits.max_skips {
@@ -410,7 +411,7 @@ fn invalid_path_marker(root: &Path, path: &Path) -> String {
     )
 }
 
-fn walk(ctx: &mut Ctx, root: &Path, dir: &Path, depth: u32) {
+fn walk(ctx: &mut EntrypointCrawl, root: &Path, dir: &Path, depth: u32) {
     if ctx.truncated {
         return;
     }
@@ -497,7 +498,13 @@ fn walk(ctx: &mut Ctx, root: &Path, dir: &Path, depth: u32) {
     }
 }
 
-fn visit_file(ctx: &mut Ctx, root: &Path, path: &Path, relpath: String, source_file: String) {
+fn visit_file(
+    ctx: &mut EntrypointCrawl,
+    root: &Path,
+    path: &Path,
+    relpath: String,
+    source_file: String,
+) {
     if ctx.files_seen >= ctx.limits.max_files {
         // Stop the whole crawl with a single truncation record.
         ctx.truncated = true;

@@ -10,7 +10,7 @@ use effinterp_engine::Engine;
 use effinterp_proto::{SourceDialect, Subject};
 use serde::{Deserialize, Serialize};
 
-use crate::bench::score::round4;
+use crate::invocation::score::round4;
 use crate::repos::isolate::{IsolateRequest, IsolateStatus, isolate_child_process};
 
 use super::checkpoint;

@@ -1,7 +1,20 @@
 //! `git push` and `git send-pack`: the remote, the refspecs and the pushed
 //! destination refs, with whether each is forced or deleted.
 
-use super::*;
+use effinterp_proto::{AttrValue, Effect, Modality, Operation, ProvenanceKind};
+
+use crate::builder::PlanBuilder;
+use crate::models::args::FlagSpec;
+use crate::models::common::Attrs;
+use crate::models::net::parse_endpoint;
+use crate::resource_transfer::TransferBinding;
+use crate::word::{Word, WordPart};
+
+use super::git_config::{RemoteSetting, config_value, config_values, git_bool, remote_settings};
+use super::{
+    SubCtx, empty_repository_global, git_argument_boundary, git_controls_known, git_help_requested,
+    git_options, parsed_effective_flag, repo_uses_cwd, request_attrs, string_list,
+};
 
 /// One destination of a push request, as far as the model knows it.
 pub(in crate::models) struct PushedRef<'a> {

@@ -1,14 +1,13 @@
 use std::collections::BTreeMap;
 
-use effinterp_bench::bench::corpus::BenchRow;
-use effinterp_bench::bench::gate::check_gate_rules;
-use effinterp_bench::bench::judge::{Verdict, judge_plan};
-use effinterp_bench::bench::score::{
+use effinterp_bench::invocation::corpus::BenchRow;
+use effinterp_bench::invocation::judge::{Verdict, judge_plan};
+use effinterp_bench::invocation::score::{
     AdversarialScore, Drop, ExeShare, Invocation, SCOREBOARD_SCHEMA, Scoreboard, SourceScore,
     score_source,
 };
-use effinterp_bench::bench::tiers::{Bucket, bucket_plan};
-use effinterp_bench::bench::{Analyzed, FailureKind, SubjectOutcome};
+use effinterp_bench::invocation::tiers::{Bucket, bucket_plan};
+use effinterp_bench::invocation::{Analyzed, FailureKind, SubjectOutcome};
 use effinterp_bench::latency::{
     COLD_CATALOG_TARGET_US, ColdStart, LatencySection, NAH_P99_TARGET_US,
 };
@@ -18,6 +17,7 @@ use effinterp_bench::repos::expectations::Matched;
 use effinterp_bench::repos::isolate::IsolateStatus;
 use effinterp_bench::repos::score::{EntryBuckets, RepoRow, ReposSection, ResourceMix};
 use effinterp_bench::run::Plane;
+use effinterp_bench::run::gate::check_gate_rules;
 use effinterp_engine::Engine;
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, Domain, Operation, Plan, ResourceExpr,
@@ -184,7 +184,7 @@ fn board(edit: impl FnOnce(&mut Scoreboard)) -> Scoreboard {
         .collect();
     let mut board = Scoreboard {
         schema: SCOREBOARD_SCHEMA.into(),
-        correctness: effinterp_bench::bench::score::Correctness {
+        correctness: effinterp_bench::invocation::score::Correctness {
             corpus_digest: "d".into(),
             semantic: Some(effinterp_bench::layered::SemanticScore {
                 cases: 1,
@@ -228,7 +228,7 @@ fn board(edit: impl FnOnce(&mut Scoreboard)) -> Scoreboard {
             strata: BTreeMap::new(),
             unlocked: None,
         }),
-        performance: effinterp_bench::bench::score::Performance {
+        performance: effinterp_bench::invocation::score::Performance {
             latency: Some(LatencySection {
                 nah_p99_us: NAH_P99_TARGET_US,
                 cold_start: Some(ColdStart {

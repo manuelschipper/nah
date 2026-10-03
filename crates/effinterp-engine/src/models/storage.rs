@@ -2,7 +2,7 @@
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity,
+    ProvenanceRef, ResourceExpr, ResourceIdentity,
 };
 
 use crate::builder::PlanBuilder;
@@ -13,6 +13,7 @@ use crate::models::common::{
 };
 use crate::models::{CommandModel, InvocationCtx, ModelCausalBinding};
 use crate::resource_transfer::TransferBinding;
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 pub(super) fn storage_models() -> Vec<Box<dyn CommandModel>> {
@@ -517,7 +518,11 @@ impl CommandModel for Hdparm {
             },
         );
         if !args.unknown_flags.is_empty() || !args.has(&ERASE) || args.operands.is_empty() {
-            unmodeled_subcommand(builder, model_node, "only hdparm security erase is modeled");
+            storage_unmodeled_subcommand(
+                builder,
+                model_node,
+                "only hdparm security erase is modeled",
+            );
             return;
         }
         for (index, operand) in &args.operands {
@@ -579,7 +584,7 @@ impl CommandModel for Diskutil {
                 .then(|| format!("/dev/{name}"))
         });
         let (true, Some(device)) = (erases, device) else {
-            unmodeled_subcommand(builder, model_node, "unmodeled diskutil verb or disk");
+            storage_unmodeled_subcommand(builder, model_node, "unmodeled diskutil verb or disk");
             return;
         };
         let device = Word::literal(&device);
@@ -800,7 +805,7 @@ fn lvm_remove(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: Proven
         match operands.next().and_then(|(_, word)| word.as_literal()) {
             Some(sub @ ("lvremove" | "vgremove" | "pvremove")) => command = sub,
             _ => {
-                unmodeled_subcommand(
+                storage_unmodeled_subcommand(
                     builder,
                     model_node,
                     "lvm without a literal remove subcommand",
@@ -823,7 +828,7 @@ fn lvm_remove(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: Proven
             .clone()
             .any(|(_, word)| word.as_literal().is_some_and(|name| name.starts_with('@')))
     {
-        unmodeled_subcommand(
+        storage_unmodeled_subcommand(
             builder,
             model_node,
             "lvm selection or tag requires host volume metadata",
@@ -912,12 +917,12 @@ impl CommandModel for Zfs {
         let sub = ctx.argv.get(1).and_then(Word::as_literal);
         let rollback = tool == "zfs" && sub == Some("rollback");
         if sub != Some("destroy") && !rollback {
-            unmodeled_subcommand(builder, model_node, "zfs/zpool subcommand");
+            storage_unmodeled_subcommand(builder, model_node, "zfs/zpool subcommand");
             return;
         }
         let args = scan_operand_flags(&ctx.argv[1..], &OPERAND_FLAGS);
         if tool == "zpool" && args.has(&["-n"]) {
-            unmodeled_subcommand(builder, model_node, "zpool destroy does not support -n");
+            storage_unmodeled_subcommand(builder, model_node, "zpool destroy does not support -n");
             return;
         }
         // OpenZFS accepts deferred destruction only for snapshots. A live
@@ -964,7 +969,7 @@ impl CommandModel for Zfs {
                     let (dataset, _) = name.split_once('@')?;
                     (!dataset.is_empty()).then_some((name, dataset))
                 }) else {
-                    unmodeled_subcommand(
+                    storage_unmodeled_subcommand(
                         builder,
                         model_node,
                         "zfs rollback without a dataset@snapshot operand",
@@ -1484,7 +1489,11 @@ fn partition_query(
     true
 }
 
-fn unmodeled_subcommand(builder: &mut PlanBuilder, model_node: ProvenanceRef, detail: &str) {
+fn storage_unmodeled_subcommand(
+    builder: &mut PlanBuilder,
+    model_node: ProvenanceRef,
+    detail: &str,
+) {
     builder.boundary(Boundary {
         reason: BoundaryReason::UNMODELED_SUBCOMMAND,
         class: BoundaryClass::Unmodeled,
@@ -1546,7 +1555,7 @@ fn destroy_volume(
             .as_literal()
             .is_some_and(|name| name.starts_with("/dev/"))
     {
-        unmodeled_subcommand(
+        storage_unmodeled_subcommand(
             builder,
             node,
             "physical-volume operand is not a literal /dev/ device path",
@@ -1571,9 +1580,7 @@ fn destroy_volume(
                 name: name.into(),
             },
         },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("system"),
-        },
+        None => unresolved_resource("system"),
     };
     arg_effect(
         builder,
@@ -1602,7 +1609,7 @@ impl CommandModel for Btrfs {
         if ctx.argv.get(1).and_then(Word::as_literal) != Some("subvolume")
             || ctx.argv.get(2).and_then(Word::as_literal) != Some("delete")
         {
-            unmodeled_subcommand(builder, node, "btrfs subcommand");
+            storage_unmodeled_subcommand(builder, node, "btrfs subcommand");
             return;
         }
         for (index, word) in scan_operand_flags(&ctx.argv[2..], &OPERAND_FLAGS).operands {

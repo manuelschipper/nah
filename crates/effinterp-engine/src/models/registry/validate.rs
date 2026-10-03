@@ -1,7 +1,23 @@
 //! Validation for declarative registry documents and their declarations.
 
-use super::*;
-use effinterp_model_schema::{FixtureDeclaration, PlatformPredicate, SigEvidence, SigRole};
+use std::collections::{BTreeMap, BTreeSet};
+
+use effinterp_model_schema::{
+    ApiRouteSegmentKind, AttributeDeclaration, BehaviorDeclaration, BindingEndDeclaration,
+    CallableTargetDeclaration, CommandDeclaration, Declaration, DeclarationDocument,
+    EffectRuleDeclaration, EffectSourceDeclaration, FixtureDeclaration,
+    LauncherAttachmentDeclaration, LauncherOptionClassDeclaration, LibraryApiDeclaration,
+    LifecycleDeclaration, LifecycleLanguage, LiteralShapeDeclaration, MODEL_SCHEMA_V1,
+    NestedSourceFrom, OperandSelection, PlatformPredicate, RealmDeclaration, ResourceDeclaration,
+    RuleConditionDeclaration, SigEvidence, SigRole, SubcommandDeclaration, ValueDeclaration,
+    document_content_identity,
+};
+use effinterp_proto::{BoundaryClass, BoundaryReason, Operation, ResourceFamily};
+
+use crate::builder::KNOWN_DOMAINS;
+
+use super::RegistryError;
+use super::literals::{safe_route_component, valid_go_identifier};
 
 const MAX_EFFECT_RULES: usize = 64;
 const MAX_EMISSIONS_PER_RULE: usize = 16;

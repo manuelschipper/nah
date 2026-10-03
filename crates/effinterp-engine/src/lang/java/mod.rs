@@ -43,8 +43,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain, Effect,
-    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity, SqlConnection, SqlDialect, Subject,
+    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
+    SqlConnection, SqlDialect, Subject,
 };
 use tree_sitter::{Node, Parser, Tree};
 
@@ -904,7 +904,7 @@ impl Frontend for JavaFrontend {
             .map(|method| format!("{}.{}", method.class, method.name))
             .collect();
         let first_effect = builder.effects_len();
-        let mut ctx = Ctx {
+        let mut ctx = JavaWalkContext {
             src,
             file: &file,
             nest,
@@ -1107,7 +1107,7 @@ struct Frame<'a> {
     constructor: bool,
 }
 
-struct Ctx<'a> {
+struct JavaWalkContext<'a> {
     src: &'a [u8],
     file: &'a JFile<'a>,
     nest: &'a Nest<'a>,
@@ -1138,7 +1138,7 @@ type MethodCandidate<'a> = (
     Node<'a>,
 );
 
-impl<'a> Ctx<'a> {
+impl<'a> JavaWalkContext<'a> {
     /// Evaluate an invocation or creation and register what it establishes.
     fn control_call(
         &mut self,
@@ -1907,9 +1907,7 @@ impl<'a> Ctx<'a> {
                         builder,
                         n,
                         "process.exec",
-                        ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("process"),
-                        },
+                        unresolved_resource("process"),
                         None,
                     );
                     self.boundary(

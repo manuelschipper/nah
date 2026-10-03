@@ -2,16 +2,21 @@
 //! a call to one of its tools does.
 
 use effinterp_model_schema::{
-    EffectDeclaration, McpArgumentShape, McpConditionDeclaration, McpServerOptionDeclaration,
-    McpServerPredicate, McpToolDeclaration,
+    AttributeDeclaration, EffectDeclaration, McpArgumentShape, McpConditionDeclaration,
+    McpServerOptionDeclaration, McpServerPredicate, McpToolDeclaration, ResourceDeclaration,
+    ValueDeclaration,
 };
 use effinterp_proto::{
-    BoundaryScope, CoverageLevel, McpCallArgs, McpStdioSource, McpTransport, ProvenanceKind,
-    SqlConnection,
+    AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
+    Effect, ExecutionRealm, McpCallArgs, McpStdioSource, McpTransport, Operation, ProvenanceKind,
+    ProvenanceRef, ResourceExpr, ResourceIdentity, SqlConnection, Subject,
 };
 
-use super::*;
+use std::collections::BTreeSet;
+
+use crate::builder::PlanBuilder;
 use crate::nest::Nest;
+use crate::value::unresolved_resource;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CompiledMcpTool {
@@ -346,9 +351,7 @@ fn resource(declaration: &ResourceDeclaration, current: Option<&str>) -> Resourc
                     table,
                 },
             })
-            .unwrap_or_else(|| ResourceExpr::Unresolved {
-                family: ResourceFamily::new("db"),
-            }),
+            .unwrap_or_else(|| unresolved_resource("db")),
         ResourceDeclaration::DatabaseSchema {
             server,
             database,
@@ -360,9 +363,7 @@ fn resource(declaration: &ResourceDeclaration, current: Option<&str>) -> Resourc
                 schema: optional(schema),
             },
         },
-        ResourceDeclaration::Unresolved { family } => ResourceExpr::Unresolved {
-            family: ResourceFamily::new(family.clone()),
-        },
+        ResourceDeclaration::Unresolved { family } => unresolved_resource(family),
         _ => unreachable!("validated MCP resource kind"),
     }
 }

@@ -1,5 +1,5 @@
 use super::support::{absolute, canonical, init_repo, request, value};
-use crate::fulfill;
+use crate::fulfill_observation_request;
 use nah_proto::ctx::SchemaVersion;
 #[cfg(unix)]
 use nah_proto::ctx::{AbsolutePath, Platform};
@@ -17,7 +17,7 @@ fn descendants_are_observed_only_when_requested_and_depth_is_bounded() {
     fs::create_dir_all(repo.join("src/nested")).unwrap();
     fs::write(repo.join("src/nested/server.key"), "secret").unwrap();
 
-    let ordinary = fulfill(&request(&repo, &[("path", "src")])).unwrap();
+    let ordinary = fulfill_observation_request(&request(&repo, &[("path", "src")])).unwrap();
     let ObservationValue::Path {
         observed: Observed::Ok { value: ordinary },
     } = value(&ordinary, "path")
@@ -26,7 +26,9 @@ fn descendants_are_observed_only_when_requested_and_depth_is_bounded() {
     };
     assert!(ordinary.descendants().is_none());
 
-    let inspected = fulfill(&descendant_request(&repo, "src", SymlinkTraversal::None)).unwrap();
+    let inspected =
+        fulfill_observation_request(&descendant_request(&repo, "src", SymlinkTraversal::None))
+            .unwrap();
     let ObservationValue::Path {
         observed: Observed::Ok { value: inspected },
     } = value(&inspected, "path")
@@ -48,7 +50,9 @@ fn descendants_are_observed_only_when_requested_and_depth_is_bounded() {
         directory.push(format!("d{depth}"));
         fs::create_dir(&directory).unwrap();
     }
-    let bounded = fulfill(&descendant_request(&repo, "deep", SymlinkTraversal::None)).unwrap();
+    let bounded =
+        fulfill_observation_request(&descendant_request(&repo, "deep", SymlinkTraversal::None))
+            .unwrap();
     let ObservationValue::Path {
         observed: Observed::Ok { value: bounded },
     } = value(&bounded, "path")
@@ -80,7 +84,8 @@ fn symlink_targets_are_followed_only_when_requested() {
         (SymlinkTraversal::Root, false),
         (SymlinkTraversal::All, true),
     ] {
-        let observation = fulfill(&descendant_request(&repo, "src", traversal)).unwrap();
+        let observation =
+            fulfill_observation_request(&descendant_request(&repo, "src", traversal)).unwrap();
         let ObservationValue::Path {
             observed: Observed::Ok { value: path },
         } = value(&observation, "path")
@@ -115,7 +120,9 @@ fn symlink_targets_are_followed_only_when_requested() {
     }
 
     // So is an empty directory beneath the root.
-    let observation = fulfill(&descendant_request(&repo, "tidy", SymlinkTraversal::None)).unwrap();
+    let observation =
+        fulfill_observation_request(&descendant_request(&repo, "tidy", SymlinkTraversal::None))
+            .unwrap();
     let ObservationValue::Path {
         observed: Observed::Ok { value: path },
     } = value(&observation, "path")
@@ -145,7 +152,8 @@ fn symlink_targets_are_followed_only_when_requested() {
     let sealed = unsafe { libc::geteuid() } != 0;
     for (root, omits) in [("special", true), ("sealed", sealed)] {
         let observation =
-            fulfill(&descendant_request(&repo, root, SymlinkTraversal::None)).unwrap();
+            fulfill_observation_request(&descendant_request(&repo, root, SymlinkTraversal::None))
+                .unwrap();
         let ObservationValue::Path {
             observed: Observed::Ok { value: path },
         } = value(&observation, "path")
@@ -163,7 +171,9 @@ fn symlink_targets_are_followed_only_when_requested() {
     // A second link to the same directory lists its entries under its own
     // spelling too.
     symlink(&outside, repo.join("src/second")).unwrap();
-    let observation = fulfill(&descendant_request(&repo, "src", SymlinkTraversal::All)).unwrap();
+    let observation =
+        fulfill_observation_request(&descendant_request(&repo, "src", SymlinkTraversal::All))
+            .unwrap();
     let ObservationValue::Path {
         observed: Observed::Ok { value: path },
     } = value(&observation, "path")
@@ -184,7 +194,9 @@ fn symlink_targets_are_followed_only_when_requested() {
 
     symlink(&outside, repo.join("root-link")).unwrap();
     for traversal in [SymlinkTraversal::Root, SymlinkTraversal::All] {
-        let observation = fulfill(&descendant_request(&repo, "root-link", traversal)).unwrap();
+        let observation =
+            fulfill_observation_request(&descendant_request(&repo, "root-link", traversal))
+                .unwrap();
         let ObservationValue::Path {
             observed: Observed::Ok { value: path },
         } = value(&observation, "path")
@@ -215,7 +227,9 @@ fn hardlinks_make_snapshots_incomplete_and_metadata_names_do_not_look_secret() {
     fs::hard_link(repo.join("outside-key"), repo.join("src/blob")).unwrap();
     symlink("ordinary", repo.join("src/id_rsa")).unwrap();
 
-    let observation = fulfill(&descendant_request(&repo, "src", SymlinkTraversal::None)).unwrap();
+    let observation =
+        fulfill_observation_request(&descendant_request(&repo, "src", SymlinkTraversal::None))
+            .unwrap();
     let ObservationValue::Path {
         observed: Observed::Ok { value: path },
     } = value(&observation, "path")
@@ -335,7 +349,9 @@ fn followed_file_symlinks_record_visible_and_canonical_names() {
     fs::write(outside.join("blob"), "secret").unwrap();
     symlink(outside.join("blob"), repo.join("src/id_rsa")).unwrap();
 
-    let observation = fulfill(&descendant_request(&repo, "src", SymlinkTraversal::All)).unwrap();
+    let observation =
+        fulfill_observation_request(&descendant_request(&repo, "src", SymlinkTraversal::All))
+            .unwrap();
     let ObservationValue::Path {
         observed: Observed::Ok { value: path },
     } = value(&observation, "path")

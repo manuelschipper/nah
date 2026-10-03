@@ -5,7 +5,7 @@
 
 use effinterp_proto::{
     AttrValue, Effect, Modality, Operation, PathPlatform, ProvenanceRef, ResourceExpr,
-    ResourceFamily, ResourceIdentity, normalize_resource,
+    ResourceIdentity, normalize_resource,
 };
 use rustpython_parser::ast::{self, Constant, Expr, Stmt};
 use rustpython_parser::text_size::TextRange;
@@ -321,9 +321,7 @@ fn python_network_resource(resource: ResourceExpr) -> ResourceExpr {
                 resource @ ResourceExpr::Concrete {
                     identity: ResourceIdentity::NetworkEndpoint { .. },
                 } => resource,
-                _ => ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                },
+                _ => unresolved_resource("network"),
             }
         }
         ResourceExpr::Union { alternatives } => ResourceExpr::Union {
@@ -333,9 +331,7 @@ fn python_network_resource(resource: ResourceExpr) -> ResourceExpr {
                 .collect(),
         },
         ResourceExpr::Join { parts } => crate::value::sink_typed_join(parts, "network"),
-        _ => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        },
+        _ => unresolved_resource("network"),
     }
 }
 

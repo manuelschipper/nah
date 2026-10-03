@@ -4,7 +4,7 @@ use effinterp_proto::{
     ArtifactEcosystem, ArtifactReference, AttrValue, Boundary, BoundaryClass, BoundaryReason,
     BoundaryScope, CoverageLevel, Domain, Effect, ExecutionEdgeKind, ExecutionNodeRef,
     ExecutionRealm, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceFamily, ResourceIdentity, Subject,
+    ResourceIdentity, Subject,
 };
 
 use crate::SourcePurpose;
@@ -13,6 +13,7 @@ use crate::exec::program_name;
 use crate::models::common::{Attrs, arg_effect, arg_node};
 use crate::models::{CommandModel, InvocationCtx};
 use crate::nest::{SourceResolution, Transition, word_resource};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 struct GithubRelease {
@@ -38,9 +39,7 @@ fn literal(value: &str) -> ResourceExpr {
 }
 
 pub(super) fn unknown() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("artifact"),
-    }
+    unresolved_resource("artifact")
 }
 
 pub(super) fn boundary(
@@ -908,9 +907,7 @@ pub(super) fn mutation(
         manifest.unwrap_or(node),
         index as u32,
         "network.upload",
-        endpoint.unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        }),
+        endpoint.unwrap_or(unresolved_resource("network")),
         Attrs::new(),
     );
     builder.declare_coverage(Domain::new("artifact"), CoverageLevel::Full);
@@ -1473,9 +1470,7 @@ pub(super) fn literal_package_dispatch(
             node,
             index as u32,
             "network.request",
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            },
+            unresolved_resource("network"),
             Attrs::new(),
         );
         environment_boundary(
@@ -1494,9 +1489,7 @@ pub(super) fn literal_package_dispatch(
             request_assurance,
             id: Default::default(),
             operation: Operation::new("artifact.yank_request"),
-            resource: ResourceExpr::Unresolved {
-                family: ResourceFamily::new("artifact"),
-            },
+            resource: unresolved_resource("artifact"),
             attributes: attrs.clone(),
             modality: Modality::MustOnSuccess,
             realm: ExecutionRealm::Host,
@@ -1511,9 +1504,7 @@ pub(super) fn literal_package_dispatch(
             None,
             arg,
             "artifact.delete",
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("artifact"),
-            },
+            unresolved_resource("artifact"),
             attrs,
             None,
         );
@@ -2719,9 +2710,7 @@ pub(super) fn npm_dispatch(
                 .map(|identity| ResourceExpr::Concrete { identity }),
             _ => None,
         }
-        .unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        });
+        .unwrap_or(unresolved_resource("network"));
         arg_effect(
             builder,
             ctx,

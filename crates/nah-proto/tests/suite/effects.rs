@@ -1,6 +1,14 @@
 use Knowledge::{Known, Unknown};
 use nah_proto::action::Coverage;
-use nah_proto::effects::*;
+use nah_proto::effects::{
+    AccessPurpose, AlternativeGroupId, Bound, CallId, CausalAvailability, Certainty, ConditionExpr,
+    ConditionId, ConditionUse, EffectCall, EffectCondition, EffectFact, EffectGraph,
+    EffectOccurrence, EffectRelation, EffectResource, EnvironmentOperation, EnvironmentSelection,
+    EvidenceError, ExecutionDerivation, ExecutionSource, FactId, FactPayload, FilesystemOperation,
+    GuardEvidence, InvocationKind, Knowledge, Modality, OccurrenceId, PayloadGroupId,
+    PermissionGrants, PortKind, PublicSelection, Reach, Realm, RelationKind, ResourceId,
+    ResourceIdentity, ResourceKind, ResourceLabels, Selection, VisiblePayload,
+};
 
 fn graph() -> EffectGraph {
     EffectGraph {

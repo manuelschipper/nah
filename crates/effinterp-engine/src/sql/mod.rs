@@ -31,8 +31,8 @@ use std::collections::{BTreeMap, HashSet};
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity, SqlConnection, SqlDialect,
+    Effect, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
+    SqlConnection, SqlDialect,
 };
 
 use crate::builder::PlanBuilder;
@@ -1113,9 +1113,7 @@ impl SqlCtx<'_> {
             Some(path) => ResourceExpr::Concrete {
                 identity: ResourceIdentity::FsPath { path },
             },
-            None => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            },
+            None => unresolved_resource("filesystem"),
         };
         self.effect(builder, e, operation, resource, Vec::new());
     }

@@ -12,7 +12,7 @@ fn finalize_shipped(
     ctx: &Ctx,
 ) -> Result<(effects::GuardEvidence, ShippedGuardMatches), AdapterRefusal> {
     let shipped = nah_policy::ShippedGuards::new();
-    let projection = project(
+    let projection = project_guard_evidence(
         plan,
         observation,
         ctx,

@@ -1,7 +1,11 @@
 //! Shell arithmetic: literal evaluation of `$((...))`, integer-declared
 //! variables and the arithmetic `for` header.
 
-use super::*;
+use std::collections::HashMap;
+
+use crate::shell::lex::Span;
+use crate::shell::{Shell, ShellEnv};
+use crate::word::{Word, WordPart};
 
 impl Shell<'_> {
     /// The value `declare -i` stores: the arithmetic result of a literal

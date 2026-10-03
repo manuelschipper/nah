@@ -6,7 +6,9 @@
 use std::collections::BTreeMap;
 
 use nah_cli::{PassCause, guard_knowledge};
-use nah_corpus::{corpus_dir, expected_fail_ids, load_cases, load_fixtures, reconcile};
+use nah_corpus::{
+    corpus_dir, expected_fail_ids, load_cases, load_fixtures, reconcile_triage_ledger,
+};
 use nah_corpus_schema::{Expectation, ExpectedVerdict};
 
 /// A block example's row expects a block naming the guard. A pass example's
@@ -87,7 +89,7 @@ fn guard_knowledge_examples_match_their_corpus_rows() {
     }
 
     let replayed = replayed.into_values().collect::<Vec<_>>();
-    let result = reconcile(&replayed, &fixtures, "");
+    let result = reconcile_triage_ledger(&replayed, &fixtures, "");
     errors.extend(result.unexpected_failures);
     for (row, name, cause) in passes {
         if cause == PassCause::Unresolved && !result.partial_coverage.contains(row) {

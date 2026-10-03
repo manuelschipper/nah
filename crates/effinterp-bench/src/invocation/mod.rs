@@ -3,7 +3,6 @@
 //! failures, with a committed scoreboard and a regression gate over it.
 
 pub mod corpus;
-pub mod gate;
 pub mod judge;
 pub mod score;
 pub mod sessions;

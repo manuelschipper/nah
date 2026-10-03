@@ -2,7 +2,7 @@
 
 use std::fs;
 
-use effinterp_bench::bench::sessions;
+use effinterp_bench::invocation::sessions;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 

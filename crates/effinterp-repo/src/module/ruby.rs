@@ -1,4 +1,13 @@
-use super::*;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+
+use effinterp_engine::Lang;
+use effinterp_proto::content_digest;
+
+use super::{ModuleFile, ModuleRegistry, ruby_shebang};
+use crate::index::{CrawlLimits, IndexBudget};
+use crate::snapshot::InputRecord;
+use crate::{CRAWL_SKIP_DIRS, walked_repo_path};
 
 fn ruby_loader_work(budget: &mut IndexBudget, work: usize, bytes: usize) -> bool {
     budget.charge(work as u64, bytes as u64).is_ok()
@@ -564,7 +573,10 @@ pub(super) fn collect_ruby_metadata(
 
 #[cfg(test)]
 mod tests {
+    use effinterp_engine::{ImportBinding, ModuleSummary};
+
     use super::*;
+    use crate::index::RepositoryLimits;
 
     // Loader graph construction used to bypass repository budgets.
     #[test]

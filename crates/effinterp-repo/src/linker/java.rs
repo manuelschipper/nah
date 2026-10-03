@@ -1,4 +1,16 @@
-use super::*;
+use std::collections::HashSet;
+
+use effinterp_engine::{
+    Assurance, DispatchStyle, ExternalCall, ResolvedObject, classify_java_call,
+};
+use effinterp_proto::BoundaryReason;
+
+use super::{
+    Linker, Resolution, bounded_dispatch, dedup_targets, dispatch_contract, excluded_dispatch_file,
+    instance, resolve_common_method, resolve_method_in_class, resolve_standard_callee,
+    standard_class_candidates,
+};
+use crate::module::{ModuleFile, ModuleRegistry};
 
 pub(crate) struct JavaLinker;
 

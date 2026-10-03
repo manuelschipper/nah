@@ -15,6 +15,7 @@ use crate::models::common::{
 };
 use crate::models::{CommandModel, InvocationCtx, ModelCausalBinding};
 use crate::paths::resolve_fs_word_with_cwd;
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 pub(super) fn fsutils_models() -> Vec<Box<dyn CommandModel>> {
@@ -425,9 +426,7 @@ fn unresolved_dest_in_dir(
     ResourceExpr::Join {
         parts: vec![
             crate::paths::resolve_fs_word_with_cwd_on_platform(dir, cwd, platform),
-            ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("filesystem"),
-            },
+            unresolved_resource("filesystem"),
         ],
     }
 }

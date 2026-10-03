@@ -67,7 +67,13 @@ fn runtime_launch_bypasses_are_recognized() {
         ("prime-agent", &["--no-extensions"][..], "prime-agent"),
     ] {
         assert_eq!(
-            runtime_cli::classify(program, &argv(arguments), false, &home, Platform::Linux),
+            runtime_cli::recognize_runtime_cli(
+                program,
+                &argv(arguments),
+                false,
+                &home,
+                Platform::Linux
+            ),
             Some(expected),
             "{program} {arguments:?}"
         );
@@ -100,7 +106,13 @@ fn runtime_launch_bypasses_are_recognized() {
         ("cargo", &["uninstall", "nah-cli"][..]),
     ] {
         assert_eq!(
-            runtime_cli::classify(program, &argv(arguments), false, &home, Platform::Linux),
+            runtime_cli::recognize_runtime_cli(
+                program,
+                &argv(arguments),
+                false,
+                &home,
+                Platform::Linux
+            ),
             None,
             "{program} {arguments:?}"
         );
@@ -115,7 +127,13 @@ fn help_and_version_argv_never_recognize_a_runtime_launch() {
         ("hermes", &["--safe-mode", "--version"][..]),
     ] {
         assert_eq!(
-            runtime_cli::classify(program, &argv(arguments), false, &home, Platform::Linux),
+            runtime_cli::recognize_runtime_cli(
+                program,
+                &argv(arguments),
+                false,
+                &home,
+                Platform::Linux
+            ),
             None,
             "{program} {arguments:?}"
         );

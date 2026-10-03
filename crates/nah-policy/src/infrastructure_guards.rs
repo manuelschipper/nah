@@ -10,8 +10,8 @@ use nah_proto::effects::Domain;
 
 use crate::registry::{GuardDefinition, GuardFamily, engine_only};
 use crate::shared_queries::{
-    bool_attr, family, present_attr, selection, string_attr, string_one_of, success_path_effect,
-    variant,
+    bool_attr, present_attr, resource_family, resource_selection, resource_variant, string_attr,
+    string_one_of, success_path_effect,
 };
 
 pub(crate) fn infra_container_reset() -> GuardDefinition {
@@ -115,14 +115,14 @@ pub(crate) fn infra_iac_destroy() -> GuardDefinition {
     let mut assertions = vec![
         success_path_effect(
             "cloud.resource.delete",
-            variant(ResourceVariant::ManagedInfrastructure),
+            resource_variant(ResourceVariant::ManagedInfrastructure),
             controls,
             Some(RequestAssurance::Exact),
             None,
         ),
         success_path_effect(
             "cloud.resource.delete",
-            family("cloud"),
+            resource_family("cloud"),
             unresolved_controls,
             Some(RequestAssurance::Exact),
             None,
@@ -301,7 +301,7 @@ pub(crate) fn infra_k8s_delete() -> GuardDefinition {
             assertions: vec![
                 branch(
                     vec![string_one_of("scope", &["namespace", "cluster"])],
-                    variant(ResourceVariant::KubernetesResource),
+                    resource_variant(ResourceVariant::KubernetesResource),
                 ),
                 branch(
                     vec![
@@ -393,14 +393,14 @@ pub(crate) fn storage_recursive_delete() -> GuardDefinition {
             assertions: vec![
                 success_path_effect(
                     "cloud.object.delete",
-                    unbounded_selection(variant(ResourceVariant::ObjectStore)),
+                    unbounded_selection(resource_variant(ResourceVariant::ObjectStore)),
                     vec![present_attr("recursive"), bool_attr("recursive", true)],
                     None,
                     Some(ExecutionAssurance::Exact),
                 ),
                 success_path_effect(
                     "cloud.object.write",
-                    unbounded_selection(variant(ResourceVariant::ObjectStore)),
+                    unbounded_selection(resource_variant(ResourceVariant::ObjectStore)),
                     vec![bool_attr("delete", true)],
                     None,
                     Some(ExecutionAssurance::Exact),
@@ -486,7 +486,7 @@ pub(crate) fn storage_snapshot_delete() -> GuardDefinition {
     }
     assertions.push(nondry_effect(
         "system.storage_destroy",
-        variant(ResourceVariant::StorageVolume),
+        resource_variant(ResourceVariant::StorageVolume),
         vec![
             string_attr("mode", "rollback"),
             bool_attr("newer_snapshots_destroyed", true),
@@ -533,7 +533,7 @@ pub(crate) fn storage_snapshot_delete() -> GuardDefinition {
     // copies of a table rather than its live data.
     assertions.push(nondry_effect(
         "database.schema_drop",
-        family("db"),
+        resource_family("db"),
         vec![
             present_attr("object_kind"),
             string_attr("object_kind", "table_snapshot"),
@@ -541,7 +541,7 @@ pub(crate) fn storage_snapshot_delete() -> GuardDefinition {
     ));
     assertions.push(nondry_effect(
         "database.truncate",
-        family("db"),
+        resource_family("db"),
         vec![present_attr("detached"), bool_attr("detached", true)],
     ));
     GuardDefinition {
@@ -616,7 +616,7 @@ fn effect_without_attribute(
 fn remote_filesystem_delete() -> Assertion {
     let mut assertion = success_path_effect(
         "filesystem.delete",
-        unbounded_selection(variant(ResourceVariant::FsPath)),
+        unbounded_selection(resource_variant(ResourceVariant::FsPath)),
         vec![
             present_attr("contents_only"),
             required_attr("contents_only"),
@@ -641,8 +641,8 @@ fn unbounded_selection(resource: ResourcePredicate) -> ResourcePredicate {
             ResourcePredicate::Not {
                 predicate: Box::new(ResourcePredicate::AnyOf {
                     predicates: vec![
-                        selection(SelectionShape::NamedSet),
-                        selection(SelectionShape::Pattern),
+                        resource_selection(SelectionShape::NamedSet),
+                        resource_selection(SelectionShape::Pattern),
                     ],
                 }),
             },

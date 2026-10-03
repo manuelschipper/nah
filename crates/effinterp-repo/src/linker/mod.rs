@@ -1,10 +1,8 @@
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use effinterp_engine::{
-    Assurance, DispatchSignature, DispatchStyle, ExternalCall, ImportBinding, ObjectIdentity,
-    ResolvedObject, SemanticValue, SemanticValueKind, TypeRef, canonical_rust_std_type,
-    classify_go_call, classify_java_call, classify_python_call, classify_ruby_require,
-    classify_rust_call, property_access,
+    Assurance, ExternalCall, ImportBinding, ObjectIdentity, ResolvedObject, SemanticValue,
+    SemanticValueKind, property_access,
 };
 use effinterp_proto::{BoundaryReason, CalleeReference, Effect, ResourceExpr};
 
@@ -340,7 +338,9 @@ fn wildcard_exports(file: &ModuleFile, name: &str) -> bool {
         || (file.summary.linkage.wildcard_excludes_private && name.starts_with('_')))
 }
 
-fn join_module(module: &str, imported: &str) -> String {
+/// The module path of `imported` under `module`; a relative module made only
+/// of dots keeps its dots and takes the name directly.
+pub(crate) fn join_module(module: &str, imported: &str) -> String {
     if module.chars().all(|c| c == '.') {
         format!("{module}{imported}")
     } else {

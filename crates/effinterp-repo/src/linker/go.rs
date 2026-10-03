@@ -1,5 +1,17 @@
-use super::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+use effinterp_engine::{
+    Assurance, DispatchSignature, DispatchStyle, ExternalCall, ImportBinding, ResolvedObject,
+    SemanticValue, TypeRef, classify_go_call,
+};
+use effinterp_proto::{CalleeReference, Effect};
+
+use super::{
+    Linker, Resolution, bounded_dispatch, class_defined, dispatch_contract, excluded_dispatch_file,
+    find_import, instance, one, resolve_common_method, resolve_package_value_at,
+    standard_class_candidates,
+};
+use crate::module::{ModuleFile, ModuleRegistry};
 
 pub(crate) struct GoLinker;
 

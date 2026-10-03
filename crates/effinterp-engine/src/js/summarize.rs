@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, ExecutionRealm, Modality, Operation, ResourceExpr, ResourceFamily, ResourceIdentity,
+    Effect, ExecutionRealm, Modality, Operation, ResourceExpr, ResourceIdentity,
 };
 use oxc_ast::ast::{
     Argument, AssignmentExpression, AssignmentTarget, BindingPattern, CallExpression, Class,
@@ -47,6 +47,7 @@ use crate::module_summary::{
 };
 use crate::resource_transfer::TransferBinding;
 use crate::summary::Summary;
+use crate::value::unresolved_resource;
 use crate::{
     ObjectIdentity, ScopeKey, SemanticValue, SemanticValueKind, TypeRef, ValueArgument,
     ValueOrigin, merge_arguments, positional_arguments,
@@ -3622,9 +3623,7 @@ impl<'a> SummaryVisitor<'_, 'a> {
                     .unwrap_or_else(|| resolve::url_resource(expr)),
                 _ => resolve::url_resource(expr),
             },
-            _ => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            },
+            _ => unresolved_resource("network"),
         };
         self.push_effect("network.request", resource, BTreeMap::new());
     }
@@ -3651,9 +3650,7 @@ impl<'a> SummaryVisitor<'_, 'a> {
     fn unknown_env_effect(&mut self, operation: &str, unset: bool) {
         self.push_effect(
             operation,
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("environment"),
-            },
+            unresolved_resource("environment"),
             unset
                 .then(|| ("unset".to_string(), AttrValue::Bool(true)))
                 .into_iter()
@@ -3700,9 +3697,7 @@ impl<'a> SummaryVisitor<'_, 'a> {
                 .first()
                 .and_then(argument_expr)
                 .map(resolve::process_resource)
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("process"),
-                })
+                .unwrap_or(unresolved_resource("process"))
         };
         self.push_effect("process.exec", resource.clone(), Attrs::new());
         self.boundaries.push(Boundary {
@@ -3732,9 +3727,7 @@ impl<'a> SummaryVisitor<'_, 'a> {
             .unwrap_or_else(|| {
                 resolve::fs_resource(expr, None, None, &self.param_env, self.bindings)
             }),
-            None => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            },
+            None => unresolved_resource("filesystem"),
         }
     }
 

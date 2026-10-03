@@ -1,7 +1,18 @@
 //! `git checkout`, `git switch` and `git restore`: which options and pathspecs
 //! were spelled, and the worktree paths they discard.
 
-use super::*;
+use effinterp_proto::AttrValue;
+
+use crate::builder::PlanBuilder;
+use crate::models::InvocationCtx;
+use crate::models::common::{Attrs, arg_node, attrs};
+use crate::word::{Word, WordPart};
+
+use super::{
+    SubCtx, discovers_from_worktree, foreach_whole_tree, git_argument_boundary, git_effective_flag,
+    git_operands_are_not_options, git_request_path, insert_selection, is_worktree_root_pathspec,
+    matches_everything, request_attrs, root_uses_invocation_cwd, top_discovered,
+};
 
 fn git_checkout_options_known(s: &SubCtx<'_>, sub: &str) -> bool {
     let creation: &[&str] = if sub == "restore" {

@@ -1,8 +1,7 @@
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, Condition, CoverageLevel, Domain,
     Effect, ExecutionEdgeKind, ExecutionInputReason, ExecutionInputRole, ExecutionPhase,
-    ExecutionSelector, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceFamily, Subject,
+    ExecutionSelector, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, Subject,
 };
 
 use crate::SourcePurpose;
@@ -15,7 +14,7 @@ use crate::models::common::{
 use crate::models::{InvocationCtx, StdinValue, model_application_node, source_refusal_detail};
 use crate::nest::{Nest, SourceResolution, Transition, word_resource};
 use crate::paths::process_identity_with_cwd;
-use crate::value::{SemanticValue, SemanticValueKind};
+use crate::value::{SemanticValue, SemanticValueKind, unresolved_resource};
 use crate::word::{Word, WordPart};
 
 pub(crate) enum UnresolvedHead {
@@ -148,9 +147,7 @@ fn terminal_input(
     }
     builder.rollback(checkpoint);
     if candidates.is_empty() {
-        candidates.push(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("process"),
-        });
+        candidates.push(unresolved_resource("process"));
     }
     for resource in candidates {
         builder.effect(Effect {
@@ -471,9 +468,7 @@ pub(crate) fn analyze_exec(
                 request_assurance: effinterp_proto::RequestAssurance::Conservative,
                 id: Default::default(),
                 operation: Operation::new("process.exec"),
-                resource: ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("process"),
-                },
+                resource: unresolved_resource("process"),
                 attributes: Default::default(),
                 modality: Modality::May,
                 realm: effinterp_proto::ExecutionRealm::Host,

@@ -26,9 +26,9 @@ pub(crate) fn mutate_cline_hook(
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable, platform, policy)
+            install_cline_hook(&home, &executable, platform, policy)
         } else {
-            uninstall_hook(&home, platform)
+            uninstall_cline_hook(&home, platform)
         }
     })?;
     Ok(RuntimeMutation::new(
@@ -45,7 +45,7 @@ pub(crate) fn cline_hook_status() -> Result<RuntimeHookStatus, String> {
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let paths = ClineHookPaths::new(&home, platform);
-    reject_symlinks(&paths)?;
+    reject_cline_hook_symlinks(&paths)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     let delegate = desired_hook(&executable, platform, FailurePolicy::Delegate)?;
@@ -98,7 +98,7 @@ pub(crate) fn cline_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![paths.ide_hook, paths.cli_hook])
 }
 
-fn install_hook(
+fn install_cline_hook(
     home: &AbsolutePath,
     executable: &Path,
     platform: Platform,
@@ -106,12 +106,12 @@ fn install_hook(
 ) -> Result<PathBuf, String> {
     let paths = ClineHookPaths::new(home, platform);
     let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &CLINE_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
+    reject_cline_hook_symlinks(&paths)?;
     let desired = desired_hook(executable, platform, policy)?;
     let states = hook_states(&paths, &desired)?;
     for (path, state) in paths.hooks().into_iter().zip(states) {
         if state != Some(true) {
-            save(path, &desired)?;
+            save_cline_hook_script(path, &desired)?;
         }
     }
     if redundant_hook(&paths)?.is_some() {
@@ -121,10 +121,10 @@ fn install_hook(
     Ok(paths.ide_hook)
 }
 
-fn uninstall_hook(home: &AbsolutePath, platform: Platform) -> Result<PathBuf, String> {
+fn uninstall_cline_hook(home: &AbsolutePath, platform: Platform) -> Result<PathBuf, String> {
     let paths = ClineHookPaths::new(home, platform);
     let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &CLINE_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
+    reject_cline_hook_symlinks(&paths)?;
     for path in paths.hooks() {
         if path.exists() {
             let configured =
@@ -323,7 +323,7 @@ const CLINE_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
     permissions: "cline-hook-permissions-failed",
 };
 
-fn reject_symlinks(paths: &ClineHookPaths) -> Result<(), String> {
+fn reject_cline_hook_symlinks(paths: &ClineHookPaths) -> Result<(), String> {
     for directory in &paths.directories {
         reject_hook_path_symlink(directory, "cline-hook-symlink-unsupported")?;
     }
@@ -333,7 +333,7 @@ fn reject_symlinks(paths: &ClineHookPaths) -> Result<(), String> {
     Ok(())
 }
 
-fn save(path: &Path, contents: &str) -> Result<(), String> {
+fn save_cline_hook_script(path: &Path, contents: &str) -> Result<(), String> {
     reject_hook_path_symlink(path, "cline-hook-symlink-unsupported")?;
     let parent = path
         .parent()

@@ -1,6 +1,20 @@
-use super::*;
-use effinterp_engine::rust_inert_receiver_method;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
+
+use effinterp_engine::{
+    Assurance, DispatchSignature, DispatchStyle, ExternalCall, ImportBinding, ObjectIdentity,
+    ResolvedObject, SemanticValue, SemanticValueKind, TypeRef, canonical_rust_std_type,
+    classify_rust_call, rust_inert_receiver_method,
+};
+use effinterp_proto::BoundaryReason;
+
+use super::{
+    Linker, MAX_DISPATCH_CANDIDATES, MAX_EXPORT_CHASE, Resolution, bounded_dispatch, class_defined,
+    dedup_targets, dispatch_contract, excluded_dispatch_file, find_import, imported_class_name,
+    imported_function_name, instance, one, resolve_common_method, resolve_export,
+    resolve_export_class, resolve_standard_callee, resolves_contract, standard_class_candidates,
+    wildcard_exports,
+};
+use crate::module::{ModuleFile, ModuleRegistry};
 
 pub(crate) struct RustLinker;
 

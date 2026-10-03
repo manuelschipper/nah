@@ -1,6 +1,28 @@
 //! Invocation parsing and declarative value and resource evaluation.
 
-use super::*;
+use std::collections::{BTreeMap, BTreeSet};
+
+use effinterp_model_schema::{
+    ApiRouteConditionDeclaration, AssignmentValueKind, AttributeDeclaration, BehaviorDeclaration,
+    EffectSourceDeclaration, EnvironmentGateDeclaration, LiteralShapeDeclaration, OperandKind,
+    OperandSelection, RealmDeclaration, ResourceDeclaration, RuleConditionDeclaration,
+    UrlComponent, ValueDeclaration,
+};
+use effinterp_proto::{
+    AttrValue, ExecutionRealm, ResourceExpr, ResourceIdentity, SourceDialect, Subject,
+};
+
+use crate::models::InvocationCtx;
+use crate::models::args::{FlagSpec, basename, dirname, scan_with_named_values};
+use crate::nest::word_resource;
+use crate::value::unresolved_resource;
+use crate::word::{Word, WordPart};
+
+use super::literals::{
+    audited_go_duration, audited_go_integer, audited_http_header_field,
+    audited_repository_selector, proven_go_template_subset, proven_permission_mode,
+};
+use super::routes::api_route_matches;
 
 #[derive(Clone)]
 pub(super) struct ParsedFlag {
@@ -309,9 +331,7 @@ impl ParsedInvocation {
             return None;
         }
         if let Some(value) = self.environment.get(name) {
-            return Some(value.clone().unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("value"),
-            }));
+            return Some(value.clone().unwrap_or(unresolved_resource("value")));
         }
         self.host_environment
             .as_ref()
@@ -328,9 +348,7 @@ impl ParsedInvocation {
             return Some(None);
         }
         if let Some(value) = self.environment.get(name) {
-            return Some(Some(value.clone().unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("value"),
-            })));
+            return Some(Some(value.clone().unwrap_or(unresolved_resource("value"))));
         }
         let host = self.host_environment.as_ref()?;
         Some(host.get(name).map(|value| ResourceExpr::Literal {
@@ -385,9 +403,7 @@ impl ParsedInvocation {
             };
         }
         if let Some(value) = self.environment.get(name) {
-            return value.clone().unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("unknown"),
-            });
+            return value.clone().unwrap_or(unresolved_resource("unknown"));
         }
         match &self.host_environment {
             Some(environment) => environment
@@ -1298,9 +1314,7 @@ impl ParsedInvocation {
             _ => self
                 .word(declaration, current)
                 .map(|word| word_resource(&word))
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("unknown"),
-                }),
+                .unwrap_or(unresolved_resource("unknown")),
         }
     }
 
@@ -1376,9 +1390,6 @@ impl ParsedInvocation {
         cwd: Option<ResourceExpr>,
         platform: effinterp_proto::PathPlatform,
     ) -> ResourceExpr {
-        let unresolved = |family: &str| ResourceExpr::Unresolved {
-            family: ResourceFamily::new(family),
-        };
         match declaration {
             ResourceDeclaration::Value { value } => self.expr(value, Some(current), cwd),
             ResourceDeclaration::Filesystem {
@@ -1389,7 +1400,7 @@ impl ParsedInvocation {
                 .map(|word| {
                     crate::paths::resolve_fs_word_with_cwd_on_platform(&word, cwd, platform)
                 })
-                .unwrap_or_else(|| unresolved("filesystem")),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             ResourceDeclaration::BasenameInCwd { value } => match self.word(value, Some(current)) {
                 Some(word) => match word.as_literal() {
                     Some(path) => {
@@ -1418,11 +1429,11 @@ impl ParsedInvocation {
                                 cwd,
                                 platform,
                             ),
-                            unresolved("filesystem"),
+                            unresolved_resource("filesystem"),
                         ],
                     },
                 },
-                None => unresolved("filesystem"),
+                None => unresolved_resource("filesystem"),
             },
             ResourceDeclaration::InDirectory { directory, entry } => self
                 .word(directory, Some(current))
@@ -1477,7 +1488,7 @@ impl ParsedInvocation {
                         )
                     }
                 })
-                .unwrap_or_else(|| unresolved("filesystem")),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             ResourceDeclaration::Process {
                 executable,
                 path,
@@ -1498,7 +1509,7 @@ impl ParsedInvocation {
                             .map(|value| Box::new(self.expr(value, Some(current), cwd.clone()))),
                     },
                 })
-                .unwrap_or_else(|| unresolved("process")),
+                .unwrap_or_else(|| unresolved_resource("process")),
             ResourceDeclaration::Network {
                 host,
                 scheme,
@@ -1514,12 +1525,12 @@ impl ParsedInvocation {
                         path: self.optional_literal(path, Some(current)),
                     },
                 })
-                .unwrap_or_else(|| unresolved("network")),
+                .unwrap_or_else(|| unresolved_resource("network")),
             ResourceDeclaration::NetworkUrl { url } => self
                 .literal(url, Some(current))
                 .and_then(|url| super::super::net::parse_endpoint(&url))
                 .map(|identity| ResourceExpr::Concrete { identity })
-                .unwrap_or_else(|| unresolved("network")),
+                .unwrap_or_else(|| unresolved_resource("network")),
             ResourceDeclaration::Container {
                 runtime,
                 name,
@@ -1534,7 +1545,7 @@ impl ParsedInvocation {
                         storage: Vec::new(),
                     },
                 })
-                .unwrap_or_else(|| unresolved("container")),
+                .unwrap_or_else(|| unresolved_resource("container")),
             ResourceDeclaration::DatabaseTable {
                 server,
                 database,
@@ -1550,7 +1561,7 @@ impl ParsedInvocation {
                         table,
                     },
                 })
-                .unwrap_or_else(|| unresolved("database")),
+                .unwrap_or_else(|| unresolved_resource("database")),
             ResourceDeclaration::DatabaseSchema {
                 server,
                 database,
@@ -1579,7 +1590,7 @@ impl ParsedInvocation {
                         key: self.optional_literal(key, Some(current)),
                     },
                 })
-                .unwrap_or_else(|| unresolved("cloud")),
+                .unwrap_or_else(|| unresolved_resource("cloud")),
             // An ID the invocation does not state still names one resource of
             // the declared kind.
             ResourceDeclaration::Cloud {
@@ -1602,7 +1613,7 @@ impl ParsedInvocation {
                         id: self.literal(id, Some(current)),
                     },
                 })
-                .unwrap_or_else(|| unresolved("cloud")),
+                .unwrap_or_else(|| unresolved_resource("cloud")),
             ResourceDeclaration::Messaging {
                 scope,
                 system,
@@ -1618,14 +1629,14 @@ impl ParsedInvocation {
                         name,
                     },
                 })
-                .unwrap_or_else(|| unresolved("messaging")),
+                .unwrap_or_else(|| unresolved_resource("messaging")),
             ResourceDeclaration::EnvironmentVariable { name } => self
                 .literal(name, Some(current))
                 .filter(|name| !name.is_empty())
                 .map(|name| ResourceExpr::Concrete {
                     identity: ResourceIdentity::EnvironmentVariable { name },
                 })
-                .unwrap_or_else(|| unresolved("environment")),
+                .unwrap_or_else(|| unresolved_resource("environment")),
             ResourceDeclaration::Artifact {
                 ecosystem,
                 endpoint,
@@ -1683,7 +1694,7 @@ impl ParsedInvocation {
                     .map(|part| self.resource(part, current, cwd.clone(), platform))
                     .collect::<Vec<_>>();
                 match alternatives.as_slice() {
-                    [] => unresolved("filesystem"),
+                    [] => unresolved_resource("filesystem"),
                     [alternative] => alternative.clone(),
                     _ => ResourceExpr::Union { alternatives },
                 }
@@ -1720,9 +1731,9 @@ impl ParsedInvocation {
                         }
                         pattern => ResourceExpr::Pattern { pattern },
                     })
-                    .unwrap_or_else(|| unresolved(pattern.domain()))
+                    .unwrap_or_else(|| unresolved_resource(pattern.domain()))
             }
-            ResourceDeclaration::Unresolved { family } => unresolved(family),
+            ResourceDeclaration::Unresolved { family } => unresolved_resource(family),
         }
     }
 
@@ -2057,6 +2068,8 @@ pub(super) fn value_environment_provenance_names(value: &ValueDeclaration) -> Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::CommandModel;
+    use crate::models::registry::compile::builtin_registry;
 
     #[test]
     fn go_integer_shape_matches_base_zero_parse_int() {

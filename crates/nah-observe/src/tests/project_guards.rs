@@ -1,5 +1,5 @@
 use super::support::{init_repo, request};
-use crate::fulfill;
+use crate::fulfill_observation_request;
 use nah_proto::observation::ProjectGuardDeclaration;
 use std::fs;
 
@@ -9,7 +9,7 @@ fn project_guard_declaration_has_distinct_absent_present_malformed_and_read_fail
 
     let absent = temp.path().join("absent");
     init_repo(&absent);
-    let observed = fulfill(&request(&absent, &[])).expect("absent observation");
+    let observed = fulfill_observation_request(&request(&absent, &[])).expect("absent observation");
     assert_eq!(
         observed.project_guard_declaration().unwrap(),
         &ProjectGuardDeclaration::Absent
@@ -23,7 +23,8 @@ fn project_guard_declaration_has_distinct_absent_present_malformed_and_read_fail
         "enable-guards = [\"secrets-env\", \"git-hard-reset\"]\n",
     )
     .unwrap();
-    let observed = fulfill(&request(&present, &[])).expect("present observation");
+    let observed =
+        fulfill_observation_request(&request(&present, &[])).expect("present observation");
     assert_eq!(
         observed.project_guard_declaration().unwrap(),
         &ProjectGuardDeclaration::Present {
@@ -39,7 +40,8 @@ fn project_guard_declaration_has_distinct_absent_present_malformed_and_read_fail
         "guards = [\"secrets-env\"]\n",
     )
     .unwrap();
-    let observed = fulfill(&request(&malformed, &[])).expect("malformed observation");
+    let observed =
+        fulfill_observation_request(&request(&malformed, &[])).expect("malformed observation");
     assert_eq!(
         observed.project_guard_declaration().unwrap(),
         &ProjectGuardDeclaration::Malformed
@@ -48,7 +50,8 @@ fn project_guard_declaration_has_distinct_absent_present_malformed_and_read_fail
     let unreadable = temp.path().join("unreadable");
     init_repo(&unreadable);
     fs::create_dir_all(unreadable.join(".nah/project.toml")).unwrap();
-    let observed = fulfill(&request(&unreadable, &[])).expect("read failure observation");
+    let observed =
+        fulfill_observation_request(&request(&unreadable, &[])).expect("read failure observation");
     assert_eq!(
         observed.project_guard_declaration().unwrap(),
         &ProjectGuardDeclaration::ReadFailure
@@ -62,7 +65,8 @@ fn project_guard_declaration_has_distinct_absent_present_malformed_and_read_fail
         vec![b'x'; 16 * 1024 + 1],
     )
     .unwrap();
-    let observed = fulfill(&request(&oversized, &[])).expect("oversized observation");
+    let observed =
+        fulfill_observation_request(&request(&oversized, &[])).expect("oversized observation");
     assert_eq!(
         observed.project_guard_declaration().unwrap(),
         &ProjectGuardDeclaration::ReadFailure
@@ -80,7 +84,8 @@ fn project_guard_declaration_has_distinct_absent_present_malformed_and_read_fail
             linked.join(".nah/project.toml"),
         )
         .unwrap();
-        let observed = fulfill(&request(&linked, &[])).expect("linked observation");
+        let observed =
+            fulfill_observation_request(&request(&linked, &[])).expect("linked observation");
         assert_eq!(
             observed.project_guard_declaration().unwrap(),
             &ProjectGuardDeclaration::ReadFailure

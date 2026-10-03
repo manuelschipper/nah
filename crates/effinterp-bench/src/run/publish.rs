@@ -16,13 +16,13 @@ use effinterp_proto::content_digest;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use super::gate::{self, RULES_VERSION, RuleResult};
 use super::{
     BenchLayout, FileLock, Plane, PlaneProvenance, RUN_SCHEMA, RepoUnit, RunCompat, RunManifest,
     RunSeal, RunState, RunStatus, read_bench_record, record_files, repo_unit_name, run_lock_path,
     utc_now, validate_run_id, write_bench_record,
 };
-use crate::bench::gate::{self, RULES_VERSION, RuleResult};
-use crate::bench::score::{self, Scoreboard};
+use crate::invocation::score::{self, Scoreboard};
 use crate::latency::LatencySection;
 use crate::nah::report::{Ceilings, write_ratchet_ceilings};
 use crate::repos::score::ReposSection;

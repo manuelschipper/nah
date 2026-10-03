@@ -26,7 +26,7 @@ use crate::lang::frontend::{
 pub use model::go_external_effects;
 
 pub(crate) use model::go_callback_positions;
-use model::{endpoint, string_of};
+use model::string_of;
 use summary::{
     BlockWrites, EscapedCallables, GoFunc, Imports, addressed_name, allocated_class,
     assigned_outer_names, assignment_base_name, collect_funcs, collect_imports, compute_summaries,
@@ -40,8 +40,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity, SqlConnection, SqlDialect, Subject,
+    Effect, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
+    Subject,
 };
 use gosyn::ast::{BlockStmt, DeclStmt, Declaration, Element, Expression, File, FuncLit, Statement};
 use gosyn::token::Operator;
@@ -50,16 +50,15 @@ use crate::builder::PlanBuilder;
 use crate::control_flow::{
     ControlCaps, ControlExit, ControlFact, ControlFlow, ControlStack, SiteFacts,
 };
-use crate::module_summary::{
-    CallEdge, ClassEntry, DispatchContract, DispatchSignature, FunctionEntry, ImportBinding,
-    ModuleSummary, StructField, call_results,
-};
+use crate::module_summary::{CallEdge, DispatchContract, call_results};
 use crate::nest::{Nest, Transition};
 use crate::paths::fs_resource_uses_cwd;
 use crate::resource_transfer::TransferBinding;
 use crate::summary::{Summary, bind_positional, substitute_resource_expr};
-use crate::value::{anchor_fs_text_concat, parse_url_endpoint, sink_typed_join, typed_concat};
-use crate::word::WordPart;
+use crate::value::{
+    anchor_fs_text_concat, sink_typed_join, typed_concat, unresolved_resource,
+    url_endpoint_resource,
+};
 use crate::{
     CallableValue, ObjectIdentity, ScopeKey, SemanticValue, SemanticValueKind, TypeRef,
     ValueArgument, ValueOrigin, join_branches, merge_arguments, positional_arguments,
@@ -69,8 +68,6 @@ use crate::{
 /// only a subset of Go's effect surface is modeled.
 const GO_DOMAINS: [&str; 4] = ["environment", "filesystem", "network", "process"];
 
-/// Default cap on AST call nodes visited when `max_go_nodes` is unset.
-use crate::limits::DEFAULT_MAX_GO_NODES;
 /// Summary fixpoint iterations before freezing (recursion terminates anyway).
 const MAX_SUMMARY_ITERS: usize = 5;
 /// Cap on effects/edges retained per summary.
@@ -838,12 +835,8 @@ impl GoWalker<'_, '_> {
                 .insert(name.clone(), ResourceExpr::Parameter { name: name.clone() });
             self.values
                 .insert(name.clone(), SemanticValue::parameter(&name));
-            self.channel_values.insert(
-                name.clone(),
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                },
-            );
+            self.channel_values
+                .insert(name.clone(), unresolved_resource("filesystem"));
             if let Some(typ) = types.get(&name) {
                 self.local_types.insert(name, typ.clone());
             }
@@ -986,12 +979,8 @@ impl GoWalker<'_, '_> {
                     if id.name == "_" {
                         continue;
                     }
-                    self.channel_values.insert(
-                        id.name.clone(),
-                        ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("filesystem"),
-                        },
-                    );
+                    self.channel_values
+                        .insert(id.name.clone(), unresolved_resource("filesystem"));
                     self.resource_values.remove(&id.name);
                     self.values.remove(&id.name);
                 }
@@ -1170,12 +1159,8 @@ impl GoWalker<'_, '_> {
                                 self.bind_local_name(&id.name);
                             }
                             if id.name != "_" {
-                                self.channel_values.insert(
-                                    id.name.clone(),
-                                    ResourceExpr::Unresolved {
-                                        family: ResourceFamily::new("filesystem"),
-                                    },
-                                );
+                                self.channel_values
+                                    .insert(id.name.clone(), unresolved_resource("filesystem"));
                                 self.resource_values.remove(&id.name);
                                 // The assign form rebinds a name that outlives
                                 // the loop, so it must stay in the value map to
@@ -1241,12 +1226,8 @@ impl GoWalker<'_, '_> {
                     let value = self.fs_arg(&send.value);
                     match self.channel_values.get(channel) {
                         Some(previous) if previous != &value => {
-                            self.channel_values.insert(
-                                channel.to_string(),
-                                ResourceExpr::Unresolved {
-                                    family: ResourceFamily::new("filesystem"),
-                                },
-                            );
+                            self.channel_values
+                                .insert(channel.to_string(), unresolved_resource("filesystem"));
                         }
                         None => {
                             self.channel_values.insert(channel.to_string(), value);
@@ -2157,9 +2138,7 @@ impl GoWalker<'_, '_> {
                     .last_mut()
                     .and_then(|scope| scope.get_mut(right_name))
             {
-                binding.channel_value = Some(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                });
+                binding.channel_value = Some(unresolved_resource("filesystem"));
             }
             self.widen_escaped_channel(right);
             self.widen_escaped_channel(left);
@@ -2181,12 +2160,8 @@ impl GoWalker<'_, '_> {
             if fresh_channel_expression(right) {
                 self.channel_values.remove(left);
             } else if computed_channel_expression(right) {
-                self.channel_values.insert(
-                    left.to_string(),
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    },
-                );
+                self.channel_values
+                    .insert(left.to_string(), unresolved_resource("filesystem"));
             } else {
                 self.channel_values.remove(left);
             }
@@ -2201,9 +2176,7 @@ impl GoWalker<'_, '_> {
             {
                 channel_name(&operation.x).and_then(|channel| {
                     if !self.local_vars.contains(channel) {
-                        Some(ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("filesystem"),
-                        })
+                        Some(unresolved_resource("filesystem"))
                     } else {
                         self.channel_values.get(channel).cloned()
                     }
@@ -3787,9 +3760,7 @@ impl GoWalker<'_, '_> {
             }
             self.widen_channels_in_block(&body, 0);
             for value in self.channel_values.values_mut() {
-                *value = ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                };
+                *value = unresolved_resource("filesystem");
             }
         }
         if self.collect_edges {
@@ -3979,12 +3950,8 @@ impl GoWalker<'_, '_> {
         }
         match expr {
             Expression::Ident(ident) => {
-                self.channel_values.insert(
-                    ident.name.clone(),
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    },
-                );
+                self.channel_values
+                    .insert(ident.name.clone(), unresolved_resource("filesystem"));
             }
             Expression::Paren(paren) => self.widen_escaped_channel_at(&paren.expr, depth + 1),
             Expression::Operation(operation)
@@ -4328,9 +4295,7 @@ impl GoWalker<'_, '_> {
                             },
                         )
                     })
-                    .unwrap_or(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    }),
+                    .unwrap_or(unresolved_resource("filesystem")),
             },
             Expression::Selector(selector) => {
                 if let Expression::Ident(receiver) = &*selector.x
@@ -4351,18 +4316,14 @@ impl GoWalker<'_, '_> {
                 }
                 self.value_of(expr)
                     .map(|value| value.lower_resource_for_domain("filesystem"))
-                    .unwrap_or(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    })
+                    .unwrap_or(unresolved_resource("filesystem"))
             }
             Expression::Paren(p) => self.fs_arg(&p.expr),
             Expression::Operation(operation)
                 if operation.op == Operator::Arrow && operation.y.is_none() =>
             {
                 self.received_resource(expr)
-                    .unwrap_or(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    })
+                    .unwrap_or(unresolved_resource("filesystem"))
             }
             // String concatenation is typed by the filesystem sink.
             Expression::Operation(operation)
@@ -4398,20 +4359,16 @@ impl GoWalker<'_, '_> {
                         return sink_typed_join(parts, "filesystem");
                     }
                 }
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                }
+                unresolved_resource("filesystem")
             }
-            _ => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            },
+            _ => unresolved_resource("filesystem"),
         }
     }
 
     fn network_arg(&self, expr: &Expression) -> ResourceExpr {
         match expr {
             Expression::BasicLit(literal) if is_str_lit(literal) => {
-                endpoint(&unquote(&literal.value))
+                url_endpoint_resource(&unquote(&literal.value))
             }
             Expression::Paren(paren) => self.network_arg(&paren.expr),
             Expression::Operation(operation)
@@ -4428,7 +4385,7 @@ impl GoWalker<'_, '_> {
             _ => self
                 .value_of(expr)
                 .and_then(|value| match value.kind {
-                    SemanticValueKind::Literal(value) => Some(endpoint(&value)),
+                    SemanticValueKind::Literal(value) => Some(url_endpoint_resource(&value)),
                     SemanticValueKind::Join(_) => {
                         Some(sink_typed_join(vec![value.lower_resource()], "network"))
                     }
@@ -4438,9 +4395,7 @@ impl GoWalker<'_, '_> {
                     }
                     _ => None,
                 })
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                }),
+                .unwrap_or(unresolved_resource("network")),
         }
     }
 
@@ -4472,9 +4427,7 @@ impl GoWalker<'_, '_> {
                     .and_then(string_of)
                     .filter(|name| !name.is_empty())
                     .map(|name| ResourceExpr::Environment { name })
-                    .unwrap_or(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("environment"),
-                    })
+                    .unwrap_or(unresolved_resource("environment"))
             }
             _ if domain == "filesystem" => self.fs_arg(expr),
             _ => self
@@ -4493,9 +4446,7 @@ impl GoWalker<'_, '_> {
                     }
                     _ => None,
                 })
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("value"),
-                }),
+                .unwrap_or(unresolved_resource("value")),
         }
     }
 

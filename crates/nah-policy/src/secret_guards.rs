@@ -3,13 +3,13 @@
 
 use crate::flow_guards;
 use crate::registry::{GuardClause, GuardDefinition, GuardFamily, engine_only};
-use crate::shared_queries::{present_attr, string_attr, string_one_of};
+use crate::shared_queries::{present_attr, string_attr, string_one_of, success_path_effect};
 use effinterp_matcher::{
     Assertion, ConditionPredicate, OperationMatch, Query, ResourcePredicate, ResourceVariant,
     Selector,
 };
 use effinterp_proto::RequestAssurance;
-use nah_proto::effects::*;
+use nah_proto::effects::Domain;
 use nah_proto::labels::Sensitivity;
 
 /// An exact ordinary value read from a secret store, asked for by name or as a
@@ -22,23 +22,17 @@ pub(crate) fn store_read() -> GuardDefinition {
         default_enabled: true,
         domain: Domain::Credential,
         gap_code: None,
-        clauses: engine_only(Query::new(Assertion::Effect {
-            selector: Selector {
-                operation: OperationMatch::Exact("credential.read_request".into()),
-                resource: ResourcePredicate::Any,
-                attributes: vec![
-                    string_attr("mode", "value"),
-                    string_attr("workflow", "ordinary"),
-                    string_one_of("purpose", &["explicit", "program_input"]),
-                ],
-                request_assurance: Some(RequestAssurance::Exact),
-                condition: Some(ConditionPredicate::SuccessPath),
-                modality: None,
-                execution_assurance: None,
-                realm: None,
-            },
-            closure: None,
-        })),
+        clauses: engine_only(Query::new(success_path_effect(
+            "credential.read_request",
+            ResourcePredicate::Any,
+            vec![
+                string_attr("mode", "value"),
+                string_attr("workflow", "ordinary"),
+                string_one_of("purpose", &["explicit", "program_input"]),
+            ],
+            Some(RequestAssurance::Exact),
+            None,
+        ))),
     }
 }
 
@@ -79,19 +73,13 @@ fn store_deletion(
         default_enabled,
         domain: Domain::Credential,
         gap_code: Some("credential-deletion-mode-unavailable"),
-        clauses: engine_only(Query::new(Assertion::Effect {
-            selector: Selector {
-                operation: OperationMatch::Exact("credential.delete_request".into()),
-                resource: ResourcePredicate::Any,
-                attributes: vec![string_one_of("deletion", modes)],
-                request_assurance: Some(RequestAssurance::Exact),
-                condition: Some(ConditionPredicate::SuccessPath),
-                modality: None,
-                execution_assurance: None,
-                realm: None,
-            },
-            closure: None,
-        })),
+        clauses: engine_only(Query::new(success_path_effect(
+            "credential.delete_request",
+            ResourcePredicate::Any,
+            vec![string_one_of("deletion", modes)],
+            Some(RequestAssurance::Exact),
+            None,
+        ))),
     }
 }
 
@@ -142,7 +130,7 @@ pub(crate) fn environment() -> GuardDefinition {
         None,
         vec![
             flow_guards::printed_environment(flow_guards::credential_variables()),
-            flow_guards::printed_environment(flow_guards::sensitivity(
+            flow_guards::printed_environment(flow_guards::sensitivity_label(
                 Sensitivity::EnvironmentSecret,
             )),
         ],

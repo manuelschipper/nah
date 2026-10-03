@@ -1,7 +1,28 @@
 //! JavaScript scope bindings: which names a program, function or loop binds,
 //! what each is bound to, and which writes rebind them.
 
-use super::*;
+use std::collections::{HashMap, HashSet};
+
+use oxc_ast::ast::{
+    Argument, AssignmentTarget, BindingPattern, BlockStatement, CallExpression, CatchClause,
+    ClassBody, Declaration, ExportDefaultDeclarationKind, Expression, ForInStatement,
+    ForOfStatement, ForStatement, FormalParameters, FunctionBody, ImportDeclaration,
+    ImportDeclarationSpecifier, MemberExpression, NewExpression, Statement, StaticBlock,
+    StaticMemberExpression, SwitchStatement, UnaryExpression, UpdateExpression,
+    VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+};
+use oxc_ast_visit::{Visit, walk};
+use oxc_span::GetSpan;
+
+use crate::lang::frontend::MAX_WALK_DEPTH;
+
+use super::collect::FnTable;
+use super::{
+    CallableBinding, CallableEnv, aggregate_mutation_target_bindings,
+    assignment_target_write_binding_name, clear_bound_pattern, collect, console,
+    expression_write_binding_name, literal_property_name, member_producer, model, resolve,
+    resolve_callable, simple_assignment_target_write_binding_name, unparen,
+};
 
 /// What a bare callee name binds to at its call site.
 #[derive(Clone, Copy)]

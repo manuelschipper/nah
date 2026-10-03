@@ -1,6 +1,9 @@
 //! Enforces non-disableable structural protection from shared evidence.
 
-use nah_proto::effects::*;
+use nah_proto::effects::{
+    ConditionAtomOrigin, ConditionExpr, ConditionId, ConditionUse, ControlTransport, EffectGraph,
+    FactPayload, FilesystemOperation, GuardEvidence, Knowledge, Realm,
+};
 use nah_proto::effinterp_proto::ConditionKind;
 use nah_proto::labels::NahProtectionTier;
 

@@ -2,12 +2,13 @@
 
 use effinterp_proto::{AttrValue, Effect, Plan, ResourceExpr, ResourceIdentity};
 use nah_proto::action::FilesystemOperation;
-use nah_proto::ctx::{AbsolutePath, Platform};
-use nah_proto::effect_annotation::PathLabel;
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform};
+use nah_proto::effect_annotation::{EffectAnnotation, PathLabel};
 use nah_proto::effects::Knowledge;
 use nah_proto::observation::{
     Observation, ObservationValue, Observed, PathKind, PathObservation, Root,
 };
+use nah_proto::runtime_protection::SelfProtectionProjection;
 
 use nah_proto::labels::PathScope;
 use nah_proto::labels::host_integrity::host_integrity_class;
@@ -16,9 +17,21 @@ use nah_proto::labels::selects_home;
 use nah_proto::labels::sensitivity::sensitivity;
 use nah_proto::labels::tier;
 
-use crate::observe::observation_bound;
-use crate::plan_view::PathSelection;
+use crate::observation_request::observation_bound;
+use crate::plan_view::{PathSelection, PlanView};
 use crate::runtime_cli;
+
+/// The annotation of every plan effect, in plan order, as a projection of the
+/// plan records it.
+pub fn annotate_plan_effects(
+    plan: &Plan,
+    observation: &Observation,
+    ctx: &Ctx,
+    self_protection: &SelfProtectionProjection,
+) -> Result<Vec<EffectAnnotation>, nah_proto::ctx::CtxError> {
+    let view = PlanView::new(plan, observation, ctx, self_protection)?;
+    Ok(view.annotations())
+}
 
 pub(crate) struct PathLabelContext<'a> {
     pub(crate) platform: Platform,
@@ -48,7 +61,7 @@ pub(crate) fn annotate_path_relation(
         ResourceExpr::Pattern {
             pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
         } => (pattern.as_str(), true),
-        resource => match crate::observe::subtree_root(resource) {
+        resource => match crate::observation_request::subtree_root(resource) {
             Some(root) => (root, false),
             None => {
                 return (
@@ -65,47 +78,48 @@ pub(crate) fn annotate_path_relation(
         );
     };
     let recorded;
-    let (requested, path) =
-        if let Some((original, outcome)) = crate::observe::effect_path_observation(plan, effect) {
-            let effinterp_proto::ObservationOutcome::Path(fact) = outcome else {
-                return (
-                    selection.unwrap_or(PathSelection::FollowedTarget),
-                    PathLabel::Unresolved,
-                );
-            };
-            // A symlink's entry cannot stand in for a refused followed identity.
-            if fact.kind == effinterp_proto::PathKind::Symlink && fact.followed.known().is_none() {
-                return (
-                    selection.unwrap_or(PathSelection::FollowedTarget),
-                    PathLabel::Unresolved,
-                );
-            }
-            let Some(value) = crate::observe::recorded_path(fact, platform) else {
-                return (
-                    selection.unwrap_or(PathSelection::FollowedTarget),
-                    PathLabel::Unresolved,
-                );
-            };
-            recorded = value;
-            // Missing later identity is not a contradiction of the recorded answer.
-            if let Some(later) = observed.and_then(PathObservation::realpath)
-                && Some(later) != recorded.realpath()
-            {
-                return (
-                    selection.unwrap_or(PathSelection::FollowedTarget),
-                    PathLabel::Unresolved,
-                );
-            }
-            (original, &recorded)
-        } else {
-            let Some(path) = observed else {
-                return (
-                    selection.unwrap_or(PathSelection::FollowedTarget),
-                    PathLabel::Unresolved,
-                );
-            };
-            (requested, path)
+    let (requested, path) = if let Some((original, outcome)) =
+        crate::observation_request::effect_path_observation(plan, effect)
+    {
+        let effinterp_proto::ObservationOutcome::Path(fact) = outcome else {
+            return (
+                selection.unwrap_or(PathSelection::FollowedTarget),
+                PathLabel::Unresolved,
+            );
         };
+        // A symlink's entry cannot stand in for a refused followed identity.
+        if fact.kind == effinterp_proto::PathKind::Symlink && fact.followed.known().is_none() {
+            return (
+                selection.unwrap_or(PathSelection::FollowedTarget),
+                PathLabel::Unresolved,
+            );
+        }
+        let Some(value) = crate::observation_request::recorded_path(fact, platform) else {
+            return (
+                selection.unwrap_or(PathSelection::FollowedTarget),
+                PathLabel::Unresolved,
+            );
+        };
+        recorded = value;
+        // Missing later identity is not a contradiction of the recorded answer.
+        if let Some(later) = observed.and_then(PathObservation::realpath)
+            && Some(later) != recorded.realpath()
+        {
+            return (
+                selection.unwrap_or(PathSelection::FollowedTarget),
+                PathLabel::Unresolved,
+            );
+        }
+        (original, &recorded)
+    } else {
+        let Some(path) = observed else {
+            return (
+                selection.unwrap_or(PathSelection::FollowedTarget),
+                PathLabel::Unresolved,
+            );
+        };
+        (requested, path)
+    };
     let access_control = access_control_change(effect);
     let operation = filesystem_operation(effect);
     let selection = selection.unwrap_or_else(|| {
@@ -159,7 +173,7 @@ pub(crate) fn annotate_path_relation(
     // bounded selection for a HOME search with -path.
     // The corpus expected-fails for those shapes flip when the producer
     // keeps its selection bounds.
-    let subtree = crate::observe::subtree_root(&effect.resource).is_some();
+    let subtree = crate::observation_request::subtree_root(&effect.resource).is_some();
     let whole_container = operation == FilesystemOperation::Delete
         || access_control && (recursive || subtree)
         || recursive && effect.attributes.get("metadata") == Some(&AttrValue::Bool(true));
@@ -465,7 +479,7 @@ pub(crate) fn annotate_process_with_authority(
     } else {
         stated_control(plan, effect)
     };
-    runtime_cli::classify(executable, &literal, control.is_some(), home, platform)
+    runtime_cli::recognize_runtime_cli(executable, &literal, control.is_some(), home, platform)
         .map(str::to_owned)
 }
 
@@ -582,7 +596,7 @@ pub(crate) fn nah_control(
 /// has not changed that path before the launch. `Unknown` means the arguments
 /// would be a nah control command but the process could not be identified.
 pub(crate) fn process_protection_tier(
-    view: &crate::plan_view::PlanView<'_>,
+    view: &PlanView<'_>,
     effect: &Effect,
 ) -> Knowledge<Option<nah_proto::labels::NahProtectionTier>> {
     let plan = view.plan();
@@ -666,7 +680,7 @@ pub(crate) fn process_protection_tier(
 /// carries the engine's binary-inference certificate. An explicit command
 /// (`npx --package=P -- CMD`) and any other launch have none, even one whose
 /// path spells a package name.
-fn launched_package<'a>(view: &crate::plan_view::PlanView<'a>, effect: &Effect) -> Option<&'a str> {
+fn launched_package<'a>(view: &PlanView<'a>, effect: &Effect) -> Option<&'a str> {
     let plan = view.plan();
     let edge = view.parent_edge(effect.execution)?;
     let launched = edge.kind == effinterp_proto::ExecutionEdgeKind::ToolModel
@@ -706,11 +720,7 @@ fn path_search_certified(plan: &Plan, effect: &Effect) -> bool {
 /// creates, moves, deletes or mounts the path, a directory above it, or a
 /// selection whose bounds are unknown. The engine has already replaced a path
 /// this plan linked with the link's target.
-fn executed_identity<'a>(
-    view: &crate::plan_view::PlanView<'a>,
-    effect: &Effect,
-    path: &str,
-) -> Option<&'a str> {
+fn executed_identity<'a>(view: &PlanView<'a>, effect: &Effect, path: &str) -> Option<&'a str> {
     let platform = view.authority().platform();
     let changed = view
         .plan()
@@ -726,7 +736,7 @@ fn executed_identity<'a>(
                 )
         })
         .any(|earlier| {
-            crate::observe::observation_bound(&earlier.resource)
+            crate::observation_request::observation_bound(&earlier.resource)
                 .is_none_or(|(bound, _)| nah_proto::labels::contains(&bound, path, platform))
         });
     if changed {
@@ -749,7 +759,7 @@ fn executed_identity<'a>(
 /// replaces even though that directory was never observed. Cargo's model
 /// states the selection on each binary it writes or removes.
 fn cargo_protection_tier(
-    view: &crate::plan_view::PlanView<'_>,
+    view: &PlanView<'_>,
     effect: &Effect,
 ) -> Option<nah_proto::labels::NahProtectionTier> {
     use nah_proto::labels::lexical_path::{
@@ -836,7 +846,7 @@ fn cargo_protection_tier(
 /// execution node states the environment the child actually receives, and the
 /// analyzed subject states the environment it inherited.
 fn environment_protection_tier(
-    view: &crate::plan_view::PlanView<'_>,
+    view: &PlanView<'_>,
     effect: &Effect,
     executable: &str,
     argv: &[String],

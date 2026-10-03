@@ -13,15 +13,14 @@
 
 use std::collections::BTreeMap;
 
-use effinterp_proto::{
-    AttrValue, BoundaryReason, ProvenanceRef, RequestAssurance, ResourceExpr, ResourceFamily,
-};
+use effinterp_proto::{AttrValue, BoundaryReason, ProvenanceRef, RequestAssurance};
 
 use super::artifact::{boundary, environment_boundary, mutation, reviewed, unknown};
 use crate::builder::PlanBuilder;
 use crate::exec::program_name;
 use crate::models::common::{Attrs, arg_effect};
 use crate::models::{CommandModel, InvocationCtx};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 pub(crate) fn release_models() -> Vec<Box<dyn CommandModel>> {
@@ -527,9 +526,7 @@ pub(super) fn release_publication(
             node,
             (release.start - 1) as u32,
             "network.request",
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            },
+            unresolved_resource("network"),
             Attrs::new(),
         );
         environment_boundary(

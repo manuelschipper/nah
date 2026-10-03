@@ -1,4 +1,14 @@
-use super::*;
+use std::collections::{BTreeMap, BTreeSet};
+
+use effinterp_proto::{
+    CoverageLevel, Indeterminate, Match, Payload, ReachHit, ReachReport, RepoQueryEnvelope,
+    ResourceExpr,
+};
+
+use super::{EnvelopeBuilder, operation_matches, protocol_resource, worst_coverage};
+use crate::index::RepoIndex;
+use crate::resource::ResourceSelector;
+use crate::surface::effective_surface;
 
 /// Reverse query: which entrypoints may affect the selected resource. Returns
 /// concrete/symbolic matches and — crucially — entrypoints whose opacity in the

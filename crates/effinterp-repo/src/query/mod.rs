@@ -20,14 +20,11 @@ use effinterp_proto::{
     ProvenanceDag, ProvenanceEdge, ProvenanceEdgeKind, RepoQueryEnvelope, ResolutionAssurance,
     ResourceExpr, SourceEvidence,
 };
-use effinterp_proto::{BoundaryRow, EffectsReport, Indeterminate, ReachHit, ReachReport};
 use serde::Serialize;
 
 use crate::dispatch::DispatchVia;
 use crate::index::RepoIndex;
-use crate::resource::ResourceSelector;
 use crate::surface::{EffectiveEffect, ProvenanceStep, effective_surface};
-use effinterp_proto::Match;
 
 mod effects;
 mod reach;

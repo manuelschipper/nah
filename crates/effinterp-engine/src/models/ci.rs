@@ -2,14 +2,14 @@ use std::collections::BTreeMap;
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    ExecutionEdgeKind, ExecutionRealm, PathPlatform, ProvenanceRef, ResourceExpr, ResourceFamily,
-    Subject,
+    ExecutionEdgeKind, ExecutionRealm, PathPlatform, ProvenanceRef, ResourceExpr, Subject,
 };
 
 use crate::builder::PlanBuilder;
 use crate::models::common::arg_node;
 use crate::models::{CommandModel, InvocationCtx};
 use crate::nest::Transition;
+use crate::value::unresolved_resource;
 
 pub(super) fn ci_models() -> Vec<Box<dyn CommandModel>> {
     vec![Box::new(GithubActions)]
@@ -98,13 +98,7 @@ impl CommandModel for GithubActions {
                 )
             } else if working_directory.contains("${{") {
                 provenance.push(arg_node(builder, ctx, 5));
-                (
-                    None,
-                    Some(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    }),
-                    None,
-                )
+                (None, Some(unresolved_resource("filesystem")), None)
             } else {
                 provenance.push(arg_node(builder, ctx, 5));
                 (
@@ -139,9 +133,7 @@ impl CommandModel for GithubActions {
                 environment.insert(
                     name.to_string(),
                     Some(if value.contains("${{") {
-                        ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("value"),
-                        }
+                        unresolved_resource("value")
                     } else {
                         ResourceExpr::Literal {
                             value: value.to_string(),

@@ -23,7 +23,10 @@ pub(super) fn propagate_sensitivity<'a>(
     graph: &mut effects::EffectGraph,
     effects: &EffectProjection,
 ) -> ObservedLabels<'a> {
-    use effects::*;
+    use effects::{
+        CallId, Certainty, Domain, FactId, FactPayload, FilesystemOperation, GapPhase, Reach,
+        RelationKind, ResourceId, ResourceKind,
+    };
     let plan = view.plan();
     let EffectProjection {
         member_effects,
@@ -82,13 +85,13 @@ pub(super) fn propagate_sensitivity<'a>(
             effect.operation.as_str(),
             "filesystem.read" | "filesystem.move"
         ) && (effect.attributes.get("recursive") == Some(&effinterp_proto::AttrValue::Bool(true))
-                || crate::observe::subtree_root(&effect.resource).is_some()
+                || crate::observation_request::subtree_root(&effect.resource).is_some()
                 || effect.operation.as_str() == "filesystem.move"
                 // A glob's content is the entries it selects, not the
                 // directory word that bounds it.
                 || matches!(&effect.resource, effinterp_proto::ResourceExpr::Pattern { .. }))
         {
-            let observed = crate::observe::observation_bound(&effect.resource)
+            let observed = crate::observation_request::observation_bound(&effect.resource)
                 .and_then(|(path, _)| view.observed_path(&path));
             if let Some(descendants) = observed.and_then(|path| path.descendants()) {
                 let unselected = observed
@@ -181,7 +184,7 @@ pub(super) fn propagate_sensitivity<'a>(
                 selection @ effinterp_proto::ResourceExpr::Pattern {
                     pattern: effinterp_proto::ResourcePattern::FsPath { .. },
                 } => observed_labels.add_selection(owner, selection, labels, &selected),
-                selection if crate::observe::subtree_root(selection).is_some() => {
+                selection if crate::observation_request::subtree_root(selection).is_some() => {
                     observed_labels.add_selection(owner, selection, labels, &selected)
                 }
                 _ => {}
@@ -544,7 +547,7 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
             return PathKindStatus::Unknown;
         }
         // A pattern is typed by the directory that bounds it.
-        crate::observe::observation_bound(path)
+        crate::observation_request::observation_bound(path)
             .and_then(|(path, _)| self.view.observed_path(&path))
             .map_or(PathKindStatus::Unknown, |value| {
                 PathKindStatus::Known(match value.kind() {
@@ -579,7 +582,8 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
                     // directory that bounds it.
                     let mut labels = recorded.clone();
                     if resource.selection == LabelSelection::ResourceOrAncestorDirectory
-                        && let Some((bound, _)) = crate::observe::observation_bound(selection)
+                        && let Some((bound, _)) =
+                            crate::observation_request::observation_bound(selection)
                     {
                         labels.extend(self.ancestors(&bound, true));
                     }
@@ -588,11 +592,12 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
                     // A finite union selects exactly one member, so it
                     // carries every label a member might, and is known only
                     // when every member is.
-                    crate::observe::finite_members(selection).and_then(|members| {
+                    crate::observation_request::finite_members(selection).and_then(|members| {
                         members
                             .iter()
                             .try_fold(BTreeSet::new(), |mut labels, member| {
-                                let (path, _) = crate::observe::observation_bound(member)?;
+                                let (path, _) =
+                                    crate::observation_request::observation_bound(member)?;
                                 labels.extend(self.path_labels(
                                     effect,
                                     &path,

@@ -1,5 +1,25 @@
-use super::*;
-use crate::value::unresolved_resource;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+
+use effinterp_proto::{
+    Boundary, BoundaryClass, BoundaryReason, Domain, Effect, ExecutionRealm, Modality, Operation,
+    ResourceExpr, ResourceIdentity,
+};
+use lib_ruby_parser::Node;
+use lib_ruby_parser::nodes::{Index, Send};
+
+use crate::builder::KNOWN_DOMAINS;
+use crate::lang::frontend::MAX_CALLBACK_VALUES;
+use crate::module_summary::CallEdge;
+use crate::resource_transfer::TransferBinding;
+use crate::summary::{contains_unresolved, has_text_concat};
+use crate::value::{sink_typed_join, unresolved_resource, url_endpoint_resource};
+use crate::{ObjectIdentity, ScopeKey, SemanticValue, ValueArgument};
+
+use super::{
+    LocalTy, ProcDef, RubyFileContext, children, constant_path, expr_type, ivar_target, last_seg,
+    literal_parts, local_key, local_method, lvar_target, param_names, type_name,
+};
 
 /// What a `Send` resolves to.
 #[derive(Clone)]
@@ -45,7 +65,7 @@ pub(super) struct Scope<'a> {
     pub(super) env: &'a HashMap<String, ResourceExpr>,
     pub(super) cwd: Option<&'a str>,
     pub(super) class: Option<&'a str>,
-    pub(super) ctx: &'a Ctx,
+    pub(super) ctx: &'a RubyFileContext,
     pub(super) vars: &'a HashMap<String, Vec<String>>,
     pub(super) class_refs: &'a HashMap<String, String>,
     pub(super) ivars: &'a HashMap<String, Vec<String>>,
@@ -58,7 +78,7 @@ pub(super) fn apply_live_assign(
     class_refs: &mut HashMap<String, String>,
     ivars: &mut HashMap<String, Vec<String>>,
     enclosing: Option<&str>,
-    ctx: &Ctx,
+    ctx: &RubyFileContext,
     guarded: bool,
 ) -> bool {
     match node {
@@ -109,7 +129,7 @@ pub(super) fn apply_op_assign(
     class_refs: &mut HashMap<String, String>,
     ivars: &mut HashMap<String, Vec<String>>,
     enclosing: Option<&str>,
-    ctx: &Ctx,
+    ctx: &RubyFileContext,
 ) -> bool {
     let Some(ty) = live_expr_type(value, vars, class_refs, ivars, enclosing, ctx) else {
         return false;
@@ -138,7 +158,7 @@ pub(super) fn live_expr_type(
     class_refs: &HashMap<String, String>,
     ivars: &HashMap<String, Vec<String>>,
     enclosing: Option<&str>,
-    ctx: &Ctx,
+    ctx: &RubyFileContext,
 ) -> Option<LocalTy> {
     let mut locals = HashMap::new();
     for (k, v) in class_refs {
@@ -282,9 +302,7 @@ pub(super) fn yielded_argument_sets(
         .map(|element| vec![resolve(element, env, cwd)])
         .collect();
     if array.elements.len() > MAX_CALLBACK_VALUES {
-        arguments.push(vec![ResourceExpr::Unresolved {
-            family: ResourceFamily::new("value"),
-        }]);
+        arguments.push(vec![unresolved_resource("value")]);
     }
     arguments
 }
@@ -334,9 +352,7 @@ pub(super) fn env_key(indexes: &[Node]) -> ResourceExpr {
         Some(name) => ResourceExpr::Concrete {
             identity: ResourceIdentity::EnvironmentVariable { name },
         },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("environment"),
-        },
+        None => unresolved_resource("environment"),
     }
 }
 
@@ -389,9 +405,7 @@ pub(super) fn exe(name: Option<&str>) -> ResourceExpr {
                 cwd: None,
             },
         },
-        _ => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("process"),
-        },
+        _ => unresolved_resource("process"),
     }
 }
 
@@ -1497,12 +1511,10 @@ fn ruby_integer(text: &str) -> Option<u32> {
 
 fn net(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&str>) -> Modeled {
     let resource = match args.first().and_then(literal_str) {
-        Some(url) => endpoint(&url),
+        Some(url) => url_endpoint_resource(&url),
         None => match args.first() {
             Some(a) => resolve_net(a, env, cwd),
-            None => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            },
+            None => unresolved_resource("network"),
         },
     };
     Modeled::effects(vec![effect("network.request", resource, false)])
@@ -1576,20 +1588,10 @@ fn remote_url(
         [] => None,
     };
     match (url, args.first()) {
-        (Some(url), _) => endpoint(&url),
+        (Some(url), _) => url_endpoint_resource(&url),
         (None, Some(argument)) if args.len() == 1 => resolve_net(argument, env, cwd),
-        _ => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        },
+        _ => unresolved_resource("network"),
     }
-}
-
-fn endpoint(url: &str) -> ResourceExpr {
-    parse_url_endpoint(url)
-        .map(|identity| ResourceExpr::Concrete { identity })
-        .unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        })
 }
 
 fn resolve_net(
@@ -1607,7 +1609,7 @@ pub(super) fn network_sink(resource: ResourceExpr) -> ResourceExpr {
         } => resource,
         ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },
-        } => endpoint(&path),
+        } => url_endpoint_resource(&path),
         ResourceExpr::Join { parts } => sink_typed_join(parts, "network"),
         ResourceExpr::Union { alternatives } => ResourceExpr::Union {
             alternatives: alternatives.into_iter().map(network_sink).collect(),
@@ -1618,9 +1620,7 @@ pub(super) fn network_sink(resource: ResourceExpr) -> ResourceExpr {
         ResourceExpr::Concrete { .. }
         | ResourceExpr::Unresolved { .. }
         | ResourceExpr::Pattern { .. }
-        | ResourceExpr::Property { .. } => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        },
+        | ResourceExpr::Property { .. } => unresolved_resource("network"),
     }
 }
 
@@ -1651,15 +1651,11 @@ pub(super) fn resolve(
         Node::Ivar(v) => env
             .get(&v.name)
             .cloned()
-            .unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            }),
+            .unwrap_or(unresolved_resource("filesystem")),
         Node::Const(constant) => constant_path(node)
             .and_then(|name| env.get(&name).cloned())
             .or_else(|| env.get(&constant.name).cloned())
-            .unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            }),
+            .unwrap_or(unresolved_resource("filesystem")),
         Node::Begin(begin) if begin.statements.len() == 1 => {
             resolve(&begin.statements[0], env, cwd)
         }
@@ -1673,9 +1669,7 @@ pub(super) fn resolve(
             })
             .and_then(|index| env.get(&format!("ARGV[{index}]")))
             .cloned()
-            .unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            }),
+            .unwrap_or(unresolved_resource("filesystem")),
         // `ENV['X']` used as a path component.
         Node::Index(ix) if constant_path(&ix.recv).as_deref() == Some("ENV") => ix
             .indexes
@@ -1683,9 +1677,7 @@ pub(super) fn resolve(
             .and_then(literal_str)
             .filter(|name| !name.is_empty())
             .map(|name| ResourceExpr::Environment { name })
-            .unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            }),
+            .unwrap_or(unresolved_resource("filesystem")),
         Node::Send(send)
             if send.recv.is_none() && send.method_name == "__dir__" && send.args.is_empty() =>
         {
@@ -1707,9 +1699,7 @@ pub(super) fn resolve(
                 .and_then(literal_str)
                 .filter(|name| !name.is_empty())
                 .map(|name| ResourceExpr::Environment { name })
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                })
+                .unwrap_or(unresolved_resource("filesystem"))
         }
         Node::Send(send)
             if send.recv.as_deref().and_then(constant_path).as_deref() == Some("Dir")
@@ -1811,7 +1801,10 @@ pub(super) fn resolve(
     }
 }
 
-pub(super) fn constant_env(ctx: &Ctx, class: Option<&str>) -> HashMap<String, ResourceExpr> {
+pub(super) fn constant_env(
+    ctx: &RubyFileContext,
+    class: Option<&str>,
+) -> HashMap<String, ResourceExpr> {
     let mut env = ctx.consts.clone();
     let Some(class) = class else {
         return env;
@@ -1901,16 +1894,6 @@ pub(super) fn fs_path(path: &str) -> ResourceExpr {
         identity: ResourceIdentity::FsPath {
             path: path.to_string(),
         },
-    }
-}
-
-pub(super) fn contains_unresolved(resource: &ResourceExpr) -> bool {
-    match resource {
-        ResourceExpr::Unresolved { .. } => true,
-        ResourceExpr::Join { parts } => parts.iter().any(contains_unresolved),
-        ResourceExpr::Union { alternatives } => alternatives.iter().any(contains_unresolved),
-        ResourceExpr::Property { base, .. } => contains_unresolved(base),
-        _ => false,
     }
 }
 
@@ -2020,9 +2003,7 @@ pub(super) fn poison_boundary(name: &str, domain: &str) -> Boundary {
         reason: BoundaryReason::UNMODELED_DYNAMIC,
         class: BoundaryClass::Unresolved,
         scope: effinterp_proto::BoundaryScope::Invocation,
-        affected_resource: Some(ResourceExpr::Unresolved {
-            family: ResourceFamily::new(domain),
-        }),
+        affected_resource: Some(unresolved_resource(domain)),
         callee: None,
         domains: vec![Domain::new(domain)],
         provenance: Vec::new(),

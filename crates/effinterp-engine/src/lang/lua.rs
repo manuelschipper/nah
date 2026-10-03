@@ -106,7 +106,7 @@ struct LuaWalk<'a> {
     /// Every function defined so far.
     functions: Vec<Function>,
     /// Every argument value bound to a parameter so far.
-    values: Vec<Value>,
+    values: Vec<LuaValue>,
     understood: bool,
 }
 
@@ -225,10 +225,10 @@ impl LuaWalk<'_> {
     fn apply(
         &mut self,
         builder: &mut PlanBuilder,
-        call: &Call,
+        call: &LuaCall,
         depth: u32,
     ) -> Result<bool, String> {
-        let call = &Call {
+        let call = &LuaCall {
             callee: call.callee.clone(),
             arguments: call
                 .arguments
@@ -268,7 +268,7 @@ impl LuaWalk<'_> {
                 let mut frame = BTreeMap::new();
                 for (param, argument) in params.into_iter().zip(&call.arguments) {
                     frame.insert(param, Binding::Value(self.values.len()));
-                    self.values.push(Value(argument.0.clone()));
+                    self.values.push(LuaValue(argument.0.clone()));
                 }
                 scopes.push(Rc::new(RefCell::new(frame)));
                 return Ok(self.walk_block(builder, &body, scopes, depth + 1));
@@ -292,7 +292,7 @@ impl LuaWalk<'_> {
     }
 
     /// Apply a standard-library call.
-    fn library(&mut self, builder: &mut PlanBuilder, call: &Call) -> Result<(), String> {
+    fn library(&mut self, builder: &mut PlanBuilder, call: &LuaCall) -> Result<(), String> {
         match (call.callee.as_str(), call.arguments.len()) {
             ("os.execute", 1) | ("io.popen", 1 | 2) => {
                 let Some(command) = self.text(builder, &call.arguments[0]) else {
@@ -364,7 +364,7 @@ impl LuaWalk<'_> {
         &mut self,
         builder: &mut PlanBuilder,
         operation: &str,
-        value: &Value,
+        value: &LuaValue,
         attributes: &[(&str, bool)],
     ) -> Result<(), String> {
         let Some(resource) = self.resource(builder, value) else {
@@ -390,50 +390,50 @@ impl LuaWalk<'_> {
 
     /// `value` with each parameter name replaced by the argument it is bound
     /// to here, so it no longer depends on the scope.
-    fn close(&self, value: &Value) -> Result<Value, String> {
+    fn close(&self, value: &LuaValue) -> Result<LuaValue, String> {
         let mut parts = Vec::new();
         for part in &value.0 {
             match part {
-                Part::Name(name) => match self.lookup(name) {
+                LuaValuePart::Name(name) => match self.lookup(name) {
                     Some(Binding::Value(index)) => parts.extend(self.values[index].0.clone()),
                     _ => return Err(format!("lua name {name} is not a bound parameter")),
                 },
                 part => parts.push(part.clone()),
             }
         }
-        Ok(Value(parts))
+        Ok(LuaValue(parts))
     }
 
     /// Fully literal text, with every environment read recorded.
-    fn text(&mut self, builder: &mut PlanBuilder, value: &Value) -> Option<String> {
+    fn text(&mut self, builder: &mut PlanBuilder, value: &LuaValue) -> Option<String> {
         let mut text = String::new();
         for part in &value.0 {
             match part {
-                Part::Text(literal) => text.push_str(literal),
-                Part::Env(name) => match self.env(builder, name) {
+                LuaValuePart::Text(literal) => text.push_str(literal),
+                LuaValuePart::Env(name) => match self.env(builder, name) {
                     Some(ResourceExpr::Literal { value }) => text.push_str(&value),
                     _ => return None,
                 },
                 // Closed by `apply` before any value is used.
-                Part::Name(_) => return None,
+                LuaValuePart::Name(_) => return None,
             }
         }
         Some(text)
     }
 
     /// A path resource: concrete when every part resolves, symbolic otherwise.
-    fn resource(&mut self, builder: &mut PlanBuilder, value: &Value) -> Option<ResourceExpr> {
+    fn resource(&mut self, builder: &mut PlanBuilder, value: &LuaValue) -> Option<ResourceExpr> {
         let mut parts = Vec::new();
         for part in &value.0 {
             match part {
-                Part::Text(literal) => parts.push(ResourceExpr::Literal {
+                LuaValuePart::Text(literal) => parts.push(ResourceExpr::Literal {
                     value: literal.clone(),
                 }),
-                Part::Env(name) => parts.push(
+                LuaValuePart::Env(name) => parts.push(
                     self.env(builder, name)
                         .unwrap_or(ResourceExpr::Environment { name: name.clone() }),
                 ),
-                Part::Name(_) => return None,
+                LuaValuePart::Name(_) => return None,
             }
         }
         let literal = parts
@@ -494,17 +494,17 @@ impl LuaWalk<'_> {
     }
 }
 
-struct Call {
+struct LuaCall {
     callee: String,
-    arguments: Vec<Value>,
+    arguments: Vec<LuaValue>,
     /// `load("...")()` calls the compiled chunk immediately.
     invoked: bool,
 }
 
-struct Value(Vec<Part>);
+struct LuaValue(Vec<LuaValuePart>);
 
 #[derive(Clone)]
-enum Part {
+enum LuaValuePart {
     Text(String),
     Env(String),
     /// A name, which must be a parameter bound where the value is used.
@@ -753,7 +753,7 @@ fn replacement(statement: &str) -> Option<(bool, &str)> {
 }
 
 /// Parse one statement as `name(arguments)` or `load(argument)()`.
-fn call(statement: &str) -> Result<Call, String> {
+fn call(statement: &str) -> Result<LuaCall, String> {
     let statement = statement.trim();
     let open = statement.find('(').ok_or("lua statement is not a call")?;
     let callee = statement[..open].trim();
@@ -780,7 +780,7 @@ fn call(statement: &str) -> Result<Call, String> {
             ));
         }
     };
-    Ok(Call {
+    Ok(LuaCall {
         callee: callee.to_string(),
         arguments: split(arguments)?
             .iter()
@@ -862,20 +862,20 @@ fn split(source: &str) -> Result<Vec<String>, String> {
 
 /// A value is a `..` concatenation of string literals, `os.getenv` reads and
 /// names.
-fn value(source: &str) -> Result<Value, String> {
+fn value(source: &str) -> Result<LuaValue, String> {
     let mut parts = Vec::new();
     for term in concatenation(source)? {
         let term = term.trim();
         if term.starts_with('"') || term.starts_with('\'') {
-            parts.push(Part::Text(unescape(term)?));
+            parts.push(LuaValuePart::Text(unescape(term)?));
             continue;
         }
         if term.starts_with('[') {
-            parts.push(Part::Text(long_string(term)?));
+            parts.push(LuaValuePart::Text(long_string(term)?));
             continue;
         }
         if is_name(term) {
-            parts.push(Part::Name(term.to_string()));
+            parts.push(LuaValuePart::Name(term.to_string()));
             continue;
         }
         let name = term
@@ -896,12 +896,12 @@ fn value(source: &str) -> Result<Value, String> {
         if !(inner.starts_with('"') || inner.starts_with('\'')) {
             return Err("lua os.getenv name is not a literal".into());
         }
-        parts.push(Part::Env(unescape(inner)?));
+        parts.push(LuaValuePart::Env(unescape(inner)?));
     }
     if parts.is_empty() {
         return Err("lua value is empty".into());
     }
-    Ok(Value(parts))
+    Ok(LuaValue(parts))
 }
 
 /// Split one value on top-level `..` concatenation operators.

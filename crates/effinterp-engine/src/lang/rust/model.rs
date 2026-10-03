@@ -1,5 +1,21 @@
-use super::*;
-use crate::value::unresolved_resource;
+use std::collections::{HashMap, HashSet};
+
+use effinterp_proto::{
+    AttrValue, Boundary, BoundaryClass, BoundaryReason, Effect, Modality, Operation, ResourceExpr,
+    ResourceIdentity,
+};
+use syn::Expr;
+
+use crate::summary::substitute_resource_expr;
+use crate::value::{parse_url_endpoint, unresolved_resource};
+use crate::word::{Word, WordPart};
+use crate::{SemanticValue, SemanticValueKind, substitute_value};
+
+use super::{
+    Resolver, ValueFacts, child_exprs, closure_expr, command_method_preserves_executable_and_argv,
+    expr_key, is_rust_branch, mutated_base_ident, path_segments, rust_path_literal,
+    simple_boundary, single_ident, str_lit,
+};
 
 // ---------------------------------------------------------------------------
 // Effect model
@@ -450,9 +466,7 @@ pub(super) fn resolve_rust_command_cwd(
 }
 
 fn lower_rust_sink_value(value: &SemanticValue, domain: RustSinkDomain) -> ResourceExpr {
-    let unresolved = || ResourceExpr::Unresolved {
-        family: ResourceFamily::new(domain.name()),
-    };
+    let unresolved = || unresolved_resource(domain.name());
     match &value.kind {
         SemanticValueKind::Literal(value) => match domain {
             RustSinkDomain::Filesystem => crate::paths::resolve_fs_path(value, None),
@@ -800,9 +814,7 @@ pub(super) fn git_resource(expr: &Expr, params: &HashSet<String>, field: &str) -
             identity: ResourceIdentity::FsPath { .. }
         }
     ) {
-        return ResourceExpr::Unresolved {
-            family: ResourceFamily::new("git"),
-        };
+        return unresolved_resource("git");
     }
     let (worktree, git_dir) = match field {
         "worktree" => (Some(Box::new(resource)), None),
@@ -830,9 +842,7 @@ pub(super) fn command_effect(argv: &[Word]) -> Effect {
         Some(argv0) if !argv0.is_empty() => ResourceExpr::Concrete {
             identity: crate::paths::executable_identity(argv0, None),
         },
-        _ => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("process"),
-        },
+        _ => unresolved_resource("process"),
     };
     base_effect("process.exec", resource)
 }
@@ -920,9 +930,7 @@ pub(super) fn semantic_word(value: &SemanticValue) -> Word {
 
 pub(super) fn env_effect_struct(operation: &str, name: String) -> Effect {
     let resource = if name.is_empty() {
-        ResourceExpr::Unresolved {
-            family: ResourceFamily::new("environment"),
-        }
+        unresolved_resource("environment")
     } else {
         ResourceExpr::Concrete {
             identity: ResourceIdentity::EnvironmentVariable { name },

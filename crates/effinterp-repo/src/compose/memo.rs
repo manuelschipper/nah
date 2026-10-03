@@ -3,7 +3,7 @@ use super::accumulation::{
     push_dependency, replay_summary_transfers,
 };
 use super::budget::{check_composition_depth, reserve_effect};
-use super::{Composition, Dispatch, Walk};
+use super::{Composition, CompositionWalk, ReceiverContext};
 use crate::dispatch::DispatchVia;
 use crate::module::ModuleFile;
 use effinterp_engine::{
@@ -385,11 +385,11 @@ fn memo_value(bytes: &mut Vec<u8>, value: &SemanticValue) {
 }
 
 pub(super) fn function_memo_key(
-    walk: &Walk<'_>,
+    walk: &CompositionWalk<'_>,
     target: &ModuleFile,
     fn_name: &str,
     bindings: &HashMap<String, SemanticValue>,
-    dispatch: &Dispatch,
+    dispatch: &ReceiverContext,
     inline_only: bool,
 ) -> MemoKey {
     let mut arguments = Vec::new();

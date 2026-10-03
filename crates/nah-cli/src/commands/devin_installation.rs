@@ -1,7 +1,5 @@
 //! Installs and removes nah's user-level Devin PreToolUse hook.
 
-use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
@@ -10,10 +8,12 @@ use serde_json::{Map, Value, json};
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
-use super::hook_paths::{HookLockErrorCodes, acquire_hook_lock, reject_hook_path_symlink};
+use super::hook_paths::{
+    HookFileWriteErrorCodes, HookJsonReadErrorCodes, HookLockErrorCodes, acquire_hook_lock,
+    read_hook_json_object, reject_hook_path_symlink, write_hook_json_atomically,
+};
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 const EVENTS: [&str; 3] = ["PreToolUse", "PermissionRequest", "PostToolUse"];
 
@@ -26,9 +26,9 @@ pub(crate) fn mutate_devin_hook(
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable, policy)
+            install_devin_hook(&home, &executable, policy)
         } else {
-            uninstall_hook(&home)
+            uninstall_devin_hook(&home)
         }
     })?;
     Ok(RuntimeMutation::new(
@@ -43,8 +43,8 @@ pub(crate) fn devin_hook_status() -> Result<RuntimeHookStatus, String> {
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let paths = DevinHookPaths::new(&home);
-    reject_symlinks(&paths)?;
-    let mut config = load(&paths.config)?;
+    reject_devin_hook_symlinks(&paths)?;
+    let mut config = load_devin_config(&paths.config)?;
     validate_version(&mut config)?;
     let mut base = config.clone();
     if !remove_owned(&mut base)? {
@@ -96,15 +96,15 @@ pub(crate) fn devin_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![DevinHookPaths::new(&home).config])
 }
 
-fn install_hook(
+fn install_devin_hook(
     home: &AbsolutePath,
     executable: &Path,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = DevinHookPaths::new(home);
     let lock = acquire_hook_lock(&paths.lock, &DEVIN_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
-    let mut config = load(&paths.config)?;
+    reject_devin_hook_symlinks(&paths)?;
+    let mut config = load_devin_config(&paths.config)?;
     validate_version(&mut config)?;
     let original = config.clone();
     remove_owned(&mut config)?;
@@ -113,21 +113,21 @@ fn install_hook(
         "hooks": [desired_handler(executable, policy)?]
     }));
     if config != original {
-        save(&paths.config, &config)?;
+        save_devin_config(&paths.config, &config)?;
     }
     drop(lock);
     Ok(paths.config)
 }
 
-fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_devin_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = DevinHookPaths::new(home);
     let lock = acquire_hook_lock(&paths.lock, &DEVIN_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
+    reject_devin_hook_symlinks(&paths)?;
     if paths.config.exists() {
-        let mut config = load(&paths.config)?;
+        let mut config = load_devin_config(&paths.config)?;
         validate_version(&mut config)?;
         if remove_owned(&mut config)? {
-            save(&paths.config, &config)?;
+            save_devin_config(&paths.config, &config)?;
         }
     }
     drop(lock);
@@ -167,21 +167,14 @@ const DEVIN_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
     permissions: "devin-hook-permissions-failed",
 };
 
-fn load(path: &Path) -> Result<Value, String> {
+const DEVIN_CONFIG_READ_ERRORS: HookJsonReadErrorCodes = HookJsonReadErrorCodes {
+    read_failed: "devin-config-read-failed",
+    invalid: "invalid-devin-config",
+};
+
+fn load_devin_config(path: &Path) -> Result<Value, String> {
     reject_hook_path_symlink(path, "devin-config-symlink-unsupported")?;
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Value::Object(Map::new()));
-        }
-        Err(_) => return Err("devin-config-read-failed".into()),
-    };
-    let value: Value =
-        serde_json::from_reader(file).map_err(|_| "invalid-devin-config".to_owned())?;
-    if !value.is_object() {
-        return Err("invalid-devin-config".into());
-    }
-    Ok(value)
+    read_hook_json_object(path, &DEVIN_CONFIG_READ_ERRORS)
 }
 
 fn validate_version(config: &mut Value) -> Result<(), String> {
@@ -303,32 +296,19 @@ fn is_owned_handler(handler: &Value) -> bool {
             .is_some_and(hook_config::is_quoted_nah_hook_executable)
 }
 
-fn save(path: &Path, config: &Value) -> Result<(), String> {
+const DEVIN_CONFIG_WRITE_ERRORS: HookFileWriteErrorCodes = HookFileWriteErrorCodes {
+    invalid_path: "invalid-devin-config-path",
+    write_failed: "devin-config-write-failed",
+    permissions: "devin-hook-permissions-failed",
+    sync_failed: "devin-hook-sync-failed",
+};
+
+fn save_devin_config(path: &Path, config: &Value) -> Result<(), String> {
     reject_hook_path_symlink(path, "devin-config-symlink-unsupported")?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid-devin-config-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "devin-config-write-failed")?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "devin-config-write-failed")?;
-    restrict_file_to_owner(temporary.as_file())
-        .map_err(|_| "devin-hook-permissions-failed".to_owned())?;
-    serde_json::to_writer_pretty(&mut temporary, config)
-        .map_err(|_| "devin-config-write-failed")?;
-    temporary
-        .write_all(b"\n")
-        .map_err(|_| "devin-config-write-failed")?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "devin-config-write-failed")?;
-    temporary
-        .persist(path)
-        .map_err(|_| "devin-config-write-failed")?;
-    sync_parent_directory(parent).map_err(|_| "devin-hook-sync-failed".to_owned())
+    write_hook_json_atomically(path, config, &DEVIN_CONFIG_WRITE_ERRORS)
 }
 
-fn reject_symlinks(paths: &DevinHookPaths) -> Result<(), String> {
+fn reject_devin_hook_symlinks(paths: &DevinHookPaths) -> Result<(), String> {
     for directory in &paths.directories {
         reject_hook_path_symlink(directory, "devin-config-symlink-unsupported")?;
     }

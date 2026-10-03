@@ -6,17 +6,17 @@ use effinterp_matcher::{
 };
 use effinterp_proto::{AttrValue, ExecutionAssurance, RequestAssurance};
 
-pub(crate) fn family(value: &str) -> ResourcePredicate {
+pub(crate) fn resource_family(value: &str) -> ResourcePredicate {
     ResourcePredicate::Family {
         family: value.into(),
     }
 }
 
-pub(crate) fn variant(value: ResourceVariant) -> ResourcePredicate {
+pub(crate) fn resource_variant(value: ResourceVariant) -> ResourcePredicate {
     ResourcePredicate::Variant { variant: value }
 }
 
-pub(crate) fn selection(shape: SelectionShape) -> ResourcePredicate {
+pub(crate) fn resource_selection(shape: SelectionShape) -> ResourcePredicate {
     ResourcePredicate::Selection { shape }
 }
 

@@ -46,7 +46,7 @@ pub(super) fn collect_go_modules(
             }
             if file_type.is_dir() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if !CRAWL_SKIP_DIRS.contains(&name.as_str()) && name != ".claude" {
+                if !CRAWL_SKIP_DIRS.contains(&name.as_str()) {
                     visit(root, &path, modules, admit);
                 }
             } else if file_type.is_file()

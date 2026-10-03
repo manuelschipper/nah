@@ -21,7 +21,12 @@ pub(super) fn project_content_flow(
     graph: &mut effects::EffectGraph,
     effects: &mut EffectProjection,
 ) {
-    use effects::*;
+    use effects::{
+        AccessPurpose, CallId, Certainty, Domain, EffectOccurrence, EffectRelation, EffectResource,
+        ExecutionSource, FactId, FactPayload, FilesystemOperation, GapPhase, NetworkOperation,
+        OccurrenceId, PortKind, Reach, RelationKind, ResourceId, ResourceIdentity, ResourceKind,
+        ResourceLabels, Selection, TransferDirection,
+    };
     let plan = view.plan();
     let EffectProjection {
         member_effects,
@@ -179,8 +184,8 @@ pub(super) fn project_content_flow(
                     let destination_established =
                         if matches!(effect.resource, effinterp_proto::ResourceExpr::Pattern { .. }) {
                             match (
-                                crate::observe::observation_bound(&effect.resource),
-                                crate::observe::observation_bound(destination_resource),
+                                crate::observation_request::observation_bound(&effect.resource),
+                                crate::observation_request::observation_bound(destination_resource),
                             ) {
                                 (Some((source, _)), Some((destination, _)))
                                     if source == destination =>
@@ -668,7 +673,7 @@ pub(super) fn name_disclosed_credentials(
     observation: &Observation,
     graph: &mut effects::EffectGraph,
 ) {
-    use effects::*;
+    use effects::{EnvironmentOperation, EnvironmentSelection, FactId, FactPayload};
     // A disclosed whole environment names no variable, but it discloses every
     // catalogued credential the observation found holding a value. Name those
     // beside it; an empty one discloses nothing.
@@ -716,7 +721,7 @@ pub(super) fn add_content_searches(
     graph: &mut effects::EffectGraph,
     content_searches: Vec<(effects::FactId, effects::FactPayload)>,
 ) {
-    use effects::*;
+    use effects::FactId;
     // The search shares the read's occurrences: it is the same access, told as
     // the query it answers, so whatever the read reached the search reaches.
     for (read, payload) in content_searches {

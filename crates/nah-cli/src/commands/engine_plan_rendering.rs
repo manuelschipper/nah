@@ -13,13 +13,14 @@ use nah_proto::effinterp_proto::{
 /// or None on the host. Rendered as `<realm>!<resource>` so a consumer sees
 /// the resource is scoped to that execution context, not the host.
 fn render_realm(realm: &ExecutionRealm) -> Option<String> {
-    use ExecutionRealm::*;
     match realm {
-        Host => None,
-        Container { runtime, name } => Some(format!("{runtime}:{name}")),
-        Kubernetes { pod, .. } => Some(format!("pod:{pod}")),
-        Chroot { host_root } => Some(format!("chroot:{}", host_root.as_deref().unwrap_or("?"))),
-        Remote { endpoint } => Some(format!("remote:{endpoint}")),
+        ExecutionRealm::Host => None,
+        ExecutionRealm::Container { runtime, name } => Some(format!("{runtime}:{name}")),
+        ExecutionRealm::Kubernetes { pod, .. } => Some(format!("pod:{pod}")),
+        ExecutionRealm::Chroot { host_root } => {
+            Some(format!("chroot:{}", host_root.as_deref().unwrap_or("?")))
+        }
+        ExecutionRealm::Remote { endpoint } => Some(format!("remote:{endpoint}")),
     }
 }
 

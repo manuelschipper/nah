@@ -16,6 +16,7 @@ use crate::models::common::{
 };
 use crate::models::{CommandModel, InvocationCtx};
 use crate::paths::resolve_fs_word_with_cwd;
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 pub(super) fn archive_models() -> Vec<Box<dyn CommandModel>> {
@@ -1059,9 +1060,7 @@ impl CommandModel for Tar {
                         model_node,
                         *index,
                         "filesystem.read",
-                        ResourceExpr::Unresolved {
-                            family: effinterp_proto::ResourceFamily::new("filesystem"),
-                        },
+                        unresolved_resource("filesystem"),
                         {
                             let mut attributes = program_input_attrs();
                             attributes.insert(
@@ -1080,9 +1079,7 @@ impl CommandModel for Tar {
                             model_node,
                             *index,
                             "filesystem.delete",
-                            ResourceExpr::Unresolved {
-                                family: effinterp_proto::ResourceFamily::new("filesystem"),
-                            },
+                            unresolved_resource("filesystem"),
                             removal_attrs(recursion),
                         );
                     }
@@ -1397,9 +1394,7 @@ impl CommandModel for Tar {
                     reason: BoundaryReason::INPUT_DETERMINED_ARGUMENTS,
                     class: BoundaryClass::Unresolved,
                     scope: BoundaryScope::Invocation,
-                    affected_resource: Some(ResourceExpr::Unresolved {
-                        family: effinterp_proto::ResourceFamily::new("filesystem"),
-                    }),
+                    affected_resource: Some(unresolved_resource("filesystem")),
                     callee: None,
                     domains: vec![Domain::new("filesystem")],
                     provenance: vec![model_node],

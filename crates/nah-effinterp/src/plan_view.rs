@@ -341,18 +341,6 @@ impl CausalIndex {
     }
 }
 
-/// The annotation of every plan effect, in plan order, as a projection of the
-/// plan records it.
-pub fn annotate_plan_effects(
-    plan: &effinterp_proto::Plan,
-    observation: &Observation,
-    ctx: &Ctx,
-    self_protection: &SelfProtectionProjection,
-) -> Result<Vec<EffectAnnotation>, nah_proto::ctx::CtxError> {
-    let view = PlanView::new(plan, observation, ctx, self_protection)?;
-    Ok(view.annotations())
-}
-
 pub(crate) struct PlanView<'a> {
     plan: &'a effinterp_proto::Plan,
     observation: &'a Observation,
@@ -652,7 +640,7 @@ impl<'a> PlanView<'a> {
                 let (_, label) = crate::annotate::annotate_path_relation(
                     self.plan,
                     effect,
-                    crate::observe::observation_bound(&effect.resource)
+                    crate::observation_request::observation_bound(&effect.resource)
                         .and_then(|(path, _)| self.observed_path(&path)),
                     self.authority.observed_roots(),
                     crate::annotate::PathLabelContext {

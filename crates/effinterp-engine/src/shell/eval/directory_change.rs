@@ -1,7 +1,15 @@
 //! Shell directory change: how `cd`, `pushd` and `popd` move the tracked
 //! working directory, and what `pwd` then prints.
 
-use super::*;
+use effinterp_proto::{
+    Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, ResourceExpr, ResourceIdentity,
+};
+
+use crate::builder::PlanBuilder;
+use crate::shell::lex::{Seg, WordTok};
+use crate::shell::{Converted, Shell, ShellEnv, parse};
+use crate::value::unresolved_resource;
+use crate::word::{Word, WordPart};
 
 impl Shell<'_> {
     /// Where a `cd` or `pushd` to the literal `target` lands; `lexical` is the
@@ -78,9 +86,7 @@ impl Shell<'_> {
                     for entry in cdpath.split(':') {
                         let entry = if entry.is_empty() { "." } else { entry };
                         candidates.push(if entry.starts_with('~') {
-                            ResourceExpr::Unresolved {
-                                family: effinterp_proto::ResourceFamily::new("filesystem"),
-                            }
+                            unresolved_resource("filesystem")
                         } else {
                             crate::paths::resolve_fs_word_with_cwd_on_platform(
                                 &Word::literal(format!("{}/{text}", entry.trim_end_matches('/'))),
@@ -123,9 +129,7 @@ impl Shell<'_> {
             );
         }
         if search_unknown {
-            possible.push(ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("filesystem"),
-            });
+            possible.push(unresolved_resource("filesystem"));
         }
         possible.dedup();
         if let [destination] = possible.as_slice() {

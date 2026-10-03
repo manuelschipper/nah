@@ -3,8 +3,7 @@ use std::collections::BTreeMap;
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, Modality, Operation, Port, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity,
+    Effect, Modality, Operation, Port, ProvenanceRef, ResourceExpr, ResourceIdentity,
 };
 
 use crate::builder::PlanBuilder;
@@ -302,9 +301,7 @@ impl CommandModel for Security {
                     reason: BoundaryReason::PARTIAL_ANALYSIS,
                     class: BoundaryClass::Unresolved,
                     scope: BoundaryScope::Invocation,
-                    affected_resource: Some(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    }),
+                    affected_resource: Some(unresolved_resource("filesystem")),
                     callee: None,
                     domains: if target.is_none() {
                         vec![Domain::new("filesystem")]
@@ -2542,9 +2539,7 @@ impl CommandModel for Infisical {
                     node,
                     0,
                     "filesystem.write",
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    },
+                    unresolved_resource("filesystem"),
                     Attrs::new(),
                 );
                 if let Some(path) = output.as_literal() {

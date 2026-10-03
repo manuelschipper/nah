@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use effinterp_bench::bench::score::Scoreboard;
+use effinterp_bench::invocation::score::Scoreboard;
 use effinterp_bench::nah::corpus::{CaseLoad, fixture_corpus_digest, load_corpus};
 use effinterp_bench::nah::goldens::{ResourceMatch, is_complete, load_goldens};
 use effinterp_bench::nah::report::{Ceilings, Parity, check_ceilings, parity, run_corpus};

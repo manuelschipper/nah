@@ -1,4 +1,10 @@
-use super::*;
+use effinterp_engine::{Assurance, ExternalCall, ResolvedObject};
+
+use super::{
+    Linker, Resolution, class_defined, instance, resolve_common_method, resolve_export,
+    resolve_standard_callee, standard_class_candidates,
+};
+use crate::module::{ModuleFile, ModuleRegistry};
 
 pub(crate) struct PhpLinker;
 

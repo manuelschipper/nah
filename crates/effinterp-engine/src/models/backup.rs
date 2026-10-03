@@ -3,7 +3,7 @@
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryRef, BoundaryScope, CoverageLevel,
     Domain, ExecutionAssurance, ExecutionEdgeKind, ExecutionRealm, ProvenanceKind, ProvenanceRef,
-    ResourceExpr, ResourceFamily, ResourceIdentity,
+    ResourceExpr, ResourceIdentity,
 };
 
 use crate::builder::PlanBuilder;
@@ -13,6 +13,7 @@ use crate::models::common::{
 };
 use crate::models::{CommandModel, InvocationCtx};
 use crate::nest::{Transition, word_resource};
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 const DOMAINS: &[&str] = &["environment", "filesystem", "cloud", "network", "process"];
@@ -228,9 +229,7 @@ fn logical_backup_resource(attrs: &mut Attrs, physical_family: &str) -> Resource
         _ => "backup_selection",
     };
     string(attrs, "logical_resource_kind", kind);
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new(physical_family),
-    }
+    unresolved_resource(physical_family)
 }
 
 fn restic_repository_file(

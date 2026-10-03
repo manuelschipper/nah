@@ -4,11 +4,36 @@
 //! `variable_binding`, `redirection`, `directory_change`, `arithmetic`,
 //! `source_and_eval`, and `literal_output`.
 
-use super::*;
-use crate::builder::ScriptInterpreter;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::rc::Rc;
+
+use effinterp_proto::{
+    AttrValue, Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect,
+    ExecutionNodeRef, Modality, Operation, Port, ProvenanceKind, ProvenanceRef, ResourceExpr,
+    ResourceIdentity, Subject,
+};
+
+use crate::builder::{KNOWN_DOMAINS, PlanBuilder, ScriptInterpreter};
 use crate::control_flow::{ControlExit, ControlFact, Requirements, SiteFacts};
-use crate::nest::{Transition, word_resource};
-use crate::word::Word;
+use crate::exec::{UnresolvedHead, analyze_exec};
+use crate::flow::{BindEnd, Descriptor, Flow, FlowReason, FlowRef, FlowStage, PortBinding};
+use crate::models::{StdinValue, curl_flow_info, wget_flow_info};
+use crate::nest::{Transition, degrade_nested, word_resource};
+use crate::paths::{join_cwd, process_identity_with_cwd};
+use crate::value::unresolved_resource;
+use crate::word::{Word, WordPart};
+
+use super::lex::{DupTarget, ExpansionBudget, RedirKind, Seg, Span, WordTok};
+use super::parse::{ShellItem, Simple};
+use super::{
+    ArrayValue, CommandHeadKey, Converted, DeferredProcess, EFFECTLESS_BUILTINS, FnEntry,
+    FunctionBinding, MAX_ARGV_VARIANTS, MAX_SATURATED_COMMAND_HEADS, MAX_SATURATED_FUNCTION_STEPS,
+    MAX_SATURATED_UNRESOLVED_HEADS, MAX_WALK_DEPTH, PathBindings, Redirects, Shell, ShellEnv,
+    StageOutcome, Termination, VarEntry, WordExpansion, analyze_shell_at, analyze_shell_with_env,
+    downgrade_script_set, expanded_referenced_inputs_bounded, function_head_group_key,
+    function_head_key, jobs, lex, parse, referenced_inputs_with_substitutions, resource_key,
+    script_set_names, shell_builtin, variable_saturation_key, word_key,
+};
 
 pub(super) mod arithmetic;
 mod command_substitution;
@@ -25,14 +50,11 @@ use directory_change::{
     pwd_follows_cwd,
 };
 use redirection::{
-    DESCRIPTOR_PARAMETER, descriptor_file_read, descriptor_path, descriptor_read_producer,
-    descriptor_word, names_own_process_entry, predict_descriptor_output, predict_redirected_output,
-    predict_tee_output, redirected_descriptors, redirected_file, word_descriptor,
+    descriptor_path, descriptor_word, predict_descriptor_output, predict_redirected_output,
+    predict_tee_output, redirected_descriptors, redirected_file,
 };
-use variable_binding::{bind_var, captured_literal, entry_definitely_transparent};
-use word_expansion::{
-    effective_ifs, ifs_joined_fields, split_ifs_fields, uses_default_ifs, var_node,
-};
+use variable_binding::{bind_var, entry_definitely_transparent};
+use word_expansion::{effective_ifs, ifs_joined_fields, split_ifs_fields, var_node};
 
 /// A shell function's guarantees at its call: its attempt reaches what every
 /// return reaches, and a successful status adds what every successful return
@@ -227,9 +249,7 @@ impl ConditionalShellState {
         }
         if self.uncertain_cwd {
             env.cwd = None;
-            env.cwd_resource = Some(ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("filesystem"),
-            });
+            env.cwd_resource = Some(unresolved_resource("filesystem"));
             env.captured_cwd = false;
             env.cwd_node = None;
             env.source_cwd = None;
@@ -2144,9 +2164,7 @@ impl Shell<'_> {
                             env.captured_cwd = false;
                             env.cwd_known = false;
                             env.cwd = None;
-                            env.cwd_resource = Some(ResourceExpr::Unresolved {
-                                family: effinterp_proto::ResourceFamily::new("filesystem"),
-                            });
+                            env.cwd_resource = Some(unresolved_resource("filesystem"));
                             env.cwd_node = None;
                             env.source_cwd = None;
                             env.runtime_cwd = None;
@@ -2166,9 +2184,7 @@ impl Shell<'_> {
                     env.captured_cwd = false;
                     env.cwd_known = false;
                     env.cwd = None;
-                    env.cwd_resource = Some(ResourceExpr::Unresolved {
-                        family: effinterp_proto::ResourceFamily::new("filesystem"),
-                    });
+                    env.cwd_resource = Some(unresolved_resource("filesystem"));
                     env.cwd_node = None;
                     env.source_cwd = None;
                     env.runtime_cwd = None;
@@ -3518,9 +3534,7 @@ impl Shell<'_> {
         }
         let command_search_path = assigned_command_search_path.or_else(|| {
             if env.unset.contains("PATH") {
-                Some(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("value"),
-                })
+                Some(unresolved_resource("value"))
             } else {
                 env.vars.get_mut("PATH").map(|entry| {
                     entry
@@ -3528,9 +3542,7 @@ impl Shell<'_> {
                         .clone()
                         .map(|value| ResourceExpr::Literal { value })
                         .or_else(|| entry.word_in_condition(builder).map(word_resource))
-                        .unwrap_or(ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("value"),
-                        })
+                        .unwrap_or(unresolved_resource("value"))
                 })
             }
         });
@@ -3760,9 +3772,7 @@ impl Shell<'_> {
                     identity: process_identity_with_cwd(words, env.cwd_resource.clone()),
                 }
             }
-            _ => ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("process"),
-            },
+            _ => unresolved_resource("process"),
         };
         builder.effect(Effect {
             request_assurance: effinterp_proto::RequestAssurance::Conservative,

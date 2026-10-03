@@ -1,7 +1,25 @@
 //! Shell word expansion: how a lexed word token becomes analysis `Word`s through
 //! brace, parameter, variable and glob expansion and IFS field splitting.
 
-use super::*;
+use effinterp_proto::{
+    Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, Modality, Operation,
+    Port, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
+};
+
+use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
+use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
+use crate::paths::join_cwd;
+use crate::shell::lex::{ParamTransform, Seg, Span, Tok, WordTok};
+use crate::shell::{
+    ArrayValue, Converted, MAX_ARGV_VARIANTS, MAX_BRACE_EXPANSIONS, OPAQUE_DOMAINS, PendingAssign,
+    SHELL_INTERNAL_VARS, Shell, ShellEnv, VarEntry, VariableExpansion, WordExpansion, brace,
+    converted_bytes, lex, parse,
+};
+use crate::value::{SemanticValue, SemanticValueKind, join_branches};
+use crate::word::{Word, WordPart};
+
+use super::redirection::{DESCRIPTOR_PARAMETER, descriptor_word, names_own_process_entry};
+use super::{NestedShellMode, captured_program_name, substitution_hides_name};
 
 /// Whether unquoted text carries a filename pattern. Beyond the plain
 /// metacharacters, an extended glob group opens with `+(`, `@(` or `!(`.

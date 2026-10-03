@@ -57,38 +57,35 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     0
                 }
                 HookOutcome::IrrelevantEvent => 0,
-                HookOutcome::MalformedInput => deny_unavailable(
+                HookOutcome::MalformedInput => hook_adapter::deny_unavailable_on_stderr(
                     stderr,
                     failure_policy,
+                    Runtime::Droid,
                     hook_adapter::IntegrationUnavailable::MalformedInput,
                 )
                 .unwrap_or(0),
                 HookOutcome::EvaluationUnavailable(kind) => {
-                    deny_unavailable(stderr, failure_policy, kind).unwrap_or_else(|| {
+                    hook_adapter::deny_unavailable_on_stderr(
+                        stderr,
+                        failure_policy,
+                        Runtime::Droid,
+                        kind,
+                    )
+                    .unwrap_or_else(|| {
                         let _ = writeln!(stdout, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
                         0
                     })
                 }
             }
         }
-        Err(_) => deny_unavailable(
+        Err(_) => hook_adapter::deny_unavailable_on_stderr(
             stderr,
             failure_policy,
+            Runtime::Droid,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
         .unwrap_or(0),
     }
-}
-
-fn deny_unavailable<E: Write>(
-    stderr: &mut E,
-    failure_policy: FailurePolicy,
-    unavailable: hook_adapter::IntegrationUnavailable,
-) -> Option<u8> {
-    hook_adapter::unavailable_feedback(failure_policy, Runtime::Droid, unavailable).map(|reason| {
-        let _ = writeln!(stderr, "nah - {reason}");
-        2
-    })
 }
 
 /// The tool call `run` hands the pipeline for this Factory Droid tool call.
@@ -115,7 +112,9 @@ fn normalize(input: DroidHookInput) -> Result<ToolCallInput, String> {
         .tool_input
         .as_object()
         .ok_or_else(|| INVALID_DROID_TOOL_INPUT.to_owned())
-        .and_then(|object| lower(&input.tool_name, &input.tool_input, object, &input.cwd));
+        .and_then(|object| {
+            lower_droid_tool(&input.tool_name, &input.tool_input, object, &input.cwd)
+        });
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
             tool,
@@ -135,7 +134,7 @@ fn normalize(input: DroidHookInput) -> Result<ToolCallInput, String> {
     .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_droid_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     object: &Map<String, Value>,

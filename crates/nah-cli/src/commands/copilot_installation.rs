@@ -1,7 +1,6 @@
 //! Installs and removes nah's shared GitHub Copilot hook.
 
 use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
@@ -11,11 +10,11 @@ use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
 use super::hook_paths::{
-    HookLockErrorCodes, acquire_hook_lock_in_unlinked_directory, reject_hook_path_symlink,
+    HookFileWriteErrorCodes, HookLockErrorCodes, acquire_hook_lock_in_unlinked_directory,
+    reject_hook_path_symlink, write_hook_json_atomically,
 };
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 pub(crate) fn mutate_copilot_hook(
     install: bool,
@@ -27,9 +26,9 @@ pub(crate) fn mutate_copilot_hook(
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable, policy)
+            install_copilot_hook(&home, &executable, policy)
         } else {
-            uninstall_hook(&home)
+            uninstall_copilot_hook(&home)
         }
     })?;
     Ok(RuntimeMutation::new(
@@ -45,11 +44,11 @@ pub(crate) fn copilot_hook_status() -> Result<RuntimeHookStatus, String> {
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let paths = CopilotHookPaths::new(&home);
-    reject_symlinks(&paths)?;
+    reject_copilot_hook_symlinks(&paths)?;
     if !paths.hook.exists() {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
-    let configured = load(&paths.hook)?;
+    let configured = load_copilot_hook(&paths.hook)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     if configured == desired_hook(&executable, FailurePolicy::Delegate)? {
@@ -79,17 +78,17 @@ pub(crate) fn copilot_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     ])
 }
 
-fn install_hook(
+fn install_copilot_hook(
     home: &AbsolutePath,
     executable: &Path,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = CopilotHookPaths::new(home);
     let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &COPILOT_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
+    reject_copilot_hook_symlinks(&paths)?;
     let desired = desired_hook(executable, policy)?;
     if paths.hook.exists() {
-        let configured = load(&paths.hook)?;
+        let configured = load_copilot_hook(&paths.hook)?;
         if configured == desired {
             drop(lock);
             return Ok(paths.hook);
@@ -98,17 +97,17 @@ fn install_hook(
             return Err("copilot-hook-file-conflict".into());
         }
     }
-    save(&paths.hook, &desired)?;
+    save_copilot_hook(&paths.hook, &desired)?;
     drop(lock);
     Ok(paths.hook)
 }
 
-fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_copilot_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = CopilotHookPaths::new(home);
     let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &COPILOT_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
+    reject_copilot_hook_symlinks(&paths)?;
     if paths.hook.exists() {
-        let configured = load(&paths.hook)?;
+        let configured = load_copilot_hook(&paths.hook)?;
         if !is_owned(&configured) {
             return Err("copilot-hook-file-conflict".into());
         }
@@ -172,7 +171,7 @@ fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, Strin
     }))
 }
 
-fn load(path: &Path) -> Result<Value, String> {
+fn load_copilot_hook(path: &Path) -> Result<Value, String> {
     reject_hook_path_symlink(path, "copilot-hook-symlink-unsupported")?;
     let file = File::open(path).map_err(|_| "copilot-hook-read-failed")?;
     serde_json::from_reader(file).map_err(|_| "invalid-copilot-hook".into())
@@ -219,34 +218,21 @@ const COPILOT_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
     permissions: "copilot-hook-permissions-failed",
 };
 
-fn reject_symlinks(paths: &CopilotHookPaths) -> Result<(), String> {
+fn reject_copilot_hook_symlinks(paths: &CopilotHookPaths) -> Result<(), String> {
     for directory in &paths.directories {
         reject_hook_path_symlink(directory, "copilot-hook-symlink-unsupported")?;
     }
     reject_hook_path_symlink(&paths.hook, "copilot-hook-symlink-unsupported")
 }
 
-fn save(path: &Path, config: &Value) -> Result<(), String> {
+const COPILOT_HOOK_WRITE_ERRORS: HookFileWriteErrorCodes = HookFileWriteErrorCodes {
+    invalid_path: "invalid-copilot-hook-path",
+    write_failed: "copilot-hook-write-failed",
+    permissions: "copilot-hook-permissions-failed",
+    sync_failed: "copilot-hook-sync-failed",
+};
+
+fn save_copilot_hook(path: &Path, config: &Value) -> Result<(), String> {
     reject_hook_path_symlink(path, "copilot-hook-symlink-unsupported")?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid-copilot-hook-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "copilot-hook-write-failed")?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "copilot-hook-write-failed")?;
-    restrict_file_to_owner(temporary.as_file())
-        .map_err(|_| "copilot-hook-permissions-failed".to_owned())?;
-    serde_json::to_writer_pretty(&mut temporary, config)
-        .map_err(|_| "copilot-hook-write-failed")?;
-    temporary
-        .write_all(b"\n")
-        .map_err(|_| "copilot-hook-write-failed")?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "copilot-hook-write-failed")?;
-    temporary
-        .persist(path)
-        .map_err(|_| "copilot-hook-write-failed")?;
-    sync_parent_directory(parent).map_err(|_| "copilot-hook-sync-failed".to_owned())
+    write_hook_json_atomically(path, config, &COPILOT_HOOK_WRITE_ERRORS)
 }

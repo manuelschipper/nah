@@ -20,7 +20,11 @@ pub(super) fn remote_models() -> Vec<Box<dyn CommandModel>> {
     vec![Box::new(Vagrant), Box::new(Lima), Box::new(Multipass)]
 }
 
-fn unmodeled_subcommand(builder: &mut PlanBuilder, model_node: ProvenanceRef, detail: String) {
+fn remote_unmodeled_subcommand(
+    builder: &mut PlanBuilder,
+    model_node: ProvenanceRef,
+    detail: String,
+) {
     builder.boundary(Boundary {
         reason: BoundaryReason::UNMODELED_SUBCOMMAND,
         class: BoundaryClass::Unmodeled,
@@ -125,11 +129,11 @@ impl CommandModel for Vagrant {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         let Some(subcommand) = ctx.argv.get(1).and_then(Word::as_literal) else {
-            unmodeled_subcommand(builder, model_node, "unresolved vagrant operation".into());
+            remote_unmodeled_subcommand(builder, model_node, "unresolved vagrant operation".into());
             return;
         };
         if !matches!(subcommand, "ssh" | "winrm") {
-            unmodeled_subcommand(builder, model_node, format!("vagrant {subcommand}"));
+            remote_unmodeled_subcommand(builder, model_node, format!("vagrant {subcommand}"));
             return;
         }
 
@@ -230,7 +234,7 @@ impl CommandModel for Lima {
                 || "limactl".to_string(),
                 |word| format!("limactl {}", word.render_raw()),
             );
-            unmodeled_subcommand(builder, model_node, detail);
+            remote_unmodeled_subcommand(builder, model_node, detail);
             return;
         }
 
@@ -285,16 +289,24 @@ impl CommandModel for Multipass {
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         match ctx.argv.get(1).and_then(Word::as_literal) {
             Some("shell") => {
-                unmodeled_subcommand(builder, model_node, "interactive multipass shell".into());
+                remote_unmodeled_subcommand(
+                    builder,
+                    model_node,
+                    "interactive multipass shell".into(),
+                );
                 return;
             }
             Some("exec") => {}
             Some(subcommand) => {
-                unmodeled_subcommand(builder, model_node, format!("multipass {subcommand}"));
+                remote_unmodeled_subcommand(builder, model_node, format!("multipass {subcommand}"));
                 return;
             }
             None => {
-                unmodeled_subcommand(builder, model_node, "unresolved multipass operation".into());
+                remote_unmodeled_subcommand(
+                    builder,
+                    model_node,
+                    "unresolved multipass operation".into(),
+                );
                 return;
             }
         }

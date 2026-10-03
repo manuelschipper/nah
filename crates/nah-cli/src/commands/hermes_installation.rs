@@ -34,9 +34,9 @@ pub(crate) fn mutate_hermes_hook(
             if !is_nah_command(Some(&hook_command)) {
                 return Err("nah-executable-name-unsupported".into());
             }
-            install_hook(&home, &hook_command, policy)
+            install_hermes_hook(&home, &hook_command, policy)
         } else {
-            uninstall_hook(&home)
+            uninstall_hermes_hook(&home)
         }
     })?;
     Ok(RuntimeMutation::new(
@@ -59,7 +59,7 @@ pub(crate) fn hermes_hook_status() -> Result<RuntimeHookStatus, String> {
     }
     let home = resolve_hermes_home(&configured, platform)?;
     let paths = HermesHookPaths::new(&home);
-    reject_symlinks(&paths)?;
+    reject_hermes_hook_symlinks(&paths)?;
     if !paths.config.exists() {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
@@ -135,14 +135,14 @@ fn resolve_hermes_home(
     AbsolutePath::new(platform, configured).map_err(|error| error.to_string())
 }
 
-fn install_hook(
+fn install_hermes_hook(
     home: &AbsolutePath,
     hook_command: &str,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = HermesHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_hermes_hook_lock(&paths)?;
+    reject_hermes_hook_symlinks(&paths)?;
     let mut config = load_config(&paths.config)?;
     let entries = hook_entries_mut(&mut config)?;
     reject_unowned(entries)?;
@@ -163,10 +163,10 @@ fn install_hook(
     Ok(paths.config)
 }
 
-fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_hermes_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = HermesHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_hermes_hook_lock(&paths)?;
+    reject_hermes_hook_symlinks(&paths)?;
     if paths.config.exists() {
         let mut config = load_config(&paths.config)?;
         let owned = hook_entries(&config)?
@@ -212,7 +212,7 @@ impl HermesHookPaths {
     }
 }
 
-fn lock(paths: &HermesHookPaths) -> Result<File, String> {
+fn acquire_hermes_hook_lock(paths: &HermesHookPaths) -> Result<File, String> {
     open_lock(&paths.lock, "hermes-hook-lock-failed")
 }
 
@@ -230,7 +230,7 @@ fn open_lock(path: &Path, error: &str) -> Result<File, String> {
     Ok(file)
 }
 
-fn reject_symlinks(paths: &HermesHookPaths) -> Result<(), String> {
+fn reject_hermes_hook_symlinks(paths: &HermesHookPaths) -> Result<(), String> {
     for path in [&paths.config, &paths.allowlist, &paths.allowlist_lock] {
         reject_hook_path_symlink(path, "hermes-hook-symlink-unsupported")?;
     }

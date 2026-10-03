@@ -67,7 +67,7 @@ pub(crate) fn runtime_imports(
                 Stmt::ImportFrom(import) => {
                     functions.clear();
                     imports
-                        .entry(super::import_from_module(import))
+                        .entry(super::import_bindings::import_from_module(import))
                         .and_modify(|reached| *reached |= definite)
                         .or_insert(definite);
                     // Attribute resolution can fail even for a builtin module.

@@ -14,7 +14,7 @@ use support::{context, control_mutation, guard_policy, protected_write, quiet_ev
 fn critical_self_protection_is_not_a_disableable_guard() {
     let filesystem = protected_write(NahProtectionTier::Critical);
     let decide = |evidence| {
-        nah_policy::decide(
+        nah_policy::reduce_policy_decision(
             evidence,
             &nah_policy::ShippedGuards::new(),
             &Default::default(),
@@ -52,7 +52,7 @@ fn nap_modes_pause_only_the_agreed_enforcement_layers() {
     // A refused analysis leaves partial coverage and no fact to match.
     let refused = quiet_evidence();
     let decide = |evidence, coverage, mode| {
-        nah_policy::decide(
+        nah_policy::reduce_policy_decision(
             evidence,
             &nah_policy::ShippedGuards::new(),
             &Default::default(),
@@ -92,7 +92,7 @@ fn nap_modes_pause_only_the_agreed_enforcement_layers() {
 #[test]
 fn proposal_tier_delegates_to_the_runtime_instead_of_blocking() {
     let (_, policy) = context(&[], vec![], ProjectGuardDeclaration::Absent);
-    let decision = nah_policy::decide(
+    let decision = nah_policy::reduce_policy_decision(
         &protected_write(NahProtectionTier::Proposal),
         &nah_policy::ShippedGuards::new(),
         &Default::default(),
@@ -115,7 +115,7 @@ fn terminal_candidates_follow_structural_nap_modes() {
             EnforcementMode::SelfProtectionPaused,
             EnforcementMode::AllPaused,
         ] {
-            let decision = nah_policy::decide(
+            let decision = nah_policy::reduce_policy_decision(
                 &evidence,
                 &nah_policy::ShippedGuards::new(),
                 &Default::default(),

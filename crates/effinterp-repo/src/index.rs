@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::compose::{Composition, compose_callable, compose_with_package_init, go_root_effects};
 use crate::discover::{LaunchEdge, discover, subject_cwd};
+use crate::is_executable;
 use crate::module::ModuleRegistry;
 use crate::snapshot::{
     DependencyKind, DependencyManifest, InputRecord, analyzer_build_digest, dependency_keys,
@@ -614,18 +615,6 @@ impl SourceResolver for RepoResolver {
                 .collect(),
         )
     }
-}
-
-#[cfg(unix)]
-fn is_executable(metadata: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-
-    metadata.permissions().mode() & 0o111 != 0
-}
-
-#[cfg(not(unix))]
-fn is_executable(_: &std::fs::Metadata) -> bool {
-    false
 }
 
 /// The engine used for repository analysis: builtin models plus a resolver

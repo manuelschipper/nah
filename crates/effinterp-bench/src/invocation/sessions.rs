@@ -36,7 +36,7 @@ pub fn session_corpus_digest(dir: &Path) -> Result<String, String> {
 }
 
 #[derive(Deserialize)]
-struct Row {
+struct SessionRow {
     id: String,
     source: String,
     weight: u64,
@@ -53,7 +53,7 @@ pub fn load_session_rows(dir: &Path, limit: Option<usize>) -> Result<Vec<BenchRo
         .take(limit.unwrap_or(usize::MAX))
         .enumerate()
     {
-        let row: Row = serde_json::from_str(&line.map_err(|e| e.to_string())?)
+        let row: SessionRow = serde_json::from_str(&line.map_err(|e| e.to_string())?)
             .map_err(|e| format!("session case {}: {e}", index + 1))?;
         if !ids.insert(row.id.clone()) {
             return Err(format!("duplicate session case {}", row.id));

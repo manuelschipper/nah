@@ -71,7 +71,7 @@ fn terminal_input_fact(
     effect: &effinterp_proto::Effect,
     target: effects::ResourceId,
 ) -> effects::FactPayload {
-    use effects::*;
+    use effects::{Certainty, ControlAction, ControlTransport, FactPayload};
     FactPayload::ControlInput {
         target,
         action: ControlAction::Deliver,
@@ -118,12 +118,17 @@ pub(super) fn project_effect_facts(
     graph: &mut effects::EffectGraph,
     guards: &ShippedGuardPolicy<'_>,
 ) -> EffectProjection {
-    use effects::*;
+    use effects::{
+        AccessPurpose, Bound, CallId, Certainty, Domain, EffectFact, EffectGraph,
+        EnvironmentOperation, EnvironmentSelection, FactId, FactPayload, FilesystemOperation,
+        GapPhase, Modality, PermissionGrants, Realm, ResourceDetails, ResourceId, ResourceIdentity,
+        ResourceKind, SearchKind, SearchOutput, Selection, TransferDirection,
+    };
     let plan = view.plan();
     let member_effects = view
         .effects()
         .flat_map(|(index, effect)| {
-            crate::observe::finite_members(&effect.resource)
+            crate::observation_request::finite_members(&effect.resource)
                 .into_iter()
                 .flatten()
                 .map(move |member| {
@@ -170,7 +175,7 @@ pub(super) fn project_effect_facts(
             resource: target,
             // A pattern ending in `**` selects every entry at every depth
             // below its bound, as a recursive operation does.
-            recursive: crate::observe::subtree_root(&effect.resource).is_some()
+            recursive: crate::observation_request::subtree_root(&effect.resource).is_some()
                 || effect.attributes.get("recursive")
                     == Some(&effinterp_proto::AttrValue::Bool(true))
                 || matches!(
@@ -593,7 +598,13 @@ fn effect_fact_payload(
     control_tier: Option<nah_proto::labels::NahProtectionTier>,
     guards: &ShippedGuardPolicy<'_>,
 ) -> effects::FactPayload {
-    use effects::*;
+    use effects::{
+        AccessPurpose, CallId, ControlAction, CredentialOperation, CredentialWorkflow,
+        DeletionMode, Domain, EnvironmentOperation, EnvironmentSelection, ExecutionDerivation,
+        ExecutionSource, FactPayload, FilesystemOperation, GapPhase, HostedTarget,
+        NetworkOperation, PermissionGrants, ResourceDetails, ResourceKind, Selection,
+        TransferDirection, VisiblePayload,
+    };
     let plan = view.plan();
     let attr_bool = |key: &str| effect_attr_bool(effect, key);
     let attr_text = |key: &str| effect_attr_text(effect, key);
@@ -817,7 +828,7 @@ fn effect_fact_payload(
             },
             target,
             destination: None,
-            recursive: if crate::observe::subtree_root(&effect.resource).is_some() {
+            recursive: if crate::observation_request::subtree_root(&effect.resource).is_some() {
                 Known(true)
             } else {
                 attr_bool("recursive")

@@ -138,20 +138,18 @@ use std::rc::Rc;
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
     Effect, ExecutionNodeRef, Modality, Operation, Port, ProvenanceKind, ProvenanceRef,
-    ResourceExpr, ResourceFamily, ResourceIdentity, Subject,
+    ResourceExpr, ResourceIdentity,
 };
 
-use crate::builder::{KNOWN_DOMAINS, PlanBuilder, ScriptInterpreter};
-use crate::exec::{UnresolvedHead, analyze_exec};
-use crate::flow::{BindEnd, Descriptor, Flow, FlowReason, FlowRef, FlowStage, PortBinding};
-use crate::models::{StdinValue, curl_flow_info, wget_flow_info};
-use crate::nest::{Nest, SourceResolution, degrade_nested};
-use crate::paths::{join_cwd, join_source_path, process_identity_with_cwd};
-use crate::value::{SemanticValue, SemanticValueKind, join_branches};
+use crate::builder::{PlanBuilder, ScriptInterpreter};
+use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
+use crate::models::StdinValue;
+use crate::nest::Nest;
+use crate::paths::process_identity_with_cwd;
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
-use crate::{SourcePurpose, SourceRefusal};
 use eval::variable_binding::bind_for_var;
-use lex::{DupTarget, ExpansionBudget, ParamTransform, RedirKind, Seg, Span, Tok, WordTok};
+use lex::{DupTarget, RedirKind, Seg, Span, WordTok};
 use parse::{GroupKind, ShellItem, Simple};
 
 /// Builtins with no effect outside the shell: pure-control words, string
@@ -2130,12 +2128,7 @@ impl Shell<'_> {
                 // With no observed source there is nothing to discover by probing.
                 // Still refuse transient source predictions in unordered regions.
                 Some(builder.push_source_hazards(
-                    vec![(
-                        ResourceExpr::Unresolved {
-                            family: effinterp_proto::ResourceFamily::new("filesystem"),
-                        },
-                        true,
-                    )],
+                    vec![(unresolved_resource("filesystem"), true)],
                     Vec::new(),
                     None,
                     background,
@@ -2172,12 +2165,7 @@ impl Shell<'_> {
                 );
                 let mut mutations = builder.source_mutations_since(&cp);
                 if self.nest.budget.exhausted() || builder.effects_saturated() {
-                    mutations.push((
-                        ResourceExpr::Unresolved {
-                            family: effinterp_proto::ResourceFamily::new("filesystem"),
-                        },
-                        true,
-                    ));
+                    mutations.push((unresolved_resource("filesystem"), true));
                 }
                 // A background job races the commands after it, up to a
                 // `wait` for it, but runs its own commands in order.

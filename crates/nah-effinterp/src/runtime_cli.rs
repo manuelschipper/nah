@@ -9,7 +9,7 @@ use nah_proto::runtime::HOOK_RUNTIME_NAMES;
 /// the program states (`stated_control`), or a launch that bypasses hooks.
 /// Returns the runtime's name from `HOOK_RUNTIME_NAMES`, or `"nah"` for nah
 /// itself. Ordinary invocations of the same programs return `None`.
-pub fn classify(
+pub fn recognize_runtime_cli(
     executable: &str,
     argv: &[String],
     stated_control: bool,

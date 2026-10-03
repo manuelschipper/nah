@@ -31,7 +31,7 @@ enum GitPushPredicate {
 }
 
 /// The destructive Git guard definitions, in definition order.
-pub(crate) fn definitions() -> Vec<GuardDefinition> {
+pub(crate) fn git_guard_definitions() -> Vec<GuardDefinition> {
     vec![
         program(
             "git-clean-force",

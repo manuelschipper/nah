@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use nah_corpus::{corpus_dir, load_cases, load_fixtures, load_summary, reconcile};
+use nah_corpus::{corpus_dir, load_cases, load_fixtures, load_summary, reconcile_triage_ledger};
 use nah_corpus_schema::{CaseInput, Expectation, ExpectedVerdict};
 
 #[test]
@@ -13,7 +13,7 @@ fn every_case_is_executed_green_or_an_observed_expected_failure() {
     let cases = load_cases(&dir).unwrap_or_else(|errors| panic!("{}", errors.join("\n")));
     let fixtures = load_fixtures(&dir.join("FIXTURES.json")).expect("typed fixtures");
     let ledger = std::fs::read_to_string(dir.join("TRIAGE.md")).expect("triage ledger");
-    let result = reconcile(&cases, &fixtures, &ledger);
+    let result = reconcile_triage_ledger(&cases, &fixtures, &ledger);
     for id in &result.expected_failures {
         eprintln!("KNOWN FAILURE (desired decision or guard not implemented): {id}");
     }
@@ -473,7 +473,7 @@ fn analysis_limit_cannot_be_recorded_as_a_corpus_decision() {
     case.input = CaseInput::Command(format!("echo {}", "x ".repeat(5_000)));
     // The harness refuses the row, expected failure or not.
     let ledger = format!("## Expected-fail\n\n- `{}` — budget\n", case.id);
-    let reconciliation = reconcile(&[case], &fixtures, &ledger);
+    let reconciliation = reconcile_triage_ledger(&[case], &fixtures, &ledger);
     assert_eq!(
         reconciliation.analysis_limits.len(),
         1,

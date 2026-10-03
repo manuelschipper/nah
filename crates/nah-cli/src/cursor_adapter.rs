@@ -161,7 +161,7 @@ fn normalize_for_platform(
         .map(|input| input.with_original_input(original_input, false))
         .map_err(|error| error.to_string());
     }
-    let lowered = lower(&input.tool_name, &input.tool_input, &fallback_cwd);
+    let lowered = lower_cursor_tool(&input.tool_name, &input.tool_input, &fallback_cwd);
     let (tool, tool_input, cwd, normalization_complete) = match lowered {
         Ok((tool, tool_input, cwd)) => (
             tool,
@@ -187,7 +187,7 @@ fn normalize_for_platform(
     .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_cursor_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     fallback_cwd: &str,

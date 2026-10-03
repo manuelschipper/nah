@@ -83,7 +83,7 @@ struct RWalk<'a> {
     /// Execution depth a nested `system` command runs at.
     depth: u64,
     /// Top-level `name <- value` bindings, in program order.
-    bindings: BTreeMap<String, Value>,
+    bindings: BTreeMap<String, RValue>,
     eval_depth: u32,
     understood: bool,
     /// Whether the call being applied expands wildcards in its operands.
@@ -111,7 +111,7 @@ impl RWalk<'_> {
             if let Some((name, source)) = assignment(&statement) {
                 match value(source, &self.bindings) {
                     Ok(bound) => {
-                        let bytes = bound.0.iter().map(Part::len).sum::<usize>() as u64;
+                        let bytes = bound.0.iter().map(RValuePart::len).sum::<usize>() as u64;
                         if !charge_analysis_bytes(builder, self.nest.budget, bytes, None) {
                             self.understood = false;
                             return;
@@ -136,7 +136,7 @@ impl RWalk<'_> {
         }
     }
 
-    fn apply(&mut self, builder: &mut PlanBuilder, call: &Call) -> Result<(), String> {
+    fn apply(&mut self, builder: &mut PlanBuilder, call: &RCall) -> Result<(), String> {
         let positional = call.positional();
         match (call.callee.as_str(), positional.len()) {
             // Every R file function resolves a leading `~` through HOME.
@@ -379,14 +379,14 @@ impl RWalk<'_> {
     fn command_text(
         &mut self,
         builder: &mut PlanBuilder,
-        value: Option<&Value>,
+        value: Option<&RValue>,
     ) -> Result<String, String> {
         let value = value.ok_or("R command argument is not a recoverable string")?;
         let mut text = String::new();
         for part in &value.0 {
             match part {
-                Part::Text(literal) => text.push_str(literal),
-                Part::Env(name) => match self.env(builder, name) {
+                RValuePart::Text(literal) => text.push_str(literal),
+                RValuePart::Env(name) => match self.env(builder, name) {
                     Some(ResourceExpr::Literal { value }) => text.push_str(&value),
                     _ => return Err("R command reads an unknown environment value".into()),
                 },
@@ -399,7 +399,7 @@ impl RWalk<'_> {
         &mut self,
         builder: &mut PlanBuilder,
         operation: &str,
-        value: &Value,
+        value: &RValue,
         attributes: &[(&str, bool)],
     ) -> Result<(), String> {
         self.emit_effect(builder, operation, value, attributes, None)
@@ -410,7 +410,7 @@ impl RWalk<'_> {
         &mut self,
         builder: &mut PlanBuilder,
         operation: &str,
-        value: &Value,
+        value: &RValue,
         attributes: &[(&str, bool)],
         semantic_attribute: Option<(&str, &str)>,
     ) -> Result<Option<u32>, String> {
@@ -438,12 +438,12 @@ impl RWalk<'_> {
         }))
     }
 
-    fn resource(&mut self, builder: &mut PlanBuilder, value: &Value) -> Option<ResourceExpr> {
+    fn resource(&mut self, builder: &mut PlanBuilder, value: &RValue) -> Option<ResourceExpr> {
         let mut parts = Vec::new();
         for part in tilde_expanded(&value.0) {
             match part {
-                Part::Text(literal) => parts.push(ResourceExpr::Literal { value: literal }),
-                Part::Env(name) => parts.push(
+                RValuePart::Text(literal) => parts.push(ResourceExpr::Literal { value: literal }),
+                RValuePart::Env(name) => parts.push(
                     self.env(builder, &name)
                         .unwrap_or(ResourceExpr::Environment { name }),
                 ),
@@ -519,25 +519,25 @@ impl RWalk<'_> {
 }
 
 /// R's file functions resolve a leading `~` through the home directory.
-fn tilde_expanded(parts: &[Part]) -> Vec<Part> {
+fn tilde_expanded(parts: &[RValuePart]) -> Vec<RValuePart> {
     let mut parts = parts
         .iter()
         .map(|part| match part {
-            Part::Text(text) => Part::Text(text.clone()),
-            Part::Env(name) => Part::Env(name.clone()),
+            RValuePart::Text(text) => RValuePart::Text(text.clone()),
+            RValuePart::Env(name) => RValuePart::Env(name.clone()),
         })
         .collect::<Vec<_>>();
-    if let Some(Part::Text(first)) = parts.first_mut()
+    if let Some(RValuePart::Text(first)) = parts.first_mut()
         && let Some(tail) = first.strip_prefix('~')
         && (tail.is_empty() || tail.starts_with('/'))
     {
         *first = tail.to_string();
-        parts.insert(0, Part::Env("HOME".into()));
+        parts.insert(0, RValuePart::Env("HOME".into()));
     }
     parts
 }
 
-struct Call {
+struct RCall {
     callee: String,
     arguments: Vec<Argument>,
 }
@@ -545,11 +545,11 @@ struct Call {
 struct Argument {
     name: Option<String>,
     raw: String,
-    value: Option<Value>,
+    value: Option<RValue>,
 }
 
-impl Call {
-    fn positional(&self) -> Vec<&Value> {
+impl RCall {
+    fn positional(&self) -> Vec<&RValue> {
         self.arguments
             .iter()
             .filter(|argument| argument.name.is_none())
@@ -590,7 +590,7 @@ impl Call {
             .map(|argument| argument.raw.as_str())
     }
 
-    fn named_value(&self, name: &str) -> Option<&Value> {
+    fn named_value(&self, name: &str) -> Option<&RValue> {
         self.arguments
             .iter()
             .find(|argument| argument.name.as_deref() == Some(name))
@@ -598,25 +598,25 @@ impl Call {
     }
 
     /// R binds by name first, then by position among the unnamed arguments.
-    fn argument(&self, index: usize, name: &str) -> Option<&Value> {
+    fn argument(&self, index: usize, name: &str) -> Option<&RValue> {
         self.named_value(name)
             .or_else(|| self.positional().get(index).copied())
     }
 }
 
 #[derive(Clone)]
-struct Value(Vec<Part>);
+struct RValue(Vec<RValuePart>);
 
 #[derive(Clone)]
-enum Part {
+enum RValuePart {
     Text(String),
     Env(String),
 }
 
-impl Part {
+impl RValuePart {
     fn len(&self) -> usize {
         match self {
-            Part::Text(text) | Part::Env(text) => text.len(),
+            RValuePart::Text(text) | RValuePart::Env(text) => text.len(),
         }
     }
 }
@@ -688,7 +688,7 @@ fn quoted(source: &str) -> Result<(&str, &str), String> {
 }
 
 /// Parse one statement as `name(arguments)`, allowing a namespace qualifier.
-fn call(statement: &str, bindings: &BTreeMap<String, Value>) -> Result<Call, String> {
+fn call(statement: &str, bindings: &BTreeMap<String, RValue>) -> Result<RCall, String> {
     let statement = statement.trim();
     let open = statement.find('(').ok_or("R statement is not a call")?;
     let callee = statement[..open]
@@ -735,7 +735,7 @@ fn call(statement: &str, bindings: &BTreeMap<String, Value>) -> Result<Call, Str
             Argument { name, raw, value }
         })
         .collect();
-    Ok(Call {
+    Ok(RCall {
         callee: callee.to_string(),
         arguments,
     })
@@ -801,10 +801,10 @@ fn split(source: &str) -> Result<Vec<String>, String> {
 
 /// A value is a string literal, a bound name, a `Sys.getenv` read, or a
 /// `file.path`/`paste0` composition of those.
-fn value(source: &str, bindings: &BTreeMap<String, Value>) -> Result<Value, String> {
+fn value(source: &str, bindings: &BTreeMap<String, RValue>) -> Result<RValue, String> {
     let term = source.trim();
     if term.starts_with('"') || term.starts_with('\'') {
-        return Ok(Value(vec![Part::Text(unescape(term)?)]));
+        return Ok(RValue(vec![RValuePart::Text(unescape(term)?)]));
     }
     if let Some(bound) = bindings.get(term) {
         return Ok(bound.clone());
@@ -814,10 +814,10 @@ fn value(source: &str, bindings: &BTreeMap<String, Value>) -> Result<Value, Stri
         if !(name.starts_with('"') || name.starts_with('\'')) {
             return Err("R Sys.getenv name is not a literal".into());
         }
-        return Ok(Value(vec![Part::Env(unescape(name)?)]));
+        return Ok(RValue(vec![RValuePart::Env(unescape(name)?)]));
     }
     if let Some(inner) = arguments(term, "path.expand")? {
-        return Ok(Value(tilde_expanded(&value(&inner, bindings)?.0)));
+        return Ok(RValue(tilde_expanded(&value(&inner, bindings)?.0)));
     }
     for (callee, separator) in [("file.path", "/"), ("paste0", "")] {
         let Some(inner) = arguments(term, callee)? else {
@@ -826,14 +826,14 @@ fn value(source: &str, bindings: &BTreeMap<String, Value>) -> Result<Value, Stri
         let mut parts = Vec::new();
         for argument in split(&inner)? {
             if !parts.is_empty() {
-                parts.push(Part::Text(separator.to_string()));
+                parts.push(RValuePart::Text(separator.to_string()));
             }
             parts.extend(value(&argument, bindings)?.0);
         }
         if parts.is_empty() {
             return Err("R path composition has no arguments".into());
         }
-        return Ok(Value(parts));
+        return Ok(RValue(parts));
     }
     Err(format!(
         "R value {:?} is outside the literal expression grammar",

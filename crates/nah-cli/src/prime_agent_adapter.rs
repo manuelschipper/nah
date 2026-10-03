@@ -55,33 +55,27 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                 json!({"block": false, "evaluation_failed":decision.evaluation_failed()})
             }
             hook_adapter::HookOutcome::IrrelevantEvent => return 0,
-            hook_adapter::HookOutcome::MalformedInput => unavailable(
+            hook_adapter::HookOutcome::MalformedInput => hook_adapter::unavailable_plugin_reply(
                 failure_policy,
+                Runtime::PrimeAgent,
                 hook_adapter::IntegrationUnavailable::MalformedInput,
             )
-            .unwrap_or_else(|| delegated(false)),
+            .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
             hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
-                unavailable(failure_policy, kind).unwrap_or_else(|| delegated(true))
+                hook_adapter::unavailable_plugin_reply(failure_policy, Runtime::PrimeAgent, kind)
+                    .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(true))
             }
         },
-        Err(_) => unavailable(
+        Err(_) => hook_adapter::unavailable_plugin_reply(
             failure_policy,
+            Runtime::PrimeAgent,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
-        .unwrap_or_else(|| delegated(false)),
+        .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
     };
     let _ = serde_json::to_writer(&mut *stdout, &output);
     let _ = writeln!(stdout);
     0
-}
-
-fn unavailable(
-    failure_policy: FailurePolicy,
-    unavailable: hook_adapter::IntegrationUnavailable,
-) -> Option<Value> {
-    hook_adapter::unavailable_feedback(failure_policy, Runtime::PrimeAgent, unavailable).map(
-        |reason| json!({"block":true,"reason":format!("nah - {reason}"),"evaluation_failed":true}),
-    )
 }
 
 /// The tool call `run` hands the pipeline for this Prime Agent tool call.
@@ -136,10 +130,6 @@ fn normalize(input: PrimeAgentHookInput) -> Result<(ToolCallInput, Option<CodeIn
     .map(|input| input.with_original_input(original_input, normalization_complete))
     .map(|input| (input, code))
     .map_err(|error| error.to_string())
-}
-
-fn delegated(evaluation_failed: bool) -> Value {
-    json!({"block": false, "evaluation_failed":evaluation_failed})
 }
 
 #[cfg(test)]

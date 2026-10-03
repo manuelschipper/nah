@@ -46,7 +46,7 @@
   `bench/invocation` rows are the invocation corpus, not a plane.
 - The coverage headline, "understood what it could", counts successfully
   analysed plans outside the `gap` bucket, so a boundary reason's tier in
-  `crates/effinterp-bench/src/bench/tiers.rs` sets that number. Move a reason
+  `crates/effinterp-bench/src/invocation/tiers.rs` sets that number. Move a reason
   out of `gap` only when every site that emits it qualifies: no static
   analyser given the fixture's inputs, including the files and context the
   fixture supplies, could resolve it. A reason with any resolvable site stays
@@ -64,6 +64,9 @@
   `crates/effinterp-model-schema`; import them from `effinterp_model_schema`,
   not through `effinterp_engine`, which compiles them in
   `src/models/registry/`.
+- `effinterp-repo` composition and linking must not dispatch on source
+  language; `tests/suite/effect_ir_linker.rs` checks an explicit list of
+  `compose/*.rs` and `linker/*.rs` files, so add a new file there.
 
 Edit this guidance in `.mdmanager/sections/agents.md`, then run
 `mdmanager project apply agents`. `.mdmanager/project.toml` owns the

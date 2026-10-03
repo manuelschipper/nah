@@ -297,7 +297,10 @@ mod tests {
 
     fn evidence(coverage: Coverage, calls: &[Call<'_>]) -> GuardEvidence {
         use Knowledge::{Known, Unknown};
-        use nah_proto::effects::*;
+        use nah_proto::effects::{
+            CallId, CausalAvailability, EffectCall, EffectGraph, InvocationKind, Knowledge,
+            PayloadGroupId, PublicSelection,
+        };
         let calls = calls
             .iter()
             .enumerate()

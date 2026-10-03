@@ -1,4 +1,14 @@
-use super::*;
+use std::collections::HashSet;
+
+use effinterp_engine::{Assurance, ExternalCall, ObjectIdentity, ResolvedObject};
+use effinterp_proto::{CalleeReference, Effect, ResourceExpr};
+
+use super::{
+    Linker, Resolution, find_import, imported_class_name, imported_function_name, instance, one,
+    resolve_common_method, resolve_export_class, resolve_standard_callee,
+    standard_class_candidates,
+};
+use crate::module::{ModuleFile, ModuleRegistry};
 
 pub(crate) struct JsLinker;
 

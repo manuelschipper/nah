@@ -25,8 +25,7 @@ mod load_path;
 mod model;
 
 use crate::lang::frontend::{
-    Frontend, FrontendInput, MAX_CALLBACK_VALUES, MAX_WALK_DEPTH, ParseFailure, ParseOutcome,
-    WalkOutcome,
+    Frontend, FrontendInput, MAX_WALK_DEPTH, ParseFailure, ParseOutcome, WalkOutcome,
 };
 use crate::value::unresolved_resource;
 use std::borrow::Cow;
@@ -35,14 +34,10 @@ use std::rc::Rc;
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CausalAssurance, CoverageLevel, Domain,
-    Effect, ExecutionRealm, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceFamily, ResourceIdentity, Subject,
+    Effect, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity, Subject,
 };
 use lib_ruby_parser::Node;
-use lib_ruby_parser::{
-    Parser, ParserOptions,
-    nodes::{Index, Send},
-};
+use lib_ruby_parser::{Parser, ParserOptions, nodes::Send};
 
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::control_flow::{ControlExit, ControlFact, ControlStack, Requirements, SiteFacts};
@@ -50,18 +45,19 @@ use crate::module_summary::{CallEdge, ClassEntry, FunctionEntry, ImportBinding, 
 use crate::nest::{Nest, Transition, word_resource};
 use crate::paths::fs_resource_uses_cwd;
 use crate::resource_transfer::TransferBinding;
-use crate::summary::{Summary, bind_positional, has_text_concat, substitute_resource_expr};
-use crate::value::{bind_arguments, parse_url_endpoint, sink_typed_join};
+use crate::summary::{
+    Summary, bind_positional, contains_unresolved, has_text_concat, substitute_resource_expr,
+};
+use crate::value::bind_arguments;
 use crate::word::{Word, WordPart};
 use crate::{
     CallableValue, ObjectIdentity, ScopeKey, SemanticValue, SemanticValueKind, ValueArgument,
 };
 use model::{
     Modeled, Scope, apply_live_assign, assigned_proc, candidate_limit_boundary, constant_env,
-    contains_unresolved, effect, env_index_read, env_key, exe, fs_path, guarded_ruby_children,
-    invoked_procs, literal_str, model, network_sink, passed_procs, poison_boundary,
-    poisoned_send_reference, push_proc, resolve, spawn_of_parts, value_arguments,
-    yielded_argument_sets,
+    effect, env_index_read, env_key, exe, fs_path, guarded_ruby_children, invoked_procs,
+    literal_str, model, network_sink, passed_procs, poison_boundary, poisoned_send_reference,
+    push_proc, resolve, spawn_of_parts, value_arguments, yielded_argument_sets,
 };
 
 const DOMAINS: [&str; 4] = ["environment", "filesystem", "network", "process"];
@@ -239,7 +235,7 @@ struct ProcDef {
 /// A file's definitions: methods (qualified and bare keys, first definition
 /// wins) and the classes/modules that declare them.
 #[derive(Default)]
-struct Ctx {
+struct RubyFileContext {
     literal_builtins: bool,
     exception_builtins: bool,
     source_digest: String,
@@ -263,7 +259,7 @@ struct Ctx {
     load_path: load_path::LoadPathEvidence,
 }
 
-impl Ctx {
+impl RubyFileContext {
     fn def(&self, key: &str) -> Option<&RDef> {
         self.exact_defs
             .iter()
@@ -352,11 +348,11 @@ enum LocalTy {
 /// or module contributing a [`ClassEntry`]. Nesting uses the innermost
 /// constant name (`ColorLS::Flags` registers as `Flags`), matching how call
 /// edges name their heads.
-fn collect(node: &Node, ctx: &mut Ctx) {
+fn collect(node: &Node, ctx: &mut RubyFileContext) {
     collect_at(node, ctx, 0);
 }
 
-fn collect_at(node: &Node, ctx: &mut Ctx, depth: u32) {
+fn collect_at(node: &Node, ctx: &mut RubyFileContext, depth: u32) {
     if depth >= MAX_WALK_DEPTH {
         return;
     }
@@ -415,7 +411,7 @@ fn collect_at(node: &Node, ctx: &mut Ctx, depth: u32) {
 fn collect_class_body_at(
     node: &Node,
     entry: &mut ClassEntry,
-    ctx: &mut Ctx,
+    ctx: &mut RubyFileContext,
     depth: u32,
     hidden: bool,
     internal: bool,
@@ -535,7 +531,7 @@ fn collect_class_body_at(
 fn collect_constant(
     assignment: &lib_ruby_parser::nodes::Casgn,
     owner: Option<&str>,
-    ctx: &mut Ctx,
+    ctx: &mut RubyFileContext,
 ) {
     let Some(value) = assignment.value.as_deref() else {
         return;
@@ -592,7 +588,7 @@ fn is_skipped_command(name: &str) -> bool {
 /// <param>` and `@attr = Cls.new(...)` / `@attr ||= Cls.new(...)` (including
 /// `begin`/`end` values), plus locals forwarded into the ivar. Attribute
 /// names are stored without the `@`, matching `SelfAttr` receivers.
-fn collect_attr_types(class: &str, entry: &mut ClassEntry, ctx: &Ctx) {
+fn collect_attr_types(class: &str, entry: &mut ClassEntry, ctx: &RubyFileContext) {
     for i in 0..ctx.defs.len() {
         let (params, body, def_class) = {
             let d = &ctx.defs[i];
@@ -726,7 +722,7 @@ fn record_ivar_named(
 /// After every class is collected: mark command-table and template-base
 /// methods, inherit command lists through same-file bases, and infer method
 /// return classes from constructor/ivar bodies.
-fn finish_collect(ctx: &mut Ctx) {
+fn finish_collect(ctx: &mut RubyFileContext) {
     let names: Vec<String> = ctx.classes.iter().map(|c| c.name.clone()).collect();
     for name in &names {
         if !ctx.command_dsl.contains(name) && !is_template_class(ctx, name) {
@@ -743,7 +739,7 @@ fn finish_collect(ctx: &mut Ctx) {
     infer_all_returns(ctx);
 }
 
-fn is_template_class(ctx: &Ctx, name: &str) -> bool {
+fn is_template_class(ctx: &RubyFileContext, name: &str) -> bool {
     last_seg(name) == "Base"
         || ctx
             .classes
@@ -751,7 +747,7 @@ fn is_template_class(ctx: &Ctx, name: &str) -> bool {
             .any(|c| c.name == name && c.bases.iter().any(|b| last_seg(b) == "Base"))
 }
 
-fn inherit_commands(ctx: &mut Ctx) {
+fn inherit_commands(ctx: &mut RubyFileContext) {
     for _ in 0..16 {
         let mut changed = false;
         let snapshot: Vec<(String, Vec<String>)> = ctx
@@ -795,7 +791,7 @@ fn inherit_commands(ctx: &mut Ctx) {
     }
 }
 
-fn infer_all_returns(ctx: &mut Ctx) {
+fn infer_all_returns(ctx: &mut RubyFileContext) {
     let mut returns = HashMap::new();
     let empty = ClassEntry::default();
     for d in &ctx.defs {
@@ -980,7 +976,7 @@ fn type_name(path: &str, enclosing: Option<&str>) -> String {
     }
 }
 
-fn unmodeled_receiver_call(send: &Send, ctx: &Ctx) -> Option<String> {
+fn unmodeled_receiver_call(send: &Send, ctx: &RubyFileContext) -> Option<String> {
     if load_path::inert_call(send)
         || ctx
             .load_path
@@ -1242,7 +1238,7 @@ fn qualified_class_definitions(root: &Node) -> Vec<(String, String)> {
     definitions
 }
 
-fn collect_exact(node: &Node, namespace: Option<&str>, ctx: &mut Ctx, depth: u32) {
+fn collect_exact(node: &Node, namespace: Option<&str>, ctx: &mut RubyFileContext, depth: u32) {
     if depth >= MAX_WALK_DEPTH {
         return;
     }
@@ -1290,7 +1286,12 @@ fn collect_exact(node: &Node, namespace: Option<&str>, ctx: &mut Ctx, depth: u32
     }
 }
 
-fn collect_exact_class_body(node: &Node, entry: &mut ClassEntry, ctx: &mut Ctx, depth: u32) {
+fn collect_exact_class_body(
+    node: &Node,
+    entry: &mut ClassEntry,
+    ctx: &mut RubyFileContext,
+    depth: u32,
+) {
     if depth >= MAX_WALK_DEPTH {
         return;
     }
@@ -1382,7 +1383,7 @@ impl Frontend for RubyFrontend {
                 }
             }
         }
-        let mut ctx = Ctx {
+        let mut ctx = RubyFileContext {
             literal_builtins: literal_builtins(root, MAX_INLINE_DEPTH),
             exception_builtins: exception_builtins(root, input.source.len()),
             source_digest: effinterp_proto::stable_hash(
@@ -1391,7 +1392,7 @@ impl Frontend for RubyFrontend {
             ),
             guards: ruby_guard_regions(root, input.source),
             load_path: load_path::extract(root),
-            ..Ctx::default()
+            ..RubyFileContext::default()
         };
         for stmt in top_statements(root) {
             collect(stmt, &mut ctx);
@@ -1538,7 +1539,7 @@ fn has_rake_dsl(node: &Node) -> bool {
 }
 
 pub(super) fn summarize_ast(source: &str, root: &Node) -> ModuleSummary {
-    let mut ctx = Ctx {
+    let mut ctx = RubyFileContext {
         literal_builtins: literal_builtins(root, MAX_INLINE_DEPTH),
         exception_builtins: exception_builtins(root, source.len()),
         source_digest: effinterp_proto::stable_hash(
@@ -1547,7 +1548,7 @@ pub(super) fn summarize_ast(source: &str, root: &Node) -> ModuleSummary {
         ),
         guards: ruby_guard_regions(root, source),
         load_path: load_path::extract(root),
-        ..Ctx::default()
+        ..RubyFileContext::default()
     };
     for stmt in top_statements(root) {
         collect(stmt, &mut ctx);
@@ -1662,7 +1663,7 @@ pub(super) fn summarize_ast(source: &str, root: &Node) -> ModuleSummary {
 /// Thor turns each public method in a command-table class into a callback at
 /// class-definition time. Keep the class receiver on every registration so
 /// repository composition can require the same class identity at dispatch.
-fn command_registration_edges(ctx: &Ctx) -> Vec<CallEdge> {
+fn command_registration_edges(ctx: &RubyFileContext) -> Vec<CallEdge> {
     let mut out = Vec::new();
     for class in &ctx.classes {
         let Some(methods) = ctx.commands.get(&class.name) else {
@@ -1929,7 +1930,12 @@ struct Capture {
 }
 
 /// Summarize a body with its parameters bound to symbolic Parameter nodes.
-fn capture(body: Option<&Node>, params: &[String], class: Option<&str>, ctx: &Ctx) -> Capture {
+fn capture(
+    body: Option<&Node>,
+    params: &[String],
+    class: Option<&str>,
+    ctx: &RubyFileContext,
+) -> Capture {
     let _walk = crate::limits::summary_walk();
     let mut cap = Capture::default();
     let Some(node) = body else {
@@ -1973,7 +1979,7 @@ fn capture_into(
     body: &Node,
     env: &HashMap<String, ResourceExpr>,
     class: Option<&str>,
-    ctx: &Ctx,
+    ctx: &RubyFileContext,
     stack: &mut Vec<String>,
     nodes_left: &mut u64,
     control: &mut ControlStack,
@@ -1990,7 +1996,7 @@ fn capture_into(
         control::summary_caps(),
         |graph| control::build(graph, &statements, ctx.exception_builtins),
     );
-    let mut c = Cap {
+    let mut c = RubyCaptureWalker {
         cap,
         env: env.clone(),
         class,
@@ -2023,11 +2029,11 @@ fn capture_into(
 
 /// Capture-mode walker: collects a method's parameterized effects and edges
 /// without a live plan.
-struct Cap<'a> {
+struct RubyCaptureWalker<'a> {
     cap: &'a mut Capture,
     env: HashMap<String, ResourceExpr>,
     class: Option<&'a str>,
-    ctx: &'a Ctx,
+    ctx: &'a RubyFileContext,
     /// Locals typed by a direct constructor (`x = Cls.new(...)`).
     vars: HashMap<String, Vec<String>>,
     /// Locals bound to a class (`engine_class = Foo::Bar`).
@@ -2046,7 +2052,7 @@ struct Cap<'a> {
     control: &'a mut ControlStack,
 }
 
-impl Cap<'_> {
+impl RubyCaptureWalker<'_> {
     fn stmt(&mut self, node: &Node) {
         // Iterative: left-deep `+` / `&&` / Send spines overflow the process
         // stack before the node cap can fire.
@@ -2568,7 +2574,7 @@ impl Cap<'_> {
 
 /// The same-file def a call edge resolves to, if any: a qualified or bare
 /// callee defined here, or the constructor of a locally defined class.
-fn local_key(ctx: &Ctx, edge: &CallEdge) -> Option<String> {
+fn local_key(ctx: &RubyFileContext, edge: &CallEdge) -> Option<String> {
     if let Some(ObjectIdentity::Class { name, .. }) = edge.receiver_identity() {
         if edge.callee == *name {
             let init = format!("{name}.__init__");
@@ -2595,7 +2601,7 @@ fn local_key(ctx: &Ctx, edge: &CallEdge) -> Option<String> {
     ctx.def(&edge.callee).map(|_| edge.callee.clone())
 }
 
-fn local_method(ctx: &Ctx, class: &str, method: &str) -> Option<String> {
+fn local_method(ctx: &RubyFileContext, class: &str, method: &str) -> Option<String> {
     let mut seen = HashSet::new();
     let mut stack = vec![class.to_string()];
     while let Some(name) = stack.pop() {
@@ -2620,7 +2626,7 @@ fn local_method(ctx: &Ctx, class: &str, method: &str) -> Option<String> {
     None
 }
 
-fn local_base(ctx: &Ctx, owner: &str, base: &str) -> String {
+fn local_base(ctx: &RubyFileContext, owner: &str, base: &str) -> String {
     if base.contains("::") {
         return base.to_string();
     }
@@ -2658,7 +2664,7 @@ fn resource_bindings(
         .collect()
 }
 
-fn class_ivar_names(ctx: &Ctx, class: &str) -> HashSet<String> {
+fn class_ivar_names(ctx: &RubyFileContext, class: &str) -> HashSet<String> {
     let mut names = HashSet::new();
     if let Some(definition) = ctx.def(&format!("{class}.initialize"))
         && let Some(body) = &definition.body
@@ -2684,7 +2690,7 @@ fn constructor_instance(
     caller_env: &HashMap<String, ResourceExpr>,
     cwd: Option<&str>,
     enclosing: Option<&str>,
-    ctx: &Ctx,
+    ctx: &RubyFileContext,
 ) -> Option<HashMap<String, ResourceExpr>> {
     let Node::Send(send) = node else {
         return None;
@@ -2732,7 +2738,7 @@ fn instance_bindings(
     env: &HashMap<String, ResourceExpr>,
     cwd: Option<&str>,
     enclosing: Option<&str>,
-    ctx: &Ctx,
+    ctx: &RubyFileContext,
 ) -> HashMap<String, ResourceExpr> {
     match send.recv.as_deref() {
         Some(Node::Lvar(local)) => instances.get(&local.name).cloned().unwrap_or_default(),
@@ -2849,7 +2855,7 @@ struct RubyWalker<'a> {
     cwd_node: Option<ProvenanceRef>,
     scope: Option<ProvenanceRef>,
     depth: u64,
-    ctx: &'a Ctx,
+    ctx: &'a RubyFileContext,
     env: HashMap<String, ResourceExpr>,
     vars: HashMap<String, Vec<String>>,
     class_refs: HashMap<String, String>,

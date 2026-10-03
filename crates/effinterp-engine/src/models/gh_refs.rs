@@ -11,12 +11,12 @@
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, Domain, Effect,
     ExecutionNodeRef, ExecutionRealm, Modality, Operation, ProvenanceRef, RequestAssurance,
-    ResourceExpr, ResourceFamily,
 };
 
 use crate::builder::PlanBuilder;
 use crate::models::InvocationCtx;
 use crate::models::common::{Attrs, arg_node};
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 /// The `gh` options that take a value, as the gh model declares them; any
@@ -382,9 +382,7 @@ fn ref_write_request(
         id: Default::default(),
         operation: Operation::new("git.push_request"),
         // A hosted repository has no local Git identity.
-        resource: ResourceExpr::Unresolved {
-            family: ResourceFamily::new("git"),
-        },
+        resource: unresolved_resource("git"),
         attributes: attrs,
         modality: if exact {
             Modality::MustOnSuccess

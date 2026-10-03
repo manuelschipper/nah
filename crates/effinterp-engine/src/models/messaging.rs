@@ -6,7 +6,7 @@
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain, Effect,
-    Modality, Operation, ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity,
+    Modality, Operation, ProvenanceRef, ResourceExpr, ResourceIdentity,
 };
 
 use crate::models::args::{FlagSpec, scan_literal_flags};
@@ -56,9 +56,7 @@ fn topic(system: &str, name: &Word) -> ResourceExpr {
                 name: n.to_string(),
             },
         },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("messaging"),
-        },
+        None => unresolved_resource("messaging"),
     }
 }
 
@@ -370,12 +368,7 @@ impl CommandModel for RabbitmqAdmin {
                     },
                 },
             ),
-            None => (
-                0,
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("messaging"),
-                },
-            ),
+            None => (0, unresolved_resource("messaging")),
         };
         topic_effect(builder, ctx, model_node, index, op, resource);
     }
@@ -563,7 +556,7 @@ fn apply_messaging_scope(
     resource: &mut ResourceExpr,
 ) {
     use crate::models::scope::{access_value, endpoint_evidence, scope_boundary, scope_option};
-    use effinterp_proto::{ScopeDimension as D, ScopeEvidenceKind as E, ScopeValue as V};
+    use effinterp_proto::{ScopeDimension, ScopeEvidenceKind, ScopeValue};
     let ResourceExpr::Concrete {
         identity: ResourceIdentity::MessageTopic { system, scope, .. },
     } = resource
@@ -586,13 +579,13 @@ fn apply_messaging_scope(
                 true,
                 "messaging",
             ) {
-                endpoint_evidence(scope, E::Seed, value);
+                endpoint_evidence(scope, ScopeEvidenceKind::Seed, value);
             }
             for flag in ["--producer.config", "--consumer.config", "--command-config"] {
                 if let Some(value) =
                     scope_option(builder, ctx, provenance, &[flag], true, "messaging")
                 {
-                    access_value(scope, E::ConfigurationFile, value);
+                    access_value(scope, ScopeEvidenceKind::ConfigurationFile, value);
                     scope_boundary(builder, provenance, "messaging");
                 }
             }
@@ -618,7 +611,7 @@ fn apply_messaging_scope(
                     true,
                     "messaging",
                 ) {
-                    access_value(scope, E::Node, value);
+                    access_value(scope, ScopeEvidenceKind::Node, value);
                 }
                 if let Some(value) = scope_option(
                     builder,
@@ -628,7 +621,7 @@ fn apply_messaging_scope(
                     true,
                     "messaging",
                 ) {
-                    scope.identity.insert(D::Namespace, value);
+                    scope.identity.insert(ScopeDimension::Namespace, value);
                 }
             } else {
                 host_port_scope(
@@ -654,8 +647,10 @@ fn apply_messaging_scope(
                         } => *port,
                         _ => None,
                     });
-                    scope.access.retain(|e| e.kind != E::Endpoint);
-                    endpoint_evidence(scope, E::Endpoint, base);
+                    scope
+                        .access
+                        .retain(|e| e.kind != ScopeEvidenceKind::Endpoint);
+                    endpoint_evidence(scope, ScopeEvidenceKind::Endpoint, base);
                     for evidence in &mut scope.access {
                         if let ResourceExpr::Concrete {
                             identity:
@@ -681,7 +676,7 @@ fn apply_messaging_scope(
                     true,
                     "messaging",
                 ) {
-                    if let V::Value(prefix) = prefix {
+                    if let ScopeValue::Value(prefix) = prefix {
                         for evidence in &mut scope.access {
                             if let (
                                 ResourceExpr::Literal { value },
@@ -698,7 +693,11 @@ fn apply_messaging_scope(
                             }
                         }
                     } else {
-                        access_value(scope, E::UnresolvedConfiguration, V::Unknown);
+                        access_value(
+                            scope,
+                            ScopeEvidenceKind::UnresolvedConfiguration,
+                            ScopeValue::Unknown,
+                        );
                     }
                 }
                 if let Some(context) = scope_option(
@@ -709,7 +708,7 @@ fn apply_messaging_scope(
                     true,
                     "messaging",
                 ) {
-                    access_value(scope, E::Context, context);
+                    access_value(scope, ScopeEvidenceKind::Context, context);
                     scope_boundary(builder, provenance, "messaging");
                 }
                 if let Some(value) = scope_option(
@@ -720,7 +719,7 @@ fn apply_messaging_scope(
                     true,
                     "messaging",
                 ) {
-                    scope.identity.insert(D::Namespace, value);
+                    scope.identity.insert(ScopeDimension::Namespace, value);
                 }
                 if let Some(value) = scope_option(
                     builder,
@@ -730,7 +729,7 @@ fn apply_messaging_scope(
                     true,
                     "messaging",
                 ) {
-                    access_value(scope, E::ConfigurationFile, value);
+                    access_value(scope, ScopeEvidenceKind::ConfigurationFile, value);
                     scope_boundary(builder, provenance, "messaging");
                 }
             }
@@ -753,18 +752,18 @@ fn apply_messaging_scope(
                 true,
                 "messaging",
             ) {
-                endpoint_evidence(scope, E::Seed, value);
+                endpoint_evidence(scope, ScopeEvidenceKind::Seed, value);
             }
             if let Some(value) =
                 scope_option(builder, ctx, provenance, &["--context"], true, "messaging")
             {
-                access_value(scope, E::Context, value);
+                access_value(scope, ScopeEvidenceKind::Context, value);
                 scope_boundary(builder, provenance, "messaging");
             }
             if let Some(value) =
                 scope_option(builder, ctx, provenance, &["--creds"], true, "messaging")
             {
-                access_value(scope, E::ConfigurationFile, value);
+                access_value(scope, ScopeEvidenceKind::ConfigurationFile, value);
                 scope_boundary(builder, provenance, "messaging");
             }
         }
@@ -795,9 +794,13 @@ fn apply_messaging_scope(
             if let Some(uri) = uri {
                 if !scope.access.is_empty() {
                     scope_boundary(builder, provenance, "messaging");
-                    access_value(scope, E::UnresolvedConfiguration, V::Unknown);
+                    access_value(
+                        scope,
+                        ScopeEvidenceKind::UnresolvedConfiguration,
+                        ScopeValue::Unknown,
+                    );
                 }
-                if let V::Value(value) = &uri
+                if let ScopeValue::Value(value) = &uri
                     && let ResourceExpr::Literal { value } = value.as_ref()
                     && key
                     && let Some((_, rest)) = value.split_once("://")
@@ -806,8 +809,8 @@ fn apply_messaging_scope(
                 {
                     if db.parse::<u32>().is_ok() {
                         scope.identity.insert(
-                            D::Namespace,
-                            V::value(ResourceExpr::Literal {
+                            ScopeDimension::Namespace,
+                            ScopeValue::value(ResourceExpr::Literal {
                                 value: db.to_string(),
                             }),
                         );
@@ -815,7 +818,7 @@ fn apply_messaging_scope(
                         scope_boundary(builder, provenance, "messaging");
                     }
                 }
-                endpoint_evidence(scope, E::Endpoint, uri);
+                endpoint_evidence(scope, ScopeEvidenceKind::Endpoint, uri);
                 // The URI database selects Redis keys, not channels or a different server.
                 for evidence in &mut scope.access {
                     if let ResourceExpr::Concrete {
@@ -827,12 +830,14 @@ fn apply_messaging_scope(
                 }
             }
             if key && let Some(database) = database {
-                if matches!(scope.identity.get(&D::Namespace), Some(V::Value(value)) if V::Value(value.clone()) != database)
+                if matches!(scope.identity.get(&ScopeDimension::Namespace), Some(ScopeValue::Value(value)) if ScopeValue::Value(value.clone()) != database)
                 {
-                    scope.identity.insert(D::Namespace, V::Unknown);
+                    scope
+                        .identity
+                        .insert(ScopeDimension::Namespace, ScopeValue::Unknown);
                     scope_boundary(builder, provenance, "messaging");
                 } else {
-                    scope.identity.insert(D::Namespace, database);
+                    scope.identity.insert(ScopeDimension::Namespace, database);
                 }
             }
         }
@@ -923,11 +928,11 @@ fn host_port_scope(
     equals: bool,
 ) {
     use crate::models::scope::{access_value, endpoint_evidence, scope_boundary, scope_option};
-    use effinterp_proto::{ScopeEvidenceKind as E, ScopeValue as V};
+    use effinterp_proto::{ScopeEvidenceKind, ScopeValue};
     let host = scope_option(builder, ctx, provenance, host_flags, equals, "messaging");
     let port = scope_option(builder, ctx, provenance, port_flags, equals, "messaging");
     match (host, port) {
-        (Some(V::Value(host)), Some(V::Value(port))) => {
+        (Some(ScopeValue::Value(host)), Some(ScopeValue::Value(port))) => {
             let endpoint = match (host.as_ref(), port.as_ref()) {
                 (ResourceExpr::Literal { value: host }, ResourceExpr::Literal { value: port })
                     if port.parse::<u16>().is_ok() =>
@@ -943,19 +948,21 @@ fn host_port_scope(
                 }
                 (ResourceExpr::Literal { .. }, ResourceExpr::Literal { .. }) => {
                     scope_boundary(builder, provenance, "messaging");
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("network"),
-                    }
+                    unresolved_resource("network")
                 }
                 _ => ResourceExpr::Join {
                     parts: vec![*host, ResourceExpr::Literal { value: ":".into() }, *port],
                 },
             };
-            endpoint_evidence(scope, E::Endpoint, V::value(endpoint));
+            endpoint_evidence(
+                scope,
+                ScopeEvidenceKind::Endpoint,
+                ScopeValue::value(endpoint),
+            );
         }
-        (Some(host), None) => endpoint_evidence(scope, E::Endpoint, host),
+        (Some(host), None) => endpoint_evidence(scope, ScopeEvidenceKind::Endpoint, host),
         (None, None) => {}
-        _ => access_value(scope, E::Endpoint, V::Unknown),
+        _ => access_value(scope, ScopeEvidenceKind::Endpoint, ScopeValue::Unknown),
     }
 }
 

@@ -1,6 +1,11 @@
-use super::*;
+use std::collections::{HashMap, HashSet};
+
+use rustpython_parser::ast;
+use rustpython_parser::ast::{Expr, Stmt};
+
+use super::resolve::str_literal;
+use super::{callee_written, child_exprs, rebound_body_names};
 use crate::{Registration, RegistrationKind};
-use std::collections::HashMap;
 
 pub(super) fn fastapi_registrations(
     body: &[Stmt],

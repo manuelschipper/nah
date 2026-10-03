@@ -14,6 +14,7 @@ use super::source_text::{nest_argv, nest_shell};
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::nest::{Nest, charge_analysis_bytes, charge_analysis_steps};
 use crate::resource_transfer::TransferBinding;
+use crate::value::unresolved_resource;
 
 #[derive(Clone, Default)]
 pub(crate) struct Imports {
@@ -319,9 +320,7 @@ fn decoded_eval(builder: &mut PlanBuilder, node: ProvenanceRef) {
                 builder.current_execution_cwd(),
             ),
         },
-        None => ResourceExpr::Unresolved {
-            family: effinterp_proto::ResourceFamily::new("process"),
-        },
+        None => unresolved_resource("process"),
     };
     let model = builder.node(
         ProvenanceKind::ModelApplication {

@@ -8,8 +8,8 @@
     clippy::disallowed_types
 )]
 
-pub mod bench;
 pub mod fingerprint;
+pub mod invocation;
 pub mod latency;
 pub mod layered;
 pub mod nah;

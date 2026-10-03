@@ -2,7 +2,17 @@
 //! closures and classes, their parameters, defaults, decorators and return
 //! sites, and the attribute values `__init__` assigns.
 
-use super::*;
+use std::collections::HashSet;
+use std::rc::Rc;
+
+use effinterp_proto::ResourceExpr;
+use rustpython_parser::ast;
+use rustpython_parser::ast::{Expr, Stmt};
+
+use crate::module_summary::ClassEntry;
+
+use super::resolve::str_literal;
+use super::{Def, InitAttrValue, callee_written, child_exprs};
 
 /// Register function definitions by name, params, and body. Module-level
 /// functions come first; class methods are also registered (as `Class.method`,

@@ -1,19 +1,19 @@
 //! Installs and removes nah's user-level Codex PreToolUse hook.
 
-use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
-use super::hook_paths::{HookLockErrorCodes, acquire_hook_lock};
+use super::hook_paths::{
+    HookFileWriteErrorCodes, HookJsonReadErrorCodes, HookLockErrorCodes, acquire_hook_lock,
+    read_hook_json_object, write_hook_json_atomically,
+};
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 pub(crate) fn mutate_codex_hook(
     install: bool,
@@ -25,9 +25,9 @@ pub(crate) fn mutate_codex_hook(
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable, policy)
+            install_codex_hook(&home, &executable, policy)
         } else {
-            uninstall_hook(&home)
+            uninstall_codex_hook(&home)
         }
     })?;
     Ok(RuntimeMutation::new(
@@ -43,8 +43,8 @@ pub(crate) fn codex_hook_status() -> Result<RuntimeHookStatus, String> {
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let paths = CodexHookPaths::new(&home);
-    reject_symlinks(&paths)?;
-    let hooks = load(&paths.hooks)?;
+    reject_codex_hook_symlinks(&paths)?;
+    let hooks = load_codex_hooks(&paths.hooks)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     hook_config::inspect_modes(
@@ -76,31 +76,31 @@ fn reject_custom_home() -> Result<(), String> {
     }
 }
 
-fn install_hook(
+fn install_codex_hook(
     home: &AbsolutePath,
     executable: &Path,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = CodexHookPaths::new(home);
     let lock = acquire_hook_lock(&paths.lock, &CODEX_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
-    let mut hooks = load(&paths.hooks)?;
+    reject_codex_hook_symlinks(&paths)?;
+    let mut hooks = load_codex_hooks(&paths.hooks)?;
     let desired = desired_handler(executable, policy)?;
     if hook_config::add(&mut hooks, desired, is_nah_handler, "invalid-codex-hooks")? {
-        save(&paths.hooks, &hooks)?;
+        save_codex_hooks(&paths.hooks, &hooks)?;
     }
     drop(lock);
     Ok(paths.hooks)
 }
 
-fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_codex_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = CodexHookPaths::new(home);
     let lock = acquire_hook_lock(&paths.lock, &CODEX_HOOK_LOCK_ERRORS)?;
-    reject_symlinks(&paths)?;
+    reject_codex_hook_symlinks(&paths)?;
     if paths.hooks.exists() {
-        let mut hooks = load(&paths.hooks)?;
+        let mut hooks = load_codex_hooks(&paths.hooks)?;
         if hook_config::remove(&mut hooks, is_nah_handler, "invalid-codex-hooks")? {
-            save(&paths.hooks, &hooks)?;
+            save_codex_hooks(&paths.hooks, &hooks)?;
         }
     }
     drop(lock);
@@ -131,48 +131,29 @@ const CODEX_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
     permissions: "codex-hook-permissions-failed",
 };
 
-fn load(path: &Path) -> Result<Value, String> {
-    reject_symlink(path)?;
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Value::Object(Map::new()));
-        }
-        Err(_) => return Err("codex-hooks-read-failed".into()),
-    };
-    let value: Value =
-        serde_json::from_reader(file).map_err(|_| "invalid-codex-hooks".to_owned())?;
-    if !value.is_object() {
-        return Err("invalid-codex-hooks".into());
-    }
-    Ok(value)
+const CODEX_HOOKS_READ_ERRORS: HookJsonReadErrorCodes = HookJsonReadErrorCodes {
+    read_failed: "codex-hooks-read-failed",
+    invalid: "invalid-codex-hooks",
+};
+
+fn load_codex_hooks(path: &Path) -> Result<Value, String> {
+    reject_codex_hooks_symlink(path)?;
+    read_hook_json_object(path, &CODEX_HOOKS_READ_ERRORS)
 }
 
-fn save(path: &Path, hooks: &Value) -> Result<(), String> {
-    reject_symlink(path)?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid-codex-hooks-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "codex-hooks-write-failed")?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "codex-hooks-write-failed")?;
-    restrict_file_to_owner(temporary.as_file())
-        .map_err(|_| "codex-hook-permissions-failed".to_owned())?;
-    serde_json::to_writer_pretty(&mut temporary, hooks).map_err(|_| "codex-hooks-write-failed")?;
-    temporary
-        .write_all(b"\n")
-        .map_err(|_| "codex-hooks-write-failed")?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "codex-hooks-write-failed")?;
-    temporary
-        .persist(path)
-        .map_err(|_| "codex-hooks-write-failed")?;
-    sync_parent_directory(parent).map_err(|_| "codex-hook-sync-failed".to_owned())
+const CODEX_HOOKS_WRITE_ERRORS: HookFileWriteErrorCodes = HookFileWriteErrorCodes {
+    invalid_path: "invalid-codex-hooks-path",
+    write_failed: "codex-hooks-write-failed",
+    permissions: "codex-hook-permissions-failed",
+    sync_failed: "codex-hook-sync-failed",
+};
+
+fn save_codex_hooks(path: &Path, hooks: &Value) -> Result<(), String> {
+    reject_codex_hooks_symlink(path)?;
+    write_hook_json_atomically(path, hooks, &CODEX_HOOKS_WRITE_ERRORS)
 }
 
-fn reject_symlink(path: &Path) -> Result<(), String> {
+fn reject_codex_hooks_symlink(path: &Path) -> Result<(), String> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             Err("codex-hooks-symlink-unsupported".into())
@@ -183,11 +164,11 @@ fn reject_symlink(path: &Path) -> Result<(), String> {
     }
 }
 
-fn reject_symlinks(paths: &CodexHookPaths) -> Result<(), String> {
+fn reject_codex_hook_symlinks(paths: &CodexHookPaths) -> Result<(), String> {
     for directory in &paths.directories {
-        reject_symlink(directory)?;
+        reject_codex_hooks_symlink(directory)?;
     }
-    reject_symlink(&paths.hooks)
+    reject_codex_hooks_symlink(&paths.hooks)
 }
 
 fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {

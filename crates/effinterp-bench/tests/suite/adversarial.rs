@@ -13,9 +13,9 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use effinterp_bench::bench::corpus::load_bench;
-use effinterp_bench::bench::score::{AdversarialScore, Scoreboard, score_adversarial};
-use effinterp_bench::bench::{Mutation, analyze_rows};
+use effinterp_bench::invocation::corpus::load_bench;
+use effinterp_bench::invocation::score::{AdversarialScore, Scoreboard, score_adversarial};
+use effinterp_bench::invocation::{Mutation, analyze_rows};
 use effinterp_engine::Engine;
 
 fn bench_dir() -> &'static Path {

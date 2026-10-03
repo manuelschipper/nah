@@ -29,9 +29,9 @@ use super::expectations::{
 };
 use super::isolate::{IsolateRequest, IsolateStatus, isolate_child_process};
 use super::resource_mix;
-use crate::bench::max_rss_kb;
-use crate::bench::score::round4;
-use crate::bench::tiers::{Bucket, bucket_reasons};
+use crate::invocation::max_rss_kb;
+use crate::invocation::score::round4;
+use crate::invocation::tiers::{Bucket, bucket_reasons};
 
 pub const REPOS_DIR: &str = "bench/repos";
 pub const CHILD_TIMEOUT: Duration = Duration::from_secs(300);

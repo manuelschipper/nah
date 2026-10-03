@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
     ExecutionEdgeKind, ExecutionInputReason, ExecutionInputRole, ExecutionPhase, ExecutionSelector,
-    ProvenanceRef, ResourceExpr, ResourceFamily, Subject,
+    ProvenanceRef, ResourceExpr, Subject,
 };
 
 use crate::SourcePurpose;
@@ -18,6 +18,7 @@ use crate::models::common::{
 };
 use crate::models::{CommandModel, InvocationCtx, source_refusal_detail};
 use crate::nest::{SourceResolution, Transition};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 pub(super) fn sourceexec_models() -> Vec<Box<dyn CommandModel>> {
@@ -411,9 +412,7 @@ fn go_verb(builder: &mut PlanBuilder, ctx: &InvocationCtx<'_>, model_node: Prove
                     model_node,
                     *index + offset as u32,
                     "network.download",
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("network"),
-                    },
+                    unresolved_resource("network"),
                     BTreeMap::new(),
                 );
                 continue;
@@ -579,9 +578,7 @@ fn go_verb(builder: &mut PlanBuilder, ctx: &InvocationCtx<'_>, model_node: Prove
                 model_node,
                 1,
                 "network.download",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                },
+                unresolved_resource("network"),
                 BTreeMap::new(),
             );
         }
@@ -656,9 +653,7 @@ fn go_verb(builder: &mut PlanBuilder, ctx: &InvocationCtx<'_>, model_node: Prove
                 model_node,
                 2,
                 "network.download",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                },
+                unresolved_resource("network"),
                 BTreeMap::new(),
             );
             let resource = go_env_path(ctx, "GOMODCACHE", gopath, "pkg/mod");
@@ -703,9 +698,7 @@ fn go_verb(builder: &mut PlanBuilder, ctx: &InvocationCtx<'_>, model_node: Prove
                 model_node,
                 1,
                 "process.exec",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("process"),
-                },
+                unresolved_resource("process"),
                 BTreeMap::new(),
             );
             if verb == "generate" {

@@ -114,7 +114,7 @@ fn normalize(input: DevinHookInput, cwd: &str) -> Result<ToolCallInput, String> 
     if input.hook_event_name != "PreToolUse" {
         return Err("invalid-devin-hook-event".into());
     }
-    let lowered = lower(&input.tool_name, &input.tool_input);
+    let lowered = lower_devin_tool(&input.tool_name, &input.tool_input);
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
             tool,
@@ -128,7 +128,10 @@ fn normalize(input: DevinHookInput, cwd: &str) -> Result<ToolCallInput, String> 
         .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(tool_name: &'a str, tool_input: &Value) -> Result<(&'a str, Value), String> {
+fn lower_devin_tool<'a>(
+    tool_name: &'a str,
+    tool_input: &Value,
+) -> Result<(&'a str, Value), String> {
     Ok(match tool_name {
         "exec" => {
             let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;

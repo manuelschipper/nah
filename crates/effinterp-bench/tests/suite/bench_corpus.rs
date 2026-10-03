@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use effinterp_bench::bench::corpus::{BENCH_MANIFEST_SCHEMA, load_bench, read_bench_manifest};
+use effinterp_bench::invocation::corpus::{BENCH_MANIFEST_SCHEMA, load_bench, read_bench_manifest};
 use effinterp_bench::nah::corpus::fixture_corpus_digest;
 
 const MAX_BYTES: u64 = 30 * 1024 * 1024;
@@ -117,7 +117,7 @@ fn corpus_matches_manifest_and_leaks_nothing() {
 // A session refresh must not reset correctness regression comparisons.
 #[test]
 fn session_refresh_preserves_correctness_scope() {
-    use effinterp_bench::bench::corpus::correctness_digest;
+    use effinterp_bench::invocation::corpus::correctness_digest;
     let dir = tempfile::tempdir().unwrap();
     for name in ["FIXTURES.json", "adversarial.jsonl", "swe.jsonl"] {
         fs::write(dir.path().join(name), name).unwrap();

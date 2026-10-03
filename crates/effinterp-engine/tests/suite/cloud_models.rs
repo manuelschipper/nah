@@ -410,15 +410,15 @@ fn managed_database_deletes_name_each_resource_in_its_containers() {
 
     // A scope option Azure CLI reads from a file keeps the delete but leaves
     // that scope unresolved.
-    use effinterp_proto::{ScopeDimension as D, ScopeValue as V};
+    use effinterp_proto::{ScopeDimension, ScopeValue};
     for (command, dimension) in [
         (
             "az sql db delete -g @group.txt -s srv -n app",
-            D::ResourceGroup,
+            ScopeDimension::ResourceGroup,
         ),
         (
             "az sql db delete -g rg -s srv -n app --subscription @sub.json",
-            D::Subscription,
+            ScopeDimension::Subscription,
         ),
     ] {
         let plan = exec(&command.split(' ').collect::<Vec<_>>());
@@ -430,7 +430,7 @@ fn managed_database_deletes_name_each_resource_in_its_containers() {
         assert_eq!(id.as_deref(), Some("srv/app"));
         assert_eq!(
             scope.identity.get(&dimension),
-            Some(&V::Unknown),
+            Some(&ScopeValue::Unknown),
             "{command}"
         );
         assert!(scope.access.is_empty(), "{command}");
@@ -1148,9 +1148,7 @@ fn cloud_op_on_wrong_identity_is_rejected() {
 
 #[test]
 fn cloud_scope_retains_deployment_identity_and_supplied_region_precedence() {
-    use effinterp_proto::{
-        ScopeDimension as D, ScopeMatch, ScopeValue as V, compare_scoped_identity,
-    };
+    use effinterp_proto::{ScopeDimension, ScopeMatch, ScopeValue, compare_scoped_identity};
     let identity = |argv: &[&str]| object(&exec(argv), "cloud.resource.delete").unwrap();
     let a = identity(&[
         "gcloud",
@@ -1192,10 +1190,13 @@ fn cloud_scope_retains_deployment_identity_and_supplied_region_precedence() {
         "--instance-ids",
         "i-1",
     ]);
-    assert_eq!(a.scope().unwrap().identity[&D::Account], V::Unknown);
     assert_eq!(
-        a.scope().unwrap().identity[&D::Region],
-        V::value(ResourceExpr::Literal {
+        a.scope().unwrap().identity[&ScopeDimension::Account],
+        ScopeValue::Unknown
+    );
+    assert_eq!(
+        a.scope().unwrap().identity[&ScopeDimension::Region],
+        ScopeValue::value(ResourceExpr::Literal {
             value: "eu-west-1".into()
         })
     );
@@ -1207,7 +1208,7 @@ fn cloud_scope_retains_deployment_identity_and_supplied_region_precedence() {
     let plan = shell("aws ec2 terminate-instances --instance-ids i-1 --region $REGION");
     let symbolic = object(&plan, "cloud.resource.delete").unwrap();
     assert!(
-        matches!(&symbolic.scope().unwrap().identity[&D::Region], V::Value(value) if matches!(value.as_ref(), ResourceExpr::Environment { name } if name == "REGION"))
+        matches!(&symbolic.scope().unwrap().identity[&ScopeDimension::Region], ScopeValue::Value(value) if matches!(value.as_ref(), ResourceExpr::Environment { name } if name == "REGION"))
     );
     let from_environment = object(
         &shell("AWS_REGION=$REGION aws ec2 terminate-instances --instance-ids i-1"),
@@ -1215,8 +1216,8 @@ fn cloud_scope_retains_deployment_identity_and_supplied_region_precedence() {
     )
     .unwrap();
     assert_eq!(
-        from_environment.scope().unwrap().identity[&D::Region],
-        symbolic.scope().unwrap().identity[&D::Region]
+        from_environment.scope().unwrap().identity[&ScopeDimension::Region],
+        symbolic.scope().unwrap().identity[&ScopeDimension::Region]
     );
     let loop_plan = shell(
         "for REGION in us-east-1 eu-west-1; do aws ec2 terminate-instances --instance-ids i-1 --region \"$REGION\"; done",
@@ -1234,7 +1235,7 @@ fn cloud_scope_retains_deployment_identity_and_supplied_region_precedence() {
                 ResourceExpr::Concrete {
                     identity: ResourceIdentity::CloudResource { scope, .. }
                 }
-                    if matches!(scope.identity.get(&D::Region), Some(V::Value(value))
+                    if matches!(scope.identity.get(&ScopeDimension::Region), Some(ScopeValue::Value(value))
                         if matches!(value.as_ref(), ResourceExpr::Literal { value } if value == expected))
             )
         }));
@@ -1260,7 +1261,7 @@ fn cloud_scope_retains_deployment_identity_and_supplied_region_precedence() {
                     ResourceExpr::Concrete {
                         identity: ResourceIdentity::CloudResource { scope, .. }
                     }
-                        if scope.identity.get(&D::Region) == Some(&V::Unknown)
+                        if scope.identity.get(&ScopeDimension::Region) == Some(&ScopeValue::Unknown)
                 )
             }));
             assert!(deletes.iter().any(|effect| {
@@ -1269,7 +1270,7 @@ fn cloud_scope_retains_deployment_identity_and_supplied_region_precedence() {
                     ResourceExpr::Concrete {
                         identity: ResourceIdentity::CloudResource { scope, .. }
                     }
-                        if matches!(scope.identity.get(&D::Region), Some(V::Value(value))
+                        if matches!(scope.identity.get(&ScopeDimension::Region), Some(ScopeValue::Value(value))
                             if matches!(value.as_ref(), ResourceExpr::Literal { value } if value == "eu-west-1"))
                 )
             }));
@@ -1279,11 +1280,14 @@ fn cloud_scope_retains_deployment_identity_and_supplied_region_precedence() {
         assert!(matches!(&target, ResourceIdentity::CloudResource {
             provider: Some(provider), service, kind, id, ..
         } if provider == "aws" && service == "ec2" && kind == "instance" && id.as_deref() == Some("i-1")));
-        assert_eq!(target.scope().unwrap().identity[&D::Region], V::Unknown);
+        assert_eq!(
+            target.scope().unwrap().identity[&ScopeDimension::Region],
+            ScopeValue::Unknown
+        );
         if source.contains("arn:aws") {
             assert_eq!(
-                target.scope().unwrap().identity[&D::Account],
-                V::value(ResourceExpr::Literal {
+                target.scope().unwrap().identity[&ScopeDimension::Account],
+                ScopeValue::value(ResourceExpr::Literal {
                     value: "123456789012".into(),
                 })
             );
@@ -1343,23 +1347,23 @@ fn cloud_scope_retains_deployment_identity_and_supplied_region_precedence() {
 
 #[test]
 fn composed_scope_parameters_preserve_known_companion_fields_and_union_conflicts() {
-    use effinterp_proto::{ScopeDimension as D, ScopeMatch, ScopeValue as V, compare_scope};
+    use effinterp_proto::{ScopeDimension, ScopeMatch, ScopeValue, compare_scope};
     let mut identity = effinterp_proto::cloud_scope(Some("aws"), "ec2", "instance");
     identity.identity.insert(
-        D::Partition,
-        V::value(ResourceExpr::Literal {
+        ScopeDimension::Partition,
+        ScopeValue::value(ResourceExpr::Literal {
             value: "aws".into(),
         }),
     );
     identity.identity.insert(
-        D::Account,
-        V::value(ResourceExpr::Literal {
+        ScopeDimension::Account,
+        ScopeValue::value(ResourceExpr::Literal {
             value: "111111111111".into(),
         }),
     );
     identity.identity.insert(
-        D::Region,
-        V::value(ResourceExpr::Parameter {
+        ScopeDimension::Region,
+        ScopeValue::value(ResourceExpr::Parameter {
             name: "region".into(),
         }),
     );
@@ -1391,13 +1395,16 @@ fn composed_scope_parameters_preserve_known_companion_fields_and_union_conflicts
         panic!()
     };
     let actual = composed.scope().unwrap();
-    assert_eq!(actual.identity[&D::Account], identity.identity[&D::Account]);
+    assert_eq!(
+        actual.identity[&ScopeDimension::Account],
+        identity.identity[&ScopeDimension::Account]
+    );
     assert!(
-        matches!(&actual.identity[&D::Region], V::Value(v) if matches!(v.as_ref(), ResourceExpr::Union { .. }))
+        matches!(&actual.identity[&ScopeDimension::Region], ScopeValue::Value(v) if matches!(v.as_ref(), ResourceExpr::Union { .. }))
     );
     identity.identity.insert(
-        D::Region,
-        V::value(ResourceExpr::Literal {
+        ScopeDimension::Region,
+        ScopeValue::value(ResourceExpr::Literal {
             value: "us-east-1".into(),
         }),
     );

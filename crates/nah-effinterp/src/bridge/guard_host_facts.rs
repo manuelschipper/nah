@@ -100,7 +100,7 @@ impl GuardHostFacts for ConversionHostFacts<'_, '_> {
     fn selects_recursively(&self, effect: usize) -> bool {
         let effect = &self.view.plan().effects[effect];
         effect.attributes.get("recursive") == Some(&effinterp_proto::AttrValue::Bool(true))
-            || crate::observe::subtree_root(&effect.resource).is_some()
+            || crate::observation_request::subtree_root(&effect.resource).is_some()
     }
 
     fn selected_host_paths(&self, effect: usize) -> Vec<ReachedHostPath<'_>> {
@@ -257,7 +257,7 @@ fn resource_paths(
     resource: &effinterp_proto::ResourceExpr,
 ) -> Vec<String> {
     let mut paths = Vec::new();
-    if let Some((requested, _)) = crate::observe::observation_bound(resource) {
+    if let Some((requested, _)) = crate::observation_request::observation_bound(resource) {
         if let Some(observed) = view.observed_path(&requested) {
             paths.push(observed.resolved().as_str().to_owned());
             if let Some(realpath) = observed.realpath() {

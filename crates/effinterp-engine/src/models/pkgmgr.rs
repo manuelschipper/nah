@@ -7,8 +7,7 @@ use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
     Effect, ExecutionContent, ExecutionEdgeKind, ExecutionInputReason, ExecutionInputRole,
     ExecutionNodeRef, ExecutionPhase, ExecutionRealm, ExecutionSelection, ExecutionSelector,
-    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity, Subject,
+    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity, Subject,
 };
 
 use super::artifact::NpmSetting;
@@ -20,6 +19,7 @@ use crate::models::common::{
 };
 use crate::models::{CommandModel, InvocationCtx, source_refusal_detail};
 use crate::nest::{SourceResolution, Transition};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 pub(crate) fn pkgmgr_models() -> Vec<Box<dyn CommandModel>> {
@@ -498,9 +498,7 @@ fn bun_pack(builder: &mut PlanBuilder, ctx: &InvocationCtx<'_>, model_node: Prov
             model_node,
             2,
             "filesystem.write",
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            },
+            unresolved_resource("filesystem"),
             program_output_attrs(),
         );
     }
@@ -554,9 +552,7 @@ fn npm_rebuild(
         model_node,
         sub_index as u32,
         "filesystem.write",
-        ResourceExpr::Unresolved {
-            family: ResourceFamily::new("filesystem"),
-        },
+        unresolved_resource("filesystem"),
         program_output_attrs(),
     );
     builder.boundary(Boundary {
@@ -941,9 +937,7 @@ fn npm_special_dispatch(
             model_node,
             sub_index as u32,
             "network.request",
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            },
+            unresolved_resource("network"),
             attributes,
         );
         for domain in ["filesystem", "network", "process"] {
@@ -984,9 +978,7 @@ fn npm_special_dispatch(
             model_node,
             sub_index as u32,
             "network.upload",
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            },
+            unresolved_resource("network"),
             attributes,
         );
         for domain in ["filesystem", "network", "process"] {
@@ -1036,9 +1028,7 @@ fn npm_special_dispatch(
             model_node,
             sub_index as u32,
             "filesystem.write",
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            },
+            unresolved_resource("filesystem"),
             program_output_attrs(),
         );
     }
@@ -1160,9 +1150,7 @@ fn package_runner_dispatch(
             stdin: ctx.stdin,
             argv_provenance: ctx.argv_provenance,
             cwd: None,
-            cwd_resource: Some(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            }),
+            cwd_resource: Some(unresolved_resource("filesystem")),
             runtime_cwd: None,
             scope: ctx.scope,
             cwd_node: None,
@@ -1506,19 +1494,14 @@ pub(crate) fn remote_package_execution(
         .flatten();
     let download = builder.effect(effect(
         "network.download",
-        endpoint.map_or(
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            },
-            |identity| ResourceExpr::Concrete { identity },
-        ),
+        endpoint.map_or(unresolved_resource("network"), |identity| {
+            ResourceExpr::Concrete { identity }
+        }),
         Default::default(),
     ));
     let execution = builder.effect(effect(
         "process.code_execution",
-        ResourceExpr::Unresolved {
-            family: ResourceFamily::new("process"),
-        },
+        unresolved_resource("process"),
         [("source".to_string(), AttrValue::String("file".to_string()))]
             .into_iter()
             .collect(),
@@ -1813,9 +1796,7 @@ fn package_install(
             model_node,
             operand,
             operation,
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new(family),
-            },
+            unresolved_resource(family),
             attributes,
         );
     }
@@ -2856,9 +2837,7 @@ impl CommandModel for PkgMgr {
                 model_node,
                 effect_index,
                 "network.download",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                },
+                unresolved_resource("network"),
                 Default::default(),
             );
             // A literal VCS requirement also names the repository pip clones;
@@ -2895,9 +2874,7 @@ impl CommandModel for PkgMgr {
                 if mgr == "bun" {
                     crate::paths::filesystem_glob("dependency-tree", ctx.cwd_resource())
                 } else {
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    }
+                    unresolved_resource("filesystem")
                 },
                 if op == "filesystem.write" && matches!(mgr, "npm" | "pnpm" | "yarn") {
                     program_output_attrs()

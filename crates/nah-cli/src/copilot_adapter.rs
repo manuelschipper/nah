@@ -232,7 +232,7 @@ fn normalize(
         .map_err(|error| error.to_string())?;
         return Ok((surface, request, None));
     }
-    let lowered = lower(&name, input.clone(), cwd.clone(), platform);
+    let lowered = lower_copilot_tool(&name, input.clone(), cwd.clone(), platform);
     let (tool, input, cwd, code, normalization_complete) = match lowered {
         Ok((tool, input, cwd, code)) => {
             let normalization_complete = input_complete
@@ -258,7 +258,7 @@ fn parse_cli_input(input: Value) -> Result<Value, String> {
     }
 }
 
-fn lower(
+fn lower_copilot_tool(
     name: &str,
     input: Value,
     fallback_cwd: String,
@@ -267,19 +267,19 @@ fn lower(
     let lowered = match name {
         "bash" | "Bash" | "runTerminalCommand" | "run_in_terminal" => {
             let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
-            let cwd = optional_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
+            let cwd = tool_input_optional_aliased_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
             (
                 "Bash",
-                json!({"command": string(object, &["command"])?}),
+                json!({"command": tool_input_aliased_string(object, &["command"])?}),
                 cwd,
                 None,
             )
         }
         "powershell" if platform == nah_proto::ctx::Platform::Windows => {
             let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
-            let cwd = optional_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
+            let cwd = tool_input_optional_aliased_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
             let code = CodeInput::PowerShell {
-                source: string(object, &["command"])?,
+                source: tool_input_aliased_string(object, &["command"])?,
             };
             (name, code.canonical_input(), cwd, Some(code))
         }
@@ -287,7 +287,7 @@ fn lower(
             let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             (
                 "Read",
-                json!({"file_path": non_empty(object, &["path", "filePath", "file_path"])?}),
+                json!({"file_path": tool_input_aliased_non_empty_string(object, &["path", "filePath", "file_path"])?}),
                 fallback_cwd,
                 None,
             )
@@ -297,8 +297,8 @@ fn lower(
             (
                 "Write",
                 json!({
-                    "file_path":non_empty(object, &["path", "filePath", "file_path"])?,
-                    "content":string(object, &["file_text", "content"])?
+                    "file_path":tool_input_aliased_non_empty_string(object, &["path", "filePath", "file_path"])?,
+                    "content":tool_input_aliased_string(object, &["file_text", "content"])?
                 }),
                 fallback_cwd,
                 None,
@@ -309,9 +309,9 @@ fn lower(
             (
                 "Edit",
                 json!({
-                    "file_path":non_empty(object, &["path", "filePath", "file_path"])?,
-                    "old_string":non_empty(object, &["old_str", "oldString", "old_string"])?,
-                    "new_string":string(object, &["new_str", "newString", "new_string"])?
+                    "file_path":tool_input_aliased_non_empty_string(object, &["path", "filePath", "file_path"])?,
+                    "old_string":tool_input_aliased_non_empty_string(object, &["old_str", "oldString", "old_string"])?,
+                    "new_string":tool_input_aliased_string(object, &["new_str", "newString", "new_string"])?
                 }),
                 fallback_cwd,
                 None,
@@ -319,8 +319,11 @@ fn lower(
         }
         "grep" | "rg" | "Grep" | "grepSearch" | "grep_search" => {
             let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
-            let mut lowered = json!({"pattern":string(object, &["pattern", "query"])?});
-            if let Some(path) = optional_string(object, &["path", "filePath", "file_path"])? {
+            let mut lowered =
+                json!({"pattern":tool_input_aliased_string(object, &["pattern", "query"])?});
+            if let Some(path) =
+                tool_input_optional_aliased_string(object, &["path", "filePath", "file_path"])?
+            {
                 lowered["path"] = json!(path);
             }
             ("Grep", lowered, fallback_cwd, None)
@@ -329,7 +332,7 @@ fn lower(
             let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             (
                 "Glob",
-                json!({"pattern":string(object, &["pattern", "query"])?}),
+                json!({"pattern":tool_input_aliased_string(object, &["pattern", "query"])?}),
                 fallback_cwd,
                 None,
             )
@@ -339,7 +342,12 @@ fn lower(
     Ok(lowered)
 }
 
-fn string(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
+/// Reads a required string tool input field that Copilot spells under several
+/// alias names. Only the first alias present is read; it may be empty.
+fn tool_input_aliased_string(
+    object: &Map<String, Value>,
+    names: &[&str],
+) -> Result<String, String> {
     names
         .iter()
         .find_map(|name| object.get(*name))
@@ -348,8 +356,12 @@ fn string(object: &Map<String, Value>, names: &[&str]) -> Result<String, String>
         .ok_or_else(|| INVALID_COPILOT_TOOL_INPUT.into())
 }
 
-fn non_empty(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
-    string(object, names).and_then(|value| {
+/// Reads a required aliased tool input field that must be a non-empty string.
+fn tool_input_aliased_non_empty_string(
+    object: &Map<String, Value>,
+    names: &[&str],
+) -> Result<String, String> {
+    tool_input_aliased_string(object, names).and_then(|value| {
         if value.is_empty() {
             Err(INVALID_COPILOT_TOOL_INPUT.into())
         } else {
@@ -358,7 +370,12 @@ fn non_empty(object: &Map<String, Value>, names: &[&str]) -> Result<String, Stri
     })
 }
 
-fn optional_string(object: &Map<String, Value>, names: &[&str]) -> Result<Option<String>, String> {
+/// Reads an optional aliased tool input field. No alias present is `None`; the
+/// first alias present must be a non-empty string.
+fn tool_input_optional_aliased_string(
+    object: &Map<String, Value>,
+    names: &[&str],
+) -> Result<Option<String>, String> {
     let Some(value) = names.iter().find_map(|name| object.get(*name)) else {
         return Ok(None);
     };
@@ -441,7 +458,8 @@ mod tests {
         ];
         for (name, input, expected) in cases {
             let (tool, _, _, _) =
-                lower(name, input, "/repo".into(), nah_proto::ctx::Platform::Linux).unwrap();
+                lower_copilot_tool(name, input, "/repo".into(), nah_proto::ctx::Platform::Linux)
+                    .unwrap();
             assert_eq!(tool, expected);
         }
     }
@@ -449,7 +467,7 @@ mod tests {
     #[test]
     fn preserves_unknown_tools() {
         let input = json!({"query":"example"});
-        let (tool, lowered, _, _) = lower(
+        let (tool, lowered, _, _) = lower_copilot_tool(
             "web_fetch",
             input.clone(),
             "/repo".into(),

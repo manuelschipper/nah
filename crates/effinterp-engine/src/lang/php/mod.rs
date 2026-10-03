@@ -48,8 +48,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain, Effect,
-    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity, Subject,
+    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity, Subject,
 };
 use tree_sitter::Node;
 
@@ -63,8 +62,9 @@ use crate::module_summary::{
 use crate::nest::{Nest, SourceResolution, Transition};
 use crate::paths::{fs_resource_uses_cwd, join_file, parent_dir};
 use crate::resource_transfer::TransferBinding;
-use crate::summary::{Summary, bind_positional, has_text_concat, substitute_resource_expr};
-use crate::value::parse_url_endpoint;
+use crate::summary::{
+    Summary, bind_positional, contains_unresolved, has_text_concat, substitute_resource_expr,
+};
 use crate::{
     ObjectIdentity, SemanticValue, SemanticValueKind, SourcePurpose, SourceRefusal, ValueArgument,
     merge_arguments, positional_arguments,
@@ -2903,9 +2903,7 @@ impl<'a, 'b> PhpWalker<'a, 'b> {
         arg: Option<Node<'a>>,
         env: &HashMap<String, ResourceExpr>,
     ) -> ResourceExpr {
-        let unresolved = || ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        };
+        let unresolved = || unresolved_resource("network");
         let Some(arg) = arg else { return unresolved() };
         if let Some(url) = literal_string(arg, self.src) {
             return model::endpoint(&url).unwrap_or_else(unresolved);
@@ -3646,9 +3644,7 @@ fn superglobal_resource(n: Node, src: &str) -> Option<(String, ResourceExpr)> {
         .map(|name| ResourceExpr::Concrete {
             identity: ResourceIdentity::EnvironmentVariable { name },
         })
-        .unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("environment"),
-        });
+        .unwrap_or(unresolved_resource("environment"));
     Some((name, resource))
 }
 
@@ -3824,9 +3820,9 @@ fn resolve_expr(n: Node, src: &str, env: &HashMap<String, ResourceExpr>) -> Reso
         },
         "variable_name" => {
             let name = child_kind(n, "name").map(|x| text(x, src)).unwrap_or("");
-            env.get(name).cloned().unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            })
+            env.get(name)
+                .cloned()
+                .unwrap_or(unresolved_resource("filesystem"))
         }
         "binary_expression" => {
             // Concatenation `a . b` -> Join of the parts. Any other binary
@@ -3837,9 +3833,7 @@ fn resolve_expr(n: Node, src: &str, env: &HashMap<String, ResourceExpr>) -> Reso
                 .map(|o| text(o, src))
                 .unwrap_or("");
             if op != "." {
-                return ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                };
+                return unresolved_resource("filesystem");
             }
             let mut parts = Vec::new();
             collect_concat(n, src, env, &mut parts);
@@ -3984,16 +3978,6 @@ fn fold_host_path(resource: ResourceExpr) -> ResourceExpr {
             )
         }
         _ => resource,
-    }
-}
-
-fn contains_unresolved(resource: &ResourceExpr) -> bool {
-    match resource {
-        ResourceExpr::Unresolved { .. } => true,
-        ResourceExpr::Join { parts } => parts.iter().any(contains_unresolved),
-        ResourceExpr::Union { alternatives } => alternatives.iter().any(contains_unresolved),
-        ResourceExpr::Property { base, .. } => contains_unresolved(base),
-        _ => false,
     }
 }
 
@@ -5174,7 +5158,7 @@ fn summarize_body(
         },
         |graph| control::build(graph, &children, src),
     );
-    let mut cap = Cap {
+    let mut cap = PhpCaptureWalker {
         control,
         effects: Vec::new(),
         boundaries: Vec::new(),
@@ -5206,7 +5190,7 @@ fn summarize_body(
     (cap.effects, cap.boundaries, finished.flow)
 }
 
-struct Cap<'a> {
+struct PhpCaptureWalker<'a> {
     control: ControlStack,
     effects: Vec<Effect>,
     boundaries: Vec<Boundary>,
@@ -5216,7 +5200,7 @@ struct Cap<'a> {
     truncated: bool,
 }
 
-impl<'a> Cap<'a> {
+impl<'a> PhpCaptureWalker<'a> {
     fn walk(&mut self, n: Node<'a>) {
         // Same left-deep `.` hazard as PhpWalker::exec.
         let mut stack = vec![n];

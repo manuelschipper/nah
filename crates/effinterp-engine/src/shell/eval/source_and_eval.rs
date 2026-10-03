@@ -1,7 +1,31 @@
 //! The shell `source` (`.`) and `eval` builtins: which file or text they run,
 //! how it is followed, and what an unfollowed source leaves unknown.
 
-use super::*;
+use std::collections::BTreeSet;
+use std::rc::Rc;
+
+use effinterp_proto::{
+    AttrValue, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, ExecutionNodeRef,
+    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity, Subject,
+};
+
+use crate::builder::PlanBuilder;
+use crate::flow::{BindEnd, Descriptor, FlowStage, PortBinding};
+use crate::models::StdinValue;
+use crate::nest::{SourceResolution, Transition};
+use crate::paths::{join_source_path, process_identity_with_cwd};
+use crate::shell::lex::{Seg, Span, Tok, WordTok};
+use crate::shell::parse::Simple;
+use crate::shell::{
+    Converted, Shell, ShellEnv, Termination, analyze_shell_with_env, lex, parse,
+    variable_saturation_key,
+};
+use crate::word::{Word, WordPart};
+use crate::{SourcePurpose, SourceRefusal};
+
+use super::redirection::{descriptor_path, descriptor_read_producer};
+use super::variable_binding::captured_literal;
+use super::{ConditionalShellState, NestedShellMode, substitution_hides_name};
 
 impl Shell<'_> {
     pub(super) fn eval_builtin(

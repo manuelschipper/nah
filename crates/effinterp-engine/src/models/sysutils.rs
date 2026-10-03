@@ -6,7 +6,7 @@
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, ObservationOutcome,
     ObservationQuery, PathFact, PathKind, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceFamily, ResourceIdentity,
+    ResourceIdentity,
 };
 
 use super::archive::extraction_target;
@@ -17,6 +17,7 @@ use crate::models::common::{
     program_input_attrs, program_output_attrs, unrecognized_arguments_boundary,
 };
 use crate::models::{CommandModel, InvocationCtx, ModelCausalBinding};
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 pub(super) fn sysutils_models() -> Vec<Box<dyn CommandModel>> {
@@ -1455,9 +1456,7 @@ impl CommandModel for Kill {
                 }
             } else {
                 // A numeric pid is not a name we can resolve to an executable.
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("process"),
-                }
+                unresolved_resource("process")
             };
             arg_effect(
                 builder,

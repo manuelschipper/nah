@@ -50,11 +50,13 @@ const GIT_TIMEOUT: Duration = Duration::from_millis(500);
 pub const TEST_GIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Fulfil every fact named by `request` against its authoritative requested cwd.
-pub fn fulfill(request: &ObservationRequest) -> Result<Observation, BindingError> {
+pub fn fulfill_observation_request(
+    request: &ObservationRequest,
+) -> Result<Observation, BindingError> {
     fulfill_with_git_timeout(request, GIT_TIMEOUT)
 }
 
-/// Fulfil `request` like [`fulfill`], waiting at most `git_timeout` for each
+/// Fulfil `request` like [`fulfill_observation_request`], waiting at most `git_timeout` for each
 /// git subprocess instead of the shipped git timeout.
 pub fn fulfill_with_git_timeout(
     request: &ObservationRequest,

@@ -1,5 +1,5 @@
 use super::support::{canonical, init_repo, request, value};
-use crate::fulfill;
+use crate::fulfill_observation_request;
 use nah_proto::observation::{ObservationFailure, ObservationValue, Observed, RootKind};
 
 #[test]
@@ -8,7 +8,7 @@ fn uses_requested_cwd_instead_of_process_cwd() {
     let repo = temp.path().join("requested");
     init_repo(&repo);
 
-    let observation = fulfill(&request(&repo, &[])).expect("observation");
+    let observation = fulfill_observation_request(&request(&repo, &[])).expect("observation");
 
     let ObservationValue::Cwd {
         observed: Observed::Ok { value: cwd },
@@ -34,7 +34,8 @@ fn missing_requested_cwd_is_observed_without_using_ambient_cwd() {
     let temp = tempfile::tempdir().expect("tempdir");
     let missing = temp.path().join("missing");
 
-    let observation = fulfill(&request(&missing, &[("path", "child")])).expect("observation");
+    let observation =
+        fulfill_observation_request(&request(&missing, &[("path", "child")])).expect("observation");
 
     assert!(matches!(
         value(&observation, "cwd"),

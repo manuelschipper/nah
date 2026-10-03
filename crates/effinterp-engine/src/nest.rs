@@ -18,7 +18,7 @@ use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryRef, BoundaryScope, ContainerStorage,
     CoverageLevel, Domain, ExecutionAssurance, ExecutionEdgeKind, ExecutionNode, ExecutionNodeRef,
     ExecutionRealm, ExecutionStreamValue, ExecutionStreams, HostContext, ProvenanceKind,
-    ProvenanceRef, ResourceExpr, ResourceFamily, Subject,
+    ProvenanceRef, ResourceExpr, Subject,
 };
 
 use effinterp_proto::{ObservationOutcome, ObservationQuery, ObservationRefusal, PathKind};
@@ -26,6 +26,7 @@ use effinterp_proto::{ObservationOutcome, ObservationQuery, ObservationRefusal, 
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder, RuntimeShell};
 use crate::limits::AnalysisLimits;
 use crate::models::{Catalog, StdinValue};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 use crate::{
     SourceNamespace, SourcePurpose, SourceRefusal, SourceRequest, SourceResolver, SourceResponse,
@@ -1390,9 +1391,7 @@ impl<'a> Nest<'a> {
             .last()
             .and_then(|environment| environment.get(name))
         {
-            return Some(value.clone().unwrap_or(ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("value"),
-            }));
+            return Some(value.clone().unwrap_or(unresolved_resource("value")));
         }
         self.context
             .and_then(|context| context.env.get(name))
@@ -2841,9 +2840,7 @@ pub(crate) fn word_resource(word: &Word) -> ResourceExpr {
         crate::word::WordPart::Union(alternatives) => ResourceExpr::Union {
             alternatives: alternatives.iter().map(word_resource).collect(),
         },
-        crate::word::WordPart::Unknown => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("value"),
-        },
+        crate::word::WordPart::Unknown => unresolved_resource("value"),
     });
     let Some(first) = parts.next() else {
         return ResourceExpr::Literal {

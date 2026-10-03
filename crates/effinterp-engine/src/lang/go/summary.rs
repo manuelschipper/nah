@@ -1,6 +1,25 @@
 //! Go callable discovery and module summary inference.
 
-use super::*;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+use effinterp_proto::ResourceExpr;
+use gosyn::ast::{BlockStmt, DeclStmt, Declaration, Element, Expression, File, FuncLit, Statement};
+use gosyn::token::Operator;
+
+use crate::builder::PlanBuilder;
+use crate::control_flow::{ControlCaps, ControlExit, ControlFact, ControlFlow, SiteFacts};
+use crate::lang::frontend::MAX_WALK_DEPTH;
+use crate::limits::DEFAULT_MAX_GO_NODES;
+use crate::module_summary::{
+    CallEdge, ClassEntry, DispatchContract, DispatchSignature, FunctionEntry, ImportBinding,
+    ModuleSummary, StructField,
+};
+use crate::summary::Summary;
+use crate::value::unresolved_resource;
+use crate::{ScopeKey, SemanticValue, TypeRef, join_branches};
+
+use super::model::string_of;
+use super::{Capture, GoWalker, MAX_SUMMARY_ITERS, Out, PackageValues, control};
 
 pub(super) fn summarize_ast(
     source: &str,
@@ -1480,14 +1499,7 @@ pub(super) fn compute_summaries(
                 channel_values: f
                     .params
                     .iter()
-                    .map(|name| {
-                        (
-                            name.clone(),
-                            ResourceExpr::Unresolved {
-                                family: ResourceFamily::new("filesystem"),
-                            },
-                        )
-                    })
+                    .map(|name| (name.clone(), unresolved_resource("filesystem")))
                     .collect(),
                 resource_values: HashMap::new(),
                 values: f
@@ -1598,14 +1610,7 @@ fn collect_call_edges(
         channel_values: func
             .params
             .iter()
-            .map(|name| {
-                (
-                    name.clone(),
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    },
-                )
-            })
+            .map(|name| (name.clone(), unresolved_resource("filesystem")))
             .collect(),
         resource_values: HashMap::new(),
         values: func

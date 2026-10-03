@@ -54,34 +54,30 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     json!({"block": false, "evaluation_failed":decision.evaluation_failed()})
                 }
                 hook_adapter::HookOutcome::IrrelevantEvent => return 0,
-                hook_adapter::HookOutcome::MalformedInput => unavailable(
-                    failure_policy,
-                    hook_adapter::IntegrationUnavailable::MalformedInput,
-                )
-                .unwrap_or_else(|| delegated(false)),
-                hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
-                    { unavailable(failure_policy, kind) }.unwrap_or_else(|| delegated(true))
+                hook_adapter::HookOutcome::MalformedInput => {
+                    hook_adapter::unavailable_plugin_reply(
+                        failure_policy,
+                        Runtime::OpenCode,
+                        hook_adapter::IntegrationUnavailable::MalformedInput,
+                    )
+                    .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false))
                 }
+                hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
+                    hook_adapter::unavailable_plugin_reply(failure_policy, Runtime::OpenCode, kind)
+                }
+                .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(true)),
             }
         }
-        Err(_) => unavailable(
+        Err(_) => hook_adapter::unavailable_plugin_reply(
             failure_policy,
+            Runtime::OpenCode,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
-        .unwrap_or_else(|| delegated(false)),
+        .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
     };
     let _ = serde_json::to_writer(&mut *stdout, &output);
     let _ = writeln!(stdout);
     0
-}
-
-fn unavailable(
-    failure_policy: FailurePolicy,
-    unavailable: hook_adapter::IntegrationUnavailable,
-) -> Option<Value> {
-    hook_adapter::unavailable_feedback(failure_policy, Runtime::OpenCode, unavailable).map(
-        |reason| json!({"block":true,"reason":format!("nah - {reason}"),"evaluation_failed":true}),
-    )
 }
 
 /// The tool call `run` hands the pipeline for this OpenCode tool call.
@@ -104,7 +100,7 @@ fn normalize(input: OpenCodeHookInput) -> Result<ToolCallInput, String> {
         .tool_input
         .as_object()
         .ok_or_else(|| INVALID_OPENCODE_TOOL_INPUT.to_owned())
-        .and_then(|object| lower(&input.tool_name, &input.tool_input, object));
+        .and_then(|object| lower_opencode_tool(&input.tool_name, &input.tool_input, object));
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
             tool,
@@ -126,7 +122,7 @@ fn normalize(input: OpenCodeHookInput) -> Result<ToolCallInput, String> {
         .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_opencode_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     object: &Map<String, Value>,
@@ -180,10 +176,6 @@ fn search_input(object: &Map<String, Value>) -> Result<Value, String> {
         Some(_) => return Err(INVALID_OPENCODE_TOOL_INPUT.into()),
     }
     Ok(input)
-}
-
-fn delegated(evaluation_failed: bool) -> Value {
-    json!({"block": false, "evaluation_failed":evaluation_failed})
 }
 
 #[cfg(test)]

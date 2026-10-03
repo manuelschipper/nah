@@ -45,30 +45,25 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::LazyLock;
 
 use effinterp_proto::{
-    AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, ExecutionEdgeKind, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceFamily, ResourceIdentity,
+    Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain, Effect,
+    ExecutionEdgeKind, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
 };
 use syn::spanned::Spanned;
 use syn::visit::Visit;
-use syn::{Block, Expr, FnArg, ImplItem, Item, Local, Pat, Stmt, TraitItem, UseTree};
+use syn::{Block, Expr, FnArg, ImplItem, Item, Local, Pat, Stmt, UseTree};
 
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::control_flow::SiteFacts;
-use crate::module_summary::{
-    CallEdge, ClassEntry, DispatchContract, DispatchImpl, DispatchSignature, FunctionEntry,
-    ImportBinding, ModuleSummary, call_results,
-};
+use crate::module_summary::{CallEdge, ClassEntry, DispatchImpl, DispatchSignature, ImportBinding};
 use crate::nest::{Nest, Transition, word_resource};
 use crate::paths::fs_resource_uses_cwd;
 use crate::resource_transfer::TransferBinding;
-use crate::summary::{Summary, bind_positional, substitute_resource_expr};
-use crate::value::parse_url_endpoint;
+use crate::summary::{bind_positional, substitute_resource_expr};
 use crate::word::{Word, WordPart};
 use crate::{
     CallableValue, ObjectIdentity, ObjectValue, SemanticValue, SemanticValueKind, TypeRef,
-    ValueArgument, ValueLimits, canonical_rust_std_type, join_branches, merge_arguments,
-    positional_arguments, property_access, substitute_value, substitute_value_counted,
+    ValueLimits, canonical_rust_std_type, join_branches, property_access, substitute_value,
+    substitute_value_counted,
 };
 
 /// Effect domains this frontend can surface.

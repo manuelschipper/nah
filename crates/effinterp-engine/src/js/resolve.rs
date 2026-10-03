@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use effinterp_proto::{PathPlatform, ResourceExpr, ResourceFamily, ResourceIdentity};
+use effinterp_proto::{PathPlatform, ResourceExpr, ResourceIdentity};
 use im::HashMap as PersistentHashMap;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
@@ -19,7 +19,7 @@ use oxc_span::SourceType;
 
 use super::{Bindings, ModuleCall};
 use crate::ImportBinding;
-use crate::value::parse_url_endpoint;
+use crate::value::{parse_url_endpoint, unresolved_resource};
 
 const MAX_DYNAMIC_IMPORT_TARGETS: usize = 64;
 
@@ -872,9 +872,7 @@ pub(super) fn environment_value(name: &str, span: u32) -> ResourceExpr {
             name: name.to_string(),
         },
         Some(LiteralEnvRead::Value(value)) => ResourceExpr::Literal { value },
-        Some(LiteralEnvRead::Unknown) => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("value"),
-        },
+        Some(LiteralEnvRead::Unknown) => unresolved_resource("value"),
     }
 }
 
@@ -962,31 +960,23 @@ pub(super) fn fs_resource(
                             )
                         })
                 })
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                })
+                .unwrap_or(unresolved_resource("filesystem"))
         }
         Expression::StaticMemberExpression(member) if bindings.process_runtime() => {
             process_env_name(member)
                 .and_then(|name| environment_path(&name, member.span.start, runtime_cwd, bindings))
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                })
+                .unwrap_or(unresolved_resource("filesystem"))
         }
         Expression::StringLiteral(s) => {
             crate::paths::resolve_fs_path_with_cwd(s.value.as_str(), runtime_cwd)
         }
         Expression::Identifier(id) => match env.get(id.name.as_str()) {
             Some(bound) => bound.clone(),
-            None => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            },
+            None => unresolved_resource("filesystem"),
         },
         Expression::TemplateLiteral(t) if t.expressions.is_empty() => {
             let Some(text) = cooked_template_string(t) else {
-                return ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                };
+                return unresolved_resource("filesystem");
             };
             crate::paths::resolve_fs_path_with_cwd(&text, runtime_cwd)
         }
@@ -1007,9 +997,7 @@ pub(super) fn fs_resource(
                 }
             }
             match parts.len() {
-                0 => ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                },
+                0 => unresolved_resource("filesystem"),
                 1 => parts.pop().unwrap(),
                 _ => ResourceExpr::Join { parts },
             }
@@ -1027,11 +1015,8 @@ pub(super) fn fs_resource(
         Expression::CallExpression(call)
             if super::source_string::is_home_directory_call(call, bindings) =>
         {
-            environment_path("HOME", call.span.start, runtime_cwd, bindings).unwrap_or(
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                },
-            )
+            environment_path("HOME", call.span.start, runtime_cwd, bindings)
+                .unwrap_or(unresolved_resource("filesystem"))
         }
         Expression::CallExpression(call) => {
             if let Some(callee) = resolve_callee(unwrap_expr(&call.callee), bindings)
@@ -1046,9 +1031,7 @@ pub(super) fn fs_resource(
                         Expression::StringLiteral(value) => concrete_fs(value.value.as_str()),
                         Expression::TemplateLiteral(value) if value.expressions.is_empty() => {
                             cooked_template_string(value).map_or_else(
-                                || ResourceExpr::Unresolved {
-                                    family: ResourceFamily::new("filesystem"),
-                                },
+                                || unresolved_resource("filesystem"),
                                 |value| concrete_fs(&value),
                             )
                         }
@@ -1076,21 +1059,15 @@ pub(super) fn fs_resource(
                     );
                 }
             }
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            }
+            unresolved_resource("filesystem")
         }
         // `new URL('../package.json', import.meta.url)` — the first argument
         // is the path when it is a relative/absolute file specifier, not a URL.
-        Expression::NewExpression(new_expr) => url_file_resource(
-            new_expr, source_cwd, env, bindings,
-        )
-        .unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("filesystem"),
-        }),
-        _ => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("filesystem"),
-        },
+        Expression::NewExpression(new_expr) => {
+            url_file_resource(new_expr, source_cwd, env, bindings)
+                .unwrap_or(unresolved_resource("filesystem"))
+        }
+        _ => unresolved_resource("filesystem"),
     }
 }
 
@@ -1258,23 +1235,17 @@ pub(super) fn url_resource(expr: &Expression) -> ResourceExpr {
         Expression::StringLiteral(url) => url.value.as_str().to_string(),
         Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
             let Some(url) = cooked_template_string(template) else {
-                return ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                };
+                return unresolved_resource("network");
             };
             url
         }
         _ => {
-            return ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            };
+            return unresolved_resource("network");
         }
     };
     parse_url_endpoint(&url)
         .map(|identity| ResourceExpr::Concrete { identity })
-        .unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        })
+        .unwrap_or(unresolved_resource("network"))
 }
 
 /// `new URL('../package.json', import.meta.url)` (or any `new URL` whose first
@@ -1319,9 +1290,7 @@ pub(super) fn process_resource(expr: &Expression) -> ResourceExpr {
         Expression::StringLiteral(s) => {
             let name = s.value.as_str();
             if name.is_empty() {
-                return ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("process"),
-                };
+                return unresolved_resource("process");
             }
             ResourceExpr::Concrete {
                 identity: ResourceIdentity::Process {
@@ -1332,8 +1301,6 @@ pub(super) fn process_resource(expr: &Expression) -> ResourceExpr {
                 },
             }
         }
-        _ => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("process"),
-        },
+        _ => unresolved_resource("process"),
     }
 }

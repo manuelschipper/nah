@@ -16,9 +16,9 @@ use super::{
     repo_unit_name, run_lock_path, seal, utc_now, validate_run_id, verify_plane,
     write_bench_record,
 };
-use crate::bench;
-use crate::bench::corpus::{load_bench, nah_rows};
-use crate::bench::score::Scoreboard;
+use crate::invocation;
+use crate::invocation::corpus::{load_bench, nah_rows};
+use crate::invocation::score::Scoreboard;
 use crate::latency;
 use crate::nah::report::{parity, run_corpus};
 use crate::repos::isolate::binary_identity;
@@ -63,7 +63,7 @@ pub fn score_coverage(
     if let Some(path) = &layout.session_corpus
         && (sources.is_empty() || sources.iter().any(|source| source == "sessions"))
     {
-        rows.extend(bench::sessions::load_session_rows(path, limit)?);
+        rows.extend(invocation::sessions::load_session_rows(path, limit)?);
     }
     if !sources.is_empty() {
         rows.retain(|row| sources.contains(&row.source));
@@ -76,7 +76,7 @@ pub fn score_coverage(
             *count <= limit
         });
     }
-    let mut board = bench::score_corpus(engine, rows);
+    let mut board = invocation::score_corpus(engine, rows);
     board.coverage.corpus_digest = digest;
     Ok(board)
 }
@@ -88,9 +88,9 @@ pub fn score_correctness(layout: &BenchLayout, engine: Arc<Engine>) -> Result<Sc
         .into_iter()
         .filter(|row| row.source == "adversarial")
         .collect();
-    let mut board = bench::score_corpus(engine.clone(), rows);
+    let mut board = invocation::score_corpus(engine.clone(), rows);
     board.correctness.corpus_digest =
-        bench::corpus::correctness_digest(&corpus).map_err(|e| e.to_string())?;
+        invocation::corpus::correctness_digest(&corpus).map_err(|e| e.to_string())?;
     let (cases, digest, commit) = load_nah(layout)?;
     board.correctness.parity = Some(parity(&run_corpus(&engine, cases, digest, commit)));
     board.correctness.semantic = Some(crate::layered::measure_semantic_score(
