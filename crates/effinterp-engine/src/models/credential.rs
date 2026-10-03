@@ -13,6 +13,7 @@ use crate::models::common::{
     Attrs, arg_effect, arg_node, credential_full, fs_full_no_spawn, program_input_attrs,
 };
 use crate::models::{CommandModel, InvocationCtx, ModelBindingEnd, ModelCausalBinding};
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 use effinterp_model_schema::EffectSelection;
 
@@ -741,18 +742,13 @@ fn strict_repeated_args(
     }
     true
 }
-fn unresolved() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("credential"),
-    }
-}
 fn resource(provider: &str, store: Option<&Word>, path: Option<&Word>) -> ResourceExpr {
     if store
         .into_iter()
         .chain(path)
         .any(|word| word.as_literal().is_none_or(str::is_empty))
     {
-        return unresolved();
+        return unresolved_resource("credential");
     }
     ResourceExpr::Concrete {
         identity: ResourceIdentity::CredentialStore {
@@ -763,10 +759,16 @@ fn resource(provider: &str, store: Option<&Word>, path: Option<&Word>) -> Resour
     }
 }
 fn named(provider: &str, store: Option<&Word>, path: Option<&Word>) -> ResourceExpr {
-    path.map_or_else(unresolved, |path| resource(provider, store, Some(path)))
+    path.map_or_else(
+        || unresolved_resource("credential"),
+        |path| resource(provider, store, Some(path)),
+    )
 }
 fn store_resource(provider: &str, store: Option<&Word>) -> ResourceExpr {
-    store.map_or_else(unresolved, |store| resource(provider, Some(store), None))
+    store.map_or_else(
+        || unresolved_resource("credential"),
+        |store| resource(provider, Some(store), None),
+    )
 }
 fn join_store(first: Option<&Word>, second: Option<&Word>) -> Option<Word> {
     let words: Vec<_> = first.into_iter().chain(second).collect();
@@ -842,7 +844,7 @@ fn emit_store_effects(
         .chain(network.then(|| {
             (
                 "network.request",
-                super::cloud::unresolved_network(),
+                unresolved_resource("network"),
                 Attrs::new(),
             )
         }))
@@ -1068,7 +1070,7 @@ impl CommandModel for Vault {
                 .map_or((path, None), |(m, p)| (m, Some(Word::literal(p))));
             resource("vault", Some(&Word::literal(mount)), path.as_ref())
         } else {
-            unresolved()
+            unresolved_resource("credential")
         };
         let value_flags: &[&str] = match (args.verb(0), args.verb(1), args.verb(2)) {
             (Some("kv"), Some("get"), _) => &[
@@ -1676,7 +1678,7 @@ pub(crate) fn aws_ssm_parameters(
         }
     }
     let targets = if names.is_empty() {
-        vec![unresolved()]
+        vec![unresolved_resource("credential")]
     } else {
         names
             .into_iter()
@@ -1784,7 +1786,7 @@ pub(crate) fn az_keyvault(
                 }
             });
             let target = if vault.is_none() {
-                unresolved()
+                unresolved_resource("credential")
             } else {
                 named("azure-keyvault", vault, object.as_ref())
             };
@@ -2097,7 +2099,7 @@ impl CommandModel for Doppler {
                         (Some(_), Some(_)) => {
                             store_resource("doppler", join_store(project, name).as_ref())
                         }
-                        _ => unresolved(),
+                        _ => unresolved_resource("credential"),
                     }],
                 )
             }
@@ -2385,7 +2387,7 @@ fn secret_names(
         return vec![if store_read {
             resource(provider, store, None)
         } else {
-            unresolved()
+            unresolved_resource("credential")
         }];
     }
     names
@@ -2632,7 +2634,7 @@ impl CommandModel for Op {
                             Some(&Word::literal(path)),
                         )
                     })
-                    .unwrap_or_else(unresolved);
+                    .unwrap_or_else(|| unresolved_resource("credential"));
                 (CREDENTIAL_READ, target)
             }
             // A document is an item whose payload is a file.

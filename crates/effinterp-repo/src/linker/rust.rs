@@ -6,7 +6,7 @@ pub(crate) struct RustLinker;
 
 fn rust_dispatch_targets<'a>(
     linker: &dyn Linker,
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     inst: &ResolvedObject,
     method: &str,
 ) -> Resolution<'a> {
@@ -77,7 +77,7 @@ fn rust_dispatch_targets<'a>(
 }
 
 fn rust_type_identity(
-    reg: &Registry,
+    reg: &ModuleRegistry,
     file: &ModuleFile,
     name: &str,
     seen: &mut HashSet<(String, String)>,
@@ -145,12 +145,12 @@ fn rust_type_defined(file: &ModuleFile, name: &str) -> bool {
 }
 
 fn resolve_export_rust_type<'a>(
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     file: &'a ModuleFile,
     name: &str,
 ) -> Option<(&'a ModuleFile, String)> {
     fn resolve<'a>(
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         name: &str,
         seen: &mut HashSet<(String, String)>,
@@ -188,7 +188,7 @@ fn resolve_export_rust_type<'a>(
 }
 
 fn rust_dispatch_signatures_match(
-    reg: &Registry,
+    reg: &ModuleRegistry,
     left_file: &ModuleFile,
     left: &DispatchSignature,
     right_file: &ModuleFile,
@@ -231,7 +231,7 @@ fn rust_dispatch_signatures_match(
 }
 
 fn specialize_rust_trait_type(
-    reg: &Registry,
+    reg: &ModuleRegistry,
     impl_file: &ModuleFile,
     contract_file: &ModuleFile,
     typ: &str,
@@ -249,7 +249,7 @@ fn specialize_rust_trait_type(
 }
 
 fn canonical_rust_signature_type(
-    reg: &Registry,
+    reg: &ModuleRegistry,
     file: &ModuleFile,
     typ: &str,
     receiver: &str,
@@ -317,7 +317,7 @@ fn canonical_rust_signature_type(
 
 fn rust_receiver_trait_targets<'a>(
     linker: &dyn Linker,
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     inst: &ResolvedObject,
     method: &str,
 ) -> Resolution<'a> {
@@ -444,7 +444,7 @@ fn rust_receiver_trait_targets<'a>(
 }
 
 fn rust_glob<'a>(
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     file: &ModuleFile,
     name: &str,
 ) -> Option<(&'a ModuleFile, String)> {
@@ -541,7 +541,7 @@ impl Linker for RustLinker {
 
     fn resolve_callee<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         callee: &str,
     ) -> Resolution<'a> {
@@ -566,7 +566,7 @@ impl Linker for RustLinker {
 
     fn class_candidates<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         name: &str,
     ) -> Vec<(ResolvedObject, Assurance)> {
@@ -590,7 +590,7 @@ impl Linker for RustLinker {
 
     fn resolve_method<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         inst: &ResolvedObject,
         method: &str,
     ) -> Resolution<'a> {
@@ -618,7 +618,7 @@ impl Linker for RustLinker {
 
     fn classify_external(
         &self,
-        _reg: &Registry,
+        _reg: &ModuleRegistry,
         module: &str,
         member: &str,
         _arity: Option<usize>,
@@ -633,7 +633,7 @@ impl Linker for RustLinker {
 
     fn classify_import(
         &self,
-        _reg: &Registry,
+        _reg: &ModuleRegistry,
         _file: &ModuleFile,
         _spec: &str,
     ) -> Option<ExternalCall> {
@@ -642,7 +642,7 @@ impl Linker for RustLinker {
 
     fn execution_roots<'a>(
         &self,
-        _reg: &'a Registry,
+        _reg: &'a ModuleRegistry,
         _file: &'a ModuleFile,
     ) -> Vec<(&'a ModuleFile, Option<&'a str>)> {
         Vec::new()

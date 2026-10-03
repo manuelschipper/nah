@@ -1,6 +1,6 @@
 //! Installs and removes nah's user-level Factory Droid PreToolUse hook.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -10,7 +10,7 @@ use serde_json::{Map, Value, json};
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
-use super::hook_paths::reject_hook_path_symlink;
+use super::hook_paths::{HookLockErrorCodes, acquire_hook_lock, reject_hook_path_symlink};
 use super::runtime::reject_unsupported_windows_runtime;
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
@@ -134,7 +134,7 @@ fn install_hook(
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = DroidHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &DROID_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     let mut hooks = load(&paths.hooks)?;
     let mut legacy_configs = [&paths.legacy_settings, &paths.legacy_nested_hooks]
@@ -160,7 +160,7 @@ fn install_hook(
 
 fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = DroidHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &DROID_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     let mut configs = [
         &paths.hooks,
@@ -202,27 +202,11 @@ impl DroidHookPaths {
     }
 }
 
-fn lock(paths: &DroidHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-droid-hook-lock-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "droid-hook-lock-failed")?;
-    reject_hook_path_symlink(&paths.lock, "droid-hook-lock-failed")?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "droid-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "droid-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "droid-hook-lock-failed")?;
-    Ok(file)
-}
+const DROID_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-droid-hook-lock-path",
+    failed: "droid-hook-lock-failed",
+    permissions: "droid-hook-permissions-failed",
+};
 
 fn load(path: &Path) -> Result<Value, String> {
     reject_hook_path_symlink(path, "droid-settings-symlink-unsupported")?;

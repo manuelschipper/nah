@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use effinterp_repo::{
-    EntrypointKind, IndexLimits, Selector, SkipCategory, build_index, effects_of, reach,
+    EntrypointKind, IndexLimits, ResourceSelector, SkipCategory, build_index, effects_of, reach,
 };
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
@@ -68,7 +68,11 @@ fn forward_query_includes_coverage_and_boundaries() {
 #[test]
 fn reverse_query_separates_proven_targets_from_unbound_cwd() {
     let idx = index("sample-repo");
-    let report = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -90,7 +94,7 @@ fn reverse_query_separates_proven_targets_from_unbound_cwd() {
             .all(|h| !h.fact.provenance_roots.is_empty())
     );
 
-    let build = reach(&idx, &Selector::parse("fs:build").unwrap(), None);
+    let build = reach(&idx, &ResourceSelector::parse("fs:build").unwrap(), None);
     assert!(
         build.payload.as_reach().unwrap().indeterminate.iter().filter_map(|row| match row { effinterp_proto::Indeterminate::Effect { fact, .. } => Some(fact), _ => None })
             .any(|h| h.entrypoint == "Makefile:wipe"
@@ -118,7 +122,7 @@ fn reverse_query_separates_proven_targets_from_unbound_cwd() {
     );
     let symbolic = reach(
         &build_index(&root, IndexLimits::default()),
-        &Selector::parse("fs:build").unwrap(),
+        &ResourceSelector::parse("fs:build").unwrap(),
         None,
     );
     assert!(
@@ -149,7 +153,11 @@ fn opaque_reverse_query_is_indeterminate_not_empty() {
         &[("run.sh", "#!/bin/sh\nmystery-command\n")],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/etc/passwd").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/etc/passwd").unwrap(),
+        None,
+    );
 
     // No concrete/symbolic effect matched...
     assert!(report.payload.as_reach().unwrap().matches.is_empty());
@@ -342,7 +350,7 @@ fn added_destructive_effect_is_reachable_only_in_the_changed_repo() {
     let v2 = index("sample-repo-v2");
     assert_ne!(v1.fingerprint, v2.fingerprint);
     assert_eq!(v1.fingerprint, index("sample-repo").fingerprint);
-    let selector = Selector::parse("fs:/var/lib/data").unwrap();
+    let selector = ResourceSelector::parse("fs:/var/lib/data").unwrap();
     let deletes = |index: &effinterp_repo::RepoIndex| {
         let report = reach(index, &selector, Some("filesystem.delete"));
         effinterp_proto::validate_repo_query(&report).unwrap();
@@ -497,7 +505,11 @@ fn vendored_sources_remain_manifest_inputs_and_compose_when_reached() {
     assert!(idx.find(vendored).is_none());
     assert!(idx.dependency_manifest.source_digest(vendored).is_some());
     assert!(idx.skipped.iter().all(|skip| skip.path != vendored));
-    let report = reach(&idx, &Selector::parse("fs:/tmp/vendored").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/tmp/vendored").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload

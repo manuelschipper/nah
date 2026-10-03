@@ -1,6 +1,6 @@
 //! Installs and removes nah's user-level Cline PreToolUse hook.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -8,10 +8,12 @@ use nah_proto::ctx::{AbsolutePath, Platform};
 
 use crate::{live_state, runtime::FailurePolicy};
 
-use super::hook_paths::reject_hook_path_symlink;
+use super::hook_paths::{
+    HookLockErrorCodes, acquire_hook_lock_in_unlinked_directory, reject_hook_path_symlink,
+};
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
+use crate::private_files::sync_parent_directory;
 
 const MARKER: &str = "Managed by nah: Cline PreToolUse";
 
@@ -103,7 +105,7 @@ fn install_hook(
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = ClineHookPaths::new(home, platform);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &CLINE_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     let desired = desired_hook(executable, platform, policy)?;
     let states = hook_states(&paths, &desired)?;
@@ -121,7 +123,7 @@ fn install_hook(
 
 fn uninstall_hook(home: &AbsolutePath, platform: Platform) -> Result<PathBuf, String> {
     let paths = ClineHookPaths::new(home, platform);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &CLINE_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     for path in paths.hooks() {
         if path.exists() {
@@ -315,28 +317,11 @@ fn generated_executable(contents: &str) -> Option<(String, Platform)> {
         .then_some((executable, Platform::Windows))
 }
 
-fn lock(paths: &ClineHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-cline-hook-lock-path".to_owned())?;
-    reject_hook_path_symlink(parent, "cline-hook-lock-failed")?;
-    std::fs::create_dir_all(parent).map_err(|_| "cline-hook-lock-failed")?;
-    reject_hook_path_symlink(&paths.lock, "cline-hook-lock-failed")?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "cline-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "cline-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "cline-hook-lock-failed")?;
-    Ok(file)
-}
+const CLINE_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-cline-hook-lock-path",
+    failed: "cline-hook-lock-failed",
+    permissions: "cline-hook-permissions-failed",
+};
 
 fn reject_symlinks(paths: &ClineHookPaths) -> Result<(), String> {
     for directory in &paths.directories {

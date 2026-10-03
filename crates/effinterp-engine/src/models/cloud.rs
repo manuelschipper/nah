@@ -11,6 +11,7 @@ use effinterp_proto::{
 };
 
 use crate::models::args::{FlagSpec, Scanned, scan, scan_literal_flags};
+use crate::value::unresolved_resource;
 
 use crate::SourcePurpose;
 use crate::builder::PlanBuilder;
@@ -1287,12 +1288,6 @@ fn operands(argv: &[Word], start: usize) -> Vec<(u32, &Word)> {
         .collect()
 }
 
-pub(crate) fn unresolved_network() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("network"),
-    }
-}
-
 fn unrecoverable_remote_source(
     builder: &mut PlanBuilder,
     model_node: ProvenanceRef,
@@ -1509,7 +1504,7 @@ fn ssm_start_session(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node:
         model_node,
         target_index,
         "network.connect",
-        unresolved_network(),
+        unresolved_resource("network"),
     );
     let Some((parameter_index, parameters)) = ssm_parameters(ctx.argv) else {
         return;
@@ -1612,7 +1607,7 @@ fn ssm_send_command(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: 
             model_node,
             instance_index,
             "network.connect",
-            unresolved_network(),
+            unresolved_resource("network"),
         );
         for command in &commands {
             nest_remote_shell(
@@ -2328,7 +2323,7 @@ fn side_effect(
                 model_node,
                 index,
                 "network.upload",
-                unresolved_network(),
+                unresolved_resource("network"),
                 Attrs::new(),
             )
         {
@@ -5058,7 +5053,7 @@ fn gcloud_ssh(
         model_node,
         connect_index,
         "network.connect",
-        unresolved_network(),
+        unresolved_resource("network"),
     );
 
     const VALUE_FLAGS: &[&str] = &[

@@ -4,7 +4,7 @@
 //! transitively perform in another file.
 #![allow(clippy::disallowed_methods)]
 
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 use crate::support::antecedent_origins;
@@ -36,7 +36,7 @@ fn function_local_import_resolves_cross_file() {
             ],
         );
         let idx = build_index(&root, IndexLimits::default());
-        let report = reach(&idx, &Selector::parse("fs:/x").unwrap(), None);
+        let report = reach(&idx, &ResourceSelector::parse("fs:/x").unwrap(), None);
 
         let hit = report
             .payload
@@ -117,7 +117,7 @@ fn nested_argument_call_is_an_edge() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/y").unwrap(), None);
+    let report = reach(&idx, &ResourceSelector::parse("fs:/y").unwrap(), None);
 
     assert!(
         report
@@ -172,7 +172,7 @@ fn same_arity_local_builtin_and_stdlib_names_keep_cross_file_effects() {
     for path in ["/builtin-shadow", "/stdlib-shadow"] {
         let report = reach(
             &index,
-            &Selector::parse(&format!("fs:{path}")).unwrap(),
+            &ResourceSelector::parse(&format!("fs:{path}")).unwrap(),
             None,
         );
         assert!(

@@ -8,9 +8,14 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::adapter_fields::runtime_field_names_covered;
+use crate::adapter_fields::{
+    runtime_field_names_covered, tool_input_non_empty_string, tool_input_optional_bool,
+    tool_input_string,
+};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
+
+const INVALID_AMP_TOOL_INPUT: &str = "invalid-amp-tool-input";
 
 #[derive(Deserialize)]
 struct AmpHookInput {
@@ -92,7 +97,7 @@ fn normalize(input: AmpHookInput) -> Result<ToolCallInput, String> {
     let lowered = input
         .tool_input
         .as_object()
-        .ok_or_else(|| "invalid-amp-tool-input".to_owned())
+        .ok_or_else(|| INVALID_AMP_TOOL_INPUT.to_owned())
         .and_then(|object| lower(&input.tool_name, &input.tool_input, object));
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
@@ -119,65 +124,44 @@ fn lower<'a>(
     object: &Map<String, Value>,
 ) -> Result<(&'a str, Value), String> {
     Ok(match tool_name {
-        "shell_command" => ("Bash", json!({"command": string(object, "command")?})),
+        "shell_command" => (
+            "Bash",
+            json!({"command": tool_input_string(object, "command", INVALID_AMP_TOOL_INPUT)?}),
+        ),
         "apply_patch" => (
             "apply_patch",
-            json!({"command": non_empty(object, "patchText")?}),
+            json!({"command": tool_input_non_empty_string(object, "patchText", INVALID_AMP_TOOL_INPUT)?}),
         ),
         "create_file" => (
             "Write",
             json!({
-                "file_path": non_empty(object, "path")?,
-                "content": string(object, "content")?
+                "file_path": tool_input_non_empty_string(object, "path", INVALID_AMP_TOOL_INPUT)?,
+                "content": tool_input_string(object, "content", INVALID_AMP_TOOL_INPUT)?
             }),
         ),
         "edit_file" => {
             let mut normalized = json!({
-                "file_path": non_empty(object, "path")?,
-                "old_string": string(object, "old_str")?,
-                "new_string": string(object, "new_str")?
+                "file_path": tool_input_non_empty_string(object, "path", INVALID_AMP_TOOL_INPUT)?,
+                "old_string": tool_input_string(object, "old_str", INVALID_AMP_TOOL_INPUT)?,
+                "new_string": tool_input_string(object, "new_str", INVALID_AMP_TOOL_INPUT)?
             });
-            if let Some(replace_all) = optional_bool(object, "replace_all")? {
+            if let Some(replace_all) =
+                tool_input_optional_bool(object, "replace_all", INVALID_AMP_TOOL_INPUT)?
+            {
                 normalized["replace_all"] = json!(replace_all);
             }
             ("Edit", normalized)
         }
         "upload_thread_file" => (
             "AmpUpload",
-            json!({"file_path": non_empty(object, "path")?}),
+            json!({"file_path": tool_input_non_empty_string(object, "path", INVALID_AMP_TOOL_INPUT)?}),
         ),
         "download_thread_file" => (
             "AmpDownload",
-            json!({"file_path": non_empty(object, "destination")?}),
+            json!({"file_path": tool_input_non_empty_string(object, "destination", INVALID_AMP_TOOL_INPUT)?}),
         ),
         _ => (tool_name, tool_input.clone()),
     })
-}
-
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-amp-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        if value.is_empty() {
-            Err("invalid-amp-tool-input".into())
-        } else {
-            Ok(value)
-        }
-    })
-}
-
-fn optional_bool(object: &Map<String, Value>, name: &str) -> Result<Option<bool>, String> {
-    match object.get(name) {
-        Some(Value::Bool(value)) => Ok(Some(*value)),
-        None => Ok(None),
-        Some(_) => Err("invalid-amp-tool-input".into()),
-    }
 }
 
 fn delegated(evaluation_failed: bool) -> Value {

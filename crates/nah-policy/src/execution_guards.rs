@@ -15,7 +15,7 @@ use crate::shared_queries::{present_attr, string_attr};
 /// shell or PowerShell command whose text holds characters that make the
 /// operator's display of it differ from what runs, whatever it executes.
 pub(crate) fn exec_obfuscated() -> GuardDefinition {
-    let mut unresolved = crate::flow_queries::execution_input();
+    let mut unresolved = crate::flow_guards::execution_input();
     unresolved.request_assurance = Some(RequestAssurance::Exact);
     unresolved.attributes.extend([
         present_attr("derivation"),
@@ -31,7 +31,7 @@ pub(crate) fn exec_obfuscated() -> GuardDefinition {
         clauses: vec![
             GuardClause {
                 query: Query::new(Assertion::Any {
-                    assertions: [crate::flow_queries::encoded_execution(), unresolved]
+                    assertions: [crate::flow_guards::encoded_execution(), unresolved]
                         .into_iter()
                         .map(|selector| Assertion::Effect {
                             selector,

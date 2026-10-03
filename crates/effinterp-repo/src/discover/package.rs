@@ -167,11 +167,11 @@ fn utf8_len(byte: u8) -> usize {
 /// The span segments of the JSON string whose opening quote is at `start`:
 /// verbatim runs map 1:1 into the host file; an escape maps its decoded bytes
 /// to the backslash's offset.
-fn json_string_segments(b: &[u8], start: usize) -> Vec<SpanSeg> {
-    let mut segs: Vec<SpanSeg> = Vec::new();
+fn json_string_segments(b: &[u8], start: usize) -> Vec<SpanSegment> {
+    let mut segs: Vec<SpanSegment> = Vec::new();
     let mut src = 0u32;
     let mut i = start + 1;
-    let mut run = SpanSeg {
+    let mut run = SpanSegment {
         src: 0,
         host: (start + 1) as u32,
         len: 0,
@@ -187,14 +187,14 @@ fn json_string_segments(b: &[u8], start: usize) -> Vec<SpanSeg> {
                     segs.push(run);
                 }
                 let decoded = ch.len_utf8() as u32;
-                segs.push(SpanSeg {
+                segs.push(SpanSegment {
                     src,
                     host: i as u32,
                     len: decoded,
                 });
                 src += decoded;
                 i += raw;
-                run = SpanSeg {
+                run = SpanSegment {
                     src,
                     host: i as u32,
                     len: 0,
@@ -623,7 +623,7 @@ fn find_stem(dir: &Path, rel: &str, stem: &str, exts: &[&str], depth: u32, out: 
             continue;
         }
         if ft.is_dir() {
-            if SKIP_DIRS.contains(&name.as_str()) || is_non_root_path(&name, &name) {
+            if CRAWL_SKIP_DIRS.contains(&name.as_str()) || is_non_root_path(&name, &name) {
                 continue;
             }
             find_stem(

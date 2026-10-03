@@ -5,7 +5,7 @@ pub(crate) struct GoLinker;
 
 fn go_dispatch_targets<'a>(
     linker: &dyn Linker,
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     inst: &ResolvedObject,
     method: &str,
 ) -> Resolution<'a> {
@@ -68,7 +68,7 @@ fn go_dispatch_targets<'a>(
     })
 }
 
-fn go_dispatch_aliases(reg: &Registry) -> BTreeMap<String, String> {
+fn go_dispatch_aliases(reg: &ModuleRegistry) -> BTreeMap<String, String> {
     let mut aliases = BTreeMap::new();
     for file in reg
         .files
@@ -163,7 +163,11 @@ fn go_type_name_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '/')
 }
 
-fn go_sibling<'a>(reg: &'a Registry, file: &ModuleFile, function: &str) -> Option<&'a ModuleFile> {
+fn go_sibling<'a>(
+    reg: &'a ModuleRegistry,
+    file: &ModuleFile,
+    function: &str,
+) -> Option<&'a ModuleFile> {
     let package = reg.go_packages.get(&file.path);
     reg.files.values().map(|file| file.as_ref()).find(|target| {
         target.summary.linkage.scope == file.summary.linkage.scope
@@ -174,7 +178,7 @@ fn go_sibling<'a>(reg: &'a Registry, file: &ModuleFile, function: &str) -> Optio
     })
 }
 
-fn go_class<'a>(reg: &'a Registry, file: &ModuleFile, name: &str) -> Option<&'a ModuleFile> {
+fn go_class<'a>(reg: &'a ModuleRegistry, file: &ModuleFile, name: &str) -> Option<&'a ModuleFile> {
     let package = reg.go_packages.get(&file.path);
     reg.files.values().map(|file| file.as_ref()).find(|target| {
         target.summary.linkage.scope == file.summary.linkage.scope
@@ -186,7 +190,7 @@ fn go_class<'a>(reg: &'a Registry, file: &ModuleFile, name: &str) -> Option<&'a 
 }
 
 fn go_resolve_to<'a>(
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     importer: &'a ModuleFile,
     binding: &ImportBinding,
     function: &str,
@@ -236,7 +240,7 @@ impl Linker for GoLinker {
 
     fn package_value(
         &self,
-        registry: &Registry,
+        registry: &ModuleRegistry,
         importer: &ModuleFile,
         name: &str,
     ) -> Option<SemanticValue> {
@@ -244,7 +248,7 @@ impl Linker for GoLinker {
     }
     fn package_value_in_scope(
         &self,
-        registry: &Registry,
+        registry: &ModuleRegistry,
         importer: &ModuleFile,
         scope: &effinterp_engine::ScopeKey,
         name: &str,
@@ -254,17 +258,22 @@ impl Linker for GoLinker {
 
     fn package_bindings(
         &self,
-        registry: &Registry,
+        registry: &ModuleRegistry,
         importer: &ModuleFile,
     ) -> HashMap<String, SemanticValue> {
         go_package_bindings(registry, importer)
     }
-    fn callee_is_rebound(&self, registry: &Registry, importer: &ModuleFile, callee: &str) -> bool {
+    fn callee_is_rebound(
+        &self,
+        registry: &ModuleRegistry,
+        importer: &ModuleFile,
+        callee: &str,
+    ) -> bool {
         go_rebound_callee(registry, importer, callee)
     }
     fn rebound_callee<'a>(
         &self,
-        registry: &'a Registry,
+        registry: &'a ModuleRegistry,
         importer: &'a ModuleFile,
         callee: &str,
     ) -> Option<(&'a ModuleFile, String)> {
@@ -275,7 +284,7 @@ impl Linker for GoLinker {
     }
     fn module_binding_candidate(
         &self,
-        registry: &Registry,
+        registry: &ModuleRegistry,
         importer: &ModuleFile,
         file: &ModuleFile,
     ) -> bool {
@@ -305,7 +314,7 @@ impl Linker for GoLinker {
 
     fn resolve_callee<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         callee: &str,
     ) -> Resolution<'a> {
@@ -333,7 +342,7 @@ impl Linker for GoLinker {
 
     fn class_candidates<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         name: &str,
     ) -> Vec<(ResolvedObject, Assurance)> {
@@ -356,7 +365,7 @@ impl Linker for GoLinker {
 
     fn resolve_method<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         inst: &ResolvedObject,
         method: &str,
     ) -> Resolution<'a> {
@@ -379,7 +388,7 @@ impl Linker for GoLinker {
 
     fn classify_external(
         &self,
-        _reg: &Registry,
+        _reg: &ModuleRegistry,
         module: &str,
         member: &str,
         _arity: Option<usize>,
@@ -389,7 +398,7 @@ impl Linker for GoLinker {
 
     fn classify_import(
         &self,
-        _reg: &Registry,
+        _reg: &ModuleRegistry,
         _file: &ModuleFile,
         _spec: &str,
     ) -> Option<ExternalCall> {
@@ -398,7 +407,7 @@ impl Linker for GoLinker {
 
     fn execution_roots<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
     ) -> Vec<(&'a ModuleFile, Option<&'a str>)> {
         let package = reg.go_packages.get(&file.path);
@@ -451,7 +460,7 @@ impl Linker for GoLinker {
 }
 
 fn go_package_value(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     name: &str,
 ) -> Option<SemanticValue> {
@@ -468,7 +477,7 @@ fn go_package_value(
 
 /// The selected build files of the Go package `importer` belongs to.
 fn go_package_files<'a>(
-    registry: &'a Registry,
+    registry: &'a ModuleRegistry,
     importer: &'a ModuleFile,
     scope: &'a effinterp_engine::ScopeKey,
 ) -> impl Iterator<Item = &'a ModuleFile> {
@@ -487,7 +496,7 @@ fn go_package_files<'a>(
 }
 
 fn go_package_value_in_scope(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     scope: &effinterp_engine::ScopeKey,
     name: &str,
@@ -511,7 +520,7 @@ fn go_package_value_in_scope(
 /// package itself, or one of another package writing it through the import
 /// qualifier (`lib.Target = ...`).
 fn go_package_rebinds(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     scope: &effinterp_engine::ScopeKey,
     name: &str,
@@ -524,7 +533,7 @@ fn go_package_rebinds(
 /// Whether a file importing the Go package `importer` belongs to assigns its
 /// exported `name`. The frontend records such a write under the qualifier the
 /// importing file used, so the qualifier is resolved back to the package here.
-fn go_importer_rebinds(registry: &Registry, importer: &ModuleFile, name: &str) -> bool {
+fn go_importer_rebinds(registry: &ModuleRegistry, importer: &ModuleFile, name: &str) -> bool {
     registry.files.values().any(|file| {
         file.lang == effinterp_engine::Lang::Go
             && !file.summary.module_value_rebindings.is_empty()
@@ -547,7 +556,7 @@ fn go_importer_rebinds(registry: &Registry, importer: &ModuleFile, name: &str) -
 /// A call through a package variable the package reassigns: the target is
 /// whatever the variable holds when the call runs, never the declaration's
 /// initializer.
-fn go_rebound_callee(registry: &Registry, importer: &ModuleFile, callee: &str) -> bool {
+fn go_rebound_callee(registry: &ModuleRegistry, importer: &ModuleFile, callee: &str) -> bool {
     if importer.lang != effinterp_engine::Lang::Go || callee.contains('.') {
         return false;
     }
@@ -557,7 +566,10 @@ fn go_rebound_callee(registry: &Registry, importer: &ModuleFile, callee: &str) -
     go_package_rebinds(registry, importer, scope, callee)
 }
 
-fn go_package_bindings(registry: &Registry, target: &ModuleFile) -> HashMap<String, SemanticValue> {
+fn go_package_bindings(
+    registry: &ModuleRegistry,
+    target: &ModuleFile,
+) -> HashMap<String, SemanticValue> {
     if target.lang != effinterp_engine::Lang::Go {
         return HashMap::new();
     }
@@ -583,7 +595,7 @@ fn go_package_bindings(registry: &Registry, target: &ModuleFile) -> HashMap<Stri
 /// is resolved in the imported package's own scope, so a variable any file
 /// assigns is refused there exactly as it is for a reader inside the package.
 fn go_imported_package_bindings(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     target: &ModuleFile,
 ) -> Vec<(String, SemanticValue)> {
     let mut out = Vec::new();

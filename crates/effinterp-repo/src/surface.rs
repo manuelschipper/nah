@@ -26,7 +26,7 @@ use crate::resource::family;
 /// effect's callee attribution is never reduced to an opaque string.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "step", rename_all = "snake_case")]
-pub enum ProvStep {
+pub enum ProvenanceStep {
     SourceInput {
         path: String,
         digest: String,
@@ -74,19 +74,19 @@ pub enum ProvStep {
     },
 }
 
-impl ProvStep {
+impl ProvenanceStep {
     pub fn render(&self) -> String {
         match self {
-            ProvStep::SourceInput { path, digest } => format!("{path}: input {digest}"),
-            ProvStep::HostContext { name } => format!("host context env:{name}"),
-            ProvStep::SourceSpan { file, start, end } => {
+            ProvenanceStep::SourceInput { path, digest } => format!("{path}: input {digest}"),
+            ProvenanceStep::HostContext { name } => format!("host context env:{name}"),
+            ProvenanceStep::SourceSpan { file, start, end } => {
                 format!("{file}: source[{start}..{end}]")
             }
-            ProvStep::Argument { file, index } => format!("{file}: arg[{index}]"),
-            ProvStep::ToolArgument { file, name } => {
+            ProvenanceStep::Argument { file, index } => format!("{file}: arg[{index}]"),
+            ProvenanceStep::ToolArgument { file, name } => {
                 format!("{file}: tool argument {name}")
             }
-            ProvStep::ModelApplication {
+            ProvenanceStep::ModelApplication {
                 file,
                 declaration_id,
                 declaration_digest,
@@ -94,7 +94,7 @@ impl ProvStep {
                 Some(digest) => format!("{file}: model {declaration_id}#blake3:{digest}"),
                 None => format!("{file}: model {declaration_id}"),
             },
-            ProvStep::Execution { file, node, origin } => match origin {
+            ProvenanceStep::Execution { file, node, origin } => match origin {
                 Some(origin) => {
                     format!(
                         "{file}: execution #{node} ({})",
@@ -103,12 +103,12 @@ impl ProvStep {
                 }
                 None => format!("{file}: execution #{node}"),
             },
-            ProvStep::Entrypoint { file, function } => match function {
+            ProvenanceStep::Entrypoint { file, function } => match function {
                 Some(function) => format!("{file}:{function}"),
                 None => file.clone(),
             },
-            ProvStep::CrossFile { from, into } => format!("{from} -> {into}"),
-            ProvStep::HostObservation { query, answer } => {
+            ProvenanceStep::CrossFile { from, into } => format!("{from} -> {into}"),
+            ProvenanceStep::HostObservation { query, answer } => {
                 format!("host observation {query}: {answer}")
             }
         }
@@ -137,7 +137,7 @@ pub struct EffectiveEffect {
     /// and an unconditional effect on the same resource are distinct.
     pub condition: Option<Condition>,
     pub destructive: bool,
-    pub provenance: Vec<ProvStep>,
+    pub provenance: Vec<ProvenanceStep>,
     /// The file the effect originates in (the entrypoint file for direct
     /// effects, the defining file for composed ones).
     pub origin_file: String,
@@ -206,7 +206,7 @@ pub struct EffectiveBoundary {
     pub affected_resource: Option<ResourceExpr>,
     pub detail: Option<String>,
     pub limit: Option<String>,
-    pub provenance: Vec<ProvStep>,
+    pub provenance: Vec<ProvenanceStep>,
     pub via_dispatch: Option<DispatchVia>,
 }
 
@@ -559,7 +559,7 @@ fn effective_surface_inner(
                     attributes: effect.attributes.clone(),
                     condition: effect.condition.clone(),
                     destructive: effect.operation.is_destructive(),
-                    provenance: vec![ProvStep::Entrypoint {
+                    provenance: vec![ProvenanceStep::Entrypoint {
                         file: source_file.clone(),
                         function: Some("main".to_string()),
                     }],
@@ -636,7 +636,7 @@ fn effective_surface_inner(
                     provenance: if let Some(path) = path {
                         cross_file_steps(index, path)
                     } else {
-                        vec![ProvStep::Entrypoint {
+                        vec![ProvenanceStep::Entrypoint {
                             file: source_file.clone(),
                             function: None,
                         }]
@@ -721,7 +721,7 @@ fn effective_surface_inner(
             Some(line) => format!("{source_file}:{line}"),
             None => source_file.clone(),
         };
-        let step = ProvStep::CrossFile {
+        let step = ProvenanceStep::CrossFile {
             from: from.clone(),
             into: edge.launched.clone(),
         };
@@ -899,7 +899,7 @@ fn effective_surface_inner(
                 affected_resource: None,
                 detail: Some("contributing execution scope makes no coverage claim".to_string()),
                 limit: None,
-                provenance: vec![ProvStep::Entrypoint {
+                provenance: vec![ProvenanceStep::Entrypoint {
                     file: source,
                     function: None,
                 }],
@@ -919,7 +919,7 @@ fn effective_surface_inner(
                 affected_resource: None,
                 detail: Some("execution coverage has no complete contributing claim".to_string()),
                 limit: None,
-                provenance: vec![ProvStep::Entrypoint {
+                provenance: vec![ProvenanceStep::Entrypoint {
                     file: source_file.clone(),
                     function: None,
                 }],
@@ -1176,13 +1176,13 @@ pub(crate) fn local_steps(
     plan: &Plan,
     roots: &[effinterp_proto::ProvenanceRef],
     file: &str,
-) -> Vec<ProvStep> {
+) -> Vec<ProvenanceStep> {
     fn walk(
         plan: &Plan,
         reference: ProvenanceRef,
         file: &str,
         visited: &mut [bool],
-        out: &mut Vec<ProvStep>,
+        out: &mut Vec<ProvenanceStep>,
     ) {
         let index = reference.0 as usize;
         if index >= plan.provenance.len() || visited[index] {
@@ -1194,21 +1194,23 @@ pub(crate) fn local_steps(
             walk(plan, *antecedent, file, visited, out);
         }
         out.push(match &node.kind {
-            ProvenanceKind::SourceInput { path, digest } => ProvStep::SourceInput {
+            ProvenanceKind::SourceInput { path, digest } => ProvenanceStep::SourceInput {
                 path: path.clone(),
                 digest: digest.clone(),
             },
-            ProvenanceKind::HostContext { name } => ProvStep::HostContext { name: name.clone() },
-            ProvenanceKind::SourceSpan { start, end } => ProvStep::SourceSpan {
+            ProvenanceKind::HostContext { name } => {
+                ProvenanceStep::HostContext { name: name.clone() }
+            }
+            ProvenanceKind::SourceSpan { start, end } => ProvenanceStep::SourceSpan {
                 file: file.to_string(),
                 start: *start,
                 end: *end,
             },
-            ProvenanceKind::Argument { index } => ProvStep::Argument {
+            ProvenanceKind::Argument { index } => ProvenanceStep::Argument {
                 file: file.to_string(),
                 index: *index,
             },
-            ProvenanceKind::ToolArgument { name } => ProvStep::ToolArgument {
+            ProvenanceKind::ToolArgument { name } => ProvenanceStep::ToolArgument {
                 file: file.to_string(),
                 name: name.clone(),
             },
@@ -1217,7 +1219,7 @@ pub(crate) fn local_steps(
                     .rsplit_once("#blake3:")
                     .map(|(id, digest)| (id.to_string(), Some(digest.to_string())))
                     .unwrap_or_else(|| (model.clone(), None));
-                ProvStep::ModelApplication {
+                ProvenanceStep::ModelApplication {
                     file: file.to_string(),
                     declaration_id,
                     declaration_digest,
@@ -1226,7 +1228,7 @@ pub(crate) fn local_steps(
             ProvenanceKind::HostObservation { query, outcome } => {
                 let (effinterp_proto::ObservationQuery::Path { path }
                 | effinterp_proto::ObservationQuery::Listing { path, .. }) = query;
-                ProvStep::HostObservation {
+                ProvenanceStep::HostObservation {
                     query: path.clone(),
                     answer: match outcome {
                         effinterp_proto::ObservationOutcome::Refused(refusal) => {
@@ -1244,7 +1246,7 @@ pub(crate) fn local_steps(
                     },
                 }
             }
-            ProvenanceKind::Execution { node } => ProvStep::Execution {
+            ProvenanceKind::Execution { node } => ProvenanceStep::Execution {
                 file: file.to_string(),
                 node: *node,
                 origin: plan
@@ -1266,18 +1268,18 @@ pub(crate) fn local_steps(
 
 /// Convert a composed path (`["app.py", "util.py:wipe", ...]`) into cross-file
 /// steps between successive nodes.
-pub(crate) fn cross_file_steps(index: &RepoIndex, path: &[String]) -> Vec<ProvStep> {
+pub(crate) fn cross_file_steps(index: &RepoIndex, path: &[String]) -> Vec<ProvenanceStep> {
     if path.len() < 2 {
         return path
             .iter()
-            .map(|p| ProvStep::Entrypoint {
+            .map(|p| ProvenanceStep::Entrypoint {
                 file: split_source_label(index, p).0.to_string(),
                 function: split_source_label(index, p).1.map(str::to_string),
             })
             .collect();
     }
     path.windows(2)
-        .map(|w| ProvStep::CrossFile {
+        .map(|w| ProvenanceStep::CrossFile {
             from: w[0].clone(),
             into: w[1].clone(),
         })

@@ -1,6 +1,6 @@
 //! Installs and removes nah's user-level Cursor preToolUse hook.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -10,7 +10,7 @@ use serde_json::{Map, Value, json};
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
-use super::hook_paths::reject_hook_path_symlink;
+use super::hook_paths::{HookLockErrorCodes, acquire_hook_lock, reject_hook_path_symlink};
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
 use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
@@ -93,7 +93,7 @@ fn install_hook(
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = CursorHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &CURSOR_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     let mut config = load(&paths.hooks)?;
     validate_version(&mut config)?;
@@ -107,7 +107,7 @@ fn install_hook(
 
 fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = CursorHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &CURSOR_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     if paths.hooks.exists() {
         let mut config = load(&paths.hooks)?;
@@ -138,27 +138,11 @@ impl CursorHookPaths {
     }
 }
 
-fn lock(paths: &CursorHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-cursor-hook-lock-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "cursor-hook-lock-failed")?;
-    reject_hook_path_symlink(&paths.lock, "cursor-hook-lock-failed")?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "cursor-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "cursor-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "cursor-hook-lock-failed")?;
-    Ok(file)
-}
+const CURSOR_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-cursor-hook-lock-path",
+    failed: "cursor-hook-lock-failed",
+    permissions: "cursor-hook-permissions-failed",
+};
 
 fn load(path: &Path) -> Result<Value, String> {
     reject_hook_path_symlink(path, "cursor-hooks-symlink-unsupported")?;

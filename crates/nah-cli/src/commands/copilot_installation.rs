@@ -1,6 +1,6 @@
 //! Installs and removes nah's shared GitHub Copilot hook.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -10,7 +10,9 @@ use serde_json::{Value, json};
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
-use super::hook_paths::reject_hook_path_symlink;
+use super::hook_paths::{
+    HookLockErrorCodes, acquire_hook_lock_in_unlinked_directory, reject_hook_path_symlink,
+};
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
 use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
@@ -83,7 +85,7 @@ fn install_hook(
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = CopilotHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &COPILOT_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     let desired = desired_hook(executable, policy)?;
     if paths.hook.exists() {
@@ -103,7 +105,7 @@ fn install_hook(
 
 fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = CopilotHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &COPILOT_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     if paths.hook.exists() {
         let configured = load(&paths.hook)?;
@@ -211,28 +213,11 @@ fn is_owned_command(command: &str) -> bool {
                 && (executable.ends_with("\\nah.exe\"") || executable.ends_with("/nah.exe\""))))
 }
 
-fn lock(paths: &CopilotHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-copilot-hook-lock-path".to_owned())?;
-    reject_hook_path_symlink(parent, "copilot-hook-lock-failed")?;
-    std::fs::create_dir_all(parent).map_err(|_| "copilot-hook-lock-failed")?;
-    reject_hook_path_symlink(&paths.lock, "copilot-hook-lock-failed")?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "copilot-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "copilot-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "copilot-hook-lock-failed")?;
-    Ok(file)
-}
+const COPILOT_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-copilot-hook-lock-path",
+    failed: "copilot-hook-lock-failed",
+    permissions: "copilot-hook-permissions-failed",
+};
 
 fn reject_symlinks(paths: &CopilotHookPaths) -> Result<(), String> {
     for directory in &paths.directories {

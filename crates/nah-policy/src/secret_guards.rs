@@ -1,7 +1,7 @@
 //! Declarative definitions for the secret disclosure and secret-store guards;
 //! they do not detect secret-shaped content.
 
-use crate::flow_queries;
+use crate::flow_guards;
 use crate::registry::{GuardClause, GuardDefinition, GuardFamily, engine_only};
 use crate::shared_queries::{present_attr, string_attr, string_one_of};
 use effinterp_matcher::{
@@ -141,14 +141,14 @@ pub(crate) fn environment() -> GuardDefinition {
         &["filesystem.read"],
         None,
         vec![
-            flow_queries::printed_environment(flow_queries::credential_variables()),
-            flow_queries::printed_environment(flow_queries::sensitivity(
+            flow_guards::printed_environment(flow_guards::credential_variables()),
+            flow_guards::printed_environment(flow_guards::sensitivity(
                 Sensitivity::EnvironmentSecret,
             )),
         ],
     );
     definition.clauses.push(GuardClause {
-        query: Query::new(flow_queries::printed_injected_secret()),
+        query: Query::new(flow_guards::printed_injected_secret()),
         host: None,
         qualifiers: Vec::new(),
     });
@@ -171,16 +171,16 @@ fn disclosure(
 ) -> GuardDefinition {
     let mut files = operations
         .iter()
-        .flat_map(|operation| flow_queries::disclosed_filesystem(operation, labels, None))
+        .flat_map(|operation| flow_guards::disclosed_filesystem(operation, labels, None))
         .collect::<Vec<_>>();
     if let Some(label) = removed {
-        files.extend(flow_queries::removed_filesystem(label));
+        files.extend(flow_guards::removed_filesystem(label));
     }
     let mut clauses = vec![Assertion::Any { assertions: files }];
     clauses.extend(
         labels
             .iter()
-            .map(|label| flow_queries::git_contents(*label))
+            .map(|label| flow_guards::git_contents(*label))
             .chain(stored)
             .map(|selector| Assertion::Effect {
                 closure: None,
@@ -199,7 +199,7 @@ fn disclosure(
             .enumerate()
             .map(|(index, assertion)| GuardClause {
                 query: Query::new(assertion),
-                host: (index == 0).then(flow_queries::eligible_filesystem),
+                host: (index == 0).then(flow_guards::eligible_filesystem),
                 qualifiers: Vec::new(),
             })
             .collect(),

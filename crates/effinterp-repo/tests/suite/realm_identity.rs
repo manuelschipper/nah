@@ -15,12 +15,12 @@
 use std::path::Path;
 
 use effinterp_proto::ExecutionRealm;
-use effinterp_repo::{IndexLimits, RealmFilter, Selector, build_index, reach};
+use effinterp_repo::{IndexLimits, RealmFilter, ResourceSelector, build_index, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 fn count(root: &Path, selector: &str) -> usize {
     let idx = build_index(root, IndexLimits::default());
-    reach(&idx, &Selector::parse(selector).unwrap(), None)
+    reach(&idx, &ResourceSelector::parse(selector).unwrap(), None)
         .payload
         .as_reach()
         .unwrap()
@@ -30,7 +30,7 @@ fn count(root: &Path, selector: &str) -> usize {
 
 fn realms(root: &Path, selector: &str) -> Vec<String> {
     let idx = build_index(root, IndexLimits::default());
-    let mut r: Vec<String> = reach(&idx, &Selector::parse(selector).unwrap(), None)
+    let mut r: Vec<String> = reach(&idx, &ResourceSelector::parse(selector).unwrap(), None)
         .payload
         .into_reach()
         .unwrap()
@@ -62,7 +62,7 @@ fn realms(root: &Path, selector: &str) -> Vec<String> {
 }
 
 fn filter(selector: &str) -> RealmFilter {
-    Selector::parse(selector).unwrap().realm
+    ResourceSelector::parse(selector).unwrap().realm
 }
 
 // --- realm_key losslessness (observed via the reach pipeline) ----------------
@@ -223,7 +223,7 @@ fn existing_forms_unchanged() {
 #[test]
 fn realm_filter_wildcards_do_not_turn_missing_requested_fields_into_hits() {
     use effinterp_proto::{Match, MatchReason};
-    let selector = Selector::parse("container:c/fs:/tmp").unwrap();
+    let selector = ResourceSelector::parse("container:c/fs:/tmp").unwrap();
     for runtime in ["docker", "podman"] {
         assert!(matches!(
             selector.realm.evaluate(&ExecutionRealm::Container {
@@ -239,14 +239,14 @@ fn realm_filter_wildcards_do_not_turn_missing_requested_fields_into_hits() {
         container: None,
     };
     assert!(matches!(
-        Selector::parse("pod:worker/fs:/tmp")
+        ResourceSelector::parse("pod:worker/fs:/tmp")
             .unwrap()
             .realm
             .evaluate(&pod),
         Match::Satisfied { .. }
     ));
     assert_eq!(
-        Selector::parse("pod:production:worker/fs:/tmp")
+        ResourceSelector::parse("pod:production:worker/fs:/tmp")
             .unwrap()
             .realm
             .evaluate(&pod),
@@ -255,7 +255,7 @@ fn realm_filter_wildcards_do_not_turn_missing_requested_fields_into_hits() {
         }
     );
     assert_eq!(
-        Selector::parse("pod:production:other/fs:/tmp")
+        ResourceSelector::parse("pod:production:other/fs:/tmp")
             .unwrap()
             .realm
             .evaluate(&pod),

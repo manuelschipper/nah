@@ -183,7 +183,7 @@ impl Frontend for GoFrontend {
             });
         }
         let condition_source = effinterp_proto::ConditionSource::new(input.source);
-        let mut w = Walker {
+        let mut w = GoWalker {
             value_limits: nest.limits.value_limits(),
             source: input.source,
             condition_source: &condition_source,
@@ -385,7 +385,7 @@ impl CallWrites {
     }
 }
 
-struct Walker<'a, 'b> {
+struct GoWalker<'a, 'b> {
     value_limits: crate::ValueLimits,
     source: &'a str,
     condition_source: &'a effinterp_proto::ConditionSource,
@@ -636,7 +636,7 @@ enum PackageValues {
     Declarations,
 }
 
-impl Walker<'_, '_> {
+impl GoWalker<'_, '_> {
     fn walk_var_initializers(&mut self, file: &File) {
         self.bind_package_state(file, PackageValues::Declarations);
         let variables: HashSet<_> = package_var_names(file).into_iter().collect();

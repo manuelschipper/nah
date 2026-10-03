@@ -4,7 +4,7 @@ use super::*;
 use crate::nest::{Transition, word_resource};
 use crate::word::Word;
 
-impl Walker<'_, '_> {
+impl GoWalker<'_, '_> {
     pub(super) fn model_call(
         &mut self,
         path: &str,

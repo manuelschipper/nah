@@ -4,8 +4,8 @@
 
 use effinterp_proto::Subject;
 use effinterp_repo::{
-    IndexLimits, RepoChange, Selector, apply_changes, build_index, effects_of, normalize_surface,
-    reach,
+    IndexLimits, RepoChange, ResourceSelector, apply_changes, build_index, effects_of,
+    normalize_surface, reach,
 };
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
@@ -49,7 +49,7 @@ fn python_main_guard_is_an_entrypoint_library_is_not() {
         "pure-library lib.py is not an entrypoint"
     );
 
-    let report = reach(&idx, &Selector::parse("fs:/tmp/x").unwrap(), None);
+    let report = reach(&idx, &ResourceSelector::parse("fs:/tmp/x").unwrap(), None);
     assert!(
         report
             .payload
@@ -285,7 +285,7 @@ fn js_parse_failures_retain_execution_uncertainty() {
         healthy.status,
         effinterp_proto::AnalysisStatus::Complete
     ));
-    let report = reach(&index, &Selector::parse("fs:/**").unwrap(), None);
+    let report = reach(&index, &ResourceSelector::parse("fs:/**").unwrap(), None);
     assert!(matches!(
         report.status,
         effinterp_proto::AnalysisStatus::Partial { .. }
@@ -371,7 +371,7 @@ fn shell_wrapper_discovers_the_php_it_execs() {
     // reached through nested include invocations.
     let report = reach(
         &idx,
-        &Selector::parse("env:WP_CLI_USER_AGENT").unwrap(),
+        &ResourceSelector::parse("env:WP_CLI_USER_AGENT").unwrap(),
         None,
     );
     assert!(
@@ -381,7 +381,11 @@ fn shell_wrapper_discovers_the_php_it_execs() {
         }),
         "getenv one require deep is queryable: {report:?}"
     );
-    let report = reach(&idx, &Selector::parse("fs:/tmp/wp-cache").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/tmp/wp-cache").unwrap(),
+        None,
+    );
     assert!(
         report.payload.as_reach().unwrap().matches.iter().any(|h| {
             h.fact.entrypoint == "php/boot-fs.php:launch@unknown"
@@ -735,7 +739,11 @@ fn shell_polyglot_entrypoint_composes_embedded_ruby_effects() {
         |node| matches!(&node.subject, Subject::Source { language, source, .. }
             if language == "ruby" && source.starts_with("#!/usr/bin/env ruby"))
     ));
-    let report = reach(&index, &Selector::parse("fs:/tmp/polyglot").unwrap(), None);
+    let report = reach(
+        &index,
+        &ResourceSelector::parse("fs:/tmp/polyglot").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload

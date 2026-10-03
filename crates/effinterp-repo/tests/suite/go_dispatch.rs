@@ -7,7 +7,9 @@
 
 use effinterp_engine::Assurance;
 use effinterp_proto::ResourceExpr;
-use effinterp_repo::{IndexLimits, Selector, build_index, effective_surface, effects_of, reach};
+use effinterp_repo::{
+    IndexLimits, ResourceSelector, build_index, effective_surface, effects_of, reach,
+};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 use crate::support::antecedent_origins;
@@ -35,7 +37,7 @@ fn stored_function_field_does_not_execute_by_source_presence() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/never").unwrap(), None);
+    let report = reach(&idx, &ResourceSelector::parse("fs:/never").unwrap(), None);
     assert!(
         !report
             .payload
@@ -197,7 +199,11 @@ fn constructor_typed_receiver_dispatches_across_packages() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/data/cache").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/data/cache").unwrap(),
+        None,
+    );
     let hit = report
         .payload
         .as_reach()
@@ -238,7 +244,7 @@ fn ambiguous_interface_value_never_dispatches() {
     );
     let idx = build_index(&root, IndexLimits::default());
     for path in ["fs:/from-a", "fs:/from-b"] {
-        let report = reach(&idx, &Selector::parse(path).unwrap(), None);
+        let report = reach(&idx, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report
                 .payload
@@ -508,7 +514,7 @@ fn declared_type_parameter_dispatches_across_packages() {
     let idx = build_index(&root, IndexLimits::default());
     let report = reach(
         &idx,
-        &Selector::parse("env:RESTIC_REPOSITORY").unwrap(),
+        &ResourceSelector::parse("env:RESTIC_REPOSITORY").unwrap(),
         None,
     );
     let hit = report
@@ -611,7 +617,7 @@ fn a_reassigned_package_variable_is_never_an_exact_package_value() {
     // Neither value may be answered exactly, and neither may be excluded: the
     // unresolved deletion matches both paths symbolically.
     for path in ["fs:/initial", "fs:/changed"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -668,7 +674,7 @@ fn a_reassigned_package_callable_dispatches_to_no_guessed_target() {
         effects.boundaries
     );
     for path in ["fs:/safe", "fs:/danger"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             report.payload.as_reach().unwrap().matches.is_empty(),
             "{path}: {:?}",
@@ -731,7 +737,7 @@ fn a_package_variable_reassigned_anywhere_is_not_exact_in_its_declaring_file() {
         effects.effects
     );
     for path in ["fs:/exact", "fs:/other"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -781,7 +787,7 @@ fn a_package_variable_reassigned_in_its_own_file_is_not_exact() {
         effects.effects
     );
     for path in ["fs:/exact", "fs:/other"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -834,7 +840,7 @@ fn a_package_callable_reassigned_by_a_sibling_file_is_not_entered_from_its_decla
         effects.boundaries
     );
     for path in ["fs:/safe", "fs:/danger"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             report.payload.as_reach().unwrap().matches.is_empty(),
             "{path}: {:?}",
@@ -913,7 +919,11 @@ fn package_values_resolve_only_from_selected_build_files() {
                 } if host == "wrong.example"
             )
     }));
-    let unrelated = reach(&index, &Selector::parse("net:other.example").unwrap(), None);
+    let unrelated = reach(
+        &index,
+        &ResourceSelector::parse("net:other.example").unwrap(),
+        None,
+    );
     assert!(unrelated.payload.as_reach().unwrap().matches.is_empty());
 }
 
@@ -1025,7 +1035,7 @@ fn callback_handed_to_an_inert_stdlib_call_keeps_its_effects() {
         );
         let report = reach(
             &index,
-            &Selector::parse(&format!("fs:{path}")).unwrap(),
+            &ResourceSelector::parse(&format!("fs:{path}")).unwrap(),
             None,
         );
         assert!(
@@ -1083,7 +1093,7 @@ fn callback_handed_to_a_late_added_stdlib_invoker_keeps_its_effects() {
         );
         let report = reach(
             &index,
-            &Selector::parse(&format!("fs:{path}")).unwrap(),
+            &ResourceSelector::parse(&format!("fs:{path}")).unwrap(),
             None,
         );
         assert!(
@@ -1179,7 +1189,7 @@ fn function_value_passed_as_data_reaches_nothing() {
         "{:?}",
         effects.effects
     );
-    let report = reach(&index, &Selector::parse("fs:/data").unwrap(), None);
+    let report = reach(&index, &ResourceSelector::parse("fs:/data").unwrap(), None);
     assert!(
         report.payload.as_reach().unwrap().matches.is_empty(),
         "{:?}",
@@ -1476,7 +1486,11 @@ fn callbacks_composition_resolves_are_not_escaped_callables() {
         "{:?}",
         effects.boundaries
     );
-    let unrelated = reach(&index, &Selector::parse("fs:/etc/shadow").unwrap(), None);
+    let unrelated = reach(
+        &index,
+        &ResourceSelector::parse("fs:/etc/shadow").unwrap(),
+        None,
+    );
     assert!(unrelated.payload.as_reach().unwrap().matches.is_empty());
     assert!(
         unrelated
@@ -1569,7 +1583,7 @@ fn package_value_resolution_keeps_an_unknown_raised_outside_main() {
         ResourceExpr::Unresolved { family } if family.0 == "filesystem"
     )));
     // The surviving unknown must keep an unrelated path answerable.
-    let unrelated = reach(&index, &Selector::parse("fs:/other").unwrap(), None);
+    let unrelated = reach(&index, &ResourceSelector::parse("fs:/other").unwrap(), None);
     assert!(
         !unrelated.payload.as_reach().unwrap().matches.is_empty()
             || !unrelated
@@ -1616,7 +1630,11 @@ fn callable_passed_to_an_unresolvable_target_stays_a_boundary() {
         "{:?}",
         effects.boundaries
     );
-    let escaped = reach(&index, &Selector::parse("fs:/escaped").unwrap(), None);
+    let escaped = reach(
+        &index,
+        &ResourceSelector::parse("fs:/escaped").unwrap(),
+        None,
+    );
     assert!(
         !escaped.payload.as_reach().unwrap().matches.is_empty()
             || !escaped.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -1679,7 +1697,7 @@ fn struct_field_callable_reaches_a_stdlib_call_exactly() {
     let index = build_index(&root, IndexLimits::default());
     let report = reach(
         &index,
-        &Selector::parse("fs:/field-callback").unwrap(),
+        &ResourceSelector::parse("fs:/field-callback").unwrap(),
         None,
     );
     assert!(
@@ -1715,7 +1733,7 @@ fn ambiguous_struct_field_callable_reports_every_alternative() {
     for path in ["/field-callback", "/other-callback"] {
         let report = reach(
             &index,
-            &Selector::parse(&format!("fs:{path}")).unwrap(),
+            &ResourceSelector::parse(&format!("fs:{path}")).unwrap(),
             None,
         );
         assert!(
@@ -1758,7 +1776,11 @@ fn assign_form_range_keeps_the_pre_loop_binding() {
         "{:?}",
         composition.boundaries
     );
-    let report = reach(&index, &Selector::parse("fs:/tmp/wiped").unwrap(), None);
+    let report = reach(
+        &index,
+        &ResourceSelector::parse("fs:/tmp/wiped").unwrap(),
+        None,
+    );
     assert!(
         !report.payload.as_reach().unwrap().matches.is_empty()
             || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -1828,7 +1850,11 @@ fn local_binding_never_resolves_to_a_same_named_package_function() {
         ],
     );
     let index = build_index(&returned, IndexLimits::default());
-    let report = reach(&index, &Selector::parse("fs:/danger").unwrap(), None);
+    let report = reach(
+        &index,
+        &ResourceSelector::parse("fs:/danger").unwrap(),
+        None,
+    );
     assert!(
         report.payload.as_reach().unwrap().matches.is_empty(),
         "a shadowed sibling must not be called: {:?}",
@@ -1890,7 +1916,11 @@ fn local_binding_never_resolves_to_a_same_named_package_function() {
         ],
     );
     let index = build_index(&unnameable, IndexLimits::default());
-    let report = reach(&index, &Selector::parse("fs:/danger").unwrap(), None);
+    let report = reach(
+        &index,
+        &ResourceSelector::parse("fs:/danger").unwrap(),
+        None,
+    );
     assert!(
         report.payload.as_reach().unwrap().matches.is_empty(),
         "a shadowed sibling must not be called: {:?}",
@@ -1946,7 +1976,11 @@ fn callable_parameter_resolves_to_its_argument_not_a_same_named_sibling() {
             ],
         );
         let index = build_index(&root, IndexLimits::default());
-        let danger = reach(&index, &Selector::parse("fs:/danger").unwrap(), None);
+        let danger = reach(
+            &index,
+            &ResourceSelector::parse("fs:/danger").unwrap(),
+            None,
+        );
         assert!(
             danger.payload.as_reach().unwrap().matches.is_empty(),
             "{tag}: {:?}",
@@ -1967,7 +2001,7 @@ fn callable_parameter_resolves_to_its_argument_not_a_same_named_sibling() {
             "{tag}: {:?}",
             danger.payload
         );
-        let safe = reach(&index, &Selector::parse("fs:/safe").unwrap(), None);
+        let safe = reach(&index, &ResourceSelector::parse("fs:/safe").unwrap(), None);
         assert!(
             safe.payload
                 .as_reach()
@@ -2066,7 +2100,7 @@ fn an_exported_package_variable_assigned_by_an_importer_is_not_exact() {
         deletes[0]
     );
     for path in ["fs:/safe", "fs:/danger"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -2126,7 +2160,7 @@ fn an_exported_package_callable_assigned_by_an_importer_dispatches_to_no_guess()
         effects.boundaries
     );
     for path in ["fs:/safe", "fs:/danger"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().indeterminate.is_empty(),
             "{path} must not be a precise negative"
@@ -2154,7 +2188,7 @@ fn an_exported_package_variable_no_one_assigns_stays_exact() {
         ],
     );
     let index = build_index(&root, IndexLimits::default());
-    let report = reach(&index, &Selector::parse("fs:/exact").unwrap(), None);
+    let report = reach(&index, &ResourceSelector::parse("fs:/exact").unwrap(), None);
     assert!(
         report
             .payload
@@ -2196,7 +2230,7 @@ fn a_write_a_callee_reaches_indirectly_costs_the_caller_its_exact_value() {
         );
         let index = build_index(&root, IndexLimits::default());
         for path in ["fs:/declared", "fs:/actual"] {
-            let report = reach(&index, &Selector::parse(path).unwrap(), None);
+            let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
             assert!(
                 !report.payload.as_reach().unwrap().matches.is_empty()
                     || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -2253,7 +2287,7 @@ fn a_write_a_callable_reaches_through_a_value_costs_the_caller_its_exact_value()
         );
         let index = build_index(&root, IndexLimits::default());
         for path in ["fs:/declared", "fs:/actual"] {
-            let report = reach(&index, &Selector::parse(path).unwrap(), None);
+            let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
             assert!(
                 !report.payload.as_reach().unwrap().matches.is_empty()
                     || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -2409,7 +2443,7 @@ fn a_write_a_callable_runs_out_of_order_costs_the_caller_its_exact_value() {
         );
         let index = build_index(&root, IndexLimits::default());
         for path in ["fs:/declared", "fs:/actual"] {
-            let report = reach(&index, &Selector::parse(path).unwrap(), None);
+            let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
             assert!(
                 !report.payload.as_reach().unwrap().matches.is_empty()
                     || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -2461,7 +2495,7 @@ fn an_exported_package_variable_read_by_an_importer_resolves_to_its_value() {
         "the read has one conclusion: {:?}",
         effects.effects
     );
-    let report = reach(&index, &Selector::parse("fs:/exact").unwrap(), None);
+    let report = reach(&index, &ResourceSelector::parse("fs:/exact").unwrap(), None);
     assert!(
         report
             .payload
@@ -2511,7 +2545,7 @@ fn an_exported_package_variable_the_importer_assigns_is_not_read_as_its_declarat
         deletes[0]
     );
     for path in ["fs:/declared", "fs:/actual"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             report
                 .payload
@@ -2561,7 +2595,7 @@ fn a_callable_field_a_callee_swaps_is_not_dispatched_to_its_declared_target() {
         "the swapped field must be reported as an unknown target"
     );
     for path in ["fs:/safe", "fs:/danger"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             report.payload.as_reach().unwrap().matches.is_empty(),
             "{path}: {:?}",
@@ -2597,7 +2631,7 @@ fn a_cross_package_method_that_writes_its_receiver_costs_the_caller_its_value() 
     );
     let index = build_index(&root, IndexLimits::default());
     for path in ["fs:/declared", "fs:/actual"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -2643,7 +2677,7 @@ fn a_dot_free_module_path_is_not_the_standard_library() {
     );
     let index = build_index(&root, IndexLimits::default());
     for path in ["fs:/declared", "fs:/actual"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -2685,7 +2719,7 @@ fn a_module_path_under_a_standard_library_root_is_not_the_standard_library() {
     );
     let index = build_index(&root, IndexLimits::default());
     for path in ["fs:/declared", "fs:/actual"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -2722,7 +2756,7 @@ fn a_write_through_a_copied_pointer_costs_the_caller_its_value() {
     );
     let index = build_index(&root, IndexLimits::default());
     for path in ["fs:/declared", "fs:/actual"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -2760,7 +2794,7 @@ fn a_method_writing_through_a_pointer_alias_costs_the_caller_its_value() {
     );
     let index = build_index(&root, IndexLimits::default());
     for path in ["fs:/declared", "fs:/actual"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -2796,7 +2830,11 @@ fn a_method_reached_through_a_pointer_alias_reaches_the_resource_it_touches() {
         ],
     );
     let index = build_index(&root, IndexLimits::default());
-    let report = reach(&index, &Selector::parse("fs:/target").unwrap(), None);
+    let report = reach(
+        &index,
+        &ResourceSelector::parse("fs:/target").unwrap(),
+        None,
+    );
     assert!(
         !report.payload.as_reach().unwrap().matches.is_empty(),
         "the aliased receiver's deletion must not be a precise negative: {:?}",
@@ -2820,7 +2858,11 @@ fn a_method_on_a_new_allocation_reaches_the_resource_it_touches() {
         ],
     );
     let index = build_index(&root, IndexLimits::default());
-    let report = reach(&index, &Selector::parse("fs:/target").unwrap(), None);
+    let report = reach(
+        &index,
+        &ResourceSelector::parse("fs:/target").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -2854,7 +2896,11 @@ fn a_method_on_a_constructor_result_reaches_the_resource_it_touches() {
         ],
     );
     let index = build_index(&root, IndexLimits::default());
-    let report = reach(&index, &Selector::parse("fs:/target").unwrap(), None);
+    let report = reach(
+        &index,
+        &ResourceSelector::parse("fs:/target").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -2889,7 +2935,7 @@ fn two_closures_sharing_a_name_cost_the_caller_its_value() {
     );
     let index = build_index(&root, IndexLimits::default());
     for path in ["fs:/declared", "fs:/actual"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -2927,7 +2973,7 @@ fn a_body_local_closure_shadowing_a_package_function_costs_the_caller_its_value(
     );
     let index = build_index(&root, IndexLimits::default());
     for path in ["fs:/declared", "fs:/actual"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -2969,7 +3015,7 @@ fn a_sibling_file_method_that_writes_its_receiver_costs_the_caller_its_value() {
     );
     let index = build_index(&root, IndexLimits::default());
     for path in ["fs:/declared", "fs:/actual"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -3024,7 +3070,7 @@ fn an_address_that_escapes_into_untracked_storage_costs_the_caller_its_value() {
         );
         let index = build_index(&root, IndexLimits::default());
         for path in ["fs:/declared", "fs:/actual"] {
-            let report = reach(&index, &Selector::parse(path).unwrap(), None);
+            let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
             assert!(
                 !report.payload.as_reach().unwrap().matches.is_empty()
                     || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -3063,7 +3109,7 @@ fn a_callable_swapped_through_an_escaped_address_is_not_answered_precisely() {
     );
     let index = build_index(&root, IndexLimits::default());
     for path in ["fs:/safe", "fs:/danger"] {
-        let report = reach(&index, &Selector::parse(path).unwrap(), None);
+        let report = reach(&index, &ResourceSelector::parse(path).unwrap(), None);
         assert!(
             !report.payload.as_reach().unwrap().matches.is_empty()
                 || !report.payload.as_reach().unwrap().indeterminate.is_empty(),
@@ -3415,7 +3461,7 @@ fn sibling_summaries_preserve_unresolved_dispatch() {
                             .is_some_and(|detail| detail.ends_with(callee))
                         && boundary.domains.len() == effinterp_proto::DOMAINS.len()
                         && boundary.provenance.iter().any(|step| matches!(step,
-                            effinterp_repo::ProvStep::CrossFile { into, .. } if into == "helper.go:helper"
+                            effinterp_repo::ProvenanceStep::CrossFile { into, .. } if into == "helper.go:helper"
                         ))
                 }),
                 called && tag != "resolved",

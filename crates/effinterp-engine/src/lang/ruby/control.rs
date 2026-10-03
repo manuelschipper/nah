@@ -34,7 +34,7 @@ pub(super) fn summary_caps() -> ControlCaps {
 
 pub(super) fn build(graph: &mut Graph, statements: &[&Node], builtin_names: bool) {
     graph.enable_exceptions();
-    let mut builder = Builder {
+    let mut builder = RubyControlFlowBuilder {
         at: graph.entry(),
         graph,
         builtin_names,
@@ -45,7 +45,7 @@ pub(super) fn build(graph: &mut Graph, statements: &[&Node], builtin_names: bool
     builder.graph.jump(builder.at, Jump::Return);
 }
 
-struct Builder<'g> {
+struct RubyControlFlowBuilder<'g> {
     graph: &'g mut Graph,
     at: Frontier,
     builtin_names: bool,
@@ -75,7 +75,7 @@ pub(super) fn constant_truth(node: &Node) -> Option<bool> {
     }
 }
 
-impl Builder<'_> {
+impl RubyControlFlowBuilder<'_> {
     fn nodes<'n>(&mut self, nodes: impl IntoIterator<Item = &'n Node>) {
         for node in nodes {
             self.node(node);

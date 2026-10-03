@@ -17,16 +17,18 @@ use nah_proto::extension::ValidatedExtensionResponse;
 
 mod database_guards;
 mod execution_guards;
-mod filesystem_queries;
-mod flow_queries;
-mod git_queries;
+mod filesystem_guards;
+mod flow_guards;
+mod git_guards;
 mod guard_evaluation;
+mod infrastructure_guards;
 mod network_guards;
+mod package_registry_guards;
 mod registry;
 mod secret_guards;
 mod shared_queries;
-mod simple_guards;
 mod structural;
+mod system_guards;
 
 pub use guard_evaluation::ShippedGuards;
 pub use registry::{GuardDefinition, GuardFamily};

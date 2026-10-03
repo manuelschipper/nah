@@ -9,10 +9,15 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    adapter_fields::runtime_field_names_covered,
+    adapter_fields::{
+        runtime_field_names_covered, tool_input_non_empty_string, tool_input_optional_bool,
+        tool_input_string,
+    },
     hook_adapter, live_state,
     runtime::{FailurePolicy, Runtime},
 };
+
+const INVALID_ANTIGRAVITY_TOOL_INPUT: &str = "invalid-antigravity-tool-input";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -116,7 +121,7 @@ fn normalize(input: AntigravityHookInput) -> Result<ToolCallInput, String> {
         .tool_call
         .args
         .as_object()
-        .ok_or_else(|| "invalid-antigravity-tool-input".to_owned())
+        .ok_or_else(|| INVALID_ANTIGRAVITY_TOOL_INPUT.to_owned())
         .and_then(|object| {
             lower(
                 &input.tool_call.name,
@@ -162,7 +167,7 @@ fn lower<'a>(
     Ok(match tool_name {
         "run_command" => (
             "Bash",
-            json!({"command": string(object, "CommandLine")?}),
+            json!({"command": tool_input_string(object, "CommandLine", INVALID_ANTIGRAVITY_TOOL_INPUT)?}),
             None,
             Some(absolute(object, "Cwd", platform)?),
         ),
@@ -176,7 +181,7 @@ fn lower<'a>(
                 "Write",
                 json!({
                     "file_path":path.clone(),
-                    "content":string(object, "CodeContent")?
+                    "content":tool_input_string(object, "CodeContent", INVALID_ANTIGRAVITY_TOOL_INPUT)?
                 }),
                 Some(path),
                 None,
@@ -186,10 +191,12 @@ fn lower<'a>(
             let path = absolute(object, "TargetFile", platform)?;
             let mut edit = json!({
                 "file_path":path.clone(),
-                "old_string":non_empty(object, "TargetContent")?,
-                "new_string":string(object, "ReplacementContent")?
+                "old_string":tool_input_non_empty_string(object, "TargetContent", INVALID_ANTIGRAVITY_TOOL_INPUT)?,
+                "new_string":tool_input_string(object, "ReplacementContent", INVALID_ANTIGRAVITY_TOOL_INPUT)?
             });
-            if let Some(replace_all) = optional_bool(object, "AllowMultiple")? {
+            if let Some(replace_all) =
+                tool_input_optional_bool(object, "AllowMultiple", INVALID_ANTIGRAVITY_TOOL_INPUT)?
+            {
                 edit["replace_all"] = json!(replace_all);
             }
             ("Edit", edit, Some(path), None)
@@ -211,7 +218,7 @@ fn lower<'a>(
             let path = absolute(object, "SearchDirectory", platform)?;
             (
                 "Find",
-                json!({"path":path.clone(),"pattern":string(object, "Pattern")?}),
+                json!({"path":path.clone(),"pattern":tool_input_string(object, "Pattern", INVALID_ANTIGRAVITY_TOOL_INPUT)?}),
                 Some(path),
                 None,
             )
@@ -220,16 +227,16 @@ fn lower<'a>(
             let path = absolute(object, "SearchPath", platform)?;
             (
                 "Grep",
-                json!({"path":path.clone(),"pattern":string(object, "Query")?}),
+                json!({"path":path.clone(),"pattern":tool_input_string(object, "Query", INVALID_ANTIGRAVITY_TOOL_INPUT)?}),
                 Some(path),
                 None,
             )
         }
         "manage_task" => {
-            match string(object, "Action")?.as_str() {
+            match tool_input_string(object, "Action", INVALID_ANTIGRAVITY_TOOL_INPUT)?.as_str() {
                 "send_input" => return Err("unsupported-antigravity-task-input".into()),
                 "list" | "kill" | "status" => {}
-                _ => return Err("invalid-antigravity-tool-input".into()),
+                _ => return Err(INVALID_ANTIGRAVITY_TOOL_INPUT.into()),
             }
             (tool_name, tool_input.clone(), None, None)
         }
@@ -264,51 +271,26 @@ fn replacement_chunks(object: &Map<String, Value>) -> Result<Vec<Value>, String>
         .get("ReplacementChunks")
         .and_then(Value::as_array)
         .filter(|chunks| !chunks.is_empty())
-        .ok_or_else(|| "invalid-antigravity-tool-input".to_owned())?
+        .ok_or_else(|| INVALID_ANTIGRAVITY_TOOL_INPUT.to_owned())?
         .iter()
         .map(|chunk| {
             let chunk = chunk
                 .as_object()
-                .ok_or_else(|| "invalid-antigravity-tool-input".to_owned())?;
-            optional_bool(chunk, "AllowMultiple")?;
+                .ok_or_else(|| INVALID_ANTIGRAVITY_TOOL_INPUT.to_owned())?;
+            tool_input_optional_bool(chunk, "AllowMultiple", INVALID_ANTIGRAVITY_TOOL_INPUT)?;
             Ok(json!({
-                "oldText":non_empty(chunk, "TargetContent")?,
-                "newText":string(chunk, "ReplacementContent")?
+                "oldText":tool_input_non_empty_string(chunk, "TargetContent", INVALID_ANTIGRAVITY_TOOL_INPUT)?,
+                "newText":tool_input_string(chunk, "ReplacementContent", INVALID_ANTIGRAVITY_TOOL_INPUT)?
             }))
         })
         .collect()
 }
 
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-antigravity-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-antigravity-tool-input".to_owned())
-}
-
 fn absolute(object: &Map<String, Value>, name: &str, platform: Platform) -> Result<String, String> {
-    let path = non_empty(object, name)?;
+    let path = tool_input_non_empty_string(object, name, INVALID_ANTIGRAVITY_TOOL_INPUT)?;
     AbsolutePath::new(platform, path.clone())
         .map(|_| path)
-        .map_err(|_| "invalid-antigravity-tool-input".into())
-}
-
-fn optional_bool(object: &Map<String, Value>, name: &str) -> Result<Option<bool>, String> {
-    match object.get(name) {
-        Some(Value::Bool(value)) => Ok(Some(*value)),
-        None => Ok(None),
-        Some(_) => Err("invalid-antigravity-tool-input".into()),
-    }
+        .map_err(|_| INVALID_ANTIGRAVITY_TOOL_INPUT.into())
 }
 
 fn deny(reason: &str) -> Value {

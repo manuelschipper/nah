@@ -184,7 +184,7 @@ pub struct ReposSection {
 }
 
 /// blake3 over `corpus.toml`, then every expectation file in sorted path order.
-pub fn corpus_digest(dir: &Path) -> std::io::Result<String> {
+pub fn repos_corpus_digest(dir: &Path) -> std::io::Result<String> {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&fs::read(dir.join("corpus.toml"))?);
     let mut files = fs::read_dir(dir.join("expectations"))?
@@ -446,7 +446,7 @@ pub fn score_repos(
 ) -> Result<ReposSection, String> {
     let manifest = load_manifest(dir)?;
     let corpus_digest =
-        corpus_digest(dir).map_err(|e| format!("cannot digest {}: {e}", dir.display()))?;
+        repos_corpus_digest(dir).map_err(|e| format!("cannot digest {}: {e}", dir.display()))?;
     if unlock_hidden.is_some() && !only.is_empty() {
         return Err("--unlock-hidden needs a full run so the unlock is recorded".to_string());
     }

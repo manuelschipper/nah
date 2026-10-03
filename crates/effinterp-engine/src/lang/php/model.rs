@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'a, 'b> Walker<'a, 'b> {
+impl<'a, 'b> PhpWalker<'a, 'b> {
     /// Model a known PHP builtin; returns Some(()) if it claimed the call.
     pub(super) fn builtin(
         &mut self,

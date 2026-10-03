@@ -1,137 +1,18 @@
-//! Declarative definitions for the registry, system, infrastructure and
-//! storage guards.
+//! Declarative definitions for the infrastructure guards, including the
+//! storage guards that belong to the infrastructure family.
 
 use effinterp_matcher::{
-    Assertion, AttributePredicate, AttributeTest, ConditionPredicate, OperationMatch, Query,
-    RealmPredicate, ResourcePredicate, ResourceVariant, SelectionShape, Selector, TextPredicate,
+    Assertion, AttributePredicate, AttributeTest, Query, RealmPredicate, ResourcePredicate,
+    ResourceVariant, SelectionShape, TextPredicate,
 };
-use effinterp_proto::{AttrValue, ExecutionAssurance, RequestAssurance};
+use effinterp_proto::{ExecutionAssurance, RequestAssurance};
 use nah_proto::effects::Domain;
 
 use crate::registry::{GuardDefinition, GuardFamily, engine_only};
 use crate::shared_queries::{
-    bool_attr, family, present_attr, selection, string_attr, string_one_of, variant,
+    bool_attr, family, present_attr, selection, string_attr, string_one_of, success_path_effect,
+    variant,
 };
-
-pub(crate) fn registry_publish() -> GuardDefinition {
-    GuardDefinition {
-        id: "registry-publish",
-        reason: "registry-publish blocked publication to a package registry; keep the release unpublished and ask the operator to verify the package, version, and destination",
-        family: GuardFamily::Registry,
-        default_enabled: false,
-        domain: Domain::Package,
-        gap_code: Some("package-active-mode-unavailable"),
-        clauses: engine_only(Query::new(effect(
-            "artifact.publish_request",
-            ResourcePredicate::Any,
-            vec![bool_attr("active", true), bool_attr("dry_run", false)],
-            Some(RequestAssurance::Exact),
-            None,
-        ))),
-    }
-}
-
-pub(crate) fn registry_unpublish() -> GuardDefinition {
-    GuardDefinition {
-        id: "registry-unpublish",
-        reason: "registry-unpublish blocked package removal or published-name control transfer; preserve the published identity and ask the operator to verify the removal or owner change",
-        family: GuardFamily::Registry,
-        default_enabled: true,
-        domain: Domain::Package,
-        gap_code: Some("package-active-mode-unavailable"),
-        clauses: engine_only(Query::new(Assertion::Any {
-            assertions: vec![
-                effect(
-                    "artifact.remove_request",
-                    ResourcePredicate::Any,
-                    vec![bool_attr("active", true), bool_attr("dry_run", false)],
-                    Some(RequestAssurance::Exact),
-                    None,
-                ),
-                effect(
-                    "artifact.owner_change",
-                    ResourcePredicate::Any,
-                    vec![bool_attr("active", true), bool_attr("dry_run", false)],
-                    None,
-                    Some(ExecutionAssurance::Exact),
-                ),
-                effect(
-                    "artifact.yank_request",
-                    ResourcePredicate::Any,
-                    vec![
-                        bool_attr("active", true),
-                        bool_attr("dry_run", false),
-                        string_attr("ecosystem", "rubygems"),
-                    ],
-                    Some(RequestAssurance::Exact),
-                    None,
-                ),
-            ],
-        })),
-    }
-}
-
-pub(crate) fn sys_power() -> GuardDefinition {
-    GuardDefinition {
-        id: "sys-power",
-        reason: "sys-power blocked a host power action; keep the host running and ask the operator to perform any intentional power action",
-        family: GuardFamily::System,
-        default_enabled: true,
-        domain: Domain::System,
-        gap_code: Some("system-action-controls-unavailable"),
-        clauses: engine_only(Query::new(effect(
-            "system.power",
-            variant(ResourceVariant::HostSystem),
-            system_controls(),
-            None,
-            Some(ExecutionAssurance::Exact),
-        ))),
-    }
-}
-
-pub(crate) fn sys_service_stop() -> GuardDefinition {
-    GuardDefinition {
-        id: "sys-service-stop",
-        reason: "sys-service-stop blocked a reviewed service or stop-all container shutdown; keep the service or containers running and ask the operator to perform any intentional stop",
-        family: GuardFamily::System,
-        default_enabled: false,
-        domain: Domain::System,
-        gap_code: Some("system-action-controls-unavailable"),
-        clauses: engine_only(Query::new(Assertion::Any {
-            assertions: vec![
-                effect(
-                    "system.service_stop",
-                    ResourcePredicate::AnyOf {
-                        predicates: vec![
-                            variant(ResourceVariant::ServiceUnit),
-                            ResourcePredicate::All {
-                                predicates: vec![
-                                    family("system"),
-                                    selection(SelectionShape::Pattern),
-                                ],
-                            },
-                        ],
-                    },
-                    system_controls(),
-                    None,
-                    Some(ExecutionAssurance::Exact),
-                ),
-                effect(
-                    "container.stop",
-                    ResourcePredicate::Any,
-                    vec![
-                        present_attr("all"),
-                        bool_attr("all", true),
-                        bool_attr("active", true),
-                        bool_attr("dry_run", false),
-                    ],
-                    None,
-                    None,
-                ),
-            ],
-        })),
-    }
-}
 
 pub(crate) fn infra_container_reset() -> GuardDefinition {
     GuardDefinition {
@@ -141,7 +22,7 @@ pub(crate) fn infra_container_reset() -> GuardDefinition {
         default_enabled: true,
         domain: Domain::Container,
         gap_code: Some("semantic-fields-unavailable"),
-        clauses: engine_only(Query::new(effect(
+        clauses: engine_only(Query::new(success_path_effect(
             "container.remove",
             ResourcePredicate::Any,
             vec![
@@ -167,7 +48,7 @@ pub(crate) fn infra_container_volume_delete() -> GuardDefinition {
         gap_code: Some("semantic-fields-unavailable"),
         clauses: engine_only(Query::new(Assertion::Any {
             assertions: vec![
-                effect(
+                success_path_effect(
                     "container.remove",
                     ResourcePredicate::Any,
                     vec![
@@ -180,7 +61,7 @@ pub(crate) fn infra_container_volume_delete() -> GuardDefinition {
                     None,
                     None,
                 ),
-                effect(
+                success_path_effect(
                     "container.remove",
                     ResourcePredicate::Any,
                     vec![
@@ -193,7 +74,7 @@ pub(crate) fn infra_container_volume_delete() -> GuardDefinition {
                     None,
                     None,
                 ),
-                effect(
+                success_path_effect(
                     "container.remove",
                     ResourcePredicate::Any,
                     vec![
@@ -232,14 +113,14 @@ pub(crate) fn infra_iac_destroy() -> GuardDefinition {
     let mut unresolved_controls = controls.clone();
     unresolved_controls.push(present_attr("mode"));
     let mut assertions = vec![
-        effect(
+        success_path_effect(
             "cloud.resource.delete",
             variant(ResourceVariant::ManagedInfrastructure),
             controls,
             Some(RequestAssurance::Exact),
             None,
         ),
-        effect(
+        success_path_effect(
             "cloud.resource.delete",
             family("cloud"),
             unresolved_controls,
@@ -401,7 +282,7 @@ pub(crate) fn infra_k8s_delete() -> GuardDefinition {
     ];
     let branch = |mut attributes: Vec<AttributePredicate>, resource| {
         attributes.extend(controls.clone());
-        effect(
+        success_path_effect(
             "container.resource.delete",
             resource,
             attributes,
@@ -457,7 +338,7 @@ pub(crate) fn storage_backup_destroy() -> GuardDefinition {
     ];
     let mut assertions = Vec::new();
     for operation in operations {
-        assertions.push(effect(
+        assertions.push(success_path_effect(
             operation,
             ResourcePredicate::Any,
             vec![
@@ -475,7 +356,7 @@ pub(crate) fn storage_backup_destroy() -> GuardDefinition {
             "delete_backup_set",
         ] {
             for control in ["unsafe_allow_remove_all", "all_requested"] {
-                assertions.push(effect(
+                assertions.push(success_path_effect(
                     operation,
                     ResourcePredicate::Any,
                     vec![
@@ -510,14 +391,14 @@ pub(crate) fn storage_recursive_delete() -> GuardDefinition {
         gap_code: Some("semantic-fields-unavailable"),
         clauses: engine_only(Query::new(Assertion::Any {
             assertions: vec![
-                effect(
+                success_path_effect(
                     "cloud.object.delete",
                     unbounded_selection(variant(ResourceVariant::ObjectStore)),
                     vec![present_attr("recursive"), bool_attr("recursive", true)],
                     None,
                     Some(ExecutionAssurance::Exact),
                 ),
-                effect(
+                success_path_effect(
                     "cloud.object.write",
                     unbounded_selection(variant(ResourceVariant::ObjectStore)),
                     vec![bool_attr("delete", true)],
@@ -525,7 +406,7 @@ pub(crate) fn storage_recursive_delete() -> GuardDefinition {
                     Some(ExecutionAssurance::Exact),
                 ),
                 remote_filesystem_delete(),
-                effect(
+                success_path_effect(
                     "filesystem.delete",
                     unbounded_selection(ResourcePredicate::Any),
                     vec![
@@ -566,7 +447,7 @@ pub(crate) fn storage_snapshot_delete() -> GuardDefinition {
     ];
     let mut assertions = Vec::new();
     for operation in backup_operations {
-        assertions.push(effect(
+        assertions.push(success_path_effect(
             operation,
             ResourcePredicate::Any,
             vec![
@@ -674,28 +555,6 @@ pub(crate) fn storage_snapshot_delete() -> GuardDefinition {
     }
 }
 
-fn effect(
-    operation: &str,
-    resource: ResourcePredicate,
-    attributes: Vec<AttributePredicate>,
-    request_assurance: Option<RequestAssurance>,
-    execution_assurance: Option<ExecutionAssurance>,
-) -> Assertion {
-    Assertion::Effect {
-        selector: Selector {
-            operation: OperationMatch::Exact(operation.into()),
-            resource,
-            attributes,
-            request_assurance,
-            condition: Some(ConditionPredicate::SuccessPath),
-            modality: None,
-            execution_assurance,
-            realm: None,
-        },
-        closure: None,
-    }
-}
-
 fn nondry_effect(
     operation: &str,
     resource: ResourcePredicate,
@@ -705,12 +564,12 @@ fn nondry_effect(
     explicit.push(bool_attr("dry_run", false));
     Assertion::Any {
         assertions: vec![
-            effect(operation, resource.clone(), explicit, None, None),
+            success_path_effect(operation, resource.clone(), explicit, None, None),
             Assertion::All {
                 assertions: vec![
-                    effect(operation, resource.clone(), attributes, None, None),
+                    success_path_effect(operation, resource.clone(), attributes, None, None),
                     Assertion::Not {
-                        assertion: Box::new(effect(
+                        assertion: Box::new(success_path_effect(
                             operation,
                             resource,
                             vec![present_attr("dry_run")],
@@ -734,7 +593,7 @@ fn effect_without_attribute(
 ) -> Assertion {
     Assertion::All {
         assertions: vec![
-            effect(
+            success_path_effect(
                 operation,
                 resource,
                 attributes,
@@ -742,7 +601,7 @@ fn effect_without_attribute(
                 execution_assurance,
             ),
             Assertion::Not {
-                assertion: Box::new(effect(
+                assertion: Box::new(success_path_effect(
                     operation,
                     ResourcePredicate::Any,
                     vec![present_attr(absent)],
@@ -755,7 +614,7 @@ fn effect_without_attribute(
 }
 
 fn remote_filesystem_delete() -> Assertion {
-    let mut assertion = effect(
+    let mut assertion = success_path_effect(
         "filesystem.delete",
         unbounded_selection(variant(ResourceVariant::FsPath)),
         vec![
@@ -788,23 +647,6 @@ fn unbounded_selection(resource: ResourcePredicate) -> ResourcePredicate {
                 }),
             },
         ],
-    }
-}
-
-fn system_controls() -> Vec<AttributePredicate> {
-    vec![
-        bool_attr("active", true),
-        bool_attr("cancel", false),
-        bool_attr("help", false),
-        bool_one_of("runtime_only", &[true, false]),
-        bool_one_of("persistent", &[true, false]),
-    ]
-}
-
-fn bool_one_of(name: &str, values: &[bool]) -> AttributePredicate {
-    AttributePredicate {
-        name: name.into(),
-        test: AttributeTest::OneOf(values.iter().copied().map(AttrValue::Bool).collect()),
     }
 }
 

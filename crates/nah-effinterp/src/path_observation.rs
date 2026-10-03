@@ -8,7 +8,7 @@ use effinterp_proto::{
     Plan, ProvenanceKind, valid_observation_outcome, valid_observation_query,
 };
 use nah_proto::ctx::AbsolutePath;
-use nah_proto::observation::{Observed, PathKind as HostKind};
+use nah_proto::observation::{self, Observed};
 
 /// Every named host entry is admitted for metadata only. Source-byte admission
 /// remains independently owned by SourceResolver, including external link targets.
@@ -91,7 +91,7 @@ impl ObservationResolver for HostPathObservations {
                 followed: match value.realpath() {
                     Some(target) => Fact::Known(PathTarget {
                         path: target.as_str().to_owned(),
-                        kind: if value.kind() == HostKind::Symlink {
+                        kind: if value.kind() == observation::PathKind::Symlink {
                             value.target_kind().map(path_kind).map_or(
                                 Fact::Unavailable(ObservationRefusal::Unobserved),
                                 Fact::Known,
@@ -104,8 +104,8 @@ impl ObservationResolver for HostPathObservations {
                 },
                 // Asked only of what names a file: only a file can be what a
                 // command search selects.
-                executable: (value.kind() == HostKind::File
-                    || value.target_kind() == Some(HostKind::File))
+                executable: (value.kind() == observation::PathKind::File
+                    || value.target_kind() == Some(observation::PathKind::File))
                 .then(|| nah_observe::observe_executable(value.resolved().as_str()))
                 .flatten(),
             }),
@@ -114,14 +114,14 @@ impl ObservationResolver for HostPathObservations {
     }
 }
 
-fn path_kind(kind: HostKind) -> PathKind {
+fn path_kind(kind: observation::PathKind) -> PathKind {
     match kind {
-        HostKind::Missing => PathKind::Missing,
-        HostKind::File => PathKind::File,
-        HostKind::Directory => PathKind::Directory,
-        HostKind::Symlink => PathKind::Symlink,
-        HostKind::Fifo => PathKind::Fifo,
-        HostKind::Other => PathKind::Other,
+        observation::PathKind::Missing => PathKind::Missing,
+        observation::PathKind::File => PathKind::File,
+        observation::PathKind::Directory => PathKind::Directory,
+        observation::PathKind::Symlink => PathKind::Symlink,
+        observation::PathKind::Fifo => PathKind::Fifo,
+        observation::PathKind::Other => PathKind::Other,
     }
 }
 

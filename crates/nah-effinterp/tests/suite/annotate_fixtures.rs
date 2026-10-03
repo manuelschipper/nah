@@ -9,7 +9,7 @@
 use std::path::Path;
 
 use effinterp_proto::{ResourceExpr, ResourceIdentity};
-use nah_effinterp::{annotate, request};
+use nah_effinterp::{annotate_plan_effects, plan_observation_request};
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
 use nah_proto::effect_annotation::{EffectAnnotation, PathLabel};
 use nah_proto::observation::{
@@ -187,13 +187,13 @@ fn annotations(
             .collect(),
     );
     let call_site = CallSite::new(fixture.context.platform, &fixture.observation.cwd).unwrap();
-    let request = request(&fixture.plan, &call_site);
+    let request = plan_observation_request(&fixture.plan, &call_site);
     let observation = fixture.observation(&request);
     observation
         .bind(&request)
         .unwrap_or_else(|error| panic!("fixture `{name}` observation does not bind: {error:?}"));
     (
-        annotate(&fixture.plan, &observation, &ctx, &self_protection).unwrap(),
+        annotate_plan_effects(&fixture.plan, &observation, &ctx, &self_protection).unwrap(),
         fixture.expected,
     )
 }
@@ -270,10 +270,10 @@ fn installed_nah_binary_with_read_only_argv_is_not_a_runtime_mutation() {
 
     let ctx = fixture.context();
     let call_site = CallSite::new(fixture.context.platform, &fixture.observation.cwd).unwrap();
-    let request = request(&fixture.plan, &call_site);
+    let request = plan_observation_request(&fixture.plan, &call_site);
     let observation = fixture.observation(&request);
     assert_eq!(
-        annotate(
+        annotate_plan_effects(
             &fixture.plan,
             &observation,
             &ctx,

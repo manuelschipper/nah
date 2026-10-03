@@ -9,7 +9,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 
 static NEXT_TEMP_REPO: AtomicU64 = AtomicU64::new(0);
 
@@ -62,7 +62,11 @@ fn extensionless_bin_reaches_psr4_layout_class() {
             .any(|e| e.entrypoint.id == "bin/tool"),
         "extensionless php shebang is an entrypoint"
     );
-    let report = reach(&idx, &Selector::parse("fs:/tmp/from-run").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/tmp/from-run").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload

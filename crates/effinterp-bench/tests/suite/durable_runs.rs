@@ -21,8 +21,8 @@ use effinterp_bench::repos::score::{
 };
 use effinterp_bench::run::publish;
 use effinterp_bench::run::{
-    self, FileLock, Layout, Plane, Provenance, RUN_SCHEMA, RepoUnit, RunManifest, Selection, State,
-    Status,
+    self, BenchLayout, FileLock, Plane, RUN_SCHEMA, RepoUnit, RunManifest, RunProvenance,
+    RunSelection, RunState, RunStatus,
 };
 use tempfile::TempDir;
 
@@ -98,7 +98,7 @@ fn board() -> Scoreboard {
 
 struct Fixture {
     _dir: TempDir,
-    layout: Layout,
+    layout: BenchLayout,
 }
 
 impl Fixture {
@@ -130,7 +130,7 @@ impl Fixture {
         let built_from = fingerprint::compute_source_fingerprint(&root).unwrap();
         Fixture {
             _dir: dir,
-            layout: Layout {
+            layout: BenchLayout {
                 root,
                 built_from,
                 session_corpus: None,
@@ -172,7 +172,7 @@ impl Fixture {
             schema: RUN_SCHEMA.into(),
             run_id: id.into(),
             started_at: "2026-09-16T12:00:00Z".into(),
-            selection: Selection {
+            selection: RunSelection {
                 planes: planes.clone(),
                 ..Default::default()
             },
@@ -180,7 +180,7 @@ impl Fixture {
                 .layout
                 .compat(self.layout.source_fingerprint().unwrap())
                 .unwrap(),
-            provenance: Provenance {
+            provenance: RunProvenance {
                 // The binary that measured is gone; a verdict must not need it.
                 binary: BinaryIdentity {
                     path: "/nonexistent/effinterp-bench".into(),
@@ -217,12 +217,12 @@ impl Fixture {
         run::write_bench_record(&dir.join("repos.json"), &section).unwrap();
         run::write_bench_record(&dir.join("seal.json"), &run::seal(&dir, &planes).unwrap())
             .unwrap();
-        self.state(id, Status::Complete);
+        self.state(id, RunStatus::Complete);
         dir
     }
 
-    fn state(&self, id: &str, status: Status) {
-        let state = State {
+    fn state(&self, id: &str, status: RunStatus) {
+        let state = RunState {
             status,
             pid: 1,
             updated_at: "2026-09-16T12:30:00Z".into(),
@@ -318,7 +318,7 @@ fn stale_identity_blocks_publication() {
         .verdict;
     assert!(verdict.historical.passed && !verdict.compatibility.compatible);
 
-    let stale_binary = Layout {
+    let stale_binary = BenchLayout {
         built_from: "blake3:older".into(),
         ..fx.layout.clone()
     };
@@ -346,7 +346,7 @@ fn stale_identity_blocks_publication() {
 fn incomplete_or_corrupt_records_are_refused() {
     let fx = Fixture::new();
     let dir = fx.run("r1", |_| {});
-    fx.state("r1", Status::Interrupted);
+    fx.state("r1", RunStatus::Interrupted);
     let error = publish::load_recorded_run(&fx.layout, "r1")
         .err()
         .expect("operation must fail");
@@ -354,7 +354,7 @@ fn incomplete_or_corrupt_records_are_refused() {
         error.contains("interrupted") && error.contains("--resume r1"),
         "{error}"
     );
-    fx.state("r1", Status::Complete);
+    fx.state("r1", RunStatus::Complete);
     publish::load_recorded_run(&fx.layout, "r1").unwrap();
 
     // A unit rewritten after sealing, even to valid JSON, breaks the seal.

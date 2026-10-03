@@ -34,7 +34,9 @@ fn ruby_root_call_boundaries_are_not_duplicated_by_composition() {
         .iter()
         .flat_map(|boundary| &boundary.provenance)
         .filter_map(|step| match step {
-            effinterp_repo::ProvStep::SourceSpan { file, start, end } if file == "main.rb" => {
+            effinterp_repo::ProvenanceStep::SourceSpan { file, start, end }
+                if file == "main.rb" =>
+            {
                 Some((*start, *end))
             }
             _ => None,
@@ -42,7 +44,7 @@ fn ruby_root_call_boundaries_are_not_duplicated_by_composition() {
         .collect();
     assert_eq!(spans, [(0, 8), (9, 17)]);
     assert!(calls.iter().any(|boundary| boundary.provenance.iter().any(
-        |step| matches!(step, effinterp_repo::ProvStep::CrossFile { into, .. } if into == "helper.rb")
+        |step| matches!(step, effinterp_repo::ProvenanceStep::CrossFile { into, .. } if into == "helper.rb")
     )));
 }
 

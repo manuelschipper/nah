@@ -1,6 +1,6 @@
 //! Installs and removes nah's user-level Claude Code PreToolUse hook.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
+use super::hook_paths::{HookLockErrorCodes, acquire_hook_lock};
 use super::{RuntimeHookStatus, RuntimeMutation};
 use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
@@ -68,7 +69,7 @@ fn install_claude_hook(
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = ClaudeHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &CLAUDE_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     let mut settings = load_settings(&paths.settings)?;
     let desired = desired_handler(executable, policy)?;
@@ -88,7 +89,7 @@ fn install_claude_hook(
 
 fn uninstall_claude_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = ClaudeHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &CLAUDE_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     if paths.settings.exists() {
         let mut settings = load_settings(&paths.settings)?;
@@ -119,34 +120,11 @@ impl ClaudeHookPaths {
     }
 }
 
-fn lock(paths: &ClaudeHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-claude-hook-lock-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "claude-hook-lock-failed")?;
-    match std::fs::symlink_metadata(&paths.lock) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            return Err("claude-hook-lock-failed".into());
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return Err("claude-hook-lock-failed".into()),
-    }
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "claude-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "claude-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "claude-hook-lock-failed")?;
-    Ok(file)
-}
+const CLAUDE_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-claude-hook-lock-path",
+    failed: "claude-hook-lock-failed",
+    permissions: "claude-hook-permissions-failed",
+};
 
 fn load_settings(path: &Path) -> Result<Value, String> {
     reject_symlink(path)?;

@@ -14,11 +14,10 @@ mod resource_projection;
 mod tests;
 
 use effinterp_engine::{Engine, InvocationDeadline};
-use effinterp_proto as p;
 use effinterp_proto::Plan;
 use nah_proto::ctx::{Ctx, Platform};
 use nah_proto::effect_annotation::EffectAnnotation;
-use nah_proto::effects as e;
+use nah_proto::effects;
 use nah_proto::guard_host::{GuardHostFacts, ShippedGuardMatches};
 use nah_proto::observation::{
     EnvObservation, Observation, ObservationQuery, ObservationRequest, ObservationValue, Observed,
@@ -125,14 +124,14 @@ pub struct EvidencePlan {
     root: ToolCallInput,
     request: ObservationRequest,
     source_observations: Vec<SourceObservation>,
-    path_observations: Vec<p::ProvenanceKind>,
+    path_observations: Vec<effinterp_proto::ProvenanceKind>,
     host: ObservedHost,
 }
 impl EvidencePlan {
     /// Identifies the analyzed input together with the source bytes it selected, so
     /// an edited script or helper never reuses an earlier analysis.
     pub fn input_fingerprint(&self) -> String {
-        p::canonical_hash(&(
+        effinterp_proto::canonical_hash(&(
             &self.root,
             &self.plan.subject,
             &self.source_observations,
@@ -145,7 +144,7 @@ impl EvidencePlan {
         &self.source_observations
     }
     /// Exact path queries and outcomes accepted by the engine, in provenance order.
-    pub fn path_observations(&self) -> &[p::ProvenanceKind] {
+    pub fn path_observations(&self) -> &[effinterp_proto::ProvenanceKind] {
         &self.path_observations
     }
     pub fn analysis_identity(&self) -> (&str, &BTreeMap<String, u64>) {
@@ -208,8 +207,8 @@ impl EvidencePlan {
     pub fn deadline_exceeded(&self) -> bool {
         matches!(
             self.plan.analysis.outcome,
-            p::AnalysisOutcome::Refused {
-                kind: p::AnalysisRefusalKind::DeadlineExceeded
+            effinterp_proto::AnalysisOutcome::Refused {
+                kind: effinterp_proto::AnalysisRefusalKind::DeadlineExceeded
             }
         )
     }
@@ -264,7 +263,7 @@ pub fn plan_evidence(
     let site = root
         .call_site(ctx.platform())
         .map_err(|_| fail("call-site"))?;
-    let context = p::HostContext {
+    let context = effinterp_proto::HostContext {
         env: host
             .environment
             .iter()
@@ -279,14 +278,14 @@ pub fn plan_evidence(
         secure_execution: BTreeMap::new(),
         user_homes: host.user_homes.clone(),
         os_dialect: match ctx.platform() {
-            Platform::Linux => p::OsDialect::Linux,
-            Platform::Macos => p::OsDialect::Macos,
-            Platform::Windows => p::OsDialect::Windows,
+            Platform::Linux => effinterp_proto::OsDialect::Linux,
+            Platform::Macos => effinterp_proto::OsDialect::Macos,
+            Platform::Windows => effinterp_proto::OsDialect::Windows,
         },
     };
     let cwd = Some(site.requested_cwd().as_str().to_owned());
     let subject = match input {
-        SelectedInput::Shell(_) => p::Subject::Shell {
+        SelectedInput::Shell(_) => effinterp_proto::Subject::Shell {
             source: root
                 .input()
                 .get("command")
@@ -302,13 +301,15 @@ pub fn plan_evidence(
             let unsupported = || refusal(root, RefusalKind::UnsupportedInput, "source-language");
             let (language, dialect) = match language {
                 SourceLanguage::Python => ("python", None),
-                SourceLanguage::Ipython => ("python", Some(p::SourceDialect::PrimeAgent)),
-                SourceLanguage::JavaScript => ("js", Some(p::SourceDialect::Js)),
-                SourceLanguage::TypeScript => ("js", Some(p::SourceDialect::Ts)),
+                SourceLanguage::Ipython => {
+                    ("python", Some(effinterp_proto::SourceDialect::PrimeAgent))
+                }
+                SourceLanguage::JavaScript => ("js", Some(effinterp_proto::SourceDialect::Js)),
+                SourceLanguage::TypeScript => ("js", Some(effinterp_proto::SourceDialect::Ts)),
                 SourceLanguage::PowerShell => ("powershell", None),
                 _ => return Err(unsupported()),
             };
-            p::Subject::Source {
+            effinterp_proto::Subject::Source {
                 source: source.to_owned(),
                 language: language.into(),
                 dialect,
@@ -316,13 +317,13 @@ pub fn plan_evidence(
                 context,
             }
         }
-        SelectedInput::Native(_) => p::Subject::ToolCall {
+        SelectedInput::Native(_) => effinterp_proto::Subject::ToolCall {
             call: native_subject(root)?,
             cwd,
             context,
         },
     };
-    p::validate_subject(&subject).map_err(|_| fail("subject"))?;
+    effinterp_proto::validate_subject(&subject).map_err(|_| fail("subject"))?;
     let engine = Engine::new().with_causality_detail(true);
     let host_sources;
     let sources = match sources {
@@ -351,10 +352,11 @@ pub fn plan_evidence(
             Some(observations),
         )
         .map_err(|_| refusal(root, RefusalKind::AnalysisFailed, "analysis-failed"))?;
-    p::validate_plan(&plan).map_err(|_| refusal(root, RefusalKind::InvalidGraph, "engine-plan"))?;
+    effinterp_proto::validate_plan(&plan)
+        .map_err(|_| refusal(root, RefusalKind::InvalidGraph, "engine-plan"))?;
     let source_observations = sources.observations();
     let path_observations = crate::path_observation::manifest(&plan);
-    let base = crate::request(&plan, &site);
+    let base = crate::plan_observation_request(&plan, &site);
     let mut queries = base.queries().to_vec();
     let source_queries = source_path_queries(&queries, &source_observations);
     queries.extend(source_queries);
@@ -367,34 +369,35 @@ pub fn plan_evidence(
     for effect in &plan.effects {
         resource_environment_names(&effect.resource, &mut names);
         if effect.operation.as_str() == "environment.read"
-            && let p::ResourceExpr::Concrete {
-                identity: p::ResourceIdentity::EnvironmentVariable { name },
+            && let effinterp_proto::ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::EnvironmentVariable { name },
             } = &effect.resource
         {
             names.insert(name.clone());
         }
         discloses_environment |= effect.operation.as_str() == "environment.read"
             && whole_environment(&effect.resource)
-            && effect.attributes.get("output") == Some(&p::AttrValue::String("stdout".into()));
+            && effect.attributes.get("output")
+                == Some(&effinterp_proto::AttrValue::String("stdout".into()));
     }
     for boundary in &plan.boundaries {
         if let Some(resource) = &boundary.affected_resource {
             resource_environment_names(resource, &mut names);
             // A boundary naming variables (Python's site startup) resolves once they are observed.
             let variables = match resource {
-                p::ResourceExpr::Union { alternatives } => alternatives.as_slice(),
+                effinterp_proto::ResourceExpr::Union { alternatives } => alternatives.as_slice(),
                 resource => std::slice::from_ref(resource),
             };
             for variable in variables {
                 match variable {
-                    p::ResourceExpr::Concrete {
-                        identity: p::ResourceIdentity::EnvironmentVariable { name },
+                    effinterp_proto::ResourceExpr::Concrete {
+                        identity: effinterp_proto::ResourceIdentity::EnvironmentVariable { name },
                     } => {
                         names.insert(name.clone());
                     }
                     // A named user's `~user` resolves once the account's home is observed.
-                    p::ResourceExpr::Concrete {
-                        identity: p::ResourceIdentity::UserHome { user },
+                    effinterp_proto::ResourceExpr::Concrete {
+                        identity: effinterp_proto::ResourceIdentity::UserHome { user },
                     } => {
                         users.insert(user.clone());
                     }
@@ -413,13 +416,14 @@ pub fn plan_evidence(
             resource_environment_names(resource, &mut names);
         }
         if let Some(input) = &node.input {
-            if let p::ExecutionSelector::Environment { variable } = &input.selector {
+            if let effinterp_proto::ExecutionSelector::Environment { variable } = &input.selector {
                 names.insert(variable.clone());
             }
             if let Some(resource) = &input.selected {
                 resource_environment_names(resource, &mut names);
             }
-            if let p::ExecutionSelection::Search { candidates, .. } = &input.selection {
+            if let effinterp_proto::ExecutionSelection::Search { candidates, .. } = &input.selection
+            {
                 for resource in candidates {
                     resource_environment_names(resource, &mut names);
                 }
@@ -429,8 +433,10 @@ pub fn plan_evidence(
     if let Some(causality) = &plan.causality.graph {
         for node in &causality.nodes {
             match &node.occurrence {
-                p::OccurrenceKind::Value { value } => resource_environment_names(value, &mut names),
-                p::OccurrenceKind::ResourceInteraction { resource, .. } => {
+                effinterp_proto::OccurrenceKind::Value { value } => {
+                    resource_environment_names(value, &mut names)
+                }
+                effinterp_proto::OccurrenceKind::ResourceInteraction { resource, .. } => {
                     resource_environment_names(resource, &mut names)
                 }
                 _ => {}
@@ -529,7 +535,7 @@ fn source_path_queries(
 /// `/private/tmp/x`) may still name that directory. Observe the start
 /// directory so its real path can be compared with the observed cwd.
 fn git_worktree_queries(
-    plan: &p::Plan,
+    plan: &effinterp_proto::Plan,
     queries: &[ObservationQuery],
     invocation_cwd: &str,
 ) -> Vec<ObservationQuery> {
@@ -545,20 +551,20 @@ fn git_worktree_queries(
         .filter(|effect| {
             effect.realm.is_host()
                 && effect.attributes.get("discovers_from_worktree")
-                    == Some(&p::AttrValue::Bool(true))
+                    == Some(&effinterp_proto::AttrValue::Bool(true))
                 && effect.attributes.get("root_uses_invocation_cwd")
-                    != Some(&p::AttrValue::Bool(true))
+                    != Some(&effinterp_proto::AttrValue::Bool(true))
         })
         .filter_map(|effect| match &effect.resource {
-            p::ResourceExpr::Concrete {
+            effinterp_proto::ResourceExpr::Concrete {
                 identity:
-                    p::ResourceIdentity::GitRepository {
+                    effinterp_proto::ResourceIdentity::GitRepository {
                         worktree: Some(worktree),
                         ..
                     },
             } => match worktree.as_ref() {
-                p::ResourceExpr::Concrete {
-                    identity: p::ResourceIdentity::FsPath { path },
+                effinterp_proto::ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::FsPath { path },
                 } if path.as_str() != invocation_cwd && !requested.contains(path.as_str()) => {
                     Some(path.as_str())
                 }
@@ -677,20 +683,20 @@ pub struct Projection<'a> {
     root: &'a ToolCallInput,
     observation: &'a Observation,
     view: crate::plan_view::PlanView<'a>,
-    graph: e::EffectGraph,
+    graph: effects::EffectGraph,
     effects: fact_projection::EffectProjection,
     labels: ObservedLabelSets,
-    access_unknowns: BTreeMap<usize, (e::UnknownKind, Option<e::ResourceId>)>,
+    access_unknowns: BTreeMap<usize, (effects::UnknownKind, Option<effects::ResourceId>)>,
 }
 
 /// The labels `propagate_sensitivity` resolved, held apart from the view they
 /// borrow so the projection can own both.
 struct ObservedLabelSets {
-    paths: BTreeMap<(p::EffectId, String), BTreeSet<effinterp_matcher::LabelId>>,
+    paths: BTreeMap<(effinterp_proto::EffectId, String), BTreeSet<effinterp_matcher::LabelId>>,
     directories: BTreeMap<String, BTreeSet<effinterp_matcher::LabelId>>,
     selections: Vec<(
-        p::EffectId,
-        p::ResourceExpr,
+        effinterp_proto::EffectId,
+        effinterp_proto::ResourceExpr,
         BTreeSet<effinterp_matcher::LabelId>,
     )>,
 }
@@ -714,7 +720,7 @@ pub fn project<'a>(
     }
     let graph_refusal = |_| refusal(&plan.root, RefusalKind::InvalidGraph, "evidence-graph");
     let view = crate::plan_view::PlanView::new(&plan.plan, observation, ctx, self_protection)
-        .map_err(|_| graph_refusal(e::EvidenceError::InvalidPayload))?;
+        .map_err(|_| graph_refusal(effects::EvidenceError::InvalidPayload))?;
     let mut graph = project_invocation_calls(&plan.root, &view).map_err(graph_refusal)?;
     let mut effects =
         project_effect_facts(&view, observation, plan.root.cwd(), &mut graph, gap_owners);
@@ -777,8 +783,8 @@ impl Projection<'_> {
     pub fn complete(
         mut self,
         matches: &ShippedGuardMatches,
-    ) -> Result<(e::GuardEvidence, Vec<EffectAnnotation>), AdapterRefusal> {
-        use e::*;
+    ) -> Result<(effects::GuardEvidence, Vec<EffectAnnotation>), AdapterRefusal> {
+        use effects::*;
         for gap in &matches.gaps {
             if !self.graph.gaps.iter().any(|existing| {
                 existing.call == gap.call
@@ -822,7 +828,7 @@ impl ShippedGuardPolicy<'_> {
     /// names none owns only the effects its selectors' attributes pick out;
     /// any other effect of that operation keeps the gap the bridge names for
     /// an effect with no typed fact.
-    pub(super) fn owns_effect_gap(&self, effect: &p::Effect) -> bool {
+    pub(super) fn owns_effect_gap(&self, effect: &effinterp_proto::Effect) -> bool {
         self.gap_owners.iter().any(|(names_gap, selector)| {
             selector.operation.matches(effect.operation.as_str())
                 && (*names_gap

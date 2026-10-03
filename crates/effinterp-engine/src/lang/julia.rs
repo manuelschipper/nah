@@ -79,7 +79,7 @@ pub(super) fn analyze(
         builder.note_deadline();
         return;
     }
-    let mut walk = Walk {
+    let mut walk = JuliaWalk {
         nest,
         cwd,
         node,
@@ -97,7 +97,7 @@ pub(super) fn analyze(
     }
 }
 
-struct Walk<'a> {
+struct JuliaWalk<'a> {
     nest: &'a Nest<'a>,
     cwd: Option<&'a str>,
     node: ProvenanceRef,
@@ -111,7 +111,7 @@ struct Walk<'a> {
     understood: bool,
 }
 
-impl Walk<'_> {
+impl JuliaWalk<'_> {
     /// Stops at the first construct outside the grammar so no statement after
     /// an unexplained one is claimed.
     fn program(&mut self, builder: &mut PlanBuilder, source: &str) {

@@ -8,7 +8,7 @@ use effinterp_bench::bench::score::{
     score_source,
 };
 use effinterp_bench::bench::tiers::{Bucket, bucket_plan};
-use effinterp_bench::bench::{Analyzed, FailureKind, Outcome};
+use effinterp_bench::bench::{Analyzed, FailureKind, SubjectOutcome};
 use effinterp_bench::latency::{
     COLD_CATALOG_TARGET_US, ColdStart, LatencySection, NAH_P99_TARGET_US,
 };
@@ -96,7 +96,7 @@ fn understood_excludes_failed_rows() {
             context: Default::default(),
         },
     };
-    let analyzed = |reasons: &[&str]| Outcome {
+    let analyzed = |reasons: &[&str]| SubjectOutcome {
         elapsed_ms: 0.0,
         result: Ok(Analyzed {
             reasons: reasons.iter().map(|r| r.to_string()).collect(),
@@ -115,7 +115,7 @@ fn understood_excludes_failed_rows() {
         analyzed(&[]),
         analyzed(&["dynamic_source"]),
         analyzed(&["never_seen_reason"]),
-        Outcome {
+        SubjectOutcome {
             elapsed_ms: 0.0,
             result: Err(FailureKind::Deadline),
         },

@@ -37,6 +37,7 @@ use effinterp_proto::{
 
 use crate::builder::PlanBuilder;
 use crate::nest::Nest;
+use crate::value::unresolved_resource;
 use lex::{Lexeme, Span, Statement, StatementKind, Tok};
 
 const DB_DOMAIN: &str = "database";
@@ -1166,7 +1167,7 @@ impl SqlCtx<'_> {
             "database" | "keyspace" => self.database(name, e),
             "schema" => {
                 let Name::Parts(parts) = name else {
-                    return unresolved_db();
+                    return unresolved_resource("db");
                 };
                 // `db.schema` names its database; otherwise the connection's.
                 let database = match parts.as_slice() {
@@ -1194,7 +1195,7 @@ impl SqlCtx<'_> {
                     schema: None,
                 },
             },
-            Name::Unresolved => unresolved_db(),
+            Name::Unresolved => unresolved_resource("db"),
         }
     }
 
@@ -1203,7 +1204,7 @@ impl SqlCtx<'_> {
             Name::Parts(parts) => ResourceExpr::Concrete {
                 identity: self.qualify(parts, e.state),
             },
-            Name::Unresolved => unresolved_db(),
+            Name::Unresolved => unresolved_resource("db"),
         }
     }
 
@@ -1251,7 +1252,7 @@ impl SqlCtx<'_> {
 /// A server- or database-wide scope; unresolved when neither is known.
 fn database_scope(server: Option<String>, database: Option<String>) -> ResourceExpr {
     if server.is_none() && database.is_none() {
-        return unresolved_db();
+        return unresolved_resource("db");
     }
     ResourceExpr::Concrete {
         identity: ResourceIdentity::DatabaseSchema {
@@ -1259,12 +1260,6 @@ fn database_scope(server: Option<String>, database: Option<String>) -> ResourceE
             database,
             schema: None,
         },
-    }
-}
-
-fn unresolved_db() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("db"),
     }
 }
 

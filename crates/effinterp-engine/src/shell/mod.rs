@@ -150,7 +150,7 @@ use crate::paths::{join_cwd, join_source_path, process_identity_with_cwd};
 use crate::value::{SemanticValue, SemanticValueKind, join_branches};
 use crate::word::{Word, WordPart};
 use crate::{SourcePurpose, SourceRefusal};
-use eval::bind_for_var;
+use eval::variable_binding::bind_for_var;
 use lex::{DupTarget, ExpansionBudget, ParamTransform, RedirKind, Seg, Span, Tok, WordTok};
 use parse::{GroupKind, ShellItem, Simple};
 
@@ -629,10 +629,10 @@ struct ShellEnv {
     /// they are.
     readonly: BTreeSet<String>,
     /// Attributes `declare` gave a variable, which later assignments apply.
-    value_attributes: HashMap<String, eval::ValueAttributes>,
+    value_attributes: HashMap<String, eval::variable_binding::ValueAttributes>,
     /// Per active function call, the caller's attributes of each name the
     /// call declared function-scoped, restored when the call returns.
-    attribute_frames: Vec<HashMap<String, Option<eval::ValueAttributes>>>,
+    attribute_frames: Vec<HashMap<String, Option<eval::variable_binding::ValueAttributes>>>,
     /// Functions `readonly -f` or `declare -fr` fixed: a later definition of
     /// the name fails and leaves the fixed body in place.
     readonly_functions: BTreeSet<String>,
@@ -2552,7 +2552,7 @@ impl Shell<'_> {
                             && self
                                 .source
                                 .get(header.start as usize..header.end as usize)
-                                .is_some_and(eval::arithmetic_for_enters)
+                                .is_some_and(eval::arithmetic::arithmetic_for_enters)
                     }) {
                         if let Some(termination) =
                             self.walk(builder, env, items, force_conditional, walk_depth + 1)
@@ -2791,7 +2791,10 @@ impl Shell<'_> {
                         let mut aliased = match &identity {
                             ResourceExpr::Concrete {
                                 identity: ResourceIdentity::FsPath { path },
-                            } => eval::descriptor_path(&Word::literal(path.clone()), env),
+                            } => eval::redirection::descriptor_path(
+                                &Word::literal(path.clone()),
+                                env,
+                            ),
                             _ => None,
                         };
                         if aliased.is_none()
@@ -2809,7 +2812,7 @@ impl Shell<'_> {
                                     identity: ResourceIdentity::FsPath { path },
                                 } = source
                             {
-                                aliased = eval::descriptor_path(
+                                aliased = eval::redirection::descriptor_path(
                                     &Word::literal(format!(
                                         "{}/{}",
                                         path.trim_end_matches('/'),
@@ -2819,7 +2822,7 @@ impl Shell<'_> {
                                 );
                             }
                         }
-                        eval::descriptor_path(word, env)
+                        eval::redirection::descriptor_path(word, env)
                             .or(aliased)
                             .map(|descriptor| (resource, descriptor))
                     })

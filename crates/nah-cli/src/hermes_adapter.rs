@@ -9,11 +9,16 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    adapter_fields::runtime_field_names_covered,
+    adapter_fields::{
+        runtime_field_names_covered, tool_input_non_empty_string, tool_input_optional_bool,
+        tool_input_string,
+    },
     code_input::{CodeInput, CodeIntake},
     hook_adapter,
     runtime::{FailurePolicy, Runtime},
 };
+
+const INVALID_HERMES_TOOL_INPUT: &str = "invalid-hermes-tool-input";
 
 #[derive(Deserialize)]
 struct HermesHookInput {
@@ -128,7 +133,7 @@ fn normalize(input: HermesHookInput) -> Result<(ToolCallInput, Option<CodeInput>
             lower(&input.tool_name, &input.tool_input, input.cwd.as_str()),
             None,
         ),
-        CodeIntake::Invalid => (Err("invalid-hermes-tool-input".into()), None),
+        CodeIntake::Invalid => (Err(INVALID_HERMES_TOOL_INPUT.into()), None),
     };
     let (tool, tool_input, cwd, normalization_complete) = match lowered {
         Ok((tool, tool_input, cwd)) => (
@@ -160,20 +165,26 @@ fn lower<'a>(
 ) -> Result<(&'a str, Value, String), String> {
     let object = tool_input
         .as_object()
-        .ok_or_else(|| "invalid-hermes-tool-input".to_owned())?;
+        .ok_or_else(|| INVALID_HERMES_TOOL_INPUT.to_owned())?;
     let cwd = if tool_name == "terminal" {
         optional_non_empty(object, "workdir")?.unwrap_or_else(|| fallback_cwd.to_owned())
     } else {
         fallback_cwd.to_owned()
     };
     let (tool, input) = match tool_name {
-        "terminal" => ("Bash", json!({"command": string(object, "command")?})),
-        "read_file" => ("Read", json!({"file_path": non_empty(object, "path")?})),
+        "terminal" => (
+            "Bash",
+            json!({"command": tool_input_string(object, "command", INVALID_HERMES_TOOL_INPUT)?}),
+        ),
+        "read_file" => (
+            "Read",
+            json!({"file_path": tool_input_non_empty_string(object, "path", INVALID_HERMES_TOOL_INPUT)?}),
+        ),
         "write_file" => (
             "Write",
             json!({
-                "file_path": non_empty(object, "path")?,
-                "content": string(object, "content")?
+                "file_path": tool_input_non_empty_string(object, "path", INVALID_HERMES_TOOL_INPUT)?,
+                "content": tool_input_string(object, "content", INVALID_HERMES_TOOL_INPUT)?
             }),
         ),
         "patch" => patch_input(object)?,
@@ -188,27 +199,29 @@ fn patch_input(object: &Map<String, Value>) -> Result<(&'static str, Value), Str
     // treats an omitted mode as `replace`.
     match object.get("mode").map(Value::as_str) {
         None | Some(Some("replace")) => {
-            let replace_all = optional_bool(object, "replace_all")?.unwrap_or(false);
+            let replace_all =
+                tool_input_optional_bool(object, "replace_all", INVALID_HERMES_TOOL_INPUT)?
+                    .unwrap_or(false);
             Ok((
                 "Edit",
                 json!({
-                    "file_path":non_empty(object, "path")?,
-                    "old_string":string(object, "old_string")?,
-                    "new_string":string(object, "new_string")?,
+                    "file_path":tool_input_non_empty_string(object, "path", INVALID_HERMES_TOOL_INPUT)?,
+                    "old_string":tool_input_string(object, "old_string", INVALID_HERMES_TOOL_INPUT)?,
+                    "new_string":tool_input_string(object, "new_string", INVALID_HERMES_TOOL_INPUT)?,
                     "replace_all":replace_all
                 }),
             ))
         }
         Some(Some("patch")) => Ok((
             "apply_patch",
-            json!({"command":non_empty(object, "patch")?}),
+            json!({"command":tool_input_non_empty_string(object, "patch", INVALID_HERMES_TOOL_INPUT)?}),
         )),
-        _ => Err("invalid-hermes-tool-input".into()),
+        _ => Err(INVALID_HERMES_TOOL_INPUT.into()),
     }
 }
 
 fn search_input(object: &Map<String, Value>) -> Result<(&'static str, Value), String> {
-    let pattern = string(object, "pattern")?;
+    let pattern = tool_input_string(object, "pattern", INVALID_HERMES_TOOL_INPUT)?;
     let path = optional_non_empty(object, "path")?.unwrap_or_else(|| ".".into());
     // Hermes applies `file_glob` as a filter inside `path` (`rg --glob`,
     // `grep --include`, `find -name`), so it only narrows the search; the
@@ -222,7 +235,7 @@ fn search_input(object: &Map<String, Value>) -> Result<(&'static str, Value), St
         "content" => Ok(("Grep", json!({"pattern":pattern,"path":path}))),
         "files" if literal_path(&pattern) => Ok(("Glob", json!({"pattern":pattern,"path":path}))),
         "files" => Ok(("HermesSearchFiles", Value::Object(object.clone()))),
-        _ => Err("invalid-hermes-tool-input".into()),
+        _ => Err(INVALID_HERMES_TOOL_INPUT.into()),
     }
 }
 
@@ -237,37 +250,13 @@ fn literal_path(path: &str) -> bool {
         })
 }
 
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-hermes-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        (!value.is_empty())
-            .then_some(value)
-            .ok_or_else(|| "invalid-hermes-tool-input".to_owned())
-    })
-}
-
 fn optional_non_empty(object: &Map<String, Value>, name: &str) -> Result<Option<String>, String> {
     match object.get(name) {
         Some(Value::String(value)) if !value.is_empty() => Ok(Some(value.clone())),
         // Hermes treats null like an omitted field, and its `hermes_tools`
         // stubs send null for every unset optional argument.
         Some(Value::String(_) | Value::Null) | None => Ok(None),
-        Some(_) => Err("invalid-hermes-tool-input".into()),
-    }
-}
-
-fn optional_bool(object: &Map<String, Value>, name: &str) -> Result<Option<bool>, String> {
-    match object.get(name) {
-        Some(Value::Bool(value)) => Ok(Some(*value)),
-        None => Ok(None),
-        Some(_) => Err("invalid-hermes-tool-input".into()),
+        Some(_) => Err(INVALID_HERMES_TOOL_INPUT.into()),
     }
 }
 

@@ -2,8 +2,7 @@
 //! occurrences and relations, the purposes and directions that flow proves,
 //! and the output ports a disclosed read reaches.
 
-use effinterp_proto as p;
-use nah_proto::effects as e;
+use nah_proto::effects;
 use nah_proto::effects::Knowledge::{Known, Unknown};
 use nah_proto::observation::{
     EnvObservation, Observation, ObservationQuery, ObservationValue, Observed, PathKind,
@@ -19,10 +18,10 @@ use super::resource_projection::{add_resource, convert_condition, convert_port, 
 /// access purposes, move destinations and disclosure ports it establishes.
 pub(super) fn project_content_flow(
     view: &crate::plan_view::PlanView<'_>,
-    graph: &mut e::EffectGraph,
+    graph: &mut effects::EffectGraph,
     effects: &mut EffectProjection,
 ) {
-    use e::*;
+    use effects::*;
     let plan = view.plan();
     let EffectProjection {
         member_effects,
@@ -45,8 +44,8 @@ pub(super) fn project_content_flow(
         for node in &causality.nodes {
             let mut owning_fact = None;
             let (port, resource) = match &node.occurrence {
-                p::OccurrenceKind::Port { port } => (convert_port(port), None),
-                p::OccurrenceKind::ResourceInteraction {
+                effinterp_proto::OccurrenceKind::Port { port } => (convert_port(port), None),
+                effinterp_proto::OccurrenceKind::ResourceInteraction {
                     operation,
                     resource,
                     attributes,
@@ -91,7 +90,7 @@ pub(super) fn project_content_flow(
                     };
                     (PortKind::Interaction, Some(target))
                 }
-                p::OccurrenceKind::Value { value } => (
+                effinterp_proto::OccurrenceKind::Value { value } => (
                     PortKind::Value,
                     Some({
                         let indexed = view
@@ -106,7 +105,7 @@ pub(super) fn project_content_flow(
                         )
                     }),
                 ),
-                p::OccurrenceKind::Boundary { .. } => (PortKind::Interaction, None),
+                effinterp_proto::OccurrenceKind::Boundary { .. } => (PortKind::Interaction, None),
             };
             let condition = convert_condition(node.condition.as_ref(), graph, condition_atoms);
             graph.occurrences.push(EffectOccurrence {
@@ -121,13 +120,15 @@ pub(super) fn project_content_flow(
         for edge in &causality.edges {
             let condition = convert_condition(edge.condition.as_ref(), graph, condition_atoms);
             let kind = match edge.reason {
-                p::CausalReason::ValueDependency => RelationKind::ValueDependence,
-                p::CausalReason::ControlDependency => RelationKind::Control,
-                p::CausalReason::Launch => RelationKind::Launch,
-                p::CausalReason::ResourceTransition => RelationKind::StateTransition,
-                p::CausalReason::ResourceTransfer => RelationKind::ContentPreservingTransfer,
-                p::CausalReason::Alias => RelationKind::Alias,
-                p::CausalReason::Containment => RelationKind::Containment,
+                effinterp_proto::CausalReason::ValueDependency => RelationKind::ValueDependence,
+                effinterp_proto::CausalReason::ControlDependency => RelationKind::Control,
+                effinterp_proto::CausalReason::Launch => RelationKind::Launch,
+                effinterp_proto::CausalReason::ResourceTransition => RelationKind::StateTransition,
+                effinterp_proto::CausalReason::ResourceTransfer => {
+                    RelationKind::ContentPreservingTransfer
+                }
+                effinterp_proto::CausalReason::Alias => RelationKind::Alias,
+                effinterp_proto::CausalReason::Containment => RelationKind::Containment,
             };
             graph.relations.push(EffectRelation {
                 from: ids[&edge.from],
@@ -135,8 +136,8 @@ pub(super) fn project_content_flow(
                 kind,
                 condition,
                 certainty: match edge.assurance {
-                    p::CausalAssurance::Exact => Certainty::Exact,
-                    p::CausalAssurance::Conservative => Certainty::Conservative,
+                    effinterp_proto::CausalAssurance::Exact => Certainty::Exact,
+                    effinterp_proto::CausalAssurance::Conservative => Certainty::Conservative,
                 },
             });
         }
@@ -152,7 +153,7 @@ pub(super) fn project_content_flow(
                         && node.condition == effect.condition
                         && node.modality == effect.modality
                         && node.provenance == effect.provenance
-                        && matches!(&node.occurrence, p::OccurrenceKind::ResourceInteraction {
+                        && matches!(&node.occurrence, effinterp_proto::OccurrenceKind::ResourceInteraction {
                         resource, ..
                     } if resource == &effect.resource)
                 })
@@ -160,14 +161,14 @@ pub(super) fn project_content_flow(
                     view.outgoing_edges(&node.id)
                         .filter(move |edge| {
                             edge.from == node.id
-                                && edge.reason == p::CausalReason::ResourceTransfer
+                                && edge.reason == effinterp_proto::CausalReason::ResourceTransfer
                                 && edge.condition == effect.condition
                         })
                         .collect::<Vec<_>>()
                 })
                 .filter_map(|edge| {
                     let destination_node = view.causal_node(&edge.to)?;
-                    let p::OccurrenceKind::ResourceInteraction {
+                    let effinterp_proto::OccurrenceKind::ResourceInteraction {
                         resource: destination_resource,
                         ..
                     } = &destination_node.occurrence
@@ -176,7 +177,7 @@ pub(super) fn project_content_flow(
                     };
                     let destination = &graph.occurrences[ids[&edge.to].0 as usize];
                     let destination_established =
-                        if matches!(effect.resource, p::ResourceExpr::Pattern { .. }) {
+                        if matches!(effect.resource, effinterp_proto::ResourceExpr::Pattern { .. }) {
                             match (
                                 crate::observe::observation_bound(&effect.resource),
                                 crate::observe::observation_bound(destination_resource),
@@ -268,12 +269,13 @@ pub(super) fn project_content_flow(
                 && plan
                     .coverage
                     .0
-                    .get(&p::Domain::new("filesystem"))
+                    .get(&effinterp_proto::Domain::new("filesystem"))
                     .is_some_and(|claim| {
-                        claim.level == p::CoverageLevel::Full && claim.gaps.is_empty()
+                        claim.level == effinterp_proto::CoverageLevel::Full && claim.gaps.is_empty()
                     })
                 && graph.facts[fact_id].certainty == Certainty::Exact
-                && effect.attributes.get("recursive") == Some(&p::AttrValue::Bool(true))
+                && effect.attributes.get("recursive")
+                    == Some(&effinterp_proto::AttrValue::Bool(true))
             {
                 plan.effects
                     .iter()
@@ -300,7 +302,7 @@ pub(super) fn project_content_flow(
                 source.recursive = true;
             }
             if !matches!(destinations.as_slice(), [(_, assurance, _)]
-                if *assurance == p::CausalAssurance::Exact || graph.facts[fact_id].certainty == Certainty::Conservative)
+                if *assurance == effinterp_proto::CausalAssurance::Exact || graph.facts[fact_id].certainty == Certainty::Conservative)
             {
                 // Move requires an endpoint in the evidence contract. An
                 // uncertified endpoint stays unknown on the exact source
@@ -328,7 +330,7 @@ pub(super) fn project_content_flow(
                 let own = &mut reach[index].own;
                 if !established {
                     *own = None;
-                } else if *assurance == p::CausalAssurance::Exact {
+                } else if *assurance == effinterp_proto::CausalAssurance::Exact {
                     reach[index].destination = own.as_ref().map(|own| ReachedResource {
                         resource: *resource,
                         recursive: own.recursive,
@@ -348,7 +350,7 @@ pub(super) fn project_content_flow(
                 let mut transfer = fact.clone();
                 if let FactPayload::FilesystemAccess { destination, .. } = &mut transfer.payload {
                     *destination = Some(*resource);
-                    if *assurance == p::CausalAssurance::Conservative {
+                    if *assurance == effinterp_proto::CausalAssurance::Conservative {
                         transfer.certainty = Certainty::Conservative;
                     }
                     if transfer.certainty != fact.certainty {
@@ -662,8 +664,11 @@ pub(super) fn project_content_flow(
 }
 
 /// Name the catalogued credentials a disclosed whole environment holds.
-pub(super) fn name_disclosed_credentials(observation: &Observation, graph: &mut e::EffectGraph) {
-    use e::*;
+pub(super) fn name_disclosed_credentials(
+    observation: &Observation,
+    graph: &mut effects::EffectGraph,
+) {
+    use effects::*;
     // A disclosed whole environment names no variable, but it discloses every
     // catalogued credential the observation found holding a value. Name those
     // beside it; an empty one discloses nothing.
@@ -708,10 +713,10 @@ pub(super) fn name_disclosed_credentials(observation: &Observation, graph: &mut 
 
 /// Publish each content-filter read again as the search it answers.
 pub(super) fn add_content_searches(
-    graph: &mut e::EffectGraph,
-    content_searches: Vec<(e::FactId, e::FactPayload)>,
+    graph: &mut effects::EffectGraph,
+    content_searches: Vec<(effects::FactId, effects::FactPayload)>,
 ) {
-    use e::*;
+    use effects::*;
     // The search shares the read's occurrences: it is the same access, told as
     // the query it answers, so whatever the read reached the search reaches.
     for (read, payload) in content_searches {
@@ -731,10 +736,10 @@ pub(super) fn add_content_searches(
 /// between two copied occurrences is copied again for the second one.
 /// Occurrence IDs are appended; the caller creates and pushes `to` itself.
 pub(super) fn clone_fact_occurrences(
-    graph: &mut e::EffectGraph,
-    from: e::FactId,
-    to: e::FactId,
-    resource: Option<e::ResourceId>,
+    graph: &mut effects::EffectGraph,
+    from: effects::FactId,
+    to: effects::FactId,
+    resource: Option<effects::ResourceId>,
 ) {
     let occurrences = graph
         .occurrences
@@ -744,7 +749,7 @@ pub(super) fn clone_fact_occurrences(
         .collect::<Vec<_>>();
     for mut occurrence in occurrences {
         let source = occurrence.id;
-        occurrence.id = e::OccurrenceId(graph.occurrences.len() as u32);
+        occurrence.id = effects::OccurrenceId(graph.occurrences.len() as u32);
         occurrence.fact = Some(to);
         if let Some(resource) = resource {
             occurrence.resource = Some(resource);

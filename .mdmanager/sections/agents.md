@@ -23,6 +23,10 @@
   `crates/nah-cli/src/`, and its hook installation exposes
   `mutate_<runtime>_hook`, `<runtime>_hook_status`, and
   `<runtime>_self_protection_paths` in `commands/<runtime>_installation.rs`.
+  Installers take their hook lock through `acquire_hook_lock` in
+  `commands/hook_paths.rs`, and adapters read tool input through the
+  `tool_input_*` readers in `adapter_fields.rs`; a private copy exists only
+  where its behavior differs.
 - Production decides every call with the engine alone:
   `crates/nah-cli/src/pipeline.rs` composes the engine plan, the bridge's
   evidence and observations, and `nah-policy`. Two separate gates hold it.
@@ -36,7 +40,8 @@
   `measure` records it and prints its verdict, and `publish` makes it the
   baseline; `publish --dry-run` computes the verdict alone. Search `publish`,
   not accept, promote or check: `crates/effinterp-bench/src/run/publish.rs`
-  owns verdicts and publication. A plane is one measured group (correctness,
+  owns verdicts and publication; `run/measure.rs` (`measure_run`) owns
+  measurement. A plane is one measured group (correctness,
   coverage, repositories, performance), selected with `--group`; the
   `bench/invocation` rows are the invocation corpus, not a plane.
 - The coverage headline, "understood what it could", counts successfully
@@ -52,7 +57,10 @@
   (`crates/effinterp-engine/src/value.rs`), which lowers to a protocol
   `ResourceExpr` where it reaches an effect. `substitute_value` binds call
   arguments into semantic values; `substitute_resource_expr` (`summary.rs`)
-  binds them into resource expressions. Model document types belong to
+  binds them into resource expressions; build an unresolved one with
+  `value::unresolved_resource(family)`, not a per-file helper. Frontend types
+  carry their language (`<Lang>ControlFlowBuilder`, `<Lang>Walker`), while the
+  entry points keep the shared names `analyze` and `summarize_ast`. Model document types belong to
   `crates/effinterp-model-schema`; import them from `effinterp_model_schema`,
   not through `effinterp_engine`, which compiles them in
   `src/models/registry/`.

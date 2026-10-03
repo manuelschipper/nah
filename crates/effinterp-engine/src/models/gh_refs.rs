@@ -330,8 +330,8 @@ fn ref_write_request(
     };
     if let Some(destination) = &destination {
         // A ref write names one destination and takes no lease.
-        let destinations = [super::git::PushedRef {
-            destination: Some(super::git::normalize_push_ref(destination)),
+        let destinations = [super::git::git_push::PushedRef {
+            destination: Some(super::git::git_push::normalize_push_ref(destination)),
             source: if deleted == Some(true) {
                 Some("")
             } else {
@@ -341,7 +341,7 @@ fn ref_write_request(
             deleted,
             certain: true,
         }];
-        super::git::push_destination_lists(
+        super::git::git_push::push_destination_lists(
             &mut attrs,
             &destinations,
             Some((false, &[])),

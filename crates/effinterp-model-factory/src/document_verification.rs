@@ -14,7 +14,7 @@ use crate::FactoryError;
 use crate::fixture_evidence::{
     evaluate_fact_case, read_fact_assertion_fixture, read_projected_fixture,
 };
-use crate::model_directory::{canonical_json, model_json_paths, read};
+use crate::model_directory::{model_json_paths, pretty_model_json, read};
 use crate::model_normalization::normalized_promoted;
 use crate::mutation_checks::verify_mutations;
 
@@ -78,7 +78,7 @@ fn require_canonical_promoted(
         )));
     }
     let normalized = normalized_promoted(document);
-    if canonical_json(&normalized)? != source {
+    if pretty_model_json(&normalized)? != source {
         return Err(FactoryError::Validation(
             "promoted document is not byte-canonical".to_string(),
         ));
@@ -93,7 +93,7 @@ pub(crate) fn verify_documents(
 ) -> Result<(), FactoryError> {
     let sources = documents
         .iter()
-        .map(canonical_json)
+        .map(pretty_model_json)
         .collect::<Result<Vec<_>, _>>()?;
     let refs = sources.iter().map(String::as_str).collect::<Vec<_>>();
     let compile = if with_builtin {

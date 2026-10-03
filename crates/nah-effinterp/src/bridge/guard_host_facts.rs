@@ -2,15 +2,14 @@
 //! plan effect physically reaches, and the observed facts the guards' host
 //! predicates read.
 
-use effinterp_proto as p;
-use nah_proto::effects as e;
+use nah_proto::effects;
 use nah_proto::guard_host::{GuardHostFacts, ReachedHostPath};
 use nah_proto::observation::{Observation, ObservationValue, Observed};
 use std::collections::BTreeMap;
 
 /// One host path an effect reaches, before the path catalogs read its labels.
 pub(super) struct ReachedResource {
-    pub(super) resource: e::ResourceId,
+    pub(super) resource: effects::ResourceId,
     pub(super) recursive: bool,
     pub(super) device: Option<nah_proto::ctx::AbsolutePath>,
 }
@@ -21,7 +20,7 @@ pub(super) struct ReachedResource {
 /// a Git discard replaces or removes; `destination` is where a move's single
 /// certified transfer lands.
 pub(super) struct HostReach {
-    pub(super) target: e::ResourceId,
+    pub(super) target: effects::ResourceId,
     pub(super) own: Option<ReachedResource>,
     pub(super) selected: Vec<ReachedResource>,
     pub(super) destination: Option<ReachedResource>,
@@ -31,9 +30,9 @@ pub(super) struct HostReach {
 /// reach and graph facts it projected for each plan effect.
 pub(super) struct ConversionHostFacts<'a, 'v> {
     pub(super) view: &'a crate::plan_view::PlanView<'v>,
-    pub(super) effect_facts: &'a [e::FactId],
+    pub(super) effect_facts: &'a [effects::FactId],
     pub(super) reach: &'a [HostReach],
-    pub(super) graph: &'a e::EffectGraph,
+    pub(super) graph: &'a effects::EffectGraph,
 }
 
 impl<'a> ConversionHostFacts<'a, '_> {
@@ -47,7 +46,9 @@ impl<'a> ConversionHostFacts<'a, '_> {
 }
 
 impl GuardHostFacts for ConversionHostFacts<'_, '_> {
-    fn matcher_bindings(&self) -> BTreeMap<p::ExecutionNodeRef, p::Bindings> {
+    fn matcher_bindings(
+        &self,
+    ) -> BTreeMap<effinterp_proto::ExecutionNodeRef, effinterp_proto::Bindings> {
         self.view.matcher_bindings()
     }
 
@@ -55,19 +56,19 @@ impl GuardHostFacts for ConversionHostFacts<'_, '_> {
         self.view.authority().platform()
     }
 
-    fn condition_reach(&self, effect: usize) -> e::Reach {
+    fn condition_reach(&self, effect: usize) -> effects::Reach {
         match &self.graph.facts[self.effect_facts[effect].0 as usize].condition {
             Some(condition) => self
                 .graph
                 .conditions_compatible(std::slice::from_ref(condition)),
-            None => e::Reach::Yes,
+            None => effects::Reach::Yes,
         }
     }
 
     /// Content flow publishes the causal node at position `i` as occurrence
     /// `i` and the edge at position `j` as relation `j`, each with its
     /// converted condition.
-    fn causal_route_reach(&self, nodes: &[usize], edges: &[usize]) -> e::Reach {
+    fn causal_route_reach(&self, nodes: &[usize], edges: &[usize]) -> effects::Reach {
         let conditions = nodes
             .iter()
             .filter_map(|&node| self.graph.occurrences[node].condition.clone())
@@ -84,11 +85,11 @@ impl GuardHostFacts for ConversionHostFacts<'_, '_> {
         self.graph.resources[self.reach[effect].target.0 as usize]
             .identity
             .kind
-            != e::ResourceKind::Unknown
+            != effects::ResourceKind::Unknown
     }
 
     fn model_identity_established(&self, effect: usize) -> bool {
-        let call = e::CallId(self.view.plan().effects[effect].execution.0);
+        let call = effects::CallId(self.view.plan().effects[effect].execution.0);
         !self
             .graph
             .gaps
@@ -98,7 +99,7 @@ impl GuardHostFacts for ConversionHostFacts<'_, '_> {
 
     fn selects_recursively(&self, effect: usize) -> bool {
         let effect = &self.view.plan().effects[effect];
-        effect.attributes.get("recursive") == Some(&p::AttrValue::Bool(true))
+        effect.attributes.get("recursive") == Some(&effinterp_proto::AttrValue::Bool(true))
             || crate::observe::subtree_root(&effect.resource).is_some()
     }
 
@@ -119,7 +120,7 @@ impl GuardHostFacts for ConversionHostFacts<'_, '_> {
             .map(|reached| self.reached_host_path(reached))
     }
 
-    fn observed_path_spellings(&self, resource: &p::ResourceExpr) -> Vec<String> {
+    fn observed_path_spellings(&self, resource: &effinterp_proto::ResourceExpr) -> Vec<String> {
         resource_paths(self.view, resource)
     }
 
@@ -140,11 +141,11 @@ pub(super) fn observed_git_root(
     view: &crate::plan_view::PlanView<'_>,
     observation: &Observation,
     invocation_cwd: &str,
-    effect: &p::Effect,
+    effect: &effinterp_proto::Effect,
 ) -> Option<String> {
-    let p::ResourceExpr::Concrete {
+    let effinterp_proto::ResourceExpr::Concrete {
         identity:
-            p::ResourceIdentity::GitRepository {
+            effinterp_proto::ResourceIdentity::GitRepository {
                 worktree: Some(worktree),
                 ..
             },
@@ -152,8 +153,8 @@ pub(super) fn observed_git_root(
     else {
         return None;
     };
-    let p::ResourceExpr::Concrete {
-        identity: p::ResourceIdentity::FsPath { path: worktree },
+    let effinterp_proto::ResourceExpr::Concrete {
+        identity: effinterp_proto::ResourceIdentity::FsPath { path: worktree },
     } = worktree.as_ref()
     else {
         return None;
@@ -176,7 +177,7 @@ pub(super) fn observed_git_root(
             _ => None,
         });
     let spells_invocation_cwd = effect.attributes.get("root_uses_invocation_cwd")
-        == Some(&p::AttrValue::Bool(true))
+        == Some(&effinterp_proto::AttrValue::Bool(true))
         // The engine spells a Windows cwd with `/`, the host with `\`.
         && nah_proto::labels::lexical_path::same_path(
             worktree,
@@ -187,7 +188,7 @@ pub(super) fn observed_git_root(
     // still the invocation's own directory when its observed real path is
     // the observed working directory.
     let observed_as_invocation_cwd = effect.attributes.get("discovers_from_worktree")
-        == Some(&p::AttrValue::Bool(true))
+        == Some(&effinterp_proto::AttrValue::Bool(true))
         && view
             .observed_path(worktree)
             .and_then(|path| path.realpath())
@@ -253,7 +254,7 @@ pub(super) fn observed_git_root(
 /// A resource's path as requested, resolved and real, sorted and deduplicated.
 fn resource_paths(
     view: &crate::plan_view::PlanView<'_>,
-    resource: &p::ResourceExpr,
+    resource: &effinterp_proto::ResourceExpr,
 ) -> Vec<String> {
     let mut paths = Vec::new();
     if let Some((requested, _)) = crate::observe::observation_bound(resource) {

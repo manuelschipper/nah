@@ -28,6 +28,7 @@ use oxc_ast::ast::{
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 
+use super::bindings::CalleeBinding;
 use super::collect::{param_binding_names, param_names};
 use super::model::{
     FsTransferSource, ObjectLiteralBindings, ShellOption, call_option_shell, call_option_true,
@@ -36,9 +37,7 @@ use super::model::{
     subprocess_options_index,
 };
 use super::resolve::{self, ParamEnv};
-use super::{
-    Bindings, CalleeBinding, JS_DOMAINS, MAX_WALK_DEPTH, argument_expr, binding_declares, unparen,
-};
+use super::{Bindings, JS_DOMAINS, MAX_WALK_DEPTH, argument_expr, binding_declares, unparen};
 use crate::control_flow::{
     ControlCaps, ControlExit, ControlFact, ControlFlow, ControlStack, SiteFacts,
 };

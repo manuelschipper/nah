@@ -1,4 +1,4 @@
-use effinterp_repo::{Selector, effects_of, reach};
+use effinterp_repo::{ResourceSelector, effects_of, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 use super::{json, live};
@@ -10,7 +10,11 @@ fn reach_dataflow_boundary_reports_indeterminate_without_effect_coverage() {
         "repo-suite-query-reach-dataflow",
         &[("run.sh", "#!/bin/sh\nrm -f \"${TARGET:-$(date +%s)}\"\n")],
     );
-    let envelope = reach(&live(&root), &Selector::parse("dataflow:x").unwrap(), None);
+    let envelope = reach(
+        &live(&root),
+        &ResourceSelector::parse("dataflow:x").unwrap(),
+        None,
+    );
     assert_eq!(json(&envelope)["status"]["kind"], "partial");
     let payload = envelope.payload.as_reach().unwrap();
     assert!(payload.matches.is_empty());
@@ -176,7 +180,7 @@ fn reach_and_forward_facts_carry_the_same_dispatch_metadata() {
 
     let reach_json = json(&reach(
         &index,
-        &Selector::parse("fs:/dispatched").unwrap(),
+        &ResourceSelector::parse("fs:/dispatched").unwrap(),
         None,
     ));
     assert_eq!(reach_json["status"]["kind"], "partial");
@@ -291,7 +295,7 @@ fn reach_keeps_provenance_distinct_compound_writes() {
 
     let envelope = reach(
         &live(&root),
-        &Selector::parse("git:/repo").unwrap(),
+        &ResourceSelector::parse("git:/repo").unwrap(),
         Some("write"),
     );
     json(&envelope);

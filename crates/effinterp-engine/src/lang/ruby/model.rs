@@ -1,4 +1,5 @@
 use super::*;
+use crate::value::unresolved_resource;
 
 /// What a `Send` resolves to.
 #[derive(Clone)]
@@ -1732,7 +1733,7 @@ pub(super) fn resolve(
                 && send.method_name == "expand_path" =>
         {
             let Some(path) = send.args.first() else {
-                return unresolved_fs();
+                return unresolved_resource("filesystem");
             };
             if let Some(home) = expand_home(path) {
                 return home;
@@ -1766,18 +1767,18 @@ pub(super) fn resolve(
             send.args
                 .first()
                 .map(|argument| resolve(argument, env, cwd))
-                .unwrap_or_else(unresolved_fs)
+                .unwrap_or_else(|| unresolved_resource("filesystem"))
         }
         Node::Send(send) if send.recv.is_none() && send.method_name == "Pathname" => send
             .args
             .first()
             .map(|argument| resolve(argument, env, cwd))
-            .unwrap_or_else(unresolved_fs),
+            .unwrap_or_else(|| unresolved_resource("filesystem")),
         Node::Send(send) if send.method_name == "+" && send.recv.is_some() => {
             let receiver_node = send.recv.as_deref().unwrap();
             let receiver = resolve(receiver_node, env, cwd);
             if contains_unresolved(&receiver) {
-                return unresolved_fs();
+                return unresolved_resource("filesystem");
             }
             let mut parts = vec![receiver];
             parts.extend(send.args.iter().map(|argument| resolve(argument, env, cwd)));
@@ -1792,7 +1793,7 @@ pub(super) fn resolve(
         {
             let receiver = resolve(send.recv.as_deref().unwrap(), env, cwd);
             if contains_unresolved(&receiver) {
-                return unresolved_fs();
+                return unresolved_resource("filesystem");
             }
             let mut parts = vec![receiver];
             parts.extend(send.args.iter().map(|argument| resolve(argument, env, cwd)));
@@ -1806,7 +1807,7 @@ pub(super) fn resolve(
         {
             resolve(send.recv.as_deref().unwrap(), env, cwd)
         }
-        _ => unresolved_fs(),
+        _ => unresolved_resource("filesystem"),
     }
 }
 
@@ -1837,7 +1838,7 @@ fn join_parts(
 
 fn text_concat(mut parts: Vec<ResourceExpr>) -> ResourceExpr {
     match parts.len() {
-        0 => return unresolved_fs(),
+        0 => return unresolved_resource("filesystem"),
         1 => return parts.pop().unwrap(),
         _ => {}
     }
@@ -1895,12 +1896,6 @@ fn pathname_expression(node: &Node) -> bool {
     }
 }
 
-pub(super) fn unresolved_fs() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("filesystem"),
-    }
-}
-
 pub(super) fn fs_path(path: &str) -> ResourceExpr {
     ResourceExpr::Concrete {
         identity: ResourceIdentity::FsPath {
@@ -1924,7 +1919,7 @@ pub(super) fn contains_unresolved(resource: &ResourceExpr) -> bool {
 fn expand_home(node: &Node) -> Option<ResourceExpr> {
     let rest = literal_str(node)?.strip_prefix('~')?.to_string();
     if !rest.is_empty() && !rest.starts_with('/') {
-        return Some(unresolved_fs());
+        return Some(unresolved_resource("filesystem"));
     }
     let home = ResourceExpr::Environment {
         name: "HOME".to_string(),

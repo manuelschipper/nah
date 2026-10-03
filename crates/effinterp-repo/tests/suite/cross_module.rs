@@ -7,8 +7,8 @@
 use std::path::Path;
 
 use effinterp_repo::{
-    IndexLimits, RepoChange, Selector, apply_changes, build_index, effective_surface, effects_of,
-    reach,
+    IndexLimits, RepoChange, ResourceSelector, apply_changes, build_index, effective_surface,
+    effects_of, reach,
 };
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
@@ -44,7 +44,11 @@ fn headline_reverse_query_traces_across_files() {
         &[("app.py", APP_PY), ("util.py", UTIL_PY)],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
 
     let hit = report
         .payload
@@ -106,7 +110,11 @@ fn execution_surface_excludes_uncalled_cross_file_delete() {
     );
 
     // And the reverse query over /important finds no delete either.
-    let report = reach(&idx, &Selector::parse("fs:/important").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/important").unwrap(),
+        None,
+    );
     assert!(
         !report
             .payload
@@ -129,7 +137,11 @@ fn top_level_call_traces_across_files() {
         &[("app.py", APP_TOP), ("util.py", UTIL_PY)],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
     let hit = report
         .payload
         .as_reach()

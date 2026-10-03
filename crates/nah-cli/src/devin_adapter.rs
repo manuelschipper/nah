@@ -8,9 +8,13 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::adapter_fields::runtime_field_names_covered;
+use crate::adapter_fields::{
+    runtime_field_names_covered, tool_input_non_empty_string, tool_input_object, tool_input_string,
+};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
+
+const INVALID_DEVIN_TOOL_INPUT: &str = "invalid-devin-tool-input";
 
 #[derive(Deserialize)]
 struct DevinHookInput {
@@ -127,43 +131,46 @@ fn normalize(input: DevinHookInput, cwd: &str) -> Result<ToolCallInput, String> 
 fn lower<'a>(tool_name: &'a str, tool_input: &Value) -> Result<(&'a str, Value), String> {
     Ok(match tool_name {
         "exec" => {
-            let object = object(tool_input)?;
-            ("Bash", json!({"command": string(object, "command")?}))
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
+            (
+                "Bash",
+                json!({"command": tool_input_string(object, "command", INVALID_DEVIN_TOOL_INPUT)?}),
+            )
         }
         "read" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
             (
                 "Read",
-                json!({"file_path": non_empty(object, "file_path")?}),
+                json!({"file_path": tool_input_non_empty_string(object, "file_path", INVALID_DEVIN_TOOL_INPUT)?}),
             )
         }
         "write" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
             (
                 "Write",
                 json!({
-                    "file_path": non_empty(object, "file_path")?,
-                    "content": string(object, "content")?
+                    "file_path": tool_input_non_empty_string(object, "file_path", INVALID_DEVIN_TOOL_INPUT)?,
+                    "content": tool_input_string(object, "content", INVALID_DEVIN_TOOL_INPUT)?
                 }),
             )
         }
         "edit" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
             let mut normalized = json!({
-                "file_path": non_empty(object, "file_path")?,
-                "old_string": string(object, "old_string")?,
-                "new_string": string(object, "new_string")?
+                "file_path": tool_input_non_empty_string(object, "file_path", INVALID_DEVIN_TOOL_INPUT)?,
+                "old_string": tool_input_string(object, "old_string", INVALID_DEVIN_TOOL_INPUT)?,
+                "new_string": tool_input_string(object, "new_string", INVALID_DEVIN_TOOL_INPUT)?
             });
             if let Some(replace_all) = object.get("replace_all") {
                 if !replace_all.is_boolean() {
-                    return Err("invalid-devin-tool-input".into());
+                    return Err(INVALID_DEVIN_TOOL_INPUT.into());
                 }
                 normalized["replace_all"] = replace_all.clone();
             }
             ("Edit", normalized)
         }
         "grep" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
             let mut normalized = json!({"pattern": aliased_string(object, "pattern", "query")?});
             if let Some(path) = aliased_optional(object, "path", "file_path")? {
                 normalized["path"] = json!(path);
@@ -171,36 +178,14 @@ fn lower<'a>(tool_name: &'a str, tool_input: &Value) -> Result<(&'a str, Value),
             ("Grep", normalized)
         }
         "glob" => {
-            let object = object(tool_input)?;
-            let mut normalized = json!({"pattern": non_empty(object, "pattern")?});
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
+            let mut normalized = json!({"pattern": tool_input_non_empty_string(object, "pattern", INVALID_DEVIN_TOOL_INPUT)?});
             if let Some(path) = aliased_optional(object, "path", "file_path")? {
                 normalized["path"] = json!(path);
             }
             ("Glob", normalized)
         }
         _ => (tool_name, tool_input.clone()),
-    })
-}
-
-fn object(input: &Value) -> Result<&Map<String, Value>, String> {
-    input
-        .as_object()
-        .ok_or_else(|| "invalid-devin-tool-input".to_owned())
-}
-
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-devin-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        (!value.is_empty())
-            .then_some(value)
-            .ok_or_else(|| "invalid-devin-tool-input".to_owned())
     })
 }
 
@@ -216,7 +201,7 @@ fn aliased_string(object: &Map<String, Value>, left: &str, right: &str) -> Resul
         {
             Ok(value.clone())
         }
-        _ => Err("invalid-devin-tool-input".into()),
+        _ => Err(INVALID_DEVIN_TOOL_INPUT.into()),
     }
 }
 
@@ -233,7 +218,7 @@ fn aliased_optional(
             Ok((!value.is_empty()).then(|| value.clone()))
         }
         (None, None) => Ok(None),
-        _ => Err("invalid-devin-tool-input".into()),
+        _ => Err(INVALID_DEVIN_TOOL_INPUT.into()),
     }
 }
 

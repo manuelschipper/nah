@@ -10,7 +10,7 @@ use std::{
 
 use effinterp_proto::{ResourceExpr, ResourceIdentity};
 use effinterp_repo::{
-    IndexLimits, RepoChange, Selector, apply_changes, build_index, effects_of, reach,
+    IndexLimits, RepoChange, ResourceSelector, apply_changes, build_index, effects_of, reach,
 };
 
 use crate::support::antecedent_origins;
@@ -659,7 +659,7 @@ fn python_super_dispatches_only_the_declared_base() {
 
 /// Entrypoints whose reach matches the selector.
 fn reached_by(idx: &effinterp_repo::RepoIndex, selector: &str) -> Vec<String> {
-    let mut ids: Vec<String> = reach(idx, &Selector::parse(selector).unwrap(), None)
+    let mut ids: Vec<String> = reach(idx, &ResourceSelector::parse(selector).unwrap(), None)
         .payload
         .into_reach()
         .unwrap()
@@ -799,7 +799,11 @@ fn aliased_import_resolves_cross_file() {
         ],
     );
     let idx = build(&root);
-    let report = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
     let hit = report
         .payload
         .as_reach()
@@ -833,7 +837,11 @@ fn reexport_chain_resolves_to_definition() {
         ],
     );
     let idx = build(&root);
-    let report = reach(&idx, &Selector::parse("fs:/srv/data").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/srv/data").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -871,7 +879,11 @@ fn mixed_language_subprocess_composes_local_source() {
         ],
     );
     let idx = build(&root);
-    let report = reach(&idx, &Selector::parse("fs:/opt/app/data").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/opt/app/data").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -1008,7 +1020,11 @@ fn duplicate_effect_via_two_paths_is_one_row() {
     assert_eq!(rows.len(), 1, "one row, not one per path: {rows:?}");
     assert!(!rows[0].provenance_roots.is_empty());
 
-    let report = reach(&idx, &Selector::parse("fs:/shared/state").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/shared/state").unwrap(),
+        None,
+    );
     let hits: Vec<_> = report
         .payload
         .as_reach()
@@ -1034,7 +1050,11 @@ fn repo_without_entrypoints_yields_empty_results() {
     );
     let idx = build(&root);
     assert!(idx.entrypoints.is_empty(), "nothing to discover");
-    let report = reach(&idx, &Selector::parse("fs:/anything").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/anything").unwrap(),
+        None,
+    );
     assert!(report.payload.as_reach().unwrap().matches.is_empty());
     assert!(report.payload.as_reach().unwrap().indeterminate.is_empty());
     assert!(effects_of(&idx, "lib.py").is_none());

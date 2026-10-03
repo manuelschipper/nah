@@ -1,3 +1,4 @@
+use super::accumulation::push_composed_boundary;
 use super::budget::all_domains;
 use super::function::enter_function_with_assurance;
 use super::instance::{
@@ -5,12 +6,11 @@ use super::instance::{
     instance_attrs, receiver_matches_type, resolve_exact_class, type_ref_name, value_from_ref,
 };
 use super::{
-    BoundaryOccurrence, Composition, Dispatch, Env, Walk, is_constructor_fact,
-    push_composed_boundary, push_linker_boundary,
+    BoundaryOccurrence, Composition, Dispatch, Env, Walk, is_constructor_fact, push_linker_boundary,
 };
 use crate::dispatch::DispatchVia;
 use crate::linker::Resolution;
-use crate::module::{ModuleFile, Registry};
+use crate::module::{ModuleFile, ModuleRegistry};
 use effinterp_engine::{
     Assurance, CallEdge, FrameworkLifecycle, LIFECYCLE_CATALOG, LifecycleSig, ObjectIdentity,
     ResolvedObject, SigEvidence, SigRole, TypeRef, ValueOrigin,
@@ -141,7 +141,7 @@ pub(super) struct LifecycleMatch {
 }
 
 pub(super) fn lifecycle_match(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     edge: &CallEdge,
     receiver: Option<&ResolvedObject>,
@@ -276,7 +276,7 @@ struct TaggedHook<'a> {
 }
 
 fn collect_tagged_hooks<'a>(
-    registry: &'a Registry,
+    registry: &'a ModuleRegistry,
     instance: &ResolvedObject,
     selectors: (&[&str], &[&str]),
     path: &[String],
@@ -345,7 +345,7 @@ fn collect_tagged_hooks<'a>(
 }
 
 fn register_component(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     edge: &CallEdge,
     path: &[String],
@@ -462,7 +462,7 @@ fn register_component(
 }
 
 pub(super) fn apply_lifecycle(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     edge: &CallEdge,
     path: &[String],
@@ -934,7 +934,7 @@ fn origin_key(origin: &ValueOrigin) -> String {
 }
 
 pub(super) fn activate_lifecycle(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     stack: &mut Vec<(String, String)>,
     out: &mut Composition,
 ) {

@@ -28,6 +28,7 @@ use crate::lang::frontend::{
     Frontend, FrontendInput, MAX_CALLBACK_VALUES, MAX_WALK_DEPTH, ParseFailure, ParseOutcome,
     WalkOutcome,
 };
+use crate::value::unresolved_resource;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -59,7 +60,7 @@ use model::{
     Modeled, Scope, apply_live_assign, assigned_proc, candidate_limit_boundary, constant_env,
     contains_unresolved, effect, env_index_read, env_key, exe, fs_path, guarded_ruby_children,
     invoked_procs, literal_str, model, network_sink, passed_procs, poison_boundary,
-    poisoned_send_reference, push_proc, resolve, spawn_of_parts, unresolved_fs, value_arguments,
+    poisoned_send_reference, push_proc, resolve, spawn_of_parts, value_arguments,
     yielded_argument_sets,
 };
 
@@ -1441,7 +1442,7 @@ impl Frontend for RubyFrontend {
         builder.control_enter(input.source, false, |graph| {
             control::build(graph, &statements, ctx.exception_builtins)
         });
-        let mut w = Walker {
+        let mut w = RubyWalker {
             source: input.source,
             builder,
             nest,
@@ -2756,7 +2757,7 @@ fn rendered_bindings(bindings: &HashMap<String, ResourceExpr>) -> String {
 fn unresolved_instance_parameters(resource: &mut ResourceExpr) {
     match resource {
         ResourceExpr::Parameter { name } if name.starts_with('@') => {
-            *resource = unresolved_fs();
+            *resource = unresolved_resource("filesystem");
         }
         ResourceExpr::Join { parts } => {
             for part in parts {
@@ -2801,7 +2802,7 @@ fn store_binding(
 ) {
     let conflict = guarded && env.get(name).is_some_and(|current| current != &value);
     if conflict || contains_unresolved(&value) {
-        env.insert(name.to_string(), unresolved_fs());
+        env.insert(name.to_string(), unresolved_resource("filesystem"));
         poisoned.insert(name.to_string());
     } else {
         env.insert(name.to_string(), value);
@@ -2840,7 +2841,7 @@ fn remove_assignment_bindings(
 }
 
 /// Live-plan walker for module execution.
-struct Walker<'a> {
+struct RubyWalker<'a> {
     source: &'a str,
     builder: &'a mut PlanBuilder,
     nest: &'a Nest<'a>,
@@ -2902,7 +2903,7 @@ struct Walker<'a> {
     post_loop_assignments: HashMap<usize, bool>,
 }
 
-impl Walker<'_> {
+impl RubyWalker<'_> {
     fn follow_root(&mut self, key: &str) {
         let Some(definition) = self.ctx.def(key) else {
             return;

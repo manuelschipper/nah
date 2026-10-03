@@ -26,7 +26,7 @@ pub use {
         DeclaredSource, DeclaredSourceObservations, SourceObservation, SourceProvider,
     },
 };
-pub use {observe::request, plan_view::annotate};
+pub use {observe::plan_observation_request, plan_view::annotate_plan_effects};
 
 pub fn producer_identity() -> &'static str {
     env!("NAH_EFFINTERP_PRODUCER_IDENTITY")

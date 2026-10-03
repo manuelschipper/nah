@@ -2,12 +2,12 @@
 
 use effinterp_engine::{ObjectIdentity, ScopeKey, TypeRef, ValueOrigin};
 use effinterp_repo::{
-    CrawlLimits, IndexLimits, Registry, RepoChange, apply_changes, build_index, effects_of,
+    CrawlLimits, IndexLimits, ModuleRegistry, RepoChange, apply_changes, build_index, effects_of,
     normalize_surface,
 };
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
-fn parser_scope(registry: &Registry, file: &str) -> ScopeKey {
+fn parser_scope(registry: &ModuleRegistry, file: &str) -> ScopeKey {
     registry.files[file]
         .summary
         .module_calls
@@ -117,7 +117,7 @@ fn python_relative_and_absolute_imports_keep_distinct_defining_bindings() {
             ),
         ],
     );
-    let (registry, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (registry, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     let package_defining = parser_scope(&registry, "pkg/commands.py");
     assert_eq!(package_defining, parser_scope(&registry, "pkg/rel.py"));
     assert_eq!(
@@ -238,7 +238,7 @@ fn go_package_bindings_are_typed_and_separated_by_import_path() {
             ),
         ],
     );
-    let (registry, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (registry, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     let binding = |file: &str| {
         registry.files[file]
             .summary
@@ -449,10 +449,10 @@ fn go_package_type_refs_use_the_defining_sibling_file() {
             ),
         ],
     );
-    let (mut registry, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (mut registry, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     assert!(registry.apply_change("pkg/store.go", Some(defining_source)));
     std::fs::write(root.join("pkg/store.go"), defining_source).unwrap();
-    let (clean, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (clean, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     for file in ["pkg/attach.go", "pkg/store.go"] {
         assert_eq!(
             registry.files[file].summary, clean.files[file].summary,
@@ -499,7 +499,7 @@ fn go_package_var_reindex_clears_removed_types_incrementally() {
             ("pkg/b.go", "package pkg\nfunc Attach() { runner.Wipe() }\n"),
         ],
     );
-    let (mut incremental, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (mut incremental, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     assert!(
         incremental.files["pkg/b.go"].summary.functions[0].calls[0]
             .receiver
@@ -510,7 +510,7 @@ fn go_package_var_reindex_clears_removed_types_incrementally() {
 
     assert!(incremental.apply_change("pkg/a.go", Some(revised)));
     std::fs::write(root.join("pkg/a.go"), revised).unwrap();
-    let (clean, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (clean, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     for file in ["pkg/a.go", "pkg/b.go"] {
         assert_eq!(
             incremental.files[file].summary, clean.files[file].summary,
@@ -587,7 +587,7 @@ fn nested_go_module_uses_its_declared_import_path_scope() {
             ),
         ],
     );
-    let (registry, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (registry, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     let receiver = registry.files["sub/root.go"]
         .summary
         .main_calls
@@ -616,11 +616,11 @@ fn go_mod_apply_change_rescopes_unchanged_files() {
             ),
         ],
     );
-    let (mut incremental, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (mut incremental, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     let revised = "module example.com/renamed\n\ngo 1.21\n";
     std::fs::write(root.join("go.mod"), revised).unwrap();
     assert!(incremental.apply_change("go.mod", Some(revised)));
-    let (clean, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (clean, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
 
     assert_eq!(
         incremental.files["cmd/root.go"].summary,

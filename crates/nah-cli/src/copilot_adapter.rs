@@ -9,11 +9,13 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    adapter_fields::runtime_field_names_covered,
+    adapter_fields::{runtime_field_names_covered, tool_input_object},
     code_input::CodeInput,
     hook_adapter, live_state,
     runtime::{FailurePolicy, Runtime},
 };
+
+const INVALID_COPILOT_TOOL_INPUT: &str = "invalid-copilot-tool-input";
 
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -250,7 +252,7 @@ fn parse_cli_input(input: Value) -> Result<Value, String> {
     match input {
         Value::String(value) if value.is_empty() => Ok(Value::Null),
         Value::String(value) => {
-            serde_json::from_str(&value).map_err(|_| "invalid-copilot-tool-input".into())
+            serde_json::from_str(&value).map_err(|_| INVALID_COPILOT_TOOL_INPUT.into())
         }
         value => Ok(value),
     }
@@ -264,7 +266,7 @@ fn lower(
 ) -> Result<(&str, Value, String, Option<CodeInput>), String> {
     let lowered = match name {
         "bash" | "Bash" | "runTerminalCommand" | "run_in_terminal" => {
-            let object = object(&input)?;
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             let cwd = optional_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
             (
                 "Bash",
@@ -274,7 +276,7 @@ fn lower(
             )
         }
         "powershell" if platform == nah_proto::ctx::Platform::Windows => {
-            let object = object(&input)?;
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             let cwd = optional_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
             let code = CodeInput::PowerShell {
                 source: string(object, &["command"])?,
@@ -282,7 +284,7 @@ fn lower(
             (name, code.canonical_input(), cwd, Some(code))
         }
         "view" | "Read" | "readFile" | "read_file" => {
-            let object = object(&input)?;
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             (
                 "Read",
                 json!({"file_path": non_empty(object, &["path", "filePath", "file_path"])?}),
@@ -291,7 +293,7 @@ fn lower(
             )
         }
         "create" | "Write" | "createFile" | "create_file" => {
-            let object = object(&input)?;
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             (
                 "Write",
                 json!({
@@ -303,7 +305,7 @@ fn lower(
             )
         }
         "edit" | "str_replace_editor" | "replaceString" | "replace_string_in_file" => {
-            let object = object(&input)?;
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             (
                 "Edit",
                 json!({
@@ -316,7 +318,7 @@ fn lower(
             )
         }
         "grep" | "rg" | "Grep" | "grepSearch" | "grep_search" => {
-            let object = object(&input)?;
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             let mut lowered = json!({"pattern":string(object, &["pattern", "query"])?});
             if let Some(path) = optional_string(object, &["path", "filePath", "file_path"])? {
                 lowered["path"] = json!(path);
@@ -324,7 +326,7 @@ fn lower(
             ("Grep", lowered, fallback_cwd, None)
         }
         "glob" | "Glob" | "fileSearch" | "file_search" => {
-            let object = object(&input)?;
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             (
                 "Glob",
                 json!({"pattern":string(object, &["pattern", "query"])?}),
@@ -337,25 +339,19 @@ fn lower(
     Ok(lowered)
 }
 
-fn object(input: &Value) -> Result<&Map<String, Value>, String> {
-    input
-        .as_object()
-        .ok_or_else(|| "invalid-copilot-tool-input".into())
-}
-
 fn string(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
     names
         .iter()
         .find_map(|name| object.get(*name))
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .ok_or_else(|| "invalid-copilot-tool-input".into())
+        .ok_or_else(|| INVALID_COPILOT_TOOL_INPUT.into())
 }
 
 fn non_empty(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
     string(object, names).and_then(|value| {
         if value.is_empty() {
-            Err("invalid-copilot-tool-input".into())
+            Err(INVALID_COPILOT_TOOL_INPUT.into())
         } else {
             Ok(value)
         }
@@ -368,7 +364,7 @@ fn optional_string(object: &Map<String, Value>, names: &[&str]) -> Result<Option
     };
     match value {
         Value::String(value) if !value.is_empty() => Ok(Some(value.clone())),
-        _ => Err("invalid-copilot-tool-input".into()),
+        _ => Err(INVALID_COPILOT_TOOL_INPUT.into()),
     }
 }
 

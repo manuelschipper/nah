@@ -15,7 +15,7 @@ use crate::FactoryError;
 use crate::fixture_evidence::{
     evaluate_fact_case, read_fact_assertion_fixture, read_projected_fixture,
 };
-use crate::model_directory::canonical_json;
+use crate::model_directory::pretty_model_json;
 
 pub(crate) fn verify_mutations(
     base: &Path,
@@ -148,7 +148,7 @@ fn mutation_is_accepted(
 ) -> Result<bool, FactoryError> {
     let sources = documents
         .iter()
-        .map(canonical_json)
+        .map(pretty_model_json)
         .collect::<Result<Vec<_>, _>>()?;
     let refs = sources.iter().map(String::as_str).collect::<Vec<_>>();
     let compile = if with_builtin {

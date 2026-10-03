@@ -1,6 +1,5 @@
 //! Installs and removes nah's Amp system plugin.
 
-use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -8,7 +7,7 @@ use nah_proto::ctx::AbsolutePath;
 
 use crate::{live_state, runtime::FailurePolicy};
 
-use super::hook_paths::reject_hook_path_symlink;
+use super::hook_paths::{HookLockErrorCodes, acquire_hook_lock, reject_hook_path_symlink};
 use super::runtime::reject_unsupported_windows_runtime;
 use super::{RuntimeHookStatus, RuntimeMutation};
 use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
@@ -91,7 +90,7 @@ fn install_plugin(
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = AmpHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &AMP_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     let parent = paths
         .plugin
@@ -115,7 +114,7 @@ fn install_plugin(
 
 fn uninstall_plugin(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = AmpHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &AMP_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     match std::fs::read(&paths.plugin) {
         Ok(bytes) if owned(&bytes) => {
@@ -165,27 +164,11 @@ impl AmpHookPaths {
     }
 }
 
-fn lock(paths: &AmpHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-amp-hook-lock-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "amp-hook-lock-failed")?;
-    reject_hook_path_symlink(&paths.lock, "amp-hook-lock-failed")?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "amp-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "amp-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "amp-hook-lock-failed")?;
-    Ok(file)
-}
+const AMP_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-amp-hook-lock-path",
+    failed: "amp-hook-lock-failed",
+    permissions: "amp-hook-permissions-failed",
+};
 
 fn reject_symlinks(paths: &AmpHookPaths) -> Result<(), String> {
     for directory in &paths.checked_directories {

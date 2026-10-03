@@ -14,7 +14,7 @@
 //! limits).
 //!
 //! Determinism: provenance identifiers that are intentionally unstable are
-//! rendered to structural paths via [`ProvStep::render`], never omitted; every
+//! rendered to structural paths via [`ProvenanceStep::render`], never omitted; every
 //! collection is either a `BTreeMap` (sorted keys) or a `Vec` explicitly sorted
 //! by its serialized form, so nothing depends on HashMap iteration order.
 
@@ -27,7 +27,7 @@ use effinterp_proto::{
 use serde::Serialize;
 
 use crate::discover::EntrypointKind;
-use crate::index::{EntrypointOutcome, RepoIndex, Skip};
+use crate::index::{EntrypointOutcome, RepoIndex, SkippedPath};
 use crate::snapshot::DependencyKind;
 use crate::surface::effective_surface;
 
@@ -44,7 +44,7 @@ struct NormIndex {
     skipped_dependencies: BTreeMap<String, Vec<String>>,
     skipped_roots: std::collections::BTreeSet<String>,
     snapshot_state: AnalysisStatus,
-    skipped: Vec<Skip>,
+    skipped: Vec<SkippedPath>,
     entrypoints: Vec<NormEntrypoint>,
 }
 

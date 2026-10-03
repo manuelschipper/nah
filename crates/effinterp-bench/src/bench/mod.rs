@@ -75,14 +75,14 @@ pub struct MutationSummary {
 }
 
 #[derive(Debug)]
-pub struct Outcome {
+pub struct SubjectOutcome {
     pub elapsed_ms: f64,
     pub result: Result<Analyzed, FailureKind>,
 }
 
-impl Outcome {
+impl SubjectOutcome {
     fn failed(kind: FailureKind, elapsed: Duration) -> Self {
-        Outcome {
+        SubjectOutcome {
             elapsed_ms: elapsed.as_secs_f64() * 1000.0,
             result: Err(kind),
         }
@@ -97,24 +97,24 @@ pub enum Mutation {
     All,
 }
 
-fn analyze_one(engine: &Engine, row: &BenchRow, mutation: Mutation) -> Outcome {
+fn analyze_one(engine: &Engine, row: &BenchRow, mutation: Mutation) -> SubjectOutcome {
     let subject = &row.subject;
     if validate_subject(subject).is_err() {
-        return Outcome::failed(FailureKind::InvalidSubject, Duration::ZERO);
+        return SubjectOutcome::failed(FailureKind::InvalidSubject, Duration::ZERO);
     }
     let start = Instant::now();
     let analysis = catch_unwind(AssertUnwindSafe(|| engine.analyze(subject)));
     let elapsed = start.elapsed();
     let plan = match analysis {
-        Err(_) => return Outcome::failed(FailureKind::Panic, elapsed),
-        Ok(Err(_)) => return Outcome::failed(FailureKind::Analysis, elapsed),
+        Err(_) => return SubjectOutcome::failed(FailureKind::Panic, elapsed),
+        Ok(Err(_)) => return SubjectOutcome::failed(FailureKind::Analysis, elapsed),
         Ok(Ok(plan)) if validate_plan(&plan).is_err() => {
-            return Outcome::failed(FailureKind::Analysis, elapsed);
+            return SubjectOutcome::failed(FailureKind::Analysis, elapsed);
         }
         Ok(Ok(plan)) => plan,
     };
     if elapsed > DEADLINE {
-        return Outcome::failed(FailureKind::Deadline, elapsed);
+        return SubjectOutcome::failed(FailureKind::Deadline, elapsed);
     }
     let eligible = match mutation {
         Mutation::None => false,
@@ -140,12 +140,12 @@ fn analyze_one(engine: &Engine, row: &BenchRow, mutation: Mutation) -> Outcome {
             measure_symbolic_mutations(engine, &plan, &oracle, None, None)
         })) {
             Ok(measurement) => Some(measurement),
-            Err(_) => return Outcome::failed(FailureKind::Panic, elapsed),
+            Err(_) => return SubjectOutcome::failed(FailureKind::Panic, elapsed),
         }
     } else {
         None
     };
-    Outcome {
+    SubjectOutcome {
         elapsed_ms: elapsed.as_secs_f64() * 1000.0,
         result: Ok(score::summarize(row, &plan, mutation)),
     }
@@ -153,7 +153,7 @@ fn analyze_one(engine: &Engine, row: &BenchRow, mutation: Mutation) -> Outcome {
 
 enum Message {
     Started(usize),
-    Done(usize, Box<Outcome>),
+    Done(usize, Box<SubjectOutcome>),
 }
 
 /// Analyze every row on all available cores. A subject still running after
@@ -163,7 +163,7 @@ pub fn analyze_rows(
     engine: &Arc<Engine>,
     rows: &Arc<Vec<BenchRow>>,
     mutation: Mutation,
-) -> Vec<Outcome> {
+) -> Vec<SubjectOutcome> {
     let n = rows.len();
     let next = Arc::new(AtomicUsize::new(0));
     let (sender, receiver) = mpsc::channel();
@@ -199,7 +199,7 @@ pub fn analyze_rows(
     }
     drop(sender);
 
-    let mut outcomes: Vec<Option<Outcome>> = (0..n).map(|_| None).collect();
+    let mut outcomes: Vec<Option<SubjectOutcome>> = (0..n).map(|_| None).collect();
     let mut in_flight: BTreeMap<usize, Instant> = BTreeMap::new();
     let mut recorded = 0;
     while recorded < n {
@@ -229,14 +229,14 @@ pub fn analyze_rows(
             .collect();
         for index in expired {
             in_flight.remove(&index);
-            outcomes[index] = Some(Outcome::failed(FailureKind::Deadline, DEADLINE));
+            outcomes[index] = Some(SubjectOutcome::failed(FailureKind::Deadline, DEADLINE));
             recorded += 1;
         }
         // A full deadline of silence with nothing in flight means every
         // worker is stuck (or gone): the unclaimed rows can never start.
         if idle && silent {
             for slot in outcomes.iter_mut().filter(|slot| slot.is_none()) {
-                *slot = Some(Outcome::failed(FailureKind::Deadline, DEADLINE));
+                *slot = Some(SubjectOutcome::failed(FailureKind::Deadline, DEADLINE));
                 recorded += 1;
             }
         }

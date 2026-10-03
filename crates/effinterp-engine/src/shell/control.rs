@@ -26,7 +26,7 @@ pub(super) enum Callable {
     Function,
 }
 
-struct Builder<'a, 'g> {
+struct ShellControlFlowBuilder<'a, 'g> {
     graph: &'g mut Graph,
     source: &'a str,
     callable: Callable,
@@ -52,7 +52,7 @@ pub(super) fn build(
         return;
     }
     let entry = graph.entry();
-    let mut builder = Builder {
+    let mut builder = ShellControlFlowBuilder {
         graph,
         source,
         callable,
@@ -105,7 +105,7 @@ fn rewrites_control(item: &ShellItem) -> bool {
     }
 }
 
-impl Builder<'_, '_> {
+impl ShellControlFlowBuilder<'_, '_> {
     fn join(&mut self, frontiers: &[Frontier]) -> Frontier {
         self.graph.join(frontiers)
     }
@@ -494,7 +494,7 @@ fn select(status: Status, conditional: bool, selection: Option<(Span, bool)>) ->
     }
 }
 
-fn merge(builder: &mut Builder<'_, '_>, left: Status, right: Status) -> Status {
+fn merge(builder: &mut ShellControlFlowBuilder<'_, '_>, left: Status, right: Status) -> Status {
     Status {
         ok: builder.join(&[left.ok, right.ok]),
         fail: builder.join(&[left.fail, right.fail]),

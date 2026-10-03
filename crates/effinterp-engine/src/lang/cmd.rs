@@ -78,7 +78,7 @@ pub(super) fn analyze(
         builder.note_deadline();
         return;
     }
-    let mut walk = Walk {
+    let mut walk = CmdWalk {
         nest,
         cwd,
         node,
@@ -103,7 +103,7 @@ pub(super) fn nested(
     node: ProvenanceRef,
     depth: u32,
 ) -> bool {
-    let mut walk = Walk {
+    let mut walk = CmdWalk {
         nest,
         cwd,
         node,
@@ -114,7 +114,7 @@ pub(super) fn nested(
     walk.understood
 }
 
-struct Walk<'a> {
+struct CmdWalk<'a> {
     nest: &'a Nest<'a>,
     cwd: Option<&'a str>,
     node: ProvenanceRef,
@@ -122,7 +122,7 @@ struct Walk<'a> {
     understood: bool,
 }
 
-impl Walk<'_> {
+impl CmdWalk<'_> {
     fn line(&mut self, builder: &mut PlanBuilder, source: &str) {
         let (commands, partial) = commands(source);
         if partial {

@@ -6,12 +6,12 @@
 
 use std::path::Path;
 
-use effinterp_repo::{IndexLimits, Selector, build_index, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 fn matches(root: &Path, selector: &str) -> usize {
     let idx = build_index(root, IndexLimits::default());
-    reach(&idx, &Selector::parse(selector).unwrap(), None)
+    reach(&idx, &ResourceSelector::parse(selector).unwrap(), None)
         .payload
         .as_reach()
         .unwrap()

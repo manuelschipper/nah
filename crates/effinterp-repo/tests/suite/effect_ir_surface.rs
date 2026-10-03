@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 fn surface_repo(tag: &str) -> PathBuf {
@@ -94,14 +94,18 @@ fn forward_and_reverse_queries_surface_canonical_metadata() {
     assert_no_metadata(&json(direct));
     let direct_id = direct.fact_id.clone();
 
-    let direct_reach = reach(&index, &Selector::parse("fs:/direct").unwrap(), None)
-        .payload
-        .into_reach()
-        .unwrap()
-        .matches
-        .into_iter()
-        .find(|row| row.fact.fact_id == direct_id)
-        .unwrap();
+    let direct_reach = reach(
+        &index,
+        &ResourceSelector::parse("fs:/direct").unwrap(),
+        None,
+    )
+    .payload
+    .into_reach()
+    .unwrap()
+    .matches
+    .into_iter()
+    .find(|row| row.fact.fact_id == direct_id)
+    .unwrap();
     assert_eq!(direct_reach.fact, *direct);
     for obsolete in [
         "occurrence_id",
@@ -116,18 +120,22 @@ fn forward_and_reverse_queries_surface_canonical_metadata() {
         assert!(!json(direct).as_object().unwrap().contains_key(obsolete));
     }
 
-    let ordinary_indeterminate = reach(&index, &Selector::parse("fs:/not-present").unwrap(), None)
-        .payload
-        .into_reach()
-        .unwrap()
-        .indeterminate
-        .into_iter()
-        .filter_map(|row| match row {
-            effinterp_proto::Indeterminate::Boundary { evidence } => Some(evidence),
-            _ => None,
-        })
-        .find(|row| row.entrypoint == "direct.sh")
-        .unwrap();
+    let ordinary_indeterminate = reach(
+        &index,
+        &ResourceSelector::parse("fs:/not-present").unwrap(),
+        None,
+    )
+    .payload
+    .into_reach()
+    .unwrap()
+    .indeterminate
+    .into_iter()
+    .filter_map(|row| match row {
+        effinterp_proto::Indeterminate::Boundary { evidence } => Some(evidence),
+        _ => None,
+    })
+    .find(|row| row.entrypoint == "direct.sh")
+    .unwrap();
     assert_no_metadata(&json(&ordinary_indeterminate));
     let exact = effects_of(&index, "exact.py").unwrap();
     let exact = exact
@@ -180,7 +188,7 @@ fn forward_and_reverse_queries_surface_canonical_metadata() {
     assert_dispatch(&effect_json);
     let effect_id = effect.fact_id.clone();
 
-    let selector = Selector::parse("fs:/dispatched").unwrap();
+    let selector = ResourceSelector::parse("fs:/dispatched").unwrap();
     let reach_row = reach(&index, &selector, None)
         .payload
         .into_reach()
@@ -201,18 +209,22 @@ fn forward_and_reverse_queries_surface_canonical_metadata() {
         .unwrap();
     assert_dispatch(&json(dispatched_boundary));
 
-    let indeterminate = reach(&index, &Selector::parse("fs:/not-present").unwrap(), None)
-        .payload
-        .into_reach()
-        .unwrap()
-        .indeterminate
-        .into_iter()
-        .filter_map(|row| match row {
-            effinterp_proto::Indeterminate::Boundary { evidence } => Some(evidence),
-            _ => None,
-        })
-        .find(|row| row.entrypoint == "heuristic.py" && row.boundary_reason == "cross_module")
-        .unwrap();
+    let indeterminate = reach(
+        &index,
+        &ResourceSelector::parse("fs:/not-present").unwrap(),
+        None,
+    )
+    .payload
+    .into_reach()
+    .unwrap()
+    .indeterminate
+    .into_iter()
+    .filter_map(|row| match row {
+        effinterp_proto::Indeterminate::Boundary { evidence } => Some(evidence),
+        _ => None,
+    })
+    .find(|row| row.entrypoint == "heuristic.py" && row.boundary_reason == "cross_module")
+    .unwrap();
     assert_dispatch(&json(&indeterminate));
 
     let ordinary_boundary = effects_of(&index, "direct.sh")

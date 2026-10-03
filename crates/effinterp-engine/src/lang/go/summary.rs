@@ -1436,7 +1436,7 @@ pub(super) fn compute_summaries(
                 .map(|p| (p.clone(), ResourceExpr::Parameter { name: p.clone() }))
                 .collect();
             let mut cap = Capture::default();
-            let mut w = Walker {
+            let mut w = GoWalker {
                 value_limits,
                 source,
                 condition_source: &condition_source,
@@ -1556,7 +1556,7 @@ fn collect_call_edges(
         .collect();
     let mut cap = Capture::default();
     let condition_source = effinterp_proto::ConditionSource::new(source);
-    let mut w = Walker {
+    let mut w = GoWalker {
         value_limits,
         source,
         condition_source: &condition_source,
@@ -1684,7 +1684,7 @@ fn collect_package_initializers(
         );
     }
     let condition_source = effinterp_proto::ConditionSource::new(source);
-    let mut w = Walker {
+    let mut w = GoWalker {
         value_limits,
         source,
         condition_source: &condition_source,

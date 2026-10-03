@@ -44,7 +44,7 @@ pub(super) fn build_program(
     imports: &[Span],
     bodies: &[&BlockStmt],
 ) {
-    let mut builder = Builder::new(graph);
+    let mut builder = GoControlFlowBuilder::new(graph);
     for span in imports {
         builder.at = builder.graph.site(builder.at, *span, true);
     }
@@ -62,7 +62,7 @@ pub(super) fn build_program(
 }
 
 pub(super) fn build_function(graph: &mut Graph, body: &BlockStmt) {
-    let mut builder = Builder::new(graph);
+    let mut builder = GoControlFlowBuilder::new(graph);
     builder.statements(&body.list);
     let at = builder.at;
     builder.leave(at, Jump::Return);
@@ -73,7 +73,7 @@ struct Deferred {
     optional: bool,
 }
 
-struct Builder<'g> {
+struct GoControlFlowBuilder<'g> {
     graph: &'g mut Graph,
     at: Frontier,
     /// A label waiting for the loop, switch, or select it names.
@@ -105,7 +105,7 @@ fn always_true(statement: &Statement) -> bool {
         if matches!(&expr.expr, Expression::Ident(ident) if ident.name == "true"))
 }
 
-impl<'g> Builder<'g> {
+impl<'g> GoControlFlowBuilder<'g> {
     fn new(graph: &'g mut Graph) -> Self {
         let at = graph.entry();
         Self {

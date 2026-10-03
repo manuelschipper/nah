@@ -1,3 +1,4 @@
+use super::accumulation::push_bound_composed_effect;
 use super::*;
 use effinterp_engine::{
     CallResult, FunctionEntry, Lang, ModuleSummary, RUST_DEFERRED_COMMAND, ScopeKey, Summary,
@@ -134,7 +135,7 @@ fn javascript_literal_import_callback_composes_its_namespace_call() {
         summary: target,
         digest: "target".to_string(),
     };
-    let mut registry = Registry::default();
+    let mut registry = ModuleRegistry::default();
     registry
         .files
         .insert(wrapper.path.clone(), wrapper.clone().into());
@@ -295,7 +296,7 @@ fn go_package_roots_run_initializers_then_inits_then_selected_main() {
             ..Default::default()
         },
     );
-    let mut registry = Registry::default();
+    let mut registry = ModuleRegistry::default();
     for file in [effects, init, entry.clone(), vars] {
         registry.files.insert(file.path.clone(), file.into());
     }
@@ -348,7 +349,7 @@ fn composes_cross_file_call_with_argument_substitution() {
             imported: Some("wipe".into()),
         }],
     );
-    let mut reg = Registry::default();
+    let mut reg = ModuleRegistry::default();
     reg.files.insert("util.py".into(), util.into());
     reg.files.insert("app.py".into(), app.clone().into());
     reg.register_python_module("util", "util.py");
@@ -428,7 +429,7 @@ fn composes_parameterized_boundary_resources() {
             imported: Some("opaque".into()),
         }],
     );
-    let mut reg = Registry::default();
+    let mut reg = ModuleRegistry::default();
     reg.files.insert("util.py".into(), util.into());
     reg.files.insert("app.py".into(), app.clone().into());
     reg.register_python_module("util", "util.py");
@@ -463,7 +464,7 @@ fn unresolved_import_is_a_boundary_not_silent() {
             imported: Some("thing".into()),
         }],
     );
-    let mut reg = Registry::default();
+    let mut reg = ModuleRegistry::default();
     reg.files.insert("app.py".into(), app.clone().into());
     let roots = vec![CallEdge {
         callee: "thing".into(),
@@ -533,7 +534,7 @@ fn cross_file_recursion_converges() {
             imported: Some("f".into()),
         }],
     );
-    let mut reg = Registry::default();
+    let mut reg = ModuleRegistry::default();
     reg.files.insert("a.py".into(), a.clone().into());
     reg.files.insert("b.py".into(), b.into());
     reg.register_python_module("a", "a.py");
@@ -647,7 +648,7 @@ fn converged_recursive_walk_replays_under_sibling_paths() {
             imported: Some("a".into()),
         }],
     );
-    let mut registry = Registry::default();
+    let mut registry = ModuleRegistry::default();
     for file in [&app, &x, &x2, &a, &b, &c] {
         registry
             .files
@@ -759,7 +760,7 @@ fn ruby_flat_require_composes_a_bare_call() {
             imported: None,
         }],
     );
-    let mut reg = Registry::default();
+    let mut reg = ModuleRegistry::default();
     reg.files.insert("util.rb".into(), util.into());
     reg.files.insert("app.rb".into(), app.clone().into());
 
@@ -817,7 +818,7 @@ fn callback_parameter_composes_the_passed_function() {
         ..Default::default()
     };
     let app = module("app.py", vec![program, raw_main], vec![]);
-    let mut reg = Registry::default();
+    let mut reg = ModuleRegistry::default();
     reg.files.insert("app.py".into(), app.clone().into());
 
     // raw_main(main_program=program, p="/var/cache") — keyword callback.
@@ -870,7 +871,7 @@ fn cmd_callback_module() -> ModuleFile {
 #[test]
 fn direct_callback_passing_needs_no_trigger() {
     let app = cmd_callback_module();
-    let mut reg = Registry::default();
+    let mut reg = ModuleRegistry::default();
     reg.files.insert("app.py".into(), app.clone().into());
 
     let roots = vec![CallEdge {
@@ -887,7 +888,7 @@ fn direct_callback_passing_needs_no_trigger() {
 #[test]
 fn unresolved_sink_ignores_unknown_callback_name() {
     let app = module("app.py", vec![], vec![]);
-    let mut reg = Registry::default();
+    let mut reg = ModuleRegistry::default();
     reg.files.insert("app.py".into(), app.clone().into());
 
     let roots = vec![CallEdge {
@@ -938,7 +939,7 @@ fn callback_parameter_positional_binds_by_index() {
         ..Default::default()
     };
     let app = module("app.py", vec![work, apply], vec![]);
-    let mut reg = Registry::default();
+    let mut reg = ModuleRegistry::default();
     reg.files.insert("app.py".into(), app.clone().into());
 
     let roots = vec![CallEdge {
@@ -996,7 +997,7 @@ fn import_time_constructor_reaches_init() {
         }],
     );
     let pkg = module("ansible/__init__.py", vec![], vec![]);
-    let mut reg = Registry::default();
+    let mut reg = ModuleRegistry::default();
     reg.files.insert("manager.py".into(), manager.into());
     reg.files.insert("constants.py".into(), constants.into());
     reg.files
@@ -1064,7 +1065,7 @@ fn only_the_deferred_command_marker_is_specialized() {
             callee: "spawn".into(),
             ..Default::default()
         }];
-        let mut reg = Registry::default();
+        let mut reg = ModuleRegistry::default();
         reg.files.insert("app.py".into(), app.clone().into());
         compose(&reg, &app, None)
             .effects
@@ -1098,7 +1099,7 @@ fn only_the_deferred_command_marker_is_specialized() {
 #[test]
 fn ruby_bare_call_without_a_matching_require_is_not_resolved() {
     let app = ruby_module("app.rb", vec![], vec![]);
-    let mut reg = Registry::default();
+    let mut reg = ModuleRegistry::default();
     reg.files.insert("app.rb".into(), app.clone().into());
     let roots = vec![CallEdge {
         callee: "mystery".into(),

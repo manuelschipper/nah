@@ -578,6 +578,14 @@ pub fn join_branches(
     values.fold(first, |joined, value| branch_join(&joined, &value, limits))
 }
 
+/// An unresolved resource of `family` ("filesystem", "network", "db", ...): the
+/// effect reaches that family but the frontend could not name the target.
+pub(crate) fn unresolved_resource(family: &str) -> ResourceExpr {
+    ResourceExpr::Unresolved {
+        family: ResourceFamily::new(family),
+    }
+}
+
 /// Build a symbolic string join whose typed parts belong to its consuming
 /// effect domain. A literal segment establishes a filesystem join; a leading
 /// URL or bounded environment reference establishes a network join.

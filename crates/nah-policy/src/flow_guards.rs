@@ -172,7 +172,7 @@ fn complete(mut selector: Selector) -> Selector {
 /// arm no assignment of the invocation's conditions reaches.
 fn feasible(mut guard: GuardDefinition) -> GuardDefinition {
     for clause in &mut guard.clauses {
-        clause.host = Some(crate::filesystem_queries::HostRule {
+        clause.host = Some(crate::filesystem_guards::HostRule {
             feasible_condition: true,
             reach: None,
         });
@@ -1029,7 +1029,7 @@ pub(crate) fn secrets_exfil() -> GuardDefinition {
         gap_code: None,
         clauses: vec![GuardClause {
             query: Query::new(Assertion::Any { assertions }),
-            host: Some(crate::filesystem_queries::HostRule {
+            host: Some(crate::filesystem_guards::HostRule {
                 feasible_condition: true,
                 reach: None,
             }),
@@ -1041,8 +1041,8 @@ pub(crate) fn secrets_exfil() -> GuardDefinition {
 /// The filesystem family's eligibility alone: a filesystem access whose model
 /// Nah does not trust is never established. With no reach rule, an
 /// unidentified target does not by itself reject the access.
-pub(crate) fn eligible_filesystem() -> crate::filesystem_queries::HostRule {
-    crate::filesystem_queries::HostRule {
+pub(crate) fn eligible_filesystem() -> crate::filesystem_guards::HostRule {
+    crate::filesystem_guards::HostRule {
         feasible_condition: false,
         reach: None,
     }

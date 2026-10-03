@@ -1,3 +1,8 @@
+use super::accumulation::{
+    EffectOccurrenceKey, composed_effect_id, effect_evidence_key, push_composed_boundary,
+    push_composed_effect, push_composed_effect_slot, push_coverage, push_dependency,
+    replay_summary_transfers,
+};
 use super::budget::{all_domains, cap_depth, reserve_effect, widen};
 use super::instance::{
     bind_constructor_results, bind_fn_args, bind_function_arguments, bound_callable, class_entry,
@@ -11,13 +16,12 @@ use super::{
     BoundCallable, BoundaryOccurrence, Composition, Dispatch, EffectOccurrence, Env, ResolvedCall,
     ResolvedDecorator, Walk, apply_external_resolution, dispatch_is_exhaustive,
     ensure_module_executed, follow, follow_dispatch, frontend_call_reference, is_constructor_fact,
-    push_composed_boundary, push_composed_effect, push_composed_effect_slot, push_coverage,
-    push_dependency, push_linker_boundary, push_specialized_process_effects, record_resolved_call,
-    record_unresolved_call, replay_summary_transfers,
+    push_linker_boundary, push_specialized_process_effects, record_resolved_call,
+    record_unresolved_call,
 };
 use crate::launch::is_process_template;
 use crate::linker::Resolution;
-use crate::module::{ModuleFile, Registry};
+use crate::module::{ModuleFile, ModuleRegistry};
 use effinterp_engine::{
     Assurance, CallEdge, CallableValue, ExternalCall, ResolvedObject, SemanticValue,
     SemanticValueKind, ValueArgument, scope_rust_branch_groups, substitute_value,
@@ -80,7 +84,7 @@ pub(super) fn enter_function_with_assurance(
 pub(super) struct RecursiveGroup {
     occurrence_start: usize,
     bindings: HashMap<String, SemanticValue>,
-    effects: HashMap<super::EffectOccurrenceKey, EffectOccurrence>,
+    effects: HashMap<EffectOccurrenceKey, EffectOccurrence>,
     back_edge_path: Option<Vec<String>>,
 }
 
@@ -195,7 +199,7 @@ fn enter_function_inner(
         effects.sort_by_key(|effect| {
             (
                 effect.source_file.clone(),
-                super::effect_evidence_key(&effect.effect),
+                effect_evidence_key(&effect.effect),
                 format!("{:?}", effect.via_dispatch),
             )
         });
@@ -204,9 +208,9 @@ fn enter_function_inner(
             effect.path = path.iter().cloned().chain(effect.path).collect();
             // The cache is a set of known facts, not another call site. A
             // concrete walk may already have emitted this recursive path.
-            let effect_key = super::EffectOccurrenceKey {
+            let effect_key = EffectOccurrenceKey {
                 source_file: effect.source_file.clone(),
-                effect: super::composed_effect_id(&effect.effect),
+                effect: composed_effect_id(&effect.effect),
                 via_dispatch: effect.via_dispatch.clone(),
             };
             if let Some(index) = walk.out.effect_positions.get(&effect_key.effect)
@@ -314,9 +318,9 @@ fn enter_function_inner(
                 .to_vec();
             effect.assurance = occurrence.assurance;
             effect.via_dispatch = occurrence.via_dispatch.clone();
-            let effect_key = super::EffectOccurrenceKey {
+            let effect_key = EffectOccurrenceKey {
                 source_file: effect.source_file.clone(),
-                effect: super::composed_effect_id(&effect.effect),
+                effect: composed_effect_id(&effect.effect),
                 via_dispatch: effect.via_dispatch.clone(),
             };
             if let Some(previous) = group.effects.get_mut(&effect_key) {
@@ -685,7 +689,7 @@ fn enter_function_round(
             .effects
             .iter()
             .enumerate()
-            .filter(|(_, effect)| seen.insert(super::effect_evidence_key(effect)))
+            .filter(|(_, effect)| seen.insert(effect_evidence_key(effect)))
             .collect::<Vec<_>>()
     };
     // The entrypoint's plan already carries this callable's effects, so no row
@@ -1160,7 +1164,7 @@ fn enter_function_round(
 }
 
 fn decorator_gate_opens(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     target: &ModuleFile,
     callee: &CalleeReference,
     out: &mut Composition,

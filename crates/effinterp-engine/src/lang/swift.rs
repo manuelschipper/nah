@@ -74,7 +74,7 @@ pub(super) fn analyze(
             return;
         }
     };
-    let mut walk = Walk { nest, cwd, node };
+    let mut walk = SwiftWalk { nest, cwd, node };
     for call in &calls {
         walk.apply(builder, call);
     }
@@ -83,13 +83,13 @@ pub(super) fn analyze(
     }
 }
 
-struct Walk<'a> {
+struct SwiftWalk<'a> {
     nest: &'a Nest<'a>,
     cwd: Option<&'a str>,
     node: ProvenanceRef,
 }
 
-impl Walk<'_> {
+impl SwiftWalk<'_> {
     fn apply(&mut self, builder: &mut PlanBuilder, call: &Call) {
         match call {
             // `removeItem` deletes a directory together with its contents.

@@ -23,7 +23,7 @@ use rustpython_parser::Parse;
 use rustpython_parser::ast::{self, Expr};
 use rustpython_parser::text_size::TextRange;
 
-use super::{DeferredSpawn, Walker};
+use super::{DeferredSpawn, PythonWalker};
 use crate::builder::PlanBuilder;
 use crate::external::is_python_stdlib;
 use crate::models::pyexec::python_search_path;
@@ -302,7 +302,7 @@ pub(super) fn imported_summary_key(canonical: &str) -> String {
     format!("import:{canonical}")
 }
 
-impl Walker<'_, '_> {
+impl PythonWalker<'_, '_> {
     /// Resolve an import for the invocation's search context. `Some(true)`
     /// means the module resolved to source, `Some(false)` that the import is
     /// traversed but did not resolve, and None that traversal does not apply.
@@ -626,7 +626,7 @@ impl Walker<'_, '_> {
         if self.nest.budget.timed_out() {
             return None;
         }
-        let (mut child, _) = Walker::for_execution(
+        let (mut child, _) = PythonWalker::for_execution(
             self.builder,
             self.nest,
             &module.source,

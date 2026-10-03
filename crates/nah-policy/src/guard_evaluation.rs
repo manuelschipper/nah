@@ -24,7 +24,7 @@ use nah_proto::guard_host::{
     GuardHostFacts, ReachedHostPath, ShippedGuardGap, ShippedGuardMatches,
 };
 
-use crate::filesystem_queries::{HostRule, ReachEndpoint, ReachedPath};
+use crate::filesystem_guards::{HostRule, ReachEndpoint, ReachedPath};
 use crate::registry::{GuardDefinition, shipped_guard_definitions};
 
 /// A predicate a guard clause applies to an effect after its query matched,

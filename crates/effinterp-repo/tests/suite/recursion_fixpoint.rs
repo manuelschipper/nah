@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use effinterp_proto::{BoundaryReason, Modality};
 use effinterp_repo::{
-    IndexLimits, RepoChange, Selector, apply_changes, build_index, normalize_surface, reach,
-    save_index,
+    IndexLimits, RepoChange, ResourceSelector, apply_changes, build_index, normalize_surface,
+    reach, save_index,
 };
 
 fn temp_repo(tag: &str, files: &[(&str, &str)]) -> PathBuf {
@@ -95,7 +95,7 @@ fn self_recursion_converges_and_preserves_recursive_occurrences() {
         effect.effect.resource,
         effinterp_proto::ResourceExpr::Union { .. }
     )));
-    let report = reach(&index, &Selector::parse("fs:/cache").unwrap(), None);
+    let report = reach(&index, &ResourceSelector::parse("fs:/cache").unwrap(), None);
     assert!(
         report
             .payload

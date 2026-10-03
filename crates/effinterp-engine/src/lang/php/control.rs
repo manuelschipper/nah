@@ -17,7 +17,7 @@ pub(super) fn span(node: Node) -> Span {
 
 pub(super) fn build(graph: &mut Graph, statements: &[Node], source: &str) {
     graph.enable_exceptions();
-    let mut builder = Builder {
+    let mut builder = PhpControlFlowBuilder {
         at: graph.entry(),
         graph,
         source,
@@ -28,7 +28,7 @@ pub(super) fn build(graph: &mut Graph, statements: &[Node], source: &str) {
     builder.graph.jump(builder.at, Jump::Return);
 }
 
-struct Builder<'g, 's> {
+struct PhpControlFlowBuilder<'g, 's> {
     graph: &'g mut Graph,
     at: Frontier,
     source: &'s str,
@@ -50,7 +50,7 @@ fn literal_true(node: Node) -> bool {
     node.kind() == "boolean" && node.start_byte() + 4 == node.end_byte()
 }
 
-impl Builder<'_, '_> {
+impl PhpControlFlowBuilder<'_, '_> {
     fn site(&mut self, node: Node, opaque: bool) {
         self.at = self.graph.site(self.at, span(node), opaque);
     }

@@ -28,7 +28,7 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<(), FactoryError> {
     })
 }
 
-pub(crate) fn canonical_json<T: serde::Serialize>(value: &T) -> Result<String, FactoryError> {
+pub(crate) fn pretty_model_json<T: serde::Serialize>(value: &T) -> Result<String, FactoryError> {
     let mut output = serde_json::to_string_pretty(value)
         .map_err(|error| FactoryError::Json(error.to_string()))?;
     output.push('\n');

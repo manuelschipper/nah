@@ -8,9 +8,14 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::adapter_fields::runtime_field_names_covered;
+use crate::adapter_fields::{
+    runtime_field_names_covered, tool_input_non_empty_string, tool_input_optional_bool,
+    tool_input_optional_non_empty_string, tool_input_string,
+};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
+
+const INVALID_DROID_TOOL_INPUT: &str = "invalid-droid-tool-input";
 
 #[derive(Deserialize)]
 struct DroidHookInput {
@@ -109,7 +114,7 @@ fn normalize(input: DroidHookInput) -> Result<ToolCallInput, String> {
     let lowered = input
         .tool_input
         .as_object()
-        .ok_or_else(|| "invalid-droid-tool-input".to_owned())
+        .ok_or_else(|| INVALID_DROID_TOOL_INPUT.to_owned())
         .and_then(|object| lower(&input.tool_name, &input.tool_input, object, &input.cwd));
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
@@ -137,26 +142,32 @@ fn lower<'a>(
     cwd: &str,
 ) -> Result<(&'a str, Value), String> {
     Ok(match tool_name {
-        "Execute" => ("Bash", json!({"command": string(object, "command")?})),
+        "Execute" => (
+            "Bash",
+            json!({"command": tool_input_string(object, "command", INVALID_DROID_TOOL_INPUT)?}),
+        ),
         "Read" => (
             "Read",
-            json!({"file_path": non_empty(object, "file_path")?}),
+            json!({"file_path": tool_input_non_empty_string(object, "file_path", INVALID_DROID_TOOL_INPUT)?}),
         ),
         "Create" => (
             "Write",
             json!({
-                "file_path": non_empty(object, "file_path")?,
-                "content": string(object, "content")?
+                "file_path": tool_input_non_empty_string(object, "file_path", INVALID_DROID_TOOL_INPUT)?,
+                "content": tool_input_string(object, "content", INVALID_DROID_TOOL_INPUT)?
             }),
         ),
         "Edit" => ("Edit", edit_input(object)?),
         "ApplyPatch" => (
             "apply_patch",
-            json!({"command": non_empty(object, "input")?}),
+            json!({"command": tool_input_non_empty_string(object, "input", INVALID_DROID_TOOL_INPUT)?}),
         ),
         "Grep" => {
-            let mut normalized = json!({"pattern": string(object, "pattern")?});
-            if let Some(path) = optional_non_empty(object, "path")? {
+            let mut normalized =
+                json!({"pattern": tool_input_string(object, "pattern", INVALID_DROID_TOOL_INPUT)?});
+            if let Some(path) =
+                tool_input_optional_non_empty_string(object, "path", INVALID_DROID_TOOL_INPUT)?
+            {
                 normalized["path"] = json!(path);
             }
             ("Grep", normalized)
@@ -164,7 +175,7 @@ fn lower<'a>(
         "Glob" => glob_input(object)?,
         "LS" => (
             "Ls",
-            json!({"path": optional_non_empty(object, "directory_path")?
+            json!({"path": tool_input_optional_non_empty_string(object, "directory_path", INVALID_DROID_TOOL_INPUT)?
                 .unwrap_or_else(|| cwd.to_owned())}),
         ),
         _ => (tool_name, tool_input.clone()),
@@ -172,22 +183,22 @@ fn lower<'a>(
 }
 
 fn edit_input(object: &Map<String, Value>) -> Result<Value, String> {
-    let path = non_empty(object, "file_path")?;
+    let path = tool_input_non_empty_string(object, "file_path", INVALID_DROID_TOOL_INPUT)?;
     if let Some(changes) = object.get("changes") {
         let changes = changes
             .as_array()
             .filter(|changes| !changes.is_empty())
-            .ok_or_else(|| "invalid-droid-tool-input".to_owned())?;
+            .ok_or_else(|| INVALID_DROID_TOOL_INPUT.to_owned())?;
         let edits = changes
             .iter()
             .map(|change| {
                 let change = change
                     .as_object()
-                    .ok_or_else(|| "invalid-droid-tool-input".to_owned())?;
-                optional_bool(change, "change_all")?;
+                    .ok_or_else(|| INVALID_DROID_TOOL_INPUT.to_owned())?;
+                tool_input_optional_bool(change, "change_all", INVALID_DROID_TOOL_INPUT)?;
                 Ok(json!({
-                    "oldText": string(change, "old_str")?,
-                    "newText": string(change, "new_str")?
+                    "oldText": tool_input_string(change, "old_str", INVALID_DROID_TOOL_INPUT)?,
+                    "newText": tool_input_string(change, "new_str", INVALID_DROID_TOOL_INPUT)?
                 }))
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -195,10 +206,12 @@ fn edit_input(object: &Map<String, Value>) -> Result<Value, String> {
     }
     let mut normalized = json!({
         "file_path": path,
-        "old_string": string(object, "old_str")?,
-        "new_string": string(object, "new_str")?
+        "old_string": tool_input_string(object, "old_str", INVALID_DROID_TOOL_INPUT)?,
+        "new_string": tool_input_string(object, "new_str", INVALID_DROID_TOOL_INPUT)?
     });
-    if let Some(change_all) = optional_bool(object, "change_all")? {
+    if let Some(change_all) =
+        tool_input_optional_bool(object, "change_all", INVALID_DROID_TOOL_INPUT)?
+    {
         normalized["replace_all"] = json!(change_all);
     }
     Ok(normalized)
@@ -206,7 +219,7 @@ fn edit_input(object: &Map<String, Value>) -> Result<Value, String> {
 
 fn glob_input(object: &Map<String, Value>) -> Result<(&'static str, Value), String> {
     optional_strings(object, "excludePatterns")?;
-    let folder = optional_non_empty(object, "folder")?;
+    let folder = tool_input_optional_non_empty_string(object, "folder", INVALID_DROID_TOOL_INPUT)?;
     let Some(patterns) = optional_strings(object, "patterns")? else {
         return Ok(("DroidGlob", Value::Object(object.clone())));
     };
@@ -218,38 +231,6 @@ fn glob_input(object: &Map<String, Value>) -> Result<(&'static str, Value), Stri
         normalized["path"] = json!(folder);
     }
     Ok(("Glob", normalized))
-}
-
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-droid-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        (!value.is_empty())
-            .then_some(value)
-            .ok_or_else(|| "invalid-droid-tool-input".to_owned())
-    })
-}
-
-fn optional_non_empty(object: &Map<String, Value>, name: &str) -> Result<Option<String>, String> {
-    match object.get(name) {
-        Some(Value::String(value)) if !value.is_empty() => Ok(Some(value.clone())),
-        Some(Value::String(_)) | None => Ok(None),
-        Some(_) => Err("invalid-droid-tool-input".into()),
-    }
-}
-
-fn optional_bool(object: &Map<String, Value>, name: &str) -> Result<Option<bool>, String> {
-    match object.get(name) {
-        Some(Value::Bool(value)) => Ok(Some(*value)),
-        None => Ok(None),
-        Some(_) => Err("invalid-droid-tool-input".into()),
-    }
 }
 
 fn optional_strings(
@@ -265,7 +246,7 @@ fn optional_strings(
                 .collect(),
         )),
         None => Ok(None),
-        Some(_) => Err("invalid-droid-tool-input".into()),
+        Some(_) => Err(INVALID_DROID_TOOL_INPUT.into()),
     }
 }
 

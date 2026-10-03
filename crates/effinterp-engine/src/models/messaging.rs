@@ -10,6 +10,7 @@ use effinterp_proto::{
 };
 
 use crate::models::args::{FlagSpec, scan_literal_flags};
+use crate::value::unresolved_resource;
 
 use crate::builder::PlanBuilder;
 use crate::models::common::arg_node;
@@ -102,7 +103,7 @@ fn topic_effect(
         }
         _ => None,
     }
-    .unwrap_or_else(super::cloud::unresolved_network);
+    .unwrap_or_else(|| unresolved_resource("network"));
     super::infrastructure::emit(builder, &provenance, "network.connect", endpoint);
 
     builder.effect(Effect {

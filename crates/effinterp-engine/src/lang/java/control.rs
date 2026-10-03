@@ -15,7 +15,7 @@ pub(super) fn span(node: Node) -> Span {
 
 /// Running a class: static initialization, then `main`.
 pub(super) fn build_program(graph: &mut Graph, root: Node, main: Option<Node>, source: &str) {
-    let mut builder = Builder::new(graph, source);
+    let mut builder = JavaControlFlowBuilder::new(graph, source);
     if runs_static_code(root, 0) {
         builder.graph.unknown(builder.at);
     }
@@ -28,7 +28,7 @@ pub(super) fn build_program(graph: &mut Graph, root: Node, main: Option<Node>, s
 }
 
 pub(super) fn build_body(graph: &mut Graph, body: Node, source: &str) {
-    let mut builder = Builder::new(graph, source);
+    let mut builder = JavaControlFlowBuilder::new(graph, source);
     builder.node(body);
     builder.graph.jump(builder.at, Jump::Return);
 }
@@ -60,7 +60,7 @@ fn contains_call(node: Node, depth: u32) -> bool {
         .any(|child| contains_call(child, depth + 1))
 }
 
-struct Builder<'g, 's> {
+struct JavaControlFlowBuilder<'g, 's> {
     graph: &'g mut Graph,
     at: Frontier,
     source: &'s str,
@@ -82,7 +82,7 @@ fn literal_true(node: Node) -> bool {
     node.kind() == "true"
 }
 
-impl<'g, 's> Builder<'g, 's> {
+impl<'g, 's> JavaControlFlowBuilder<'g, 's> {
     fn new(graph: &'g mut Graph, source: &'s str) -> Self {
         graph.enable_exceptions();
         let at = graph.entry();

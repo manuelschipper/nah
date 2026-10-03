@@ -1,6 +1,6 @@
 //! Installs and removes nah's shared Antigravity PreToolUse hook.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -10,7 +10,9 @@ use serde_json::{Map, Value, json};
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
-use super::hook_paths::reject_hook_path_symlink;
+use super::hook_paths::{
+    HookLockErrorCodes, acquire_hook_lock_in_unlinked_directory, reject_hook_path_symlink,
+};
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
 use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
@@ -78,7 +80,7 @@ fn install_hook(
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = AntigravityHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &ANTIGRAVITY_HOOK_LOCK_ERRORS)?;
     reject_hook_symlinks(&paths)?;
     let mut config = load(&paths.hooks)?;
     let desired = desired_hook(executable, policy)?;
@@ -101,7 +103,7 @@ fn install_hook(
 
 fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = AntigravityHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &ANTIGRAVITY_HOOK_LOCK_ERRORS)?;
     reject_hook_symlinks(&paths)?;
     if paths.hooks.exists() {
         let mut config = load(&paths.hooks)?;
@@ -140,28 +142,11 @@ impl AntigravityHookPaths {
     }
 }
 
-fn lock(paths: &AntigravityHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-antigravity-hook-lock-path".to_owned())?;
-    reject_hook_path_symlink(parent, "antigravity-hook-lock-failed")?;
-    std::fs::create_dir_all(parent).map_err(|_| "antigravity-hook-lock-failed")?;
-    reject_hook_path_symlink(&paths.lock, "antigravity-hook-lock-failed")?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "antigravity-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "antigravity-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "antigravity-hook-lock-failed")?;
-    Ok(file)
-}
+const ANTIGRAVITY_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-antigravity-hook-lock-path",
+    failed: "antigravity-hook-lock-failed",
+    permissions: "antigravity-hook-permissions-failed",
+};
 
 fn reject_hook_symlinks(paths: &AntigravityHookPaths) -> Result<(), String> {
     for directory in &paths.hook_directories {

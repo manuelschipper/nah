@@ -43,6 +43,7 @@ mod model;
 use crate::lang::frontend::{
     Frontend, FrontendInput, MAX_CALLBACK_VALUES, ParseFailure, ParseOutcome, WalkOutcome,
 };
+use crate::value::unresolved_resource;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use effinterp_proto::{
@@ -520,7 +521,7 @@ impl Frontend for PhpFrontend<'_> {
         builder.control_enter(source, false, |graph| {
             control::build(graph, &children, source)
         });
-        let mut w = Walker {
+        let mut w = PhpWalker {
             control_applications: Vec::new(),
             builder,
             nest,
@@ -780,7 +781,7 @@ fn run_class_method(
     inc.dispatch_stack.push(key);
     let functions = collect_functions(root, source);
     let runtime_cwd_resource = builder.current_execution_cwd();
-    let mut w = Walker {
+    let mut w = PhpWalker {
         control_applications: Vec::new(),
         builder,
         nest,
@@ -902,7 +903,7 @@ fn find_method_in<'a>(
     None
 }
 
-struct Walker<'a, 'b> {
+struct PhpWalker<'a, 'b> {
     builder: &'b mut PlanBuilder,
     nest: &'b Nest<'b>,
     src: &'a str,
@@ -988,7 +989,7 @@ enum PhpCall {
     Opaque,
 }
 
-impl<'a, 'b> Walker<'a, 'b> {
+impl<'a, 'b> PhpWalker<'a, 'b> {
     /// Evaluate a call-like construct and register what it establishes.
     fn control_call(&mut self, n: Node<'a>, run: impl FnOnce(&mut Self) -> PhpCall) {
         let since = self.builder.control_registered();
@@ -1702,7 +1703,7 @@ impl<'a, 'b> Walker<'a, 'b> {
         let mut value = if supported {
             self.resolve_argument(right, env)
         } else {
-            unresolved_fs()
+            unresolved_resource("filesystem")
         };
         if guarded
             && self
@@ -1711,7 +1712,7 @@ impl<'a, 'b> Walker<'a, 'b> {
                 .or_else(|| env.get(&var))
                 .is_some_and(|current| current != &value)
         {
-            value = unresolved_fs();
+            value = unresolved_resource("filesystem");
         }
         self.store_local(&var, value, guarded);
         if !guarded {
@@ -1803,7 +1804,7 @@ impl<'a, 'b> Walker<'a, 'b> {
             return;
         };
         if text(operator, self.src) != ".=" {
-            self.store_local(&name, unresolved_fs(), false);
+            self.store_local(&name, unresolved_resource("filesystem"), false);
             return;
         }
         let old = self
@@ -1811,7 +1812,7 @@ impl<'a, 'b> Walker<'a, 'b> {
             .get(&name)
             .cloned()
             .or_else(|| env.get(&name).cloned())
-            .unwrap_or_else(unresolved_fs);
+            .unwrap_or_else(|| unresolved_resource("filesystem"));
         let guarded = guarded_assignment(n, self.src);
         let mut value = text_concat(vec![old, self.resolve_argument(right, env)]);
         if guarded
@@ -1821,7 +1822,7 @@ impl<'a, 'b> Walker<'a, 'b> {
                 .or_else(|| env.get(&name))
                 .is_some_and(|current| current != &value)
         {
-            value = unresolved_fs();
+            value = unresolved_resource("filesystem");
         }
         self.store_local(&name, value, guarded);
     }
@@ -1832,7 +1833,11 @@ impl<'a, 'b> Walker<'a, 'b> {
             if node.kind() == "variable_name"
                 && let Some(name) = child_kind(node, "name")
             {
-                self.store_local(text(name, self.src), unresolved_fs(), false);
+                self.store_local(
+                    text(name, self.src),
+                    unresolved_resource("filesystem"),
+                    false,
+                );
                 continue;
             }
             let mut cursor = node.walk();
@@ -1847,7 +1852,8 @@ impl<'a, 'b> Walker<'a, 'b> {
                 .get(name)
                 .is_some_and(|current| current != &value);
         if conflict || contains_unresolved(&value) {
-            self.locals.insert(name.to_string(), unresolved_fs());
+            self.locals
+                .insert(name.to_string(), unresolved_resource("filesystem"));
             self.poisoned.insert(name.to_string());
         } else {
             self.locals.insert(name.to_string(), value);
@@ -3091,15 +3097,15 @@ impl<'a, 'b> Walker<'a, 'b> {
 
     fn resolve_value(&self, node: Node<'a>, env: &HashMap<String, ResourceExpr>) -> ResourceExpr {
         match node.kind() {
-            "member_access_expression" => {
-                self.this_property_value(node).unwrap_or_else(unresolved_fs)
-            }
+            "member_access_expression" => self
+                .this_property_value(node)
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             "class_constant_access_expression" => self
                 .class_constant_value(node)
-                .unwrap_or_else(unresolved_fs),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             "scoped_property_access_expression" => self
                 .static_property_value(node)
-                .unwrap_or_else(unresolved_fs),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             "binary_expression"
                 if node
                     .child_by_field_name("operator")
@@ -3139,7 +3145,7 @@ impl<'a, 'b> Walker<'a, 'b> {
             }
             "function_call_expression" => self
                 .resolve_function_value(node, env)
-                .unwrap_or_else(unresolved_fs),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             _ => resolve_expr(node, self.src, env),
         }
     }
@@ -3814,7 +3820,7 @@ fn resolve_expr(n: Node, src: &str, env: &HashMap<String, ResourceExpr>) -> Reso
                 }
                 text_concat(parts)
             }
-            None => unresolved_fs(),
+            None => unresolved_resource("filesystem"),
         },
         "variable_name" => {
             let name = child_kind(n, "name").map(|x| text(x, src)).unwrap_or("");
@@ -3845,12 +3851,12 @@ fn resolve_expr(n: Node, src: &str, env: &HashMap<String, ResourceExpr>) -> Reso
                 .and_then(|argument| literal_string(*argument, src))
                 .filter(|name| !name.is_empty())
                 .map(|name| ResourceExpr::Environment { name })
-                .unwrap_or_else(unresolved_fs),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             Some("sprintf") => resolve_sprintf(n, src, |argument| resolve_expr(argument, src, env))
-                .unwrap_or_else(unresolved_fs),
-            _ => unresolved_fs(),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
+            _ => unresolved_resource("filesystem"),
         },
-        _ => unresolved_fs(),
+        _ => unresolved_resource("filesystem"),
     }
 }
 
@@ -3978,12 +3984,6 @@ fn fold_host_path(resource: ResourceExpr) -> ResourceExpr {
             )
         }
         _ => resource,
-    }
-}
-
-fn unresolved_fs() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("filesystem"),
     }
 }
 
@@ -5218,7 +5218,7 @@ struct Cap<'a> {
 
 impl<'a> Cap<'a> {
     fn walk(&mut self, n: Node<'a>) {
-        // Same left-deep `.` hazard as Walker::exec.
+        // Same left-deep `.` hazard as PhpWalker::exec.
         let mut stack = vec![n];
         while let Some(n) = stack.pop() {
             if self.nodes == 0 || !crate::limits::summary_step() {

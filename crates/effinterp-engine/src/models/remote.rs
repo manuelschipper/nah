@@ -2,7 +2,7 @@
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    ExecutionEdgeKind, ExecutionRealm, ProvenanceRef, ResourceExpr, ResourceFamily,
+    ExecutionEdgeKind, ExecutionRealm, ProvenanceRef,
 };
 
 use crate::builder::PlanBuilder;
@@ -11,6 +11,7 @@ use crate::models::common::{
 };
 use crate::models::{CommandModel, InvocationCtx};
 use crate::nest::{Transition, word_resource};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 const REMOTE_DOMAINS: [&str; 4] = ["environment", "filesystem", "network", "process"];
@@ -56,12 +57,6 @@ fn unrecoverable_source(
         limit: None,
         detail: Some(detail.to_string()),
     });
-}
-
-fn unresolved_network() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("network"),
-    }
 }
 
 fn ssh_trailing_command(argv: &[Word], mut start: usize) -> usize {
@@ -183,7 +178,7 @@ impl CommandModel for Vagrant {
             model_node,
             connect_index as u32,
             "network.connect",
-            unresolved_network(),
+            unresolved_resource("network"),
             Default::default(),
         );
         builder.declare_coverage(Domain::new("network"), CoverageLevel::Full);

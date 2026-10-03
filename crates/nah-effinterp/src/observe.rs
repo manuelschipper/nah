@@ -14,7 +14,7 @@ const GUARDS_KEY: &str = "effinterp-project-guards";
 const SEARCH_PATH_KEY: &str = "effinterp-search-path";
 
 /// Request the stable host facts needed to annotate every effect in a plan.
-pub fn request(plan: &Plan, call_site: &CallSite) -> ObservationRequest {
+pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> ObservationRequest {
     // Each path's answer: whether it lists descendants, and whether that
     // listing follows the links below the path.
     let mut paths = BTreeMap::<String, (bool, bool)>::new();

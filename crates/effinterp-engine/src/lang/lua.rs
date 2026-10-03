@@ -59,7 +59,7 @@ pub(super) fn analyze(
         builder.note_deadline();
         return;
     }
-    let mut walk = Walk {
+    let mut walk = LuaWalk {
         nest,
         cwd,
         node,
@@ -91,7 +91,7 @@ pub(super) fn analyze(
     }
 }
 
-struct Walk<'a> {
+struct LuaWalk<'a> {
     nest: &'a Nest<'a>,
     cwd: Option<&'a str>,
     node: ProvenanceRef,
@@ -114,11 +114,11 @@ type Frame = Rc<RefCell<BTreeMap<String, Binding>>>;
 
 #[derive(Clone, Copy)]
 enum Binding {
-    /// An index into [`Walk::functions`].
+    /// An index into [`LuaWalk::functions`].
     Function(usize),
     /// Replaced by an empty table.
     Replaced,
-    /// A parameter; an index into [`Walk::values`].
+    /// A parameter; an index into [`LuaWalk::values`].
     Value(usize),
 }
 
@@ -131,7 +131,7 @@ struct Function {
     called: bool,
 }
 
-impl Walk<'_> {
+impl LuaWalk<'_> {
     /// Walk a straight-line chunk. Stops at the first construct outside the
     /// grammar so no statement after an unexplained one is claimed. Returns
     /// whether the chunk ran to its end.

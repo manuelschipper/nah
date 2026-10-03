@@ -9,11 +9,13 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    adapter_fields::runtime_field_names_covered,
+    adapter_fields::{runtime_field_names_covered, tool_input_non_empty_string, tool_input_string},
     commands::quote_posix_shell_word,
     hook_adapter, live_state,
     runtime::{FailurePolicy, Runtime},
 };
+
+const INVALID_CLINE_TOOL_INPUT: &str = "invalid-cline-tool-input";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -171,7 +173,7 @@ fn normalize_for_platform(
         .pre_tool_use
         .parameters
         .as_object()
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())
         .and_then(|parameters| {
             lower(
                 &input.pre_tool_use.tool_name,
@@ -212,7 +214,7 @@ fn lower<'a>(
     Ok(match tool_name {
         "execute_command" => (
             "Bash",
-            json!({"command": non_empty(parameters, "command")?}),
+            json!({"command": tool_input_non_empty_string(parameters, "command", INVALID_CLINE_TOOL_INPUT)?}),
         ),
         "run_commands" => ("Bash", json!({"command": command_parameters(parameters)?})),
         "read_file" => (
@@ -231,19 +233,19 @@ fn lower<'a>(
             "Write",
             json!({
                 "file_path":non_empty_alias(parameters, &["path", "file_path"])?,
-                "content":string(parameters, "content")?
+                "content":tool_input_string(parameters, "content", INVALID_CLINE_TOOL_INPUT)?
             }),
         ),
         "replace_in_file" => (
             "Write",
             json!({
                 "file_path":non_empty_alias(parameters, &["path", "file_path"])?,
-                "content":string(parameters, "diff")?
+                "content":tool_input_string(parameters, "diff", INVALID_CLINE_TOOL_INPUT)?
             }),
         ),
         "editor" => {
-            let path = non_empty(parameters, "path")?;
-            let new_text = string(parameters, "new_text")?;
+            let path = tool_input_non_empty_string(parameters, "path", INVALID_CLINE_TOOL_INPUT)?;
+            let new_text = tool_input_string(parameters, "new_text", INVALID_CLINE_TOOL_INPUT)?;
             match optional_string(parameters, "old_text")? {
                 Some(old_text) => (
                     "Edit",
@@ -254,12 +256,12 @@ fn lower<'a>(
         }
         "apply_patch" => (
             "apply_patch",
-            json!({"command":non_empty(parameters, "input")?}),
+            json!({"command":tool_input_non_empty_string(parameters, "input", INVALID_CLINE_TOOL_INPUT)?}),
         ),
         "search_files" => (
             "Grep",
             json!({
-                "path":non_empty(parameters, "path")?,
+                "path":tool_input_non_empty_string(parameters, "path", INVALID_CLINE_TOOL_INPUT)?,
                 "pattern":string_alias(parameters, &["regex", "pattern"])?
             }),
         ),
@@ -271,9 +273,10 @@ fn lower<'a>(
                 ("Grep", json!({"path":cwd,"pattern":queries[0]}))
             }
         }
-        "list_files" | "list_code_definition_names" => {
-            ("Ls", json!({"path":non_empty(parameters, "path")?}))
-        }
+        "list_files" | "list_code_definition_names" => (
+            "Ls",
+            json!({"path":tool_input_non_empty_string(parameters, "path", INVALID_CLINE_TOOL_INPUT)?}),
+        ),
         _ => (tool_name, tool_input.clone()),
     })
 }
@@ -289,36 +292,18 @@ fn decoded(value: &Value) -> Value {
         .unwrap_or_else(|| value.clone())
 }
 
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        if value.is_empty() {
-            Err("invalid-cline-tool-input".into())
-        } else {
-            Ok(value)
-        }
-    })
-}
-
 fn string_alias(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
     names
         .iter()
         .find_map(|name| object.get(*name).and_then(Value::as_str))
         .map(str::to_owned)
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())
 }
 
 fn non_empty_alias(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
     string_alias(object, names).and_then(|value| {
         if value.is_empty() {
-            Err("invalid-cline-tool-input".into())
+            Err(INVALID_CLINE_TOOL_INPUT.into())
         } else {
             Ok(value)
         }
@@ -330,7 +315,7 @@ fn optional_string(object: &Map<String, Value>, name: &str) -> Result<Option<Str
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(value)) if value == "null" => Ok(None),
         Some(Value::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Err("invalid-cline-tool-input".into()),
+        Some(_) => Err(INVALID_CLINE_TOOL_INPUT.into()),
     }
 }
 
@@ -338,7 +323,7 @@ fn strings(object: &Map<String, Value>, name: &str) -> Result<Vec<String>, Strin
     let value = object
         .get(name)
         .map(decoded)
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
     match value {
         Value::String(value) if !value.is_empty() => Ok(vec![value]),
         Value::Array(values) if !values.is_empty() => values
@@ -348,17 +333,17 @@ fn strings(object: &Map<String, Value>, name: &str) -> Result<Vec<String>, Strin
                     .as_str()
                     .filter(|value| !value.is_empty())
                     .map(str::to_owned)
-                    .ok_or_else(|| "invalid-cline-tool-input".to_owned())
+                    .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())
             })
             .collect(),
-        _ => Err("invalid-cline-tool-input".into()),
+        _ => Err(INVALID_CLINE_TOOL_INPUT.into()),
     }
 }
 
 fn commands(value: Option<&Value>) -> Result<String, String> {
     let value = value
         .map(decoded)
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
     let values = match value {
         Value::Array(values) if !values.is_empty() => values,
         value => vec![value],
@@ -377,7 +362,7 @@ fn command_parameters(object: &Map<String, Value>) -> Result<String, String> {
     let program = object
         .get("command")
         .or_else(|| object.get("cmd"))
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
     let Some(args) = object.get("args") else {
         return commands(Some(program));
     };
@@ -391,24 +376,24 @@ fn command(value: &Value) -> Result<String, String> {
     match value {
         Value::String(value) if !value.is_empty() => Ok(value.clone()),
         Value::Object(object) => {
-            let command = non_empty(object, "command")?;
+            let command = tool_input_non_empty_string(object, "command", INVALID_CLINE_TOOL_INPUT)?;
             let Some(args) = object.get("args") else {
                 return Ok(command);
             };
             let args = decoded(args);
             let args = args
                 .as_array()
-                .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+                .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
             args.iter().try_fold(command, |mut command, argument| {
                 let argument = argument
                     .as_str()
-                    .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+                    .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
                 command.push(' ');
                 command.push_str(&quote_posix_shell_word(argument));
                 Ok(command)
             })
         }
-        _ => Err("invalid-cline-tool-input".into()),
+        _ => Err(INVALID_CLINE_TOOL_INPUT.into()),
     }
 }
 
@@ -418,7 +403,7 @@ fn read_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
         .or_else(|| object.get("paths"))
         .or_else(|| object.get("file_paths"))
         .map(decoded)
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
     let values = match value {
         Value::Array(values) if !values.is_empty() => values,
         value => vec![value],
@@ -428,7 +413,7 @@ fn read_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
         .map(|value| match value {
             Value::String(path) if !path.is_empty() => Ok(path.clone()),
             Value::Object(object) => non_empty_alias(object, &["path", "file_path", "filePath"]),
-            _ => Err("invalid-cline-tool-input".into()),
+            _ => Err(INVALID_CLINE_TOOL_INPUT.into()),
         })
         .collect()
 }

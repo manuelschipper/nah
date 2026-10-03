@@ -1,8 +1,7 @@
 //! Which sensitivity labels a selection's content carries, and how they
 //! propagate along exact content and alias relations to later reads.
 
-use effinterp_proto as p;
-use nah_proto::effects as e;
+use nah_proto::effects;
 use nah_proto::effects::Knowledge::{Known, Unknown};
 use nah_proto::observation::{
     EnvObservation, Observation, ObservationQuery, ObservationValue, Observed, PathKind,
@@ -21,10 +20,10 @@ pub(super) fn propagate_sensitivity<'a>(
     view: &'a crate::plan_view::PlanView<'a>,
     observation: &'a Observation,
     invocation_cwd: &'a str,
-    graph: &mut e::EffectGraph,
+    graph: &mut effects::EffectGraph,
     effects: &EffectProjection,
 ) -> ObservedLabels<'a> {
-    use e::*;
+    use effects::*;
     let plan = view.plan();
     let EffectProjection {
         member_effects,
@@ -68,12 +67,13 @@ pub(super) fn propagate_sensitivity<'a>(
         // recursive, which opens each entry it names. Keep this identical to
         // `reads_through_links` in effinterp-matcher's `evaluate.rs`.
         let reads_through_links = match effect.attributes.get("follow_links") {
-            Some(p::AttrValue::Bool(follows)) => *follows,
+            Some(effinterp_proto::AttrValue::Bool(follows)) => *follows,
             _ => {
                 effect.operation.as_str() == "filesystem.read"
                     && effect.attributes.get("access_purpose")
-                        == Some(&p::AttrValue::String("program_input".into()))
-                    && effect.attributes.get("recursive") != Some(&p::AttrValue::Bool(true))
+                        == Some(&effinterp_proto::AttrValue::String("program_input".into()))
+                    && effect.attributes.get("recursive")
+                        != Some(&effinterp_proto::AttrValue::Bool(true))
             }
         };
         // A move takes everything under what it names, so its content is the
@@ -81,12 +81,12 @@ pub(super) fn propagate_sensitivity<'a>(
         if matches!(
             effect.operation.as_str(),
             "filesystem.read" | "filesystem.move"
-        ) && (effect.attributes.get("recursive") == Some(&p::AttrValue::Bool(true))
+        ) && (effect.attributes.get("recursive") == Some(&effinterp_proto::AttrValue::Bool(true))
                 || crate::observe::subtree_root(&effect.resource).is_some()
                 || effect.operation.as_str() == "filesystem.move"
                 // A glob's content is the entries it selects, not the
                 // directory word that bounds it.
-                || matches!(&effect.resource, p::ResourceExpr::Pattern { .. }))
+                || matches!(&effect.resource, effinterp_proto::ResourceExpr::Pattern { .. }))
         {
             let observed = crate::observe::observation_bound(&effect.resource)
                 .and_then(|(path, _)| view.observed_path(&path));
@@ -172,14 +172,14 @@ pub(super) fn propagate_sensitivity<'a>(
             }]
             .id;
             match &effect.resource {
-                p::ResourceExpr::Concrete {
-                    identity: p::ResourceIdentity::FsPath { path },
+                effinterp_proto::ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::FsPath { path },
                 } => {
                     observed_labels.add(owner, path, labels, &shared);
                     observed_labels.add_through_links(owner, path, &through_links);
                 }
-                selection @ p::ResourceExpr::Pattern {
-                    pattern: p::ResourcePattern::FsPath { .. },
+                selection @ effinterp_proto::ResourceExpr::Pattern {
+                    pattern: effinterp_proto::ResourcePattern::FsPath { .. },
                 } => observed_labels.add_selection(owner, selection, labels, &selected),
                 selection if crate::observe::subtree_root(selection).is_some() => {
                     observed_labels.add_selection(owner, selection, labels, &selected)
@@ -323,15 +323,16 @@ pub(super) struct ObservedLabels<'a> {
     pub(super) invocation_cwd: &'a str,
     /// The concrete paths each effect selects, by the effect; a finite
     /// union's members under the effect that selects the union.
-    pub(super) paths: BTreeMap<(p::EffectId, String), BTreeSet<effinterp_matcher::LabelId>>,
+    pub(super) paths:
+        BTreeMap<(effinterp_proto::EffectId, String), BTreeSet<effinterp_matcher::LabelId>>,
     /// Every labeled path, whichever effect selected it: a labeled directory
     /// lends its labels to what the observation shows it encloses.
     pub(super) directories: BTreeMap<String, BTreeSet<effinterp_matcher::LabelId>>,
     /// Pattern and subtree selections, labeled as the whole selection the
     /// annotation resolved; a finite union is labeled by its members' paths.
     pub(super) selections: Vec<(
-        p::EffectId,
-        p::ResourceExpr,
+        effinterp_proto::EffectId,
+        effinterp_proto::ResourceExpr,
         BTreeSet<effinterp_matcher::LabelId>,
     )>,
 }
@@ -340,9 +341,9 @@ impl ObservedLabels<'_> {
     /// Record the labels `effect` resolved for one concrete path it selects.
     pub(super) fn add(
         &mut self,
-        effect: &p::EffectId,
+        effect: &effinterp_proto::EffectId,
         path: &str,
-        labels: &e::ResourceLabels,
+        labels: &effects::ResourceLabels,
         content: &[nah_proto::labels::Sensitivity],
     ) {
         let entry = Self::entry(labels, content);
@@ -360,7 +361,7 @@ impl ObservedLabels<'_> {
     /// [`Self::add`], it labels no directory another effect's path inherits.
     pub(super) fn add_through_links(
         &mut self,
-        effect: &p::EffectId,
+        effect: &effinterp_proto::EffectId,
         path: &str,
         content: &[nah_proto::labels::Sensitivity],
     ) {
@@ -373,9 +374,9 @@ impl ObservedLabels<'_> {
     /// Record the labels `effect` resolved for a pattern or subtree selection.
     pub(super) fn add_selection(
         &mut self,
-        effect: &p::EffectId,
-        selection: &p::ResourceExpr,
-        labels: &e::ResourceLabels,
+        effect: &effinterp_proto::EffectId,
+        selection: &effinterp_proto::ResourceExpr,
+        labels: &effects::ResourceLabels,
         content: &[nah_proto::labels::Sensitivity],
     ) {
         let entry = Self::entry(labels, content);
@@ -404,7 +405,7 @@ impl ObservedLabels<'_> {
     }
 
     fn entry(
-        labels: &e::ResourceLabels,
+        labels: &effects::ResourceLabels,
         content: &[nah_proto::labels::Sensitivity],
     ) -> BTreeSet<effinterp_matcher::LabelId> {
         use nah_proto::labels::NahLabel;
@@ -414,7 +415,7 @@ impl ObservedLabels<'_> {
             (labels.selects_home, NahLabel::SelectsHome),
             (labels.selects_root, NahLabel::SelectsRoot),
         ] {
-            if reach == e::Reach::Yes {
+            if reach == effects::Reach::Yes {
                 entry.insert(effinterp_matcher::LabelId(label.label_id()));
             }
         }
@@ -451,7 +452,7 @@ impl ObservedLabels<'_> {
 
     fn path_labels(
         &self,
-        effect: &p::EffectId,
+        effect: &effinterp_proto::EffectId,
         path: &str,
         selection: effinterp_matcher::LabelSelection,
     ) -> Option<BTreeSet<effinterp_matcher::LabelId>> {
@@ -471,7 +472,7 @@ impl ObservedLabels<'_> {
     /// is unknown.
     fn git_selection_labels(
         &self,
-        effect: &p::EffectId,
+        effect: &effinterp_proto::EffectId,
     ) -> Option<BTreeSet<effinterp_matcher::LabelId>> {
         use nah_proto::labels::NahLabel;
         let effect = self
@@ -480,18 +481,20 @@ impl ObservedLabels<'_> {
             .effects
             .iter()
             .find(|candidate| &candidate.id == effect)?;
-        let Some(p::AttrValue::List(selections)) = effect.attributes.get("selections") else {
+        let Some(effinterp_proto::AttrValue::List(selections)) =
+            effect.attributes.get("selections")
+        else {
             return None;
         };
         let root = observed_git_root(self.view, self.observation, self.invocation_cwd, effect);
         let label = |label: NahLabel| effinterp_matcher::LabelId(label.label_id());
         let mut labels = BTreeSet::new();
-        if effect.attributes.get("selects_top") == Some(&p::AttrValue::Bool(true)) {
+        if effect.attributes.get("selects_top") == Some(&effinterp_proto::AttrValue::Bool(true)) {
             root.as_ref()?;
             labels.insert(label(NahLabel::GitSelectsRoot));
         }
         for selection in selections {
-            let p::AttrValue::String(path) = selection else {
+            let effinterp_proto::AttrValue::String(path) = selection else {
                 return None;
             };
             labels.insert(label(if root.as_ref() == Some(path) {
@@ -515,10 +518,12 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
             return LabelStatus::Unknown;
         }
         let labels = match (resource.identity, resource.effect) {
-            (p::ResourceIdentity::FsPath { path }, Some(effect)) if resource.realm.is_host() => {
+            (effinterp_proto::ResourceIdentity::FsPath { path }, Some(effect))
+                if resource.realm.is_host() =>
+            {
                 self.path_labels(effect, path, resource.selection)
             }
-            (p::ResourceIdentity::GitRepository { .. }, Some(effect)) => {
+            (effinterp_proto::ResourceIdentity::GitRepository { .. }, Some(effect)) => {
                 self.git_selection_labels(effect)
             }
             _ => None,
@@ -531,8 +536,8 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
     fn path_kind(
         &self,
         observation: &effinterp_matcher::ObservationBinding,
-        realm: &p::ExecutionRealm,
-        path: &p::ResourceExpr,
+        realm: &effinterp_proto::ExecutionRealm,
+        path: &effinterp_proto::ResourceExpr,
     ) -> effinterp_matcher::PathKindStatus {
         use effinterp_matcher::{ObservedPathKind, PathKindStatus};
         if observation.0 != nah_proto::labels::LABEL_OBSERVATION || !realm.is_host() {
@@ -602,7 +607,7 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
             // a host file, as the bridge classifies a Git read's contents.
             SelectionTarget::GitTreePath {
                 repository:
-                    p::ResourceIdentity::GitRepository {
+                    effinterp_proto::ResourceIdentity::GitRepository {
                         worktree: Some(worktree),
                         ..
                     },
@@ -610,9 +615,9 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
             } if !path.is_empty() => {
                 let platform = self.view.authority().platform();
                 match worktree.as_ref() {
-                    p::ResourceExpr::Literal { value: worktree }
-                    | p::ResourceExpr::Concrete {
-                        identity: p::ResourceIdentity::FsPath { path: worktree },
+                    effinterp_proto::ResourceExpr::Literal { value: worktree }
+                    | effinterp_proto::ResourceExpr::Concrete {
+                        identity: effinterp_proto::ResourceIdentity::FsPath { path: worktree },
                     } => nah_proto::ctx::AbsolutePath::new(platform, worktree.clone())
                         .ok()
                         .map(|worktree| {
@@ -683,17 +688,18 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
 /// or starts with one of those prefixes, so neither it nor anything below it
 /// is read. An unreadable list skips nothing.
 fn excluded_below(
-    effect: &p::Effect,
+    effect: &effinterp_proto::Effect,
     root: &nah_proto::observation::PathObservation,
     path: &nah_proto::ctx::AbsolutePath,
 ) -> bool {
-    let Some(p::AttrValue::List(names)) = effect.attributes.get("excluded_names") else {
+    let Some(effinterp_proto::AttrValue::List(names)) = effect.attributes.get("excluded_names")
+    else {
         return false;
     };
     let Some(names) = names
         .iter()
         .map(|name| match name {
-            p::AttrValue::String(name) => Some(name.as_str()),
+            effinterp_proto::AttrValue::String(name) => Some(name.as_str()),
             _ => None,
         })
         .collect::<Option<Vec<_>>>()
@@ -728,12 +734,14 @@ fn excluded_below(
 /// are skipped. The tools join each glob under the root they were given, so
 /// a root spelled with glob characters proves nothing.
 fn filtered_out<'a>(
-    effect: &p::Effect,
+    effect: &effinterp_proto::Effect,
     root: &nah_proto::observation::PathObservation,
     paths: &'a [nah_proto::ctx::AbsolutePath],
 ) -> std::collections::BTreeSet<&'a nah_proto::ctx::AbsolutePath> {
     let globs = |name: &str| match effect.attributes.get(name) {
-        Some(p::AttrValue::String(list)) => serde_json::from_str::<Vec<String>>(list).ok(),
+        Some(effinterp_proto::AttrValue::String(list)) => {
+            serde_json::from_str::<Vec<String>>(list).ok()
+        }
         _ => None,
     };
     // A bracket class is not read: an exclusion holding one is left out, an

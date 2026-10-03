@@ -8,9 +8,11 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::adapter_fields::runtime_field_names_covered;
+use crate::adapter_fields::{runtime_field_names_covered, tool_input_non_empty_string};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
+
+const INVALID_KIRO_TOOL_INPUT: &str = "invalid-kiro-tool-input";
 
 #[derive(Deserialize)]
 struct KiroHookInput {
@@ -146,7 +148,7 @@ fn lower<'a>(
     Ok(match tool_name {
         "shell" | "execute_bash" | "execute_cmd" => (
             "Bash",
-            json!({"command": non_empty(required_object(object)?, "command")?}),
+            json!({"command": tool_input_non_empty_string(required_object(object)?, "command", INVALID_KIRO_TOOL_INPUT)?}),
             runtime_field_names_covered("kiro", tool_name, original_input),
         ),
         "read_file" => {
@@ -175,7 +177,7 @@ fn lower<'a>(
 }
 
 fn required_object(object: Option<&Map<String, Value>>) -> Result<&Map<String, Value>, String> {
-    object.ok_or_else(|| "invalid-kiro-tool-input".to_owned())
+    object.ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())
 }
 
 fn single_operation_path(object: &Map<String, Value>) -> Result<Option<String>, String> {
@@ -184,15 +186,15 @@ fn single_operation_path(object: &Map<String, Value>) -> Result<Option<String>, 
     };
     let operations = operations
         .as_array()
-        .ok_or_else(|| "invalid-kiro-tool-input".to_owned())?;
+        .ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())?;
     match operations.len() {
-        0 => return Err("invalid-kiro-tool-input".into()),
+        0 => return Err(INVALID_KIRO_TOOL_INPUT.into()),
         1 => {}
         _ => return Ok(None),
     }
     operations[0]
         .as_object()
-        .ok_or_else(|| "invalid-kiro-tool-input".to_owned())
+        .ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())
         .and_then(required_path)
         .map(Some)
 }
@@ -200,9 +202,9 @@ fn single_operation_path(object: &Map<String, Value>) -> Result<Option<String>, 
 fn required_path(object: &Map<String, Value>) -> Result<String, String> {
     match object.get("path") {
         Some(Value::String(path)) if !path.is_empty() => Ok(path.clone()),
-        Some(Value::String(_)) => Err("invalid-kiro-tool-input".into()),
-        Some(_) => Err("invalid-kiro-tool-input".into()),
-        None => Err("invalid-kiro-tool-input".into()),
+        Some(Value::String(_)) => Err(INVALID_KIRO_TOOL_INPUT.into()),
+        Some(_) => Err(INVALID_KIRO_TOOL_INPUT.into()),
+        None => Err(INVALID_KIRO_TOOL_INPUT.into()),
     }
 }
 
@@ -210,17 +212,8 @@ fn optional_u64(object: &Map<String, Value>, name: &str) -> Result<(), String> {
     match object.get(name) {
         None | Some(Value::Null) => Ok(()),
         Some(value) if value.as_u64().is_some() => Ok(()),
-        Some(_) => Err("invalid-kiro-tool-input".into()),
+        Some(_) => Err(INVALID_KIRO_TOOL_INPUT.into()),
     }
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-kiro-tool-input".to_owned())
 }
 
 #[cfg(test)]

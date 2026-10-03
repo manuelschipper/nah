@@ -32,12 +32,13 @@ use effinterp_engine::{
 };
 use effinterp_proto::SourceDialect;
 
-use crate::index::{CrawlLimits, IndexBudget, RepositoryLimits, Skip, SkipCategory};
+use crate::index::{CrawlLimits, IndexBudget, RepositoryLimits, SkipCategory, SkippedPath};
 use crate::linker::{
     GO_LINKER, JAVA_LINKER, JS_LINKER, Linker, MAX_EXPORT_CHASE, PHP_LINKER, PYTHON_LINKER,
     RUBY_LINKER, RUST_LINKER,
 };
 use crate::snapshot::InputRecord;
+use crate::{CRAWL_SKIP_DIRS, walked_repo_path};
 use effinterp_proto::content_digest;
 
 use go_build::go_source_selected;
@@ -49,16 +50,17 @@ use php_psr4::{collect_php_psr4, php_class_paths};
 use python_layout::python_module_key;
 use rust_crates::{RustCrate, collect_rust_crates, rust_scope};
 
-const SKIP_DIRS: [&str; 5] = ["node_modules", ".git", "target", "vendor", ".claude"];
 // Ordinary package re-exports execute exactly; only registry-sized import hubs
 // widen instead of materializing every provider.
 const MAX_EAGER_PYTHON_REGISTRATIONS: usize = 128;
 type GoTypeKey = (String, String, String);
 
-pub(crate) fn invalidation_for_path(path: &str) -> Option<crate::index::InvalidationAction> {
+pub(crate) fn invalidation_for_path(
+    path: &str,
+) -> Option<crate::index::incremental_update::InvalidationAction> {
     lang_of(Path::new(path))
         .is_some()
-        .then_some(crate::index::InvalidationAction::Reextract)
+        .then_some(crate::index::incremental_update::InvalidationAction::Reextract)
 }
 
 /// One analyzed source file: its module key, language, extracted surface, and
@@ -109,7 +111,7 @@ fn update_summary(file: &mut Arc<ModuleFile>, update: impl FnOnce(&mut ModuleSum
 
 /// The repository's modules, indexed for import resolution.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Registry {
+pub struct ModuleRegistry {
     #[serde(skip)]
     engine_limits: effinterp_proto::Limits,
     #[serde(skip)]
@@ -169,7 +171,7 @@ pub struct Registry {
     php_classes: BTreeMap<String, String>,
 }
 
-impl Default for Registry {
+impl Default for ModuleRegistry {
     fn default() -> Self {
         Self {
             engine_limits: effinterp_engine::default_limits(),
@@ -202,7 +204,7 @@ impl Default for Registry {
     }
 }
 
-impl Registry {
+impl ModuleRegistry {
     pub(crate) fn value_limits(&self) -> effinterp_engine::ValueLimits {
         effinterp_engine::AnalysisLimits::from_map(&self.engine_limits)
             .expect("validated registry limits")
@@ -291,7 +293,10 @@ impl Registry {
     }
 
     /// Build the registry by scanning source files under `root`.
-    pub fn build(root: &Path, limits: &CrawlLimits) -> (Registry, Vec<Skip>, Vec<InputRecord>) {
+    pub fn build(
+        root: &Path,
+        limits: &CrawlLimits,
+    ) -> (ModuleRegistry, Vec<SkippedPath>, Vec<InputRecord>) {
         Self::build_inner(
             root,
             limits,
@@ -312,7 +317,7 @@ impl Registry {
         budget: &mut IndexBudget,
         engine_limits: &effinterp_proto::Limits,
         admitted: Option<&BTreeSet<String>>,
-    ) -> (Registry, Vec<Skip>, Vec<InputRecord>) {
+    ) -> (ModuleRegistry, Vec<SkippedPath>, Vec<InputRecord>) {
         Self::build_inner(
             root,
             limits,
@@ -333,10 +338,10 @@ impl Registry {
         budget: &mut IndexBudget,
         engine_limits: &effinterp_proto::Limits,
         admitted: Option<&BTreeSet<String>>,
-    ) -> (Registry, Vec<Skip>, Vec<InputRecord>) {
+    ) -> (ModuleRegistry, Vec<SkippedPath>, Vec<InputRecord>) {
         let mut skips = Vec::new();
         let mut admit_metadata = |path: &Path| {
-            let relative = rel(root, path);
+            let relative = walked_repo_path(root, path);
             if admitted.is_some_and(|admitted| !admitted.contains(&relative)) {
                 return false;
             }
@@ -348,7 +353,7 @@ impl Registry {
             }
             if let Err(limit) = budget.charge(1, metadata.len()) {
                 if skips.len() < limits.max_skips {
-                    skips.push(Skip {
+                    skips.push(SkippedPath {
                         path: relative,
                         category: SkipCategory::Limit,
                         reason: limit.into(),
@@ -364,7 +369,7 @@ impl Registry {
         } else {
             Vec::new()
         };
-        let mut reg = Registry {
+        let mut reg = ModuleRegistry {
             engine_limits: engine_limits.clone(),
             source_root: root.to_path_buf(),
             source_limit: limits.max_file_bytes,
@@ -373,7 +378,7 @@ impl Registry {
             rust_crates: collect_rust_crates(root, &mut admit_metadata),
             js_packages: named_js_packages(root, &mut admit_metadata),
             php_psr4: collect_php_psr4(root, &mut admit_metadata),
-            ..Registry::default()
+            ..ModuleRegistry::default()
         };
         let mut manifest = Vec::new();
         let mut seen: u64 = 0;
@@ -565,7 +570,7 @@ impl Registry {
         &mut self,
         roots: &BTreeSet<String>,
         budget: &mut IndexBudget,
-        skips: &mut Vec<Skip>,
+        skips: &mut Vec<SkippedPath>,
         max_skips: usize,
     ) -> Vec<String> {
         let mut pending: Vec<String> = roots.iter().cloned().collect();
@@ -584,7 +589,7 @@ impl Registry {
                 };
                 if let Err(limit) = budget.charge(1, 0) {
                     if skips.len() < max_skips {
-                        skips.push(Skip {
+                        skips.push(SkippedPath {
                             path,
                             category: SkipCategory::Limit,
                             reason: limit.into(),
@@ -622,7 +627,7 @@ impl Registry {
                 };
                 if let Err(limit) = budget.charge(0, file.summary.retained_bytes()) {
                     if skips.len() < max_skips {
-                        skips.push(Skip {
+                        skips.push(SkippedPath {
                             path,
                             category: SkipCategory::Limit,
                             reason: limit.into(),
@@ -766,7 +771,7 @@ impl Registry {
         roots: &BTreeSet<String>,
         budget: &mut IndexBudget,
         max_skips: usize,
-    ) -> (Vec<String>, Vec<Skip>) {
+    ) -> (Vec<String>, Vec<SkippedPath>) {
         let mut skipped = Vec::new();
         for input in manifest {
             if lang_of(Path::new(&input.path)) == Some(Lang::Python) {
@@ -788,7 +793,7 @@ impl Registry {
                     self.python_sources.remove(&input.path);
                     self.files.remove(&input.path);
                     if skipped.len() < max_skips {
-                        skipped.push(Skip {
+                        skipped.push(SkippedPath {
                             path: input.path.clone(),
                             category: SkipCategory::Limit,
                             reason: limit.into(),
@@ -801,7 +806,7 @@ impl Registry {
                     Ok(_) => {
                         self.python_sources.remove(&input.path);
                         self.files.remove(&input.path);
-                        skipped.push(Skip {
+                        skipped.push(SkippedPath {
                             path: input.path.clone(),
                             category: SkipCategory::Failure,
                             reason: "changed during Python materialization".to_string(),
@@ -811,7 +816,7 @@ impl Registry {
                     Err(error) => {
                         self.python_sources.remove(&input.path);
                         self.files.remove(&input.path);
-                        skipped.push(Skip {
+                        skipped.push(SkippedPath {
                             path: input.path.clone(),
                             category: SkipCategory::Failure,
                             reason: format!("unreadable during Python materialization: {error}"),
@@ -1725,8 +1730,8 @@ fn scan(
     depth: u32,
     limits: &CrawlLimits,
     seen: &mut u64,
-    reg: &mut Registry,
-    skips: &mut Vec<Skip>,
+    reg: &mut ModuleRegistry,
+    skips: &mut Vec<SkippedPath>,
     manifest: &mut Vec<InputRecord>,
     eager_python: bool,
     budget: &mut IndexBudget,
@@ -1751,7 +1756,7 @@ fn scan(
         }
         if ft.is_dir() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if SKIP_DIRS.contains(&name.as_str()) || name == ".claude" {
+            if CRAWL_SKIP_DIRS.contains(&name.as_str()) || name == ".claude" {
                 continue;
             }
             scan(
@@ -1779,7 +1784,7 @@ fn scan(
                 return;
             }
             *seen += 1;
-            let relpath = rel(root, &path);
+            let relpath = walked_repo_path(root, &path);
             if admitted.is_some_and(|admitted| !admitted.contains(&relpath)) {
                 continue;
             }
@@ -1787,7 +1792,7 @@ fn scan(
                 && m.len() > limits.max_file_bytes
             {
                 if ext_lang.is_some() && skips.len() < limits.max_skips {
-                    skips.push(Skip {
+                    skips.push(SkippedPath {
                         path: relpath,
                         category: SkipCategory::Limit,
                         reason: format!("file exceeds max_file_bytes ({} bytes)", m.len()),
@@ -1797,7 +1802,7 @@ fn scan(
             }
             if let Err(limit) = budget.charge(0, 0) {
                 if skips.len() < limits.max_skips {
-                    skips.push(Skip {
+                    skips.push(SkippedPath {
                         path: relpath,
                         category: SkipCategory::Limit,
                         reason: limit.into(),
@@ -1809,7 +1814,7 @@ fn scan(
                 Ok(c) => c,
                 Err(e) => {
                     if ext_lang.is_some() && skips.len() < limits.max_skips {
-                        skips.push(Skip {
+                        skips.push(SkippedPath {
                             path: relpath,
                             category: SkipCategory::Failure,
                             reason: format!("unreadable or non-utf8: {e}"),
@@ -1838,7 +1843,7 @@ fn scan(
                 content.len() as u64,
             ) {
                 if skips.len() < limits.max_skips {
-                    skips.push(Skip {
+                    skips.push(SkippedPath {
                         path: relpath,
                         category: SkipCategory::Limit,
                         reason: limit.into(),
@@ -1846,7 +1851,10 @@ fn scan(
                 }
                 continue;
             }
-            let file_dir = path.parent().map(|p| rel(root, p)).unwrap_or_default();
+            let file_dir = path
+                .parent()
+                .map(|p| walked_repo_path(root, p))
+                .unwrap_or_default();
             if lang == Lang::Python {
                 reg.python_sources.insert(
                     relpath.clone(),
@@ -1871,7 +1879,7 @@ fn scan(
             );
             if let Err(limit) = budget.charge(0, summary.retained_bytes()) {
                 if skips.len() < limits.max_skips {
-                    skips.push(Skip {
+                    skips.push(SkippedPath {
                         path: relpath,
                         category: SkipCategory::Limit,
                         reason: limit.into(),
@@ -2130,10 +2138,6 @@ fn fill_go_instance_type(
         }
         _ => {}
     }
-}
-
-fn rel(root: &Path, path: &Path) -> String {
-    crate::canonical_repo_path(root, path).expect("walked repository path is canonical")
 }
 
 #[cfg(test)]

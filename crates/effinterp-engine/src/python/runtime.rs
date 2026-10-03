@@ -137,7 +137,7 @@ pub(crate) fn runtime_imports(
                         && function.args.kwonlyargs.is_empty()
                         && function.args.vararg.is_none()
                         && function.args.kwarg.is_none()
-                        && !super::body_has_yield(&function.body)
+                        && !super::definitions::body_has_yield(&function.body)
                     {
                         functions.insert(function.name.as_str(), function.body.as_slice());
                     } else {

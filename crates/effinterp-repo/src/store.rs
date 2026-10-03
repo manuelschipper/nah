@@ -14,7 +14,7 @@ use serde::Serialize;
 
 use crate::compose::Composition;
 use crate::dispatch::DispatchVia;
-use crate::index::{AnalyzedEntrypoint, RepoIndex, Skip};
+use crate::index::{AnalyzedEntrypoint, RepoIndex, SkippedPath};
 use crate::snapshot::DependencyManifest;
 
 /// Schema identifier every stored repo index must carry.
@@ -189,7 +189,7 @@ struct StoredIndex {
     skipped_roots: BTreeSet<String>,
     snapshot_state: AnalysisStatus,
     entrypoints: Vec<AnalyzedEntrypoint>,
-    skipped: Vec<Skip>,
+    skipped: Vec<SkippedPath>,
     skips_truncated: bool,
     launch_edges: Vec<crate::discover::LaunchEdge>,
     go_root_effects: BTreeMap<String, Vec<crate::index::GoRootEffect>>,

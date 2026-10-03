@@ -9,7 +9,7 @@ use std::path::Path;
 use effinterp_proto::{
     AnalysisStatus, BoundaryReason, CoverageLevel, PartialReason, display_resource,
 };
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 fn build(root: &Path) -> effinterp_repo::RepoIndex {
@@ -112,7 +112,11 @@ fn provenance_roots_distinguish_converging_entrypoint_chains() {
         ],
     );
     let idx = build(&root);
-    let reach_report = reach(&idx, &Selector::parse("fs:/data/cache").unwrap(), None);
+    let reach_report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/data/cache").unwrap(),
+        None,
+    );
     let dag = &reach_report.provenance;
     let facts = reach_report
         .payload
@@ -149,7 +153,7 @@ fn reach_supports_operation_filtered_reverse_queries() {
         )],
     );
     let idx = build(&root);
-    let sel = Selector::parse("fs:/opt/data").unwrap();
+    let sel = ResourceSelector::parse("fs:/opt/data").unwrap();
 
     let deletes = reach(&idx, &sel, Some("delete"));
     assert_eq!(
@@ -294,7 +298,7 @@ fn reach_keeps_cross_domain_source_boundaries_without_effect_hits() {
         })
         .collect();
     for needle in ["db:public.users", "net:example.com", "env:HOME", "proc:rm"] {
-        let selector = Selector::parse(needle).unwrap();
+        let selector = ResourceSelector::parse(needle).unwrap();
         let expected: Vec<_> = all
             .iter()
             .filter(|(_, boundary)| {
@@ -379,7 +383,7 @@ fn every_non_full_domain_is_explained_by_a_retained_boundary() {
 /// The status of a repository-wide reverse query, which answers for every
 /// entrypoint and every skipped input that could be one.
 fn repository_status(index: &effinterp_repo::RepoIndex) -> AnalysisStatus {
-    reach(index, &Selector::parse("fs:/**").unwrap(), None).status
+    reach(index, &ResourceSelector::parse("fs:/**").unwrap(), None).status
 }
 
 #[test]
@@ -469,7 +473,7 @@ fn repository_wide_query_stays_partial_when_a_skipped_source_could_be_an_entrypo
     ));
     let no_hits = reach(
         &index,
-        &Selector::parse("fs:/**").unwrap(),
+        &ResourceSelector::parse("fs:/**").unwrap(),
         Some("database.delete"),
     );
     assert!(no_hits.payload.as_reach().unwrap().matches.is_empty());
@@ -618,7 +622,7 @@ fn full_zero_effects_requires_every_selected_root_to_claim_the_domain() {
     assert!(empty.coverage.domains.is_empty());
     validate_repo_query(&empty).unwrap();
 
-    let all = reach(&index, &Selector::parse("fs:/**").unwrap(), None);
+    let all = reach(&index, &ResourceSelector::parse("fs:/**").unwrap(), None);
     assert_eq!(
         all.coverage.domains["filesystem"].level,
         CoverageLevel::Partial
@@ -641,7 +645,7 @@ fn full_zero_effects_requires_every_selected_root_to_claim_the_domain() {
     };
     let independent = effects_of(&index, "full.sh").unwrap();
     assert_eq!(full.to_canonical_json(), independent.to_canonical_json());
-    let all = reach(&index, &Selector::parse("fs:/**").unwrap(), None);
+    let all = reach(&index, &ResourceSelector::parse("fs:/**").unwrap(), None);
     assert!(
         all.boundaries
             .iter()
@@ -756,7 +760,7 @@ fn reach_effect_proofs_agree_with_proto_and_keep_unknown_effects_separate() {
     let index = build(&root);
     let forward = effects_of(&index, "run.sh").unwrap();
     for needle in ["fs:/tmp/output/.hidden/nested", "fs:/outside"] {
-        let selector = Selector::parse(needle).unwrap();
+        let selector = ResourceSelector::parse(needle).unwrap();
         let report = reach(&index, &selector, Some("filesystem.delete"));
         effinterp_proto::validate_repo_query(&report).unwrap();
         let rows = report.payload.as_reach().unwrap();
@@ -880,7 +884,7 @@ fn reach_compound_verbs_preserve_facts_and_collapse_boundary_reasons() {
     .unwrap();
 
     let index = build(&root);
-    let selector = Selector::parse("git:/repo").unwrap();
+    let selector = ResourceSelector::parse("git:/repo").unwrap();
     let all = reach(&index, &selector, None);
     let writes = reach(&index, &selector, Some("write"));
     effinterp_proto::validate_repo_query(&writes).unwrap();

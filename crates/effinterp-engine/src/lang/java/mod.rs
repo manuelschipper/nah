@@ -38,6 +38,7 @@ use crate::lang::frontend::{
     Frontend, FrontendInput, MAX_CALLBACK_VALUES, MAX_WALK_DEPTH, ParseFailure, ParseOutcome,
     WalkOutcome,
 };
+use crate::value::unresolved_resource;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use effinterp_proto::{
@@ -753,7 +754,7 @@ fn collect_stable_field_values(
             {
                 let repeated = !assigned_constructor_fields.insert(field.clone());
                 let value = if repeated || guarded_assignment(node, src) {
-                    unresolved("filesystem")
+                    unresolved_resource("filesystem")
                 } else {
                     resolve_typed_expr(value, src, &env, constants, &types)
                 };
@@ -1509,7 +1510,7 @@ impl<'a> Ctx<'a> {
         {
             let value = if class.unstable_constructor_fields.contains(&field) {
                 frame.giveups.insert(field.clone());
-                unresolved("filesystem")
+                unresolved_resource("filesystem")
             } else {
                 resolve_typed_expr(
                     right,
@@ -1810,7 +1811,7 @@ impl<'a> Ctx<'a> {
             if identity_java_call(&ty, name, n, self.src) {
                 return;
             }
-            if let Some(ops) = model_ops(&ty, name, unresolved("filesystem"), &args) {
+            if let Some(ops) = model_ops(&ty, name, unresolved_resource("filesystem"), &args) {
                 let ops = filter_file_stream_ops(ops, &ty, name, n, self.src, &frame.types);
                 self.emit_giveup_boundaries(builder, n, frame, &ops);
                 self.emit_ops(builder, n, ops, model_transfer(&ty, name));
@@ -2013,7 +2014,8 @@ impl<'a> Ctx<'a> {
             "method_reference" => {
                 if let Some((receiver, name)) = method_reference_parts(callback, self.src) {
                     if let Some(ty) = self.file.jdk_fqn(receiver).map(|_| bare_type(receiver))
-                        && let Some(ops) = model_ops(&ty, name, unresolved("filesystem"), inputs)
+                        && let Some(ops) =
+                            model_ops(&ty, name, unresolved_resource("filesystem"), inputs)
                     {
                         self.emit_ops(builder, callback, ops, model_transfer(&ty, name));
                         return;
@@ -2066,12 +2068,12 @@ impl<'a> Ctx<'a> {
         types: &HashMap<String, String>,
     ) -> Vec<ResourceExpr> {
         let Some(source) = callback_input_source(invocation, self.file, self.src) else {
-            return vec![unresolved("value")];
+            return vec![unresolved_resource("value")];
         };
         let mut args = self.arg_exprs(source, env, types);
         if args.len() > MAX_CALLBACK_VALUES {
             args.truncate(MAX_CALLBACK_VALUES);
-            args.push(unresolved("value"));
+            args.push(unresolved_resource("value"));
         }
         args
     }
@@ -2317,7 +2319,7 @@ impl<'a> Ctx<'a> {
             reason,
             class: BoundaryClass::Unresolved,
             scope: BoundaryScope::Invocation,
-            affected_resource: Some(unresolved(domain)),
+            affected_resource: Some(unresolved_resource(domain)),
             callee: None,
             domains: vec![Domain::new(domain)],
             provenance: vec![node],
@@ -2816,7 +2818,7 @@ impl<'a> Ctx<'a> {
                 .first()
                 .cloned()
                 .map(network_sink)
-                .unwrap_or(unresolved("network"));
+                .unwrap_or(unresolved_resource("network"));
             let verb = first_argument(n).and_then(|argument| {
                 http_verb_of_expr(argument, self.src, &frame.http_verbs, &self.file.constants)
             });
@@ -3313,7 +3315,7 @@ fn inline_full(
                     resource @ ResourceExpr::Concrete {
                         identity: ResourceIdentity::EnvironmentVariable { .. },
                     } => resource.clone(),
-                    _ => unresolved("environment"),
+                    _ => unresolved_resource("environment"),
                 };
             }
             let value = SemanticValue::from(&specialized.resource);
@@ -4052,7 +4054,7 @@ impl<'a> SumCtx<'a> {
                     reason: BoundaryReason::UNMODELED_DYNAMIC,
                     class: BoundaryClass::Unresolved,
                     scope: BoundaryScope::Invocation,
-                    affected_resource: Some(unresolved(domain)),
+                    affected_resource: Some(unresolved_resource(domain)),
                     callee: None,
                     domains: vec![Domain::new(domain)],
                     provenance: Vec::new(),
@@ -4409,7 +4411,9 @@ impl<'a> SumCtx<'a> {
             self.push_effects(
                 vec![(
                     "process.exec",
-                    args.first().cloned().unwrap_or(unresolved("process")),
+                    args.first()
+                        .cloned()
+                        .unwrap_or(unresolved_resource("process")),
                     None,
                 )],
                 None,
@@ -4423,7 +4427,7 @@ impl<'a> SumCtx<'a> {
                 .map(|x| {
                     resolve_typed_expr(x, self.src, &self.env, &self.file.constants, &self.types)
                 })
-                .unwrap_or(unresolved("process"));
+                .unwrap_or(unresolved_resource("process"));
             self.push_effects(vec![("process.exec", res, None)], None);
             return;
         }
@@ -4455,7 +4459,7 @@ impl<'a> SumCtx<'a> {
                 .first()
                 .cloned()
                 .map(network_sink)
-                .unwrap_or(unresolved("network"));
+                .unwrap_or(unresolved_resource("network"));
             let verb = first_argument(n).and_then(|argument| {
                 http_verb_of_expr(argument, self.src, &self.http_verbs, &self.file.constants)
             });
@@ -4561,12 +4565,12 @@ impl<'a> SumCtx<'a> {
 
     fn callback_inputs(&self, invocation: Node) -> Vec<ResourceExpr> {
         let Some(source) = callback_input_source(invocation, self.file, self.src) else {
-            return vec![unresolved("value")];
+            return vec![unresolved_resource("value")];
         };
         let mut args = self.args_of(source);
         if args.len() > MAX_CALLBACK_VALUES {
             args.truncate(MAX_CALLBACK_VALUES);
-            args.push(unresolved("value"));
+            args.push(unresolved_resource("value"));
         }
         args
     }
@@ -4604,7 +4608,8 @@ impl<'a> SumCtx<'a> {
             "method_reference" => {
                 if let Some((receiver, name)) = method_reference_parts(callback, self.src)
                     && let Some(ty) = self.file.jdk_fqn(receiver).map(|_| bare_type(receiver))
-                    && let Some(ops) = model_ops(&ty, name, unresolved("filesystem"), inputs)
+                    && let Some(ops) =
+                        model_ops(&ty, name, unresolved_resource("filesystem"), inputs)
                 {
                     self.push_effects(ops, model_transfer(&ty, name));
                 } else if let Some((receiver, name)) = method_reference_parts(callback, self.src) {
@@ -4902,7 +4907,7 @@ fn env_resource(args: &[ResourceExpr]) -> ResourceExpr {
             identity: ResourceIdentity::EnvironmentVariable { name: path.clone() },
         },
         Some(expr @ (ResourceExpr::Parameter { .. } | ResourceExpr::Join { .. })) => expr.clone(),
-        _ => unresolved("environment"),
+        _ => unresolved_resource("environment"),
     }
 }
 
@@ -4973,7 +4978,7 @@ fn resolve_expr_at(
     depth: u32,
 ) -> ResourceExpr {
     if depth >= MAX_WALK_DEPTH {
-        return unresolved("filesystem");
+        return unresolved_resource("filesystem");
     }
     match n.kind() {
         "string_literal" => concrete(&unquote(text(n, src))),
@@ -4997,7 +5002,7 @@ fn resolve_expr_at(
             if n.child_by_field_name("operator")
                 .is_none_or(|operator| text(operator, src) != "+")
             {
-                return unresolved("filesystem");
+                return unresolved_resource("filesystem");
             }
             // "a" + b -> join of the two sides.
             let mut c = n.walk();
@@ -5008,19 +5013,19 @@ fn resolve_expr_at(
             if parts.len() == 2 {
                 ResourceExpr::Join { parts }
             } else {
-                unresolved("filesystem")
+                unresolved_resource("filesystem")
             }
         }
         "parenthesized_expression" | "cast_expression" => n
             .child_by_field_name("value")
             .or_else(|| n.named_child(0))
             .map(|value| resolve_expr_at(value, src, env, constants, types, depth + 1))
-            .unwrap_or(unresolved("filesystem")),
+            .unwrap_or(unresolved_resource("filesystem")),
         "array_initializer" => {
             let mut cursor = n.walk();
             let values: Vec<_> = n.named_children(&mut cursor).collect();
             if values.is_empty() || values.iter().any(|value| value.kind() != "string_literal") {
-                unresolved("filesystem")
+                unresolved_resource("filesystem")
             } else {
                 ResourceExpr::Union {
                     alternatives: values
@@ -5032,11 +5037,11 @@ fn resolve_expr_at(
         }
         "array_access" => {
             let Some(array) = n.child_by_field_name("array") else {
-                return unresolved("filesystem");
+                return unresolved_resource("filesystem");
             };
             let value = resolve_expr_at(array, src, env, constants, types, depth + 1);
             let ResourceExpr::Union { alternatives } = value else {
-                return unresolved("filesystem");
+                return unresolved_resource("filesystem");
             };
             n.child_by_field_name("index")
                 .and_then(|index| text(index, src).parse::<usize>().ok())
@@ -5054,13 +5059,13 @@ fn resolve_expr_at(
                 && object_text.rsplit('.').next() == Some("System")
             {
                 let Some(argument) = first_argument(n) else {
-                    return unresolved("environment");
+                    return unresolved_resource("environment");
                 };
                 return match resolve_expr_at(argument, src, env, constants, types, depth + 1) {
                     ResourceExpr::Concrete {
                         identity: ResourceIdentity::FsPath { path },
                     } if !path.is_empty() => ResourceExpr::Environment { name: path },
-                    _ => unresolved("environment"),
+                    _ => unresolved_resource("environment"),
                 };
             }
             if (name == "format" && object_text.rsplit('.').next() == Some("String"))
@@ -5080,7 +5085,7 @@ fn resolve_expr_at(
                             depth + 1,
                         ))
                     })
-                    .unwrap_or(unresolved("network"));
+                    .unwrap_or(unresolved_resource("network"));
             }
             if name == "newBuilder" && object_text.rsplit('.').next() == Some("HttpRequest") {
                 return first_argument(n)
@@ -5094,7 +5099,7 @@ fn resolve_expr_at(
                             depth + 1,
                         ))
                     })
-                    .unwrap_or(unresolved("network"));
+                    .unwrap_or(unresolved_resource("network"));
             }
             if matches!(
                 name,
@@ -5133,13 +5138,13 @@ fn resolve_expr_at(
                             .map(|x| resolve_expr_at(x, src, env, constants, types, depth + 1)),
                     );
                     return match parts.len() {
-                        0 => unresolved("filesystem"),
+                        0 => unresolved_resource("filesystem"),
                         1 => parts.into_iter().next().unwrap(),
                         _ => ResourceExpr::Join { parts },
                     };
                 }
             }
-            unresolved("filesystem")
+            unresolved_resource("filesystem")
         }
         "object_creation_expression" => {
             let ty = n
@@ -5152,15 +5157,15 @@ fn resolve_expr_at(
                 "filesystem"
             };
             let Some(arguments) = n.child_by_field_name("arguments") else {
-                return unresolved(family);
+                return unresolved_resource(family);
             };
             let mut cursor = arguments.walk();
             let arguments: Vec<_> = arguments.named_children(&mut cursor).collect();
             let Some(argument) = arguments.first().copied() else {
-                return unresolved(family);
+                return unresolved_resource(family);
             };
             if matches!(ty.as_str(), "URL" | "URI") && arguments.len() > 1 {
-                return unresolved(family);
+                return unresolved_resource(family);
             }
             if ty == "File" && arguments.len() == 2 {
                 return ResourceExpr::Join {
@@ -5195,9 +5200,9 @@ fn resolve_expr_at(
             {
                 return concrete(value);
             }
-            unresolved("filesystem")
+            unresolved_resource("filesystem")
         }
-        _ => unresolved("filesystem"),
+        _ => unresolved_resource("filesystem"),
     }
 }
 
@@ -5232,7 +5237,7 @@ fn resolve_string_format(
         .map(|node| text(node, src))
         .unwrap_or("");
     let Some(arguments) = invocation.child_by_field_name("arguments") else {
-        return unresolved("filesystem");
+        return unresolved_resource("filesystem");
     };
     let mut cursor = arguments.walk();
     let mut arguments: Vec<Node> = arguments.named_children(&mut cursor).collect();
@@ -5241,7 +5246,7 @@ fn resolve_string_format(
             .first()
             .is_none_or(|node| node.kind() != "string_literal")
         {
-            return unresolved("filesystem");
+            return unresolved_resource("filesystem");
         }
         unquote(text(arguments.remove(0), src))
     } else {
@@ -5249,7 +5254,7 @@ fn resolve_string_format(
             .child_by_field_name("object")
             .filter(|node| node.kind() == "string_literal")
         else {
-            return unresolved("filesystem");
+            return unresolved_resource("filesystem");
         };
         unquote(text(format, src))
     };
@@ -5260,10 +5265,10 @@ fn resolve_string_format(
     while let Some(relative) = format[offset..].find('%') {
         let specifier = offset + relative;
         let Some(spec) = format.as_bytes().get(specifier + 1) else {
-            return unresolved("filesystem");
+            return unresolved_resource("filesystem");
         };
         if !matches!(spec, b's' | b'd') || argument >= arguments.len() {
-            return unresolved("filesystem");
+            return unresolved_resource("filesystem");
         }
         if specifier > offset {
             parts.push(concrete(&format[offset..specifier]));
@@ -5280,7 +5285,7 @@ fn resolve_string_format(
         offset = specifier + 2;
     }
     if argument != arguments.len() {
-        return unresolved("filesystem");
+        return unresolved_resource("filesystem");
     }
     if offset < format.len() {
         parts.push(concrete(&format[offset..]));
@@ -5366,7 +5371,9 @@ fn is_unresolved(resource: &ResourceExpr) -> bool {
 fn poison_local(name: &str, frame: &mut Frame<'_>) {
     frame.poisoned.insert(name.to_string());
     frame.giveups.insert(name.to_string());
-    frame.env.insert(name.to_string(), unresolved("filesystem"));
+    frame
+        .env
+        .insert(name.to_string(), unresolved_resource("filesystem"));
     invalidate_argv_local(name, frame);
 }
 
@@ -5383,7 +5390,7 @@ fn poison_summary_local(name: &str, context: &mut SumCtx<'_>) {
     context.giveups.insert(name.to_string());
     context
         .env
-        .insert(name.to_string(), unresolved("filesystem"));
+        .insert(name.to_string(), unresolved_resource("filesystem"));
 }
 
 fn assigned_local(left: Node, src: &[u8]) -> Option<(String, bool)> {
@@ -5551,11 +5558,11 @@ fn filesystem_sink(resource: ResourceExpr) -> ResourceExpr {
         },
         ResourceExpr::Literal { .. } => crate::value::sink_typed_join(vec![resource], "filesystem"),
         ResourceExpr::Unresolved { ref family } if family.0 != "filesystem" => {
-            unresolved("filesystem")
+            unresolved_resource("filesystem")
         }
         ResourceExpr::Concrete {
             identity: ResourceIdentity::NetworkEndpoint { .. },
-        } => unresolved("filesystem"),
+        } => unresolved_resource("filesystem"),
         resource => resource,
     }
 }
@@ -5574,7 +5581,7 @@ fn network_value(resource: ResourceExpr) -> ResourceExpr {
         ResourceExpr::Unresolved { ref family }
             if !matches!(family.0.as_ref(), "network" | "environment") =>
         {
-            unresolved("network")
+            unresolved_resource("network")
         }
         resource => resource,
     }
@@ -5616,7 +5623,7 @@ fn network_sink(resource: ResourceExpr) -> ResourceExpr {
         }
         | ResourceExpr::Parameter { .. }
         | ResourceExpr::Environment { .. }) => resource,
-        _ => unresolved("network"),
+        _ => unresolved_resource("network"),
     }
 }
 
@@ -5738,12 +5745,15 @@ fn iterable_element(
     {
         first_argument(call)
             .map(|argument| resolve_expr(argument, src, env, constants))
-            .unwrap_or(unresolved("filesystem"))
+            .unwrap_or(unresolved_resource("filesystem"))
     } else {
         return None;
     };
     Some(crate::value::sink_typed_join(
-        vec![filesystem_sink(directory), unresolved("filesystem")],
+        vec![
+            filesystem_sink(directory),
+            unresolved_resource("filesystem"),
+        ],
         "filesystem",
     ))
 }
@@ -5806,12 +5816,6 @@ fn concrete(path: &str) -> ResourceExpr {
         identity: ResourceIdentity::FsPath {
             path: path.to_string(),
         },
-    }
-}
-
-fn unresolved(family: &str) -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new(family),
     }
 }
 

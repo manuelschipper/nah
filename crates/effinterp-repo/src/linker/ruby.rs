@@ -4,7 +4,7 @@ pub(crate) struct RubyLinker;
 
 const MAX_RUBY_CLOSURE: usize = 128;
 
-fn ruby_require_closure<'a>(reg: &'a Registry, start: &ModuleFile) -> Vec<&'a ModuleFile> {
+fn ruby_require_closure<'a>(reg: &'a ModuleRegistry, start: &ModuleFile) -> Vec<&'a ModuleFile> {
     let mut seen = HashSet::new();
     seen.insert(start.path.clone());
     let mut queue = VecDeque::new();
@@ -44,7 +44,11 @@ fn ruby_require_closure<'a>(reg: &'a Registry, start: &ModuleFile) -> Vec<&'a Mo
     out
 }
 
-fn ruby_fallback_classes(reg: &Registry, file: &ModuleFile, name: &str) -> Vec<ResolvedObject> {
+fn ruby_fallback_classes(
+    reg: &ModuleRegistry,
+    file: &ModuleFile,
+    name: &str,
+) -> Vec<ResolvedObject> {
     if name.contains('.') || name.contains("::") {
         return Vec::new();
     }
@@ -69,7 +73,11 @@ fn ruby_fallback_classes(reg: &Registry, file: &ModuleFile, name: &str) -> Vec<R
     out
 }
 
-fn ruby_qualified_classes(reg: &Registry, file: &ModuleFile, name: &str) -> Vec<ResolvedObject> {
+fn ruby_qualified_classes(
+    reg: &ModuleRegistry,
+    file: &ModuleFile,
+    name: &str,
+) -> Vec<ResolvedObject> {
     let mut matches = Vec::new();
     for target in std::iter::once(file).chain(ruby_require_closure(reg, file)) {
         if let Some((_, local)) = target
@@ -91,7 +99,11 @@ fn ruby_qualified_classes(reg: &Registry, file: &ModuleFile, name: &str) -> Vec<
 
 /// Resolve a qualified Ruby constant from exact namespace evidence, or from
 /// the required file whose path mirrors the namespace.
-fn ruby_constant_class(reg: &Registry, file: &ModuleFile, name: &str) -> Option<ResolvedObject> {
+fn ruby_constant_class(
+    reg: &ModuleRegistry,
+    file: &ModuleFile,
+    name: &str,
+) -> Option<ResolvedObject> {
     let (namespace, class) = name.rsplit_once("::").unwrap_or(("", name));
     if namespace.is_empty() {
         if class_defined(file, class) {
@@ -142,7 +154,7 @@ fn ruby_constant_class(reg: &Registry, file: &ModuleFile, name: &str) -> Option<
 
 fn ruby_qualified_method<'a>(
     linker: &dyn Linker,
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     file: &'a ModuleFile,
     class: &str,
     method: &str,
@@ -203,7 +215,7 @@ impl Linker for RubyLinker {
 
     fn resolve_callee<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         callee: &str,
     ) -> Resolution<'a> {
@@ -229,7 +241,7 @@ impl Linker for RubyLinker {
 
     fn class_candidates<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         name: &str,
     ) -> Vec<(ResolvedObject, Assurance)> {
@@ -254,7 +266,7 @@ impl Linker for RubyLinker {
 
     fn resolve_method<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         inst: &ResolvedObject,
         method: &str,
     ) -> Resolution<'a> {
@@ -307,7 +319,7 @@ impl Linker for RubyLinker {
 
     fn classify_external(
         &self,
-        _reg: &Registry,
+        _reg: &ModuleRegistry,
         _module: &str,
         _member: &str,
         _arity: Option<usize>,
@@ -317,7 +329,7 @@ impl Linker for RubyLinker {
 
     fn classify_import(
         &self,
-        reg: &Registry,
+        reg: &ModuleRegistry,
         _file: &ModuleFile,
         spec: &str,
     ) -> Option<ExternalCall> {
@@ -327,7 +339,12 @@ impl Linker for RubyLinker {
         })
     }
 
-    fn external_import_label(&self, reg: &Registry, _file: &ModuleFile, spec: &str) -> String {
+    fn external_import_label(
+        &self,
+        reg: &ModuleRegistry,
+        _file: &ModuleFile,
+        spec: &str,
+    ) -> String {
         if let Some((name, version, source)) = reg.ruby_gem(spec) {
             let version = if version.is_empty() {
                 "(version unspecified)"
@@ -342,7 +359,7 @@ impl Linker for RubyLinker {
 
     fn execution_roots<'a>(
         &self,
-        _reg: &'a Registry,
+        _reg: &'a ModuleRegistry,
         _file: &'a ModuleFile,
     ) -> Vec<(&'a ModuleFile, Option<&'a str>)> {
         Vec::new()

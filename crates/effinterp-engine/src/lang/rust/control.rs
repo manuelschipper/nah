@@ -12,7 +12,7 @@ pub(super) fn span(value: &impl Spanned) -> Span {
 }
 
 pub(super) fn build(graph: &mut Graph, body: &Block, opaque_cleanup: bool) {
-    let mut builder = Builder {
+    let mut builder = RustControlFlowBuilder {
         at: graph.entry(),
         graph,
     };
@@ -24,7 +24,7 @@ pub(super) fn build(graph: &mut Graph, body: &Block, opaque_cleanup: bool) {
 }
 
 pub(super) fn build_expr(graph: &mut Graph, expr: &Expr) {
-    let mut builder = Builder {
+    let mut builder = RustControlFlowBuilder {
         at: graph.entry(),
         graph,
     };
@@ -32,12 +32,12 @@ pub(super) fn build_expr(graph: &mut Graph, expr: &Expr) {
     builder.graph.jump(builder.at, Jump::Return);
 }
 
-struct Builder<'a> {
+struct RustControlFlowBuilder<'a> {
     at: Frontier,
     graph: &'a mut Graph,
 }
 
-impl Builder<'_> {
+impl RustControlFlowBuilder<'_> {
     fn block(&mut self, block: &Block) {
         for statement in &block.stmts {
             match statement {

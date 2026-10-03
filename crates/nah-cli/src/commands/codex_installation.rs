@@ -1,6 +1,6 @@
 //! Installs and removes nah's user-level Codex PreToolUse hook.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
+use super::hook_paths::{HookLockErrorCodes, acquire_hook_lock};
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
 use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
@@ -81,7 +82,7 @@ fn install_hook(
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = CodexHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &CODEX_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     let mut hooks = load(&paths.hooks)?;
     let desired = desired_handler(executable, policy)?;
@@ -94,7 +95,7 @@ fn install_hook(
 
 fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = CodexHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &CODEX_HOOK_LOCK_ERRORS)?;
     reject_symlinks(&paths)?;
     if paths.hooks.exists() {
         let mut hooks = load(&paths.hooks)?;
@@ -124,34 +125,11 @@ impl CodexHookPaths {
     }
 }
 
-fn lock(paths: &CodexHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-codex-hook-lock-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "codex-hook-lock-failed")?;
-    match std::fs::symlink_metadata(&paths.lock) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            return Err("codex-hook-lock-failed".into());
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return Err("codex-hook-lock-failed".into()),
-    }
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "codex-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "codex-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "codex-hook-lock-failed")?;
-    Ok(file)
-}
+const CODEX_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-codex-hook-lock-path",
+    failed: "codex-hook-lock-failed",
+    permissions: "codex-hook-permissions-failed",
+};
 
 fn load(path: &Path) -> Result<Value, String> {
     reject_symlink(path)?;

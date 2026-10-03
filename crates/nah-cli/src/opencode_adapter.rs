@@ -10,10 +10,15 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    adapter_fields::runtime_field_names_covered,
+    adapter_fields::{
+        runtime_field_names_covered, tool_input_non_empty_string, tool_input_optional_bool,
+        tool_input_string,
+    },
     hook_adapter,
     runtime::{FailurePolicy, Runtime},
 };
+
+const INVALID_OPENCODE_TOOL_INPUT: &str = "invalid-opencode-tool-input";
 
 #[derive(Deserialize)]
 struct OpenCodeHookInput {
@@ -98,7 +103,7 @@ fn normalize(input: OpenCodeHookInput) -> Result<ToolCallInput, String> {
     let lowered = input
         .tool_input
         .as_object()
-        .ok_or_else(|| "invalid-opencode-tool-input".to_owned())
+        .ok_or_else(|| INVALID_OPENCODE_TOOL_INPUT.to_owned())
         .and_then(|object| lower(&input.tool_name, &input.tool_input, object));
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
@@ -127,32 +132,38 @@ fn lower<'a>(
     object: &Map<String, Value>,
 ) -> Result<(&'a str, Value), String> {
     Ok(match tool_name {
-        "shell" if object.get("workdir").is_none_or(Value::is_string) => {
-            ("Bash", json!({"command": string(object, "command")?}))
-        }
-        "shell" => return Err("invalid-opencode-tool-input".into()),
-        "read" => ("Read", json!({"file_path": non_empty(object, "path")?})),
+        "shell" if object.get("workdir").is_none_or(Value::is_string) => (
+            "Bash",
+            json!({"command": tool_input_string(object, "command", INVALID_OPENCODE_TOOL_INPUT)?}),
+        ),
+        "shell" => return Err(INVALID_OPENCODE_TOOL_INPUT.into()),
+        "read" => (
+            "Read",
+            json!({"file_path": tool_input_non_empty_string(object, "path", INVALID_OPENCODE_TOOL_INPUT)?}),
+        ),
         "write" => (
             "Write",
             json!({
-                "file_path": non_empty(object, "path")?,
-                "content": string(object, "content")?
+                "file_path": tool_input_non_empty_string(object, "path", INVALID_OPENCODE_TOOL_INPUT)?,
+                "content": tool_input_string(object, "content", INVALID_OPENCODE_TOOL_INPUT)?
             }),
         ),
         "edit" => {
             let mut normalized = json!({
-                "file_path": non_empty(object, "path")?,
-                "old_string": string(object, "oldString")?,
-                "new_string": string(object, "newString")?
+                "file_path": tool_input_non_empty_string(object, "path", INVALID_OPENCODE_TOOL_INPUT)?,
+                "old_string": tool_input_string(object, "oldString", INVALID_OPENCODE_TOOL_INPUT)?,
+                "new_string": tool_input_string(object, "newString", INVALID_OPENCODE_TOOL_INPUT)?
             });
-            if let Some(replace_all) = optional_bool(object, "replaceAll")? {
+            if let Some(replace_all) =
+                tool_input_optional_bool(object, "replaceAll", INVALID_OPENCODE_TOOL_INPUT)?
+            {
                 normalized["replace_all"] = json!(replace_all);
             }
             ("Edit", normalized)
         }
         "patch" => (
             "apply_patch",
-            json!({"command": non_empty(object, "patchText")?}),
+            json!({"command": tool_input_non_empty_string(object, "patchText", INVALID_OPENCODE_TOOL_INPUT)?}),
         ),
         "glob" => ("Glob", search_input(object)?),
         "grep" => ("Grep", search_input(object)?),
@@ -161,39 +172,14 @@ fn lower<'a>(
 }
 
 fn search_input(object: &Map<String, Value>) -> Result<Value, String> {
-    let mut input = json!({"pattern": string(object, "pattern")?});
+    let mut input =
+        json!({"pattern": tool_input_string(object, "pattern", INVALID_OPENCODE_TOOL_INPUT)?});
     match object.get("path") {
         Some(Value::String(path)) if !path.is_empty() => input["path"] = json!(path),
         Some(Value::String(_)) | None => {}
-        Some(_) => return Err("invalid-opencode-tool-input".into()),
+        Some(_) => return Err(INVALID_OPENCODE_TOOL_INPUT.into()),
     }
     Ok(input)
-}
-
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-opencode-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        if value.is_empty() {
-            Err("invalid-opencode-tool-input".into())
-        } else {
-            Ok(value)
-        }
-    })
-}
-
-fn optional_bool(object: &Map<String, Value>, name: &str) -> Result<Option<bool>, String> {
-    match object.get(name) {
-        Some(Value::Bool(value)) => Ok(Some(*value)),
-        None => Ok(None),
-        Some(_) => Err("invalid-opencode-tool-input".into()),
-    }
 }
 
 fn delegated(evaluation_failed: bool) -> Value {

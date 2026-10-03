@@ -8,10 +8,15 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::adapter_fields::runtime_field_names_covered;
+use crate::adapter_fields::{
+    runtime_field_names_covered, tool_input_non_empty_string, tool_input_object,
+    tool_input_optional_non_empty_string, tool_input_string,
+};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::live_state;
 use crate::runtime::{FailurePolicy, Runtime};
+
+const INVALID_CURSOR_TOOL_INPUT: &str = "invalid-cursor-tool-input";
 
 #[derive(Deserialize)]
 struct CursorHookInput {
@@ -189,50 +194,58 @@ fn lower<'a>(
 ) -> Result<(&'a str, Value, String), String> {
     Ok(match tool_name {
         "Shell" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
             let cwd = shell_cwd(object, fallback_cwd)?;
-            ("Bash", json!({"command": string(object, "command")?}), cwd)
+            (
+                "Bash",
+                json!({"command": tool_input_string(object, "command", INVALID_CURSOR_TOOL_INPUT)?}),
+                cwd,
+            )
         }
         "Read" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
             (
                 "Read",
-                json!({"file_path": non_empty(object, "file_path")?}),
+                json!({"file_path": tool_input_non_empty_string(object, "file_path", INVALID_CURSOR_TOOL_INPUT)?}),
                 fallback_cwd.to_owned(),
             )
         }
         "Write" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
             (
                 "Write",
                 json!({
-                    "file_path": non_empty(object, "file_path")?,
-                    "content": string(object, "content")?
+                    "file_path": tool_input_non_empty_string(object, "file_path", INVALID_CURSOR_TOOL_INPUT)?,
+                    "content": tool_input_string(object, "content", INVALID_CURSOR_TOOL_INPUT)?
                 }),
                 fallback_cwd.to_owned(),
             )
         }
         "Delete" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
             (
                 "Delete",
-                json!({"file_path": non_empty(object, "file_path")?}),
+                json!({"file_path": tool_input_non_empty_string(object, "file_path", INVALID_CURSOR_TOOL_INPUT)?}),
                 fallback_cwd.to_owned(),
             )
         }
         "Grep" => {
-            let object = object(tool_input)?;
-            let mut normalized = json!({"pattern": string(object, "pattern")?});
-            if let Some(path) = optional_non_empty(object, "file_path")? {
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
+            let mut normalized = json!({"pattern": tool_input_string(object, "pattern", INVALID_CURSOR_TOOL_INPUT)?});
+            if let Some(path) = tool_input_optional_non_empty_string(
+                object,
+                "file_path",
+                INVALID_CURSOR_TOOL_INPUT,
+            )? {
                 normalized["path"] = json!(path);
             }
             ("Grep", normalized, fallback_cwd.to_owned())
         }
         "List" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
             (
                 "Ls",
-                json!({"path": non_empty(object, "file_path")?}),
+                json!({"path": tool_input_non_empty_string(object, "file_path", INVALID_CURSOR_TOOL_INPUT)?}),
                 fallback_cwd.to_owned(),
             )
         }
@@ -241,44 +254,16 @@ fn lower<'a>(
 }
 
 fn shell_cwd(object: &Map<String, Value>, fallback: &str) -> Result<String, String> {
-    let cwd = optional_non_empty(object, "cwd")?;
-    let working_directory = optional_non_empty(object, "working_directory")?;
+    let cwd = tool_input_optional_non_empty_string(object, "cwd", INVALID_CURSOR_TOOL_INPUT)?;
+    let working_directory = tool_input_optional_non_empty_string(
+        object,
+        "working_directory",
+        INVALID_CURSOR_TOOL_INPUT,
+    )?;
     match (cwd, working_directory) {
-        (Some(left), Some(right)) if left != right => Err("invalid-cursor-tool-input".into()),
+        (Some(left), Some(right)) if left != right => Err(INVALID_CURSOR_TOOL_INPUT.into()),
         (Some(cwd), _) | (_, Some(cwd)) => Ok(cwd),
         (None, None) => Ok(fallback.to_owned()),
-    }
-}
-
-fn object(input: &Value) -> Result<&Map<String, Value>, String> {
-    input
-        .as_object()
-        .ok_or_else(|| "invalid-cursor-tool-input".to_owned())
-}
-
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-cursor-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        if value.is_empty() {
-            Err("invalid-cursor-tool-input".into())
-        } else {
-            Ok(value)
-        }
-    })
-}
-
-fn optional_non_empty(object: &Map<String, Value>, name: &str) -> Result<Option<String>, String> {
-    match object.get(name) {
-        Some(Value::String(value)) if !value.is_empty() => Ok(Some(value.clone())),
-        Some(Value::String(_)) | None => Ok(None),
-        Some(_) => Err("invalid-cursor-tool-input".into()),
     }
 }
 

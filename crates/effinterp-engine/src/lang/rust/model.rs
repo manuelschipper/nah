@@ -1,4 +1,5 @@
 use super::*;
+use crate::value::unresolved_resource;
 
 // ---------------------------------------------------------------------------
 // Effect model
@@ -688,7 +689,7 @@ pub(super) fn arg_resource(expr: &Expr, params: &HashSet<String>) -> ResourceExp
             syn::Lit::Str(s) => ResourceExpr::Concrete {
                 identity: ResourceIdentity::FsPath { path: s.value() },
             },
-            _ => unresolved_fs(),
+            _ => unresolved_resource("filesystem"),
         },
         Expr::Reference(r) => arg_resource(&r.expr, params),
         Expr::Path(p) => {
@@ -697,23 +698,23 @@ pub(super) fn arg_resource(expr: &Expr, params: &HashSet<String>) -> ResourceExp
             {
                 return ResourceExpr::Parameter { name };
             }
-            unresolved_fs()
+            unresolved_resource("filesystem")
         }
         Expr::Field(field) => {
             let Expr::Path(base) = field.base.as_ref() else {
-                return unresolved_fs();
+                return unresolved_resource("filesystem");
             };
             let Some("self") = single_ident(&base.path).as_deref() else {
-                return unresolved_fs();
+                return unresolved_resource("filesystem");
             };
             let syn::Member::Named(name) = &field.member else {
-                return unresolved_fs();
+                return unresolved_resource("filesystem");
             };
             let name = format!("self.{name}");
             if params.contains(&name) {
                 ResourceExpr::Parameter { name }
             } else {
-                unresolved_fs()
+                unresolved_resource("filesystem")
             }
         }
         Expr::MethodCall(m) => {
@@ -730,7 +731,7 @@ pub(super) fn arg_resource(expr: &Expr, params: &HashSet<String>) -> ResourceExp
                 "as_ref" | "as_path" | "clone" | "to_path_buf" | "to_owned" => {
                     arg_resource(&m.receiver, params)
                 }
-                _ => unresolved_fs(),
+                _ => unresolved_resource("filesystem"),
             }
         }
         Expr::Call(c) => {
@@ -741,9 +742,9 @@ pub(super) fn arg_resource(expr: &Expr, params: &HashSet<String>) -> ResourceExp
             {
                 return arg_resource(a, params);
             }
-            unresolved_fs()
+            unresolved_resource("filesystem")
         }
-        _ => unresolved_fs(),
+        _ => unresolved_resource("filesystem"),
     }
 }
 
@@ -959,9 +960,9 @@ fn symbolic_net(arg: &Expr, params: &HashSet<String>) -> ResourceExpr {
         Expr::Reference(r) => symbolic_net(&r.expr, params),
         Expr::Path(p) => match single_ident(&p.path) {
             Some(name) if params.contains(&name) => ResourceExpr::Parameter { name },
-            _ => unresolved_net(),
+            _ => unresolved_resource("network"),
         },
-        _ => unresolved_net(),
+        _ => unresolved_resource("network"),
     }
 }
 
@@ -977,7 +978,7 @@ fn parse_socket_addr(addr: &str) -> ResourceExpr {
         _ => (addr.to_string(), None),
     };
     if host.is_empty() {
-        return unresolved_net();
+        return unresolved_resource("network");
     }
     ResourceExpr::Concrete {
         identity: ResourceIdentity::NetworkEndpoint {
@@ -992,17 +993,5 @@ fn parse_socket_addr(addr: &str) -> ResourceExpr {
 fn parse_endpoint(url: &str) -> ResourceExpr {
     parse_url_endpoint(url)
         .map(|identity| ResourceExpr::Concrete { identity })
-        .unwrap_or_else(unresolved_net)
-}
-
-fn unresolved_fs() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("filesystem"),
-    }
-}
-
-fn unresolved_net() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("network"),
-    }
+        .unwrap_or_else(|| unresolved_resource("network"))
 }

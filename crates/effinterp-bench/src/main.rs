@@ -15,8 +15,9 @@ use effinterp_bench::nah::corpus::{CaseLoad, FixtureObservations, FixtureResolve
 use effinterp_bench::nah::goldens::seed_missing;
 use effinterp_bench::nah::report::run_corpus;
 use effinterp_bench::repos;
+use effinterp_bench::run::measure::MeasureRequest;
 use effinterp_bench::run::publish;
-use effinterp_bench::run::{self, Layout, MeasureRequest, NAH_CORPUS, Plane, Selection};
+use effinterp_bench::run::{self, BenchLayout, NAH_CORPUS, Plane, RunSelection};
 use effinterp_engine::{Engine, ObservationResolver, SourceResolver};
 
 #[derive(Parser)]
@@ -143,7 +144,7 @@ fn exit(result: Result<(), String>) -> ExitCode {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let mut layout = Layout::workspace();
+    let mut layout = BenchLayout::workspace();
     layout.session_corpus = cli.session_corpus;
     match cli.command {
         Command::Golden {
@@ -169,7 +170,7 @@ fn main() -> ExitCode {
             resume,
         } => {
             let request = MeasureRequest {
-                selection: Selection {
+                selection: RunSelection {
                     planes,
                     sources: source,
                     limit,
@@ -179,7 +180,7 @@ fn main() -> ExitCode {
                 resume,
                 cache,
             };
-            match run::measure(&layout, request) {
+            match run::measure::measure_run(&layout, request) {
                 Ok(id) => {
                     println!("recorded {}", layout.run_directory(&id).display());
                     report_verdict(&layout, id.as_str(), false)
@@ -209,7 +210,7 @@ fn main() -> ExitCode {
 
 /// Exit 0 when the run could be published, 1 on rule failures or a partial
 /// selection, 3 when the rules passed but another eligibility blocker remains.
-fn report_verdict(layout: &Layout, id: &str, rebaseline: bool) -> ExitCode {
+fn report_verdict(layout: &BenchLayout, id: &str, rebaseline: bool) -> ExitCode {
     let run = match publish::load_recorded_run(layout, id) {
         Ok(run) => run,
         Err(e) => return fail(e),
@@ -230,7 +231,7 @@ fn report_verdict(layout: &Layout, id: &str, rebaseline: bool) -> ExitCode {
     }
 }
 
-fn run_publish(layout: &Layout, id: &str, rebaseline: bool) -> ExitCode {
+fn run_publish(layout: &BenchLayout, id: &str, rebaseline: bool) -> ExitCode {
     match publish::publish_run(layout, id, rebaseline) {
         Ok(evaluation) => {
             print!("{}", publish::render_run_verdict(&evaluation.verdict));
@@ -245,7 +246,7 @@ fn run_publish(layout: &Layout, id: &str, rebaseline: bool) -> ExitCode {
 }
 
 /// Print one nah case's parity result and the plan it was classified from.
-fn show_nah_case(layout: &Layout, id: &str) -> ExitCode {
+fn show_nah_case(layout: &BenchLayout, id: &str) -> ExitCode {
     let (cases, digest, nah_commit) = match run::load_nah(layout) {
         Ok(loaded) => loaded,
         Err(e) => return fail(e),

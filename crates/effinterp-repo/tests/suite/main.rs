@@ -200,7 +200,7 @@ fn causal_path(
 }
 
 /// The exact typed selector `<family>:@<hex JSON identity>` that
-/// `Selector::parse` decodes for a concrete, already normalized resource.
+/// `ResourceSelector::parse` decodes for a concrete, already normalized resource.
 fn typed_selector(resource: &ResourceExpr) -> String {
     let ResourceExpr::Concrete { identity } = resource else {
         panic!("typed selectors name concrete resources");

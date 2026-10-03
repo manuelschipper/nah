@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::{SKIP_DIRS, rel};
+use crate::{CRAWL_SKIP_DIRS, walked_repo_path};
 
 pub(super) fn go_module_source(source: &str) -> Option<String> {
     source.lines().find_map(|line| {
@@ -46,7 +46,7 @@ pub(super) fn collect_go_modules(
             }
             if file_type.is_dir() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if !SKIP_DIRS.contains(&name.as_str()) && name != ".claude" {
+                if !CRAWL_SKIP_DIRS.contains(&name.as_str()) && name != ".claude" {
                     visit(root, &path, modules, admit);
                 }
             } else if file_type.is_file()
@@ -56,7 +56,7 @@ pub(super) fn collect_go_modules(
             {
                 let dir = path
                     .parent()
-                    .map(|parent| rel(root, parent))
+                    .map(|parent| walked_repo_path(root, parent))
                     .unwrap_or_default();
                 modules.insert(dir, module);
             }

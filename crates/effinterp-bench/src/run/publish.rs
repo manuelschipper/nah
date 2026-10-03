@@ -17,9 +17,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Compat, FileLock, Layout, Plane, PlaneProvenance, RUN_SCHEMA, RepoUnit, RunManifest, Seal,
-    State, Status, read_bench_record, record_files, repo_unit_name, run_lock_path, utc_now,
-    validate_run_id, write_bench_record,
+    BenchLayout, FileLock, Plane, PlaneProvenance, RUN_SCHEMA, RepoUnit, RunCompat, RunManifest,
+    RunSeal, RunState, RunStatus, read_bench_record, record_files, repo_unit_name, run_lock_path,
+    utc_now, validate_run_id, write_bench_record,
 };
 use crate::bench::gate::{self, RULES_VERSION, RuleResult};
 use crate::bench::score::{self, Scoreboard};
@@ -33,7 +33,7 @@ pub const VERDICT_SCHEMA: &str = "effinterp/bench-verdict/v2";
 pub struct LoadedRun {
     pub dir: PathBuf,
     pub manifest: RunManifest,
-    pub state: State,
+    pub state: RunState,
     pub coverage: Option<Scoreboard>,
     pub correctness: Option<Scoreboard>,
     pub repos: Option<ReposSection>,
@@ -53,7 +53,7 @@ impl LoadedRun {
 /// record: every file must hash as the seal recorded it, every unit must
 /// verify its own content hash, and the aggregates must agree with their
 /// units.
-pub fn load_recorded_run(layout: &Layout, id: &str) -> Result<LoadedRun, String> {
+pub fn load_recorded_run(layout: &BenchLayout, id: &str) -> Result<LoadedRun, String> {
     let run_id = validate_run_id(id)?;
     let dir = layout.run_directory(&run_id);
     let manifest: RunManifest = read_bench_record(&dir.join("manifest.json"))?;
@@ -69,14 +69,14 @@ pub fn load_recorded_run(layout: &Layout, id: &str) -> Result<LoadedRun, String>
             manifest.run_id
         ));
     }
-    let state: State = read_bench_record(&dir.join("state.json"))?;
-    if state.status != Status::Complete {
-        let status = if state.status == Status::Running && !FileLock::is_held(&run_lock_path(&dir))
-        {
-            "interrupted (no process holds its lock)"
-        } else {
-            state.status.as_str()
-        };
+    let state: RunState = read_bench_record(&dir.join("state.json"))?;
+    if state.status != RunStatus::Complete {
+        let status =
+            if state.status == RunStatus::Running && !FileLock::is_held(&run_lock_path(&dir)) {
+                "interrupted (no process holds its lock)"
+            } else {
+                state.status.as_str()
+            };
         return Err(format!(
             "run {id} is {status}: {} plane(s) and {} repository unit(s) recorded{}; resume it with `measure --resume {id}`",
             state.completed_planes.len(),
@@ -89,7 +89,7 @@ pub fn load_recorded_run(layout: &Layout, id: &str) -> Result<LoadedRun, String>
         ));
     }
     let seal_path = dir.join("seal.json");
-    let seal: Seal = read_bench_record(&seal_path)?;
+    let seal: RunSeal = read_bench_record(&seal_path)?;
     let files = record_files(&dir, &manifest.selection.planes)?;
     let mut sealed: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     for path in &files {
@@ -192,7 +192,10 @@ fn clone_json<T: Serialize + DeserializeOwned>(value: &T) -> T {
 
 /// The baseline with the run's measured planes replaced; nothing is invented
 /// for a plane the run did not measure.
-pub fn compose(baseline: Option<&Scoreboard>, run: &LoadedRun) -> Result<Scoreboard, String> {
+pub fn compose_scoreboard(
+    baseline: Option<&Scoreboard>,
+    run: &LoadedRun,
+) -> Result<Scoreboard, String> {
     let mut board = match baseline {
         Some(baseline) => clone_json(baseline),
         None => Scoreboard {
@@ -316,7 +319,7 @@ pub struct Inputs {
     pub rules: String,
     /// Identity of the tree and binary computing the verdict; eligibility depends
     /// on it, so it is part of the key.
-    pub current: Compat,
+    pub current: RunCompat,
     pub checker_built_from: String,
     pub rebaseline: bool,
 }
@@ -361,7 +364,7 @@ pub struct RunVerdict {
 /// record: either it has a summary, or the record names it and says why it
 /// has none. A case in neither map means the stress plane recorded less than
 /// it measured, and that record must not become the baseline.
-fn unaccounted_stress(stress: &LatencySection, compat: &Compat) -> Vec<String> {
+fn unaccounted_stress(stress: &LatencySection, compat: &RunCompat) -> Vec<String> {
     let mut out = Vec::new();
     let cases = compat.config.latency["engine"]["cases"]
         .as_u64()
@@ -386,7 +389,7 @@ pub struct Evaluation {
 
 /// Compute and store the verdict of `run` against the tracked baseline.
 pub fn evaluate_run_verdict(
-    layout: &Layout,
+    layout: &BenchLayout,
     run: &LoadedRun,
     rebaseline: bool,
 ) -> Result<Evaluation, String> {
@@ -408,7 +411,7 @@ pub fn evaluate_run_verdict(
     let ceilings: Ceilings = serde_json::from_slice(&ceilings_bytes)
         .map_err(|e| format!("cannot load {}: {e}", layout.ceilings().display()))?;
 
-    let composed = compose(baseline.as_ref(), run)?;
+    let composed = compose_scoreboard(baseline.as_ref(), run)?;
     let new_scope = new_scope(baseline.as_ref(), run);
     let results = gate::check_gate_rules(
         baseline.as_ref().unwrap_or(&composed),
@@ -579,7 +582,7 @@ pub fn evaluate_run_verdict(
 /// commit point, so a crash before it leaves the old baseline intact and the
 /// same publication can simply run again, and ceilings only ever ratchet
 /// down, so a renamed ceilings file never blocks that retry.
-pub fn publish_run(layout: &Layout, id: &str, rebaseline: bool) -> Result<Evaluation, String> {
+pub fn publish_run(layout: &BenchLayout, id: &str, rebaseline: bool) -> Result<Evaluation, String> {
     layout.verify_build_matches_tree()?;
     fs::create_dir_all(layout.runs())
         .map_err(|e| format!("mkdir {}: {e}", layout.runs().display()))?;

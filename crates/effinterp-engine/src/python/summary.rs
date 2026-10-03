@@ -15,7 +15,7 @@ use rustpython_parser::ast::{self, Expr, Stmt};
 
 use super::resolve::Imports;
 use super::{
-    Capture, Def, Walker, collect_class_bases, collect_class_sets, collect_class_strings,
+    Capture, Def, PythonWalker, collect_class_bases, collect_class_sets, collect_class_strings,
     collect_classes, collect_defs, collect_path_attrs, extract_imports,
     materialize_deferred_spawns, partition_top_level,
 };
@@ -121,7 +121,7 @@ pub(super) fn summarize_ast(
     let class_strings = collect_class_strings(suite);
     let class_sets = collect_class_sets(suite);
     let max_nodes = limits.max_python_nodes;
-    let mut walker = Walker {
+    let mut walker = PythonWalker {
         builder: &mut builder,
         nest: &nest,
         source,
@@ -405,7 +405,7 @@ pub(super) fn summarize_ast(
     summary
 }
 
-impl Walker<'_, '_> {
+impl PythonWalker<'_, '_> {
     fn decorators_are_transparent(&self, name: &str) -> bool {
         self.decorator_gate(name).is_empty()
     }

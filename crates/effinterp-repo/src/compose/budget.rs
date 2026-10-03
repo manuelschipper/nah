@@ -1,4 +1,5 @@
-use super::{BoundaryOccurrence, Composition, push_composed_boundary, push_coverage};
+use super::accumulation::{push_composed_boundary, push_coverage};
+use super::{BoundaryOccurrence, Composition};
 use crate::index::RepositoryLimits;
 use effinterp_proto::{BoundaryReason, CoverageLevel, ResourceExpr, ResourceFamily};
 

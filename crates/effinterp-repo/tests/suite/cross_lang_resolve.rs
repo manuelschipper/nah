@@ -1,4 +1,4 @@
-//! Cross-file import resolution for Go, Ruby, and Rust: `Registry::build` over
+//! Cross-file import resolution for Go, Ruby, and Rust: `ModuleRegistry::build` over
 //! a fixture repo, then `resolve_import` on the real extracted import bindings.
 //!
 //! These test the resolver directly; end-to-end Ruby composition is covered
@@ -9,12 +9,12 @@ use std::path::{Path, PathBuf};
 
 use effinterp_engine::Assurance;
 use effinterp_proto::display_resource_with_scope;
-use effinterp_repo::{CrawlLimits, IndexLimits, Registry, RepoIndex, build_index};
+use effinterp_repo::{CrawlLimits, IndexLimits, ModuleRegistry, RepoIndex, build_index};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 /// Resolve every import of `importer` and return the target file paths (the
 /// import that could not be resolved is omitted).
-fn resolved_targets(reg: &Registry, importer_path: &str) -> Vec<(String, Option<String>)> {
+fn resolved_targets(reg: &ModuleRegistry, importer_path: &str) -> Vec<(String, Option<String>)> {
     let importer = reg.files.get(importer_path).expect("importer registered");
     importer
         .summary
@@ -236,7 +236,7 @@ fn go_import_resolves_via_go_mod_prefix() {
             ),
         ],
     );
-    let (reg, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (reg, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     // main.go's import of the local package resolves into its directory.
     let from_main = resolved_targets(&reg, "main.go");
     assert!(
@@ -264,7 +264,7 @@ fn go_without_go_mod_stays_unresolved() {
             ("util/util.go", "package util\nfunc Wipe(p string) {}\n"),
         ],
     );
-    let (reg, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (reg, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     // No go.mod -> the module prefix is unknown -> conservatively unresolved.
     for (_, target) in resolved_targets(&reg, "main.go") {
         assert!(target.is_none(), "no go.mod: imports stay external");
@@ -287,7 +287,7 @@ fn rust_use_crate_path_resolves_to_module_file() {
             ),
         ],
     );
-    let (reg, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (reg, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     let targets = resolved_targets(&reg, "app.rs");
     assert!(
         targets
@@ -314,7 +314,7 @@ fn rust_mod_rs_layout_resolves() {
             ("util/mod.rs", "pub fn wipe() {}\n"),
         ],
     );
-    let (reg, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (reg, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     let targets = resolved_targets(&reg, "app.rs");
     assert!(
         targets
@@ -340,7 +340,7 @@ fn ruby_require_relative_resolves() {
             ),
         ],
     );
-    let (reg, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (reg, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     let targets = resolved_targets(&reg, "app.rb");
     assert!(
         targets
@@ -360,7 +360,7 @@ fn ruby_require_relative_resolves() {
 /// Rust/Go source is no longer blind.
 #[test]
 fn main_bearing_source_files_are_entrypoints() {
-    use effinterp_repo::{IndexLimits, Selector, build_index, reach};
+    use effinterp_repo::{IndexLimits, ResourceSelector, build_index, reach};
     let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("mainfiles");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
@@ -390,7 +390,11 @@ fn main_bearing_source_files_are_entrypoints() {
         "lib.rs (no main) is not an entrypoint"
     );
 
-    let report = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -411,7 +415,7 @@ fn main_bearing_source_files_are_entrypoints() {
 /// cross-file call. All three must compose for the effect to surface.
 #[test]
 fn rust_workspace_reexport_and_local_helper_compose_to_an_effect() {
-    use effinterp_repo::{Selector, build_index, reach};
+    use effinterp_repo::{ResourceSelector, build_index, reach};
     let root = repo_test_fixture(
         Path::new(env!("CARGO_TARGET_TMPDIR")),
         "xlang-rust-ripgrep-shape",
@@ -435,7 +439,11 @@ fn rust_workspace_reexport_and_local_helper_compose_to_an_effect() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -495,7 +503,7 @@ fn rust_workspace_crate_root_alias_resolves_to_aliased_crate() {
             ),
         ],
     );
-    let (reg, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (reg, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     let from_bin = resolved_targets(&reg, "crates/core/src/main.rs");
     assert!(
         from_bin.contains(&(
@@ -598,7 +606,7 @@ fn java_import_resolves_via_package_path() {
             ),
         ],
     );
-    let (reg, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (reg, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     let from_app = resolved_targets(&reg, "src/main/java/com/example/App.java");
     assert!(
         from_app.contains(&(
@@ -633,7 +641,7 @@ fn php_require_resolves_relative() {
             ),
         ],
     );
-    let (reg, _, _) = Registry::build(&root, &CrawlLimits::default());
+    let (reg, _, _) = ModuleRegistry::build(&root, &CrawlLimits::default());
     let from_index = resolved_targets(&reg, "index.php");
     assert!(
         from_index

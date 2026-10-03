@@ -12,12 +12,13 @@ use rustpython_parser::text_size::TextRange;
 
 use super::resolve::{self, host_endpoint, net_resource, str_literal};
 use super::{
-    DeferredArgv, Walker, collect_returns, int_literal, keyword_bool, keyword_str, program_argv,
-    python_call_argument, resource_command_string, shell_program, unresolved,
+    DeferredArgv, PythonWalker, collect_returns, int_literal, keyword_bool, keyword_str,
+    program_argv, python_call_argument, resource_command_string, shell_program,
 };
 use crate::paths::fs_resource_uses_cwd;
 use crate::resource_transfer::TransferBinding;
 use crate::summary::substitute_resource_expr;
+use crate::value::unresolved_resource;
 use crate::word::Word;
 use crate::{ObjectIdentity, SemanticValue, SemanticValueKind, TypeRef, ValueArgument};
 
@@ -61,9 +62,6 @@ pub(super) fn external_method_effects(
         execution: effinterp_proto::ExecutionNodeRef(0),
         provenance: Vec::new(),
     };
-    let unresolved = |family: &str| ResourceExpr::Unresolved {
-        family: ResourceFamily::new(family),
-    };
     match receiver_type {
         "requests.Session" | "httpx.Client" | "httpx.AsyncClient" => {
             let (operation, endpoint) = match method {
@@ -91,7 +89,7 @@ pub(super) fn external_method_effects(
                 endpoint
                     .and_then(|(index, name)| python_external_argument(args, index, name))
                     .map(python_network_resource)
-                    .unwrap_or_else(|| unresolved("network")),
+                    .unwrap_or_else(|| unresolved_resource("network")),
             )])
         }
         "pathlib.Path"
@@ -99,7 +97,7 @@ pub(super) fn external_method_effects(
         | "pathlib.PosixPath"
         | "pathlib.PurePosixPath"
         | "pathlib.WindowsPath" => {
-            let resource = receiver_resource.unwrap_or_else(|| unresolved("filesystem"));
+            let resource = receiver_resource.unwrap_or_else(|| unresolved_resource("filesystem"));
             if method == "open" {
                 let mode_argument = python_external_argument(args, 0, "mode");
                 let mode = mode_argument
@@ -163,7 +161,7 @@ pub(super) fn external_method_effects(
                     let mut destination = effect(
                         "filesystem.write",
                         python_external_argument(args, 0, "target")
-                            .unwrap_or_else(|| unresolved("filesystem")),
+                            .unwrap_or_else(|| unresolved_resource("filesystem")),
                     );
                     destination
                         .attributes
@@ -394,7 +392,7 @@ fn net_op(verb: &str) -> &'static str {
     }
 }
 
-impl Walker<'_, '_> {
+impl PythonWalker<'_, '_> {
     /// Model one known Python effect API call. Returns false when the call
     /// belongs to local or unmodeled code and the execution walker must handle it.
     pub(super) fn model_call(&mut self, call: &ast::ExprCall, span: TextRange) -> bool {
@@ -665,7 +663,7 @@ impl Walker<'_, '_> {
         if matches!(expr, Expr::Name(name) if self.widened_vars.contains(name.id.as_str()))
             || self.concatenation_uses_unbounded_binding(expr)
         {
-            return unresolved("network");
+            return unresolved_resource("network");
         }
         let resource = self
             .source_string_resource(expr)
@@ -977,7 +975,7 @@ impl Walker<'_, '_> {
             .map(|name| ResourceExpr::Concrete {
                 identity: ResourceIdentity::EnvironmentVariable { name },
             })
-            .unwrap_or_else(|| unresolved("environment"));
+            .unwrap_or_else(|| unresolved_resource("environment"));
         let node = self.span_node(span);
         let unset = matches!(name, "os.unsetenv" | "os.environ.pop" | "os.environ.clear");
         self.emit(operation, resource, &[("unset", unset)], node);
@@ -987,7 +985,12 @@ impl Walker<'_, '_> {
         let node = self.span_node(span);
         for argument in &call.args {
             let Expr::Dict(dict) = argument else {
-                self.emit("environment.write", unresolved("environment"), &[], node);
+                self.emit(
+                    "environment.write",
+                    unresolved_resource("environment"),
+                    &[],
+                    node,
+                );
                 continue;
             };
             for key in &dict.keys {
@@ -998,7 +1001,7 @@ impl Walker<'_, '_> {
                     .map(|name| ResourceExpr::Concrete {
                         identity: ResourceIdentity::EnvironmentVariable { name },
                     })
-                    .unwrap_or_else(|| unresolved("environment"));
+                    .unwrap_or_else(|| unresolved_resource("environment"));
                 self.emit("environment.write", resource, &[], node);
             }
         }
@@ -1011,7 +1014,7 @@ impl Walker<'_, '_> {
                 .map(|name| ResourceExpr::Concrete {
                     identity: ResourceIdentity::EnvironmentVariable { name },
                 })
-                .unwrap_or_else(|| unresolved("environment"));
+                .unwrap_or_else(|| unresolved_resource("environment"));
             self.emit("environment.write", resource, &[], node);
         }
     }
@@ -1029,7 +1032,7 @@ impl Walker<'_, '_> {
             .map(|name| ResourceExpr::Concrete {
                 identity: ResourceIdentity::EnvironmentVariable { name },
             })
-            .unwrap_or_else(|| unresolved("environment"));
+            .unwrap_or_else(|| unresolved_resource("environment"));
         let node = self.span_node(sub.range);
         self.emit("environment.write", resource, &[("unset", unset)], node);
     }
@@ -1136,7 +1139,7 @@ impl Walker<'_, '_> {
                     self.builder.current_execution_cwd(),
                 ),
             },
-            None => unresolved("process"),
+            None => unresolved_resource("process"),
         }
     }
 
@@ -1272,7 +1275,7 @@ impl Walker<'_, '_> {
         let node = self.span_node(span);
         let resource = match call.args.first() {
             Some(path) if self.capture.is_none() => self.resolve_fs(path),
-            _ => unresolved("filesystem"),
+            _ => unresolved_resource("filesystem"),
         };
         self.cwd = match &resource {
             ResourceExpr::Concrete {
@@ -1492,7 +1495,7 @@ impl Walker<'_, '_> {
         {
             ambient = Some((
                 std::mem::take(&mut self.cwd),
-                self.chdir.replace(unresolved("filesystem")),
+                self.chdir.replace(unresolved_resource("filesystem")),
             ));
             // A bound value was resolved against the directory current when
             // it was bound, so any `cwd=` but an absolute literal is left to
@@ -1842,7 +1845,7 @@ impl Walker<'_, '_> {
         };
         let resource = url_expr
             .map(|a| self.resolve_net(a))
-            .unwrap_or_else(|| unresolved("network"));
+            .unwrap_or_else(|| unresolved_resource("network"));
         let node = self.span_node(span);
         let operation = if name == "urllib.request.urlopen"
             && python_call_argument(call, 1, "data")
@@ -1863,7 +1866,7 @@ impl Walker<'_, '_> {
             .args
             .first()
             .map(|a| self.resolve_net(a))
-            .unwrap_or_else(|| unresolved("network"));
+            .unwrap_or_else(|| unresolved_resource("network"));
         let node = self.span_node(span);
         let download = self.emit("network.download", url, &[], node);
         if let Some(dest) = call.args.get(1) {
@@ -1903,7 +1906,7 @@ impl Walker<'_, '_> {
                         // An HTTP(S)Connection fixes its host (and optional port)
                         // at construction; clients and sockets carry it per-call.
                         ReceiverKind::HttpConnection => self.conn_host(inner),
-                        _ => unresolved("network"),
+                        _ => unresolved_resource("network"),
                     };
                     return Some(Receiver { kind, host });
                 }
@@ -1915,7 +1918,7 @@ impl Walker<'_, '_> {
                 {
                     return Some(Receiver {
                         kind,
-                        host: unresolved("network"),
+                        host: unresolved_resource("network"),
                     });
                 }
                 None
@@ -1947,7 +1950,7 @@ impl Walker<'_, '_> {
     fn conn_host(&self, ctor: &ast::ExprCall) -> ResourceExpr {
         match ctor.args.first().and_then(str_literal) {
             Some(host) => host_endpoint(&host, ctor.args.get(1).and_then(int_literal)),
-            None => unresolved("network"),
+            None => unresolved_resource("network"),
         }
     }
 
@@ -1961,7 +1964,7 @@ impl Walker<'_, '_> {
                         .args
                         .first()
                         .map(|a| self.resolve_net(a))
-                        .unwrap_or_else(|| unresolved("network"));
+                        .unwrap_or_else(|| unresolved_resource("network"));
                     self.emit(net_op(method), resource, &[], node);
                 }
                 "request" | "send" | "stream" => {
@@ -1969,7 +1972,7 @@ impl Walker<'_, '_> {
                         .args
                         .get(1)
                         .map(|a| self.resolve_net(a))
-                        .unwrap_or_else(|| unresolved("network"));
+                        .unwrap_or_else(|| unresolved_resource("network"));
                     let verb = call.args.first().and_then(str_literal);
                     self.emit(
                         net_op(verb.as_deref().unwrap_or("request")),
@@ -1997,7 +2000,7 @@ impl Walker<'_, '_> {
                         .args
                         .first()
                         .map(|a| self.socket_addr(a))
-                        .unwrap_or_else(|| unresolved("network"));
+                        .unwrap_or_else(|| unresolved_resource("network"));
                     self.emit("network.request", resource, &[], node);
                 }
             }
@@ -2015,16 +2018,16 @@ impl Walker<'_, '_> {
                                 path: None,
                             },
                         })
-                        .unwrap_or_else(|| unresolved("network"));
+                        .unwrap_or_else(|| unresolved_resource("network"));
                     self.emit("network.request", resource, &[], node);
                 }
             }
             ReceiverKind::EventLoop => match method {
                 "create_connection" | "create_unix_connection" => {
-                    self.emit("network.request", unresolved("network"), &[], node);
+                    self.emit("network.request", unresolved_resource("network"), &[], node);
                 }
                 "create_server" | "create_unix_server" | "create_datagram_endpoint" => {
-                    self.emit("network.listen", unresolved("network"), &[], node);
+                    self.emit("network.listen", unresolved_resource("network"), &[], node);
                 }
                 _ => {}
             },
@@ -2160,7 +2163,7 @@ fn supported_signature(call: &ast::ExprCall, min: usize, max: usize, keywords: &
         })
 }
 
-impl Walker<'_, '_> {
+impl PythonWalker<'_, '_> {
     fn exact_value(&self, expr: &Expr, depth: usize) -> Option<ExactValue> {
         if depth > 32 {
             return None;
@@ -2664,7 +2667,7 @@ pub(super) enum ModeledValue {
     },
 }
 
-impl Walker<'_, '_> {
+impl PythonWalker<'_, '_> {
     pub(super) fn modeled_value(&self, expr: &Expr) -> Option<ModeledValue> {
         if let Expr::Constant(c) = expr {
             return match c.value {
@@ -2883,7 +2886,7 @@ impl Walker<'_, '_> {
         if let Expr::Name(name) = expr
             && matches!(self.modeled_values.get(name.id.as_str()), Some(ModeledValue::Temporary { kind, .. }) if kind != "tempfile.mkdtemp")
         {
-            return Some(unresolved("filesystem"));
+            return Some(unresolved_resource("filesystem"));
         }
         if let Expr::Call(call) = expr {
             let name = self.imports.resolve_callee(&call.func)?;

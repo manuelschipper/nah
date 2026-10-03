@@ -11,13 +11,13 @@ use effinterp_model_schema::{
 
 use crate::FactoryError;
 use crate::document_verification::verify_documents;
-use crate::model_directory::{canonical_json, model_json_paths, read, write};
+use crate::model_directory::{model_json_paths, pretty_model_json, read, write};
 use crate::model_normalization::normalize_candidate_document;
 
 /// Parse a candidate model document and return its canonical JSON.
 pub fn normalize_candidate(source: &str) -> Result<String, FactoryError> {
     let candidate = parse_candidate(source)?;
-    canonical_json(&candidate)
+    pretty_model_json(&candidate)
 }
 
 fn parse_candidate(source: &str) -> Result<CandidateDocument, FactoryError> {
@@ -46,7 +46,7 @@ pub fn promote_candidate(source: &str, base: &Path) -> Result<String, FactoryErr
     }
     let mut promoted = candidate.promoted(String::new());
     promoted.identity = document_content_identity(&promoted);
-    let promoted_source = canonical_json(&promoted)?;
+    let promoted_source = pretty_model_json(&promoted)?;
     let mut documents = surrounding_documents(base)?;
     let promoted_ids = promoted
         .entries

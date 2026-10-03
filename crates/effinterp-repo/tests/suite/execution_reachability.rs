@@ -10,20 +10,24 @@ use effinterp_proto::{
     CausalReason, ContainerStorage, ExecutionAssurance, ExecutionEdgeKind, ExecutionRealm,
     OccurrenceKind, ResourceExpr, ResourceIdentity, Subject,
 };
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 use crate::{causal_path, plan_causality, plan_execution};
 
 fn deletes_important(root: &Path) -> bool {
     let idx = build_index(root, IndexLimits::default());
-    reach(&idx, &Selector::parse("fs:/important").unwrap(), None)
-        .payload
-        .as_reach()
-        .unwrap()
-        .matches
-        .iter()
-        .any(|h| h.fact.operation.0 == "filesystem.delete")
+    reach(
+        &idx,
+        &ResourceSelector::parse("fs:/important").unwrap(),
+        None,
+    )
+    .payload
+    .as_reach()
+    .unwrap()
+    .matches
+    .iter()
+    .any(|h| h.fact.operation.0 == "filesystem.delete")
 }
 
 fn display(effect: &effinterp_proto::EffectFact) -> String {

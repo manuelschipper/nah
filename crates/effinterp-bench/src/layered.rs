@@ -452,10 +452,11 @@ fn fixture_reach(
     selector: &str,
     entrypoint: Option<&str>,
 ) -> Result<Normalized, String> {
-    use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+    use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
     let dir = root.join(path);
     let index = build_index(&dir, IndexLimits::default());
-    let sel = Selector::parse(selector).map_err(|e| format!("bad selector {selector:?}: {e:?}"))?;
+    let sel = ResourceSelector::parse(selector)
+        .map_err(|e| format!("bad selector {selector:?}: {e:?}"))?;
     let report = reach(&index, &sel, None);
     // Normalize retained effect evidence, including unresolved target relations.
     let effects = report

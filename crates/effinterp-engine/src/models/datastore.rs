@@ -10,12 +10,13 @@ use std::collections::HashMap;
 
 use effinterp_proto::{
     AttrValue, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, Modality, Operation,
-    ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity, SourceDialect, Subject,
+    ProvenanceRef, ResourceExpr, ResourceIdentity, SourceDialect, Subject,
 };
 
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::models::common::{Attrs, arg_node, boundary};
 use crate::models::{CommandModel, InvocationCtx};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 pub(super) fn datastore_models() -> Vec<Box<dyn CommandModel>> {
@@ -56,17 +57,11 @@ fn text_attrs(pairs: &[(&str, &str)]) -> Attrs {
         .collect()
 }
 
-fn unresolved_db() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("db"),
-    }
-}
-
 /// A database-level resource; with neither server nor database known it
 /// names nothing, so it stays unresolved.
 fn db_schema(server: Option<String>, database: Option<String>) -> ResourceExpr {
     if server.is_none() && database.is_none() {
-        return unresolved_db();
+        return unresolved_resource("db");
     }
     ResourceExpr::Concrete {
         identity: ResourceIdentity::DatabaseSchema {
@@ -155,7 +150,7 @@ fn cloud_database_coverage(builder: &mut PlanBuilder, provenance: Vec<Provenance
         builder,
         provenance,
         "network.connect",
-        super::cloud::unresolved_network(),
+        unresolved_resource("network"),
         Attrs::new(),
     );
 }
@@ -582,7 +577,7 @@ fn emit_redis_flush(
             builder,
             provenance.clone(),
             "network.connect",
-            super::cloud::unresolved_network(),
+            unresolved_resource("network"),
             Attrs::new(),
         ),
     }
@@ -591,7 +586,7 @@ fn emit_redis_flush(
     let resource = match (flushall, database) {
         (true, _) => db_schema(server, None),
         (false, RedisDatabase::Number(number)) => db_schema(server, Some(number.clone())),
-        (false, RedisDatabase::Unknown) => unresolved_db(),
+        (false, RedisDatabase::Unknown) => unresolved_resource("db"),
     };
     effect(
         builder,
@@ -2227,7 +2222,7 @@ fn emit_mongo_op(
         (true, Some(database), Some(Some(collection))) => {
             db_table(target.server.clone(), Some(database), None, collection)
         }
-        _ => unresolved_db(),
+        _ => unresolved_resource("db"),
     };
     let (operation, attributes) = match op.kind {
         MongoOpKind::DropDatabase => (
@@ -2428,7 +2423,7 @@ impl CommandModel for Mongorestore {
                 None,
                 collection.clone(),
             ),
-            (_, Some(None), _) | (_, _, false) => unresolved_db(),
+            (_, Some(None), _) | (_, _, false) => unresolved_resource("db"),
             (database, _, true) => db_schema(server.clone(), database.clone()),
         };
         let dry_run = scanned.has(&["--dryRun"]);
@@ -2665,7 +2660,7 @@ impl CommandModel for Bq {
                     ),
                     "table",
                 ),
-                None => (unresolved_db(), "table"),
+                None => (unresolved_resource("db"), "table"),
             },
             (Some(Some(parsed)), false) if parsed.table.is_none() => (
                 ResourceExpr::Concrete {
@@ -2677,8 +2672,8 @@ impl CommandModel for Bq {
                 },
                 "schema",
             ),
-            (_, true) => (unresolved_db(), "table"),
-            (_, false) => (unresolved_db(), "schema"),
+            (_, true) => (unresolved_resource("db"), "table"),
+            (_, false) => (unresolved_resource("db"), "schema"),
         };
         effect(
             builder,
@@ -2862,7 +2857,7 @@ impl CommandModel for Cbt {
             provenance.push(arg_node(builder, ctx, (command + 1) as u32));
             match operand(1) {
                 Some(table) => db_table(None, instance.clone(), None, table.to_string()),
-                None => unresolved_db(),
+                None => unresolved_resource("db"),
             }
         } else {
             db_schema(None, instance.clone())
@@ -3016,12 +3011,12 @@ impl CommandModel for Firebase {
                         }
                         None if recursive => (
                             "database.schema_drop",
-                            unresolved_db(),
+                            unresolved_resource("db"),
                             text_attrs(&[("object_kind", "collection")]),
                         ),
                         None => (
                             "database.write",
-                            unresolved_db(),
+                            unresolved_resource("db"),
                             text_attrs(&[("action", "delete")]),
                         ),
                     }
@@ -3059,7 +3054,7 @@ impl CommandModel for Firebase {
                     ),
                     None => (
                         "database.write",
-                        unresolved_db(),
+                        unresolved_resource("db"),
                         text_attrs(&[("action", if remove { "delete" } else { "overwrite" })]),
                     ),
                 }
