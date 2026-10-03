@@ -257,7 +257,7 @@ pub(super) fn constant_status(items: &[ShellItem]) -> Option<bool> {
     }
 }
 
-fn command_status(cmd: &Simple) -> Option<bool> {
+pub(super) fn command_status(cmd: &Simple) -> Option<bool> {
     if !cmd.assignments.is_empty() || !cmd.redirs.is_empty() {
         return None;
     }
@@ -271,15 +271,26 @@ fn command_status(cmd: &Simple) -> Option<bool> {
         "true" | ":" | "/bin/true" | "/usr/bin/true" if rest.is_empty() => Some(true),
         "false" | "/bin/false" | "/usr/bin/false" if rest.is_empty() => Some(false),
         // A one-operand test is a string test: true when the string is not
-        // empty. The parser drops `[[`'s closing word.
+        // empty; `=` and `!=` compare two strings. The parser drops `[[`'s
+        // closing word.
         "[" => match rest {
-            [operand, closer] if closer == "]" => Some(!operand.is_empty()),
+            [operands @ .., closer] if closer == "]" => test_status(operands),
             _ => None,
         },
+        "test" => test_status(rest),
         "[[" => match rest {
             [operand] => Some(!operand.is_empty()),
             _ => None,
         },
+        _ => None,
+    }
+}
+
+fn test_status(operands: &[String]) -> Option<bool> {
+    match operands {
+        [operand] => Some(!operand.is_empty()),
+        [left, op, right] if op == "=" || op == "==" => Some(left == right),
+        [left, op, right] if op == "!=" => Some(left != right),
         _ => None,
     }
 }

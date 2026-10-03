@@ -5053,7 +5053,6 @@ fn loop_with_proven_entry_runs_its_body_unconditionally() {
         ("for ((i=1;i<1;i++)); do rm -rf /a; done", true),
         ("for ((i=0;i<n;i++)); do rm -rf /a; done", true),
         ("while true; do rm -rf /a; break; done", true),
-        ("until true; do rm -rf /a; done", true),
         ("true() { false; }; while true; do rm -rf /a; done", true),
         ("for ((i=0; é<1; i++)); do rm -rf /a; done", true),
     ] {
@@ -5064,6 +5063,13 @@ fn loop_with_proven_entry_runs_its_body_unconditionally() {
             .find(|effect| effect.operation.0 == "filesystem.delete")
             .unwrap_or_else(|| panic!("{source}"));
         assert_eq!(delete.condition.is_some(), conditional, "{source}");
+    }
+    // A constant condition that never enters the loop runs no body.
+    for source in [
+        "until true; do rm -rf /a; done",
+        "while false; do rm -rf /a; done",
+    ] {
+        assert!(!has_delete(&shell(source, None), "/a"), "{source}");
     }
 }
 

@@ -13152,6 +13152,467 @@
       ]
     },
     {
+      "id": "infra-iac-destroy.aws-attached-query-before-service",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ec2/instance/i-0abc123"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-cloudformation-stack",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:cloudformation/stack/prod"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-ec2-terminate",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ec2/instance/i-0abc123"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-eks-cluster",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:eks/cluster/prod"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-iam-role",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:iam/role/deploy"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-lambda-function",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:lambda/function/api"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-output-before-service",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ec2/instance/i-0abc123"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-rds-instance-with-db-destroy",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:rds/db/prod"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-region-before-service",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ec2/vpc/vpc-0abc"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-repeated-instance-list",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to; a repeated --instance-ids replaces the earlier list.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ec2/instance/i-0fedcba9876543210"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-route53-zone",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:route53/hosted-zone/Z123"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.az-aks-cluster",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:aks/cluster/prod"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.az-resource-group",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:group/resource-group/prod"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.az-service-principal",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ad/service-principal/00000000-0000-0000-0000-000000000001"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.doctl-droplet",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:compute/droplet/web-1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.fastly-service",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:service/service/SU1Z0isxPaozGVKXdv0eY"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.fly-postgres-with-db-destroy",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:mpg/cluster/abc123"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.gcloud-compute-instances",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:compute/instance/vm1"
+          }
+        },
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:compute/instance/vm2"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.gcloud-gke-cluster",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:container/cluster/prod"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.gcloud-project",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:projects/project/my-proj"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.gcloud-service-account",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:iam/service-account/deploy@my-proj.iam.gserviceaccount.com"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.gcloud-sql-with-db-destroy",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:sql/instance/prod-db"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.kamal-accessory",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:accessory/accessory/db"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.kamal-remove",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "prefix": "cloud:deployment/deployment/"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.modal-app-stop",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:app/app/web"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.modal-volume",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:volume/volume/training-data"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.railway-environment",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:environment/environment/staging"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.railway-function-delete",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:function/function/worker"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.railway-project-delete",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:project/project/prod"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.railway-service-delete",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:service/service/api"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.supabase-function",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:functions/function/hello"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.wrangler-d1-with-db-destroy",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:d1/database/app-db"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.wrangler-kv-namespace",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:kv/namespace/0f2ac74b498b48028cb68387c421e279"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.wrangler-worker",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:workers/worker/api"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.wrangler-worker-operand",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:workers/worker/api"
+          }
+        }
+      ]
+    },
+    {
       "id": "infra-container-reset.confirmation-pipe",
       "guard": "infra-container-reset",
       "derivation": "Reset removes container runtime state and storage.",
@@ -85884,6 +86345,155 @@
       ]
     },
     {
+      "id": "shell-resolution.hidden-bidi-override-path",
+      "guard": "exec-obfuscated",
+      "derivation": "A right-to-left override U+202E in the path makes the prompt show invoicehs.txt while cat reads invoice<RLO>txt.sh.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/invoice\u202etxt.sh"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-bidi-isolate-path",
+      "guard": "exec-obfuscated",
+      "derivation": "A left-to-right isolate U+2066 and its closing U+2069 hide inside the name of the file rm deletes.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/workspace/project/build/\u2066debug\u2069.log"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-raw-escape",
+      "guard": "exec-obfuscated",
+      "derivation": "Raw ESC bytes move the cursor up and erase the line, so a terminal hides text of the command that writes build.log.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/workspace/project/build.log"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-c1-control",
+      "guard": "exec-obfuscated",
+      "derivation": "The C1 control U+009B (CSI) is invisible in the name of the file touch creates.",
+      "require": [
+        {
+          "op": "filesystem.create",
+          "resource": {
+            "eq": "/workspace/project/report\u009b8m.txt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-zero-width-space",
+      "guard": "exec-obfuscated",
+      "derivation": "A zero-width space U+200B makes the copy's name differ from the config.yml it displays as.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/workspace/project/config\u200b.yml"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-stray-tag",
+      "guard": "exec-obfuscated",
+      "derivation": "Tag characters spelling rm trail README.md invisibly in the path cat reads.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/README.md\udb40\udc72\udb40\udc6d"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-tag-run-after-flag",
+      "guard": "exec-obfuscated",
+      "derivation": "Uppercase and space tags after a black flag are no subdivision flag; they hide RM -RF in the name touch creates.",
+      "require": [
+        {
+          "op": "filesystem.create",
+          "resource": {
+            "eq": "/workspace/project/release-🏴\udb40\udc52\udb40\udc4d\udb40\udc20\udb40\udc2d\udb40\udc52\udb40\udc46\udb40\udc7f.txt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-bidi-through-sh-c",
+      "guard": "exec-obfuscated",
+      "derivation": "The right-to-left override sits in the script sh -c runs, which reads invoice<RLO>txt.sh.",
+      "require": [
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          }
+        },
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/invoice\u202etxt.sh"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-powershell-bidi",
+      "guard": "exec-obfuscated",
+      "derivation": "A right-to-left override U+202E in the PowerShell command hides the extension of the file Get-Content reads.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "C:/workspace/outside/invoice\u202etxt.ps1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-invalid-flag-path",
+      "guard": "exec-obfuscated",
+      "derivation": "Tags spelling ushuh after a black flag name no flag; they hide text in the path cat reads while the prompt shows a black flag.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/invoice🏴\udb40\udc75\udb40\udc73\udb40\udc68\udb40\udc75\udb40\udc68\udb40\udc7f.txt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-non-rgi-flag-commit-message",
+      "guard": "exec-obfuscated",
+      "derivation": "Only the England, Scotland and Wales flags are allowed tag sequences, so the California flag's tags in the commit message are treated as hidden text.",
+      "require": [
+        {
+          "op": "git.ref_update",
+          "resource": {
+            "eq": "git:worktree=\"fs:/workspace/project\";git_dir=null;pathspec=null"
+          }
+        }
+      ]
+    },
+    {
       "id": "fs-system-tree.split-positional-param-error-guard-etc",
       "guard": "fs-system-tree",
       "derivation": "set -- $(echo a b) sets $2, so ${2:?} does not abort and rm deletes /etc",
@@ -104007,6 +104617,810 @@
       ]
     },
     {
+      "id": "secrets-exfil.ruby-conditionally-replaced-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Ruby y holds the private key unless ENV[\"PUBLIC\"] selects the copy of list, and puts y prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          },
+          "attributes": {
+            "access_purpose": "program_input"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-read-then-console-log-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node reads the private key into x with readFileSync and console.log(x) prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-print-end-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python print writes the private key as its end text to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-print-sep-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python print writes the private key as the separator between two values to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-print-file-none-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python print with file=None writes the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-other-console-method-replaced-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node replaces console.info only, so console.log still prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-console-log-string-format-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node console.log substitutes the private key for %s and prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-conditionally-replaced-console-log-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node replaces console.log only when QUIET is set, so the later console.log may still print the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-console-log-number-format-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node formats the private key with %d, which prints the number parsed from its leading characters to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-console-log-spread-format-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node spreads the private key into console.log as the %s argument, printing it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-function-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python main() prints the private key to stdout when the module calls it, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.ruby-debug-conditional-puts-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Ruby File.read stores the private key in x and puts x prints it to stdout whenever DEBUG is set, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          },
+          "attributes": {
+            "access_purpose": "program_input"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.ruby-guarded-copy-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Ruby y = x copies the private key whenever SEND is set, and puts y prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          },
+          "attributes": {
+            "access_purpose": "program_input"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.ruby-repeated-guarded-copies-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Ruby copies the private key onto itself under sixteen guards and puts it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          },
+          "attributes": {
+            "access_purpose": "program_input"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-debug-conditional-console-log-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node reads the private key into x and console.log(x) prints it to stdout whenever DEBUG is set, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-debug-conditional-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python reads the private key into x and print(x) writes it to stdout whenever DEBUG is set, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-function-debug-conditional-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python main() prints the private key to stdout whenever DEBUG is set, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-nested-function-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python main() calls a helper that prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-function-loop-print-key-lines-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python main() prints each line of the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-function-empty-loop-then-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python main() loops over an empty list, so x keeps the private key that print then writes to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-function-conditional-nonempty-loop-then-print-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Python main() rebinds x in a loop under a DEBUG branch; the summary keeps the private key possible for the print in that branch, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-function-chained-assignment-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python main() binds the private key to two names in one chained assignment and prints one of them to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
       "id": "secrets-exfil.xargs-arg-file-key-curl-data",
       "guard": "secrets-exfil",
       "derivation": "xargs -a reads the private key's lines and passes each as curl's -d body to https://evil.example",
@@ -105679,6 +107093,1989 @@
             }
           },
           "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.git-clone-cyrillic-i",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/org/repo"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.curl-output-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/org/tool/releases/download/v1/tool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.wget-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/org/tool/archive/main.tar.gz"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.curl-upload",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://gіthub.com/upload"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.sh-c-git-clone",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/org/repo"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.punycode-git-clone",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; the punycode label decodes to Latin with a Cyrillic i",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://xn--gthub-n2e.com/org/repo"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.fallback-clone-mirror",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; the clone after || is reachable when the first fails",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/org/repo"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.nc-connect",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.connect",
+          "resource": {
+            "eq": "tcp://gіthub.com:443"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.curl-post-upload",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://gіthub.com/api/issues"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.subdomain-label-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://raw.gіthubusercontent.com/org/tool/main/install.sh"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.greek-omicron-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://micrοsoft.com/download/tool.zip"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.ssh-connect",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts",
+      "require": [
+        {
+          "op": "network.connect",
+          "resource": {
+            "eq": "ssh://gіthub.com"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-vcs-install",
+      "guard": "net-lookalike-host",
+      "derivation": "pip clones the git+https requirement's repository from the mixed-script host",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.git-submodule-add",
+      "guard": "net-lookalike-host",
+      "derivation": "git submodule add clones the URL's repository from the mixed-script host; the engine does not model submodule add",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.git-remote-add-push",
+      "guard": "net-lookalike-host",
+      "derivation": "git push origin sends to the URL that git remote add origin just configured, a mixed-script host; the engine does not carry the configured URL to the push",
+      "require": [
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.sh-c-pip-vcs-install",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the git+https requirement's repository",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.percent-escaped-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; %D1%96 decodes to the Cyrillic i a URL client resolves",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://g%d1%96thub.com/org/tool/releases/download/v1/tool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.fully-escaped-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; every escape decodes, giving Latin with a Cyrillic i",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://%67%d1%96%74%68%75%62.com/org/tool/releases/download/v1/tool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.mathematical-letters-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; UTS #46 maps the mathematical letters to Latin beside the Cyrillic i",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://𝕘і𝕥𝕙𝕦𝕓.com/org/tool/releases/download/v1/tool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.fragment-after-host-download",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; the authority ends at the fragment, leaving the mixed host",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com#overview"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-editable-separated",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the -e value's repository",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b#egg=b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-editable-attached",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the repository of the -e value attached to the option",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b#egg=b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-editable-long",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the --editable value's repository",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b#egg=b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-editable-long-equals",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the repository of the --editable= value",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b#egg=b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-named-direct-url",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the named requirement's git+https direct reference",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-named-direct-url-unspaced",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the named requirement's git+https direct reference written without spaces",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-global-option-install",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; pip clones the requirement after a global option precedes install",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.pip-unsatisfiable-marker-kept-conservative",
+      "guard": "net-lookalike-host",
+      "derivation": "a network operation reaches an endpoint whose host has a DNS label mixing Unicode scripts; markers are not evaluated, so the named requirement's repository stays a download",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://gіthub.com/a/b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-return-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python read() returns the private key and the module prints its return value to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-function-helper-return-bound-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python main() binds the private key read() returns and prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-restored-console-log-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node restores console.log from the saved original after replacing it, so the later console.log prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-console-info-aliased-to-log-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node assigns the runtime console.log to console.info before replacing console.log, so console.info prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-saved-console-log-called-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node destructures the runtime console.log into log before replacing console.log, so calling log prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-local-console-bound-to-global-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node binds a block-scoped console to globalThis.console, so its console.log prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-soft-hyphen-path",
+      "guard": "exec-obfuscated",
+      "derivation": "An invisible soft hyphen U+00AD makes the copy's name differ from the config.yml it displays as.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/workspace/project/con\u00adfig.yml"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-hangul-filler-path",
+      "guard": "exec-obfuscated",
+      "derivation": "The Hangul filler U+3164 renders as blank space inside the name of the file cat reads.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/notes\u3164.md"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-halfwidth-hangul-filler-argument",
+      "guard": "exec-obfuscated",
+      "derivation": "The halfwidth Hangul filler U+FFA0 renders as blank space inside the name of the file rm deletes.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/workspace/project/build\uffa0.log"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-hangul-jamo-filler-path",
+      "guard": "exec-obfuscated",
+      "derivation": "The Hangul choseong and jungseong fillers U+115F and U+1160 are invisible in the name of the file touch creates.",
+      "require": [
+        {
+          "op": "filesystem.create",
+          "resource": {
+            "eq": "/workspace/project/release\u115f\u1160.txt"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hidden-lone-carriage-return",
+      "guard": "exec-obfuscated",
+      "derivation": "A carriage return inside the comment returns the cursor, so echo 'tests passed' overwrites the displayed rm -f build.log that runs.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/workspace/project/build.log"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-guarded-return-true-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper(True) takes the branch that returns the private key and the module prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-returned-parameter-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns its parameter, the private key the module passes it, and the module prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-identity-helper-return-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns identity() of the private key, which returns its argument, and the module prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-dict-key-return-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns a dict keyed by the private key and printing the dict writes its keys to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-literal-true-conditional-return-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns the private key from a conditional expression whose literal test is True, and the module prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-alias-chain-restored-console-log-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node saves console.log through the alias chain d = c = console and restores it after replacing it, so console.log prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-computed-saved-console-log-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node saves console[\"log\"] and restores it after replacing it, so console.log prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-forwarding-console-log-replacement-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node replaces console.log with a function that forwards its argument to console.info, which prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-console-log-redefined-after-replacement-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node redefines console.log as console.info with Object.defineProperty after replacing it, so console.log prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-saved-console-log-copy-restored-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node restores console.log from a copy of the saved original, so console.log prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-mutable-saved-console-log-restored-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node restores console.log from the saved original before reassigning the saved binding, so console.log prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-console-log-restored-through-error-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node stores console.log in console.error, replaces console.log and restores it from console.error, so console.log prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-bound-console-log-restored-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node restores console.log from console.log.bind(console) saved before replacing it, so console.log prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-conditionally-restored-console-log-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node may restore console.log from the saved original when X is set, so console.log may print the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-method-returned-parameter-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python Store.echo returns its parameter, the private key the module passes it, and the module prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-assigned-saved-console-log-called-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node assigns console.log to log before replacing console.log, so calling log prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-rebound-guard-return-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper rebinds include_secret to True before testing it, so helper(False) still returns the private key and the module prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-conditionally-muted-console-log-binding-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node binds out to console.log and replaces it only when QUIET is set, so without it out(key) prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-early-public-return-false-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns the private key unless public is true, and helper(False) skips the early return, so the module prints the key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-finally-guard-return-false-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper's finally overrides the returned private key only when public is true, so helper(False) returns the key and the module prints it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-parameter-alias-return-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns its argument through a local copy, so the module prints the private key it passed to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-nested-helper-parameter-return-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Python outer returns what inner returns, its own argument, so the module prints the private key it passed to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-console-logged-to-stderr-after-mute-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Node mutes console.log, then logs the console object itself to stderr, an argument Nah treats as a possible rewrite of every console method, so the later console.log(key) is kept as printing the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-console-let-alias-after-mute-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Node mutes console.log, then binds the console to a let alias that later code could use to restore it, so the later console.log(key) is kept as printing the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-bool-int-selector-return-print-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns the private key when flag == 1; Nah does not decide False == 1 across bool and int, so the key return is kept for helper(False) and the printed value reaches stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-unreachable-except-return-print-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns the private key from an except clause, which Nah keeps reachable although its try body cannot raise, so the printed value is kept as the key reaching stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-file-console-logger-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Node replaces console.log with a logger writing its argument through fs, which Nah keeps as possibly reaching stdout, so console.log(key) is kept as printing the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-normalized-stdout-console-logger-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Node replaces console.log with a logger that writes its argument to /usr/../dev/stdout, which is stdout, so console.log(key) writes the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-saved-console-error-assigned-to-log-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Node assigns console.log a binding Nah does not prove silent, so console.log(key) is kept as printing the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.node-muted-console-log-or-assigned-writer-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Node may assign console.log a stdout writer through ||=, which Nah keeps as printing, so console.log(key) is kept as writing the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-rebound-guard-after-early-return-print-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns the private key after an early public return whose parameter the body later rebinds, so Nah keeps the key return for helper(True) and the printed value reaches stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-forwarded-guard-false-return-print-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Python outer forwards its secret flag to inner, which returns the private key it was passed when the flag holds; Nah does not carry the flag through outer, so the printed value is kept as the key reaching stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-always-broken-loop-else-return-print-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns the private key from a loop else that an always-taken break skips; Nah keeps the else return reachable whenever the loop has a break, so the printed value is kept as the key reaching stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-dead-break-loop-else-return-print-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns the private key after a loop whose else always returns; Nah lets the never-run break in the body make the loop fall through, so the printed value is kept as the key reaching stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-spread-empty-list-guard-return-print-key-upload-kept-conservative",
+      "guard": "secrets-exfil",
+      "derivation": "Python helper returns the private key when flag is truthy; Nah leaves the truth of a literal with a starred element undecided, so helper([*[]]) keeps the key return and the printed value reaches stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "fs-home.conditional-false-function-while-home-delete",
+      "guard": "fs-home",
+      "derivation": "a function named false defined on one branch can make the while condition succeed, so the loop body's 'rm -rf ~' deletes the fixture home directory on that path",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.conditional-continue-function-loop-home-delete",
+      "guard": "fs-home",
+      "derivation": "a function named continue defined on one branch returns instead of skipping, so the loop body's 'rm -rf ~' deletes the fixture home directory on that path",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.conditional-test-function-if-home-delete",
+      "guard": "fs-home",
+      "derivation": "a function named test defined on one branch succeeds for unequal literals, so the then-arm 'rm -rf ~' deletes the fixture home directory on that path",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.conditional-true-function-until-home-delete",
+      "guard": "fs-home",
+      "derivation": "a function named true defined on one branch fails, so the until body's 'rm -rf ~' deletes the fixture home directory on that path",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.bash-break-help-loop-home-delete",
+      "guard": "fs-home",
+      "derivation": "bash's 'break --help' prints help and returns without leaving the loop, so the body's 'rm -rf ~' deletes the fixture home directory",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.bash-break-extra-operand-loop-home-delete",
+      "guard": "fs-home",
+      "derivation": "a stop with more than one operand is not taken as leaving the loop, so the body's 'rm -rf ~' is kept and deletes the fixture home directory; bash itself fails the break and never reaches it, an accepted conservative over-block",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
         }
       ]
     }

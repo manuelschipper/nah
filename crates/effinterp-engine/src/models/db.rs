@@ -1563,8 +1563,8 @@ impl Run<'_, '_> {
     }
 
     fn stdin(&mut self, builder: &mut PlanBuilder) {
-        // `< FILE` runs the file as a script; the shell's redirection already
-        // records reading it.
+        // `< FILE` and `cat FILE |` run the file as a script; the shell's
+        // redirection or `cat` already records reading it.
         if let Some(stdin) = self.ctx.stdin
             && let Some(file) = &stdin.file
         {

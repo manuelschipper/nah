@@ -87,7 +87,10 @@ impl StageWriter {
         if after <= before {
             return None;
         }
-        let effects: Vec<u32> = (before as u32..after as u32).collect();
+        Some(self.value_stage(node, (before as u32..after as u32).collect()))
+    }
+    /// A stage whose value carries the bytes of `effects`.
+    pub(crate) fn value_stage(&mut self, node: ProvenanceRef, effects: Vec<u32>) -> usize {
         let bindings = effects
             .iter()
             .map(|&e| PortBinding {
@@ -103,7 +106,7 @@ impl StageWriter {
             bindings,
             provenance: vec![node],
         });
-        Some(id)
+        id
     }
     /// Carry all constructor inputs through its returned value without adding an effect.
     pub(crate) fn join_values(&mut self, node: ProvenanceRef, producers: &[usize]) -> usize {
@@ -124,6 +127,36 @@ impl StageWriter {
             self.add_edge(producer, stage, index as u32);
         }
         stage
+    }
+    /// An output call writes these producers' values to `execution`'s stdout.
+    pub(crate) fn print_to_stdout(
+        &mut self,
+        node: ProvenanceRef,
+        execution: ExecutionNodeRef,
+        producers: &[usize],
+    ) {
+        let stage = self.stages.len();
+        self.stages.push(FlowStage {
+            execution: Some(execution),
+            effects: Vec::new(),
+            bindings: Vec::new(),
+            provenance: vec![node],
+        });
+        for &producer in producers {
+            self.edges.push(Flow {
+                assurance: effinterp_proto::CausalAssurance::Conservative,
+                from: FlowRef {
+                    stage: producer as u32,
+                    port: Port::Value,
+                },
+                to: FlowRef {
+                    stage: stage as u32,
+                    port: Port::Stdout,
+                },
+                reason: FlowReason::new("data_flow"),
+                provenance: Vec::new(),
+            });
+        }
     }
     pub(crate) fn add_edge(&mut self, producer: usize, consumer: usize, arg: u32) {
         if producer == consumer {
@@ -176,6 +209,32 @@ impl StageWriter {
             builder.flow_edge(edge);
         }
     }
+}
+
+/// These effects send their bytes to the current execution's stdout.
+pub(crate) fn effects_to_stdout(
+    builder: &mut PlanBuilder,
+    effects: Vec<u32>,
+    assurance: CausalAssurance,
+    provenance: Vec<ProvenanceRef>,
+) {
+    if effects.is_empty() {
+        return;
+    }
+    let execution = builder.current_execution();
+    builder.flow_stage(FlowStage {
+        execution: Some(execution),
+        bindings: effects
+            .iter()
+            .map(|&effect| PortBinding {
+                assurance,
+                from: BindEnd::Effect(effect),
+                to: BindEnd::Port(Port::Stdout),
+            })
+            .collect(),
+        effects,
+        provenance,
+    });
 }
 
 /// One command stage handed to the flow builder. Effect ranges are captured
@@ -3668,6 +3727,10 @@ fn causal_budget_saturation(
                 }
                 pending.push_back((successor.clone(), depth + 1));
             }
+        }
+        // Nothing further can change the answer.
+        if depth_saturated && pairs_saturated {
+            break;
         }
     }
     (depth_saturated, pairs_saturated)

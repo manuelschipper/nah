@@ -1,7 +1,9 @@
 //! Nah-owned labels applied to interpreted effects. The submodules classify a
 //! resolved path into those labels; every producer shares them.
 
+pub mod hidden_characters;
 pub mod host_integrity;
+pub mod host_script;
 pub mod lexical_path;
 mod pattern;
 pub mod raw_storage;

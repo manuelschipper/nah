@@ -1,21 +1,28 @@
-summary = "Blocks encoded, pattern-selected, or unresolved execution."
+summary = "Blocks encoded, pattern-selected, or unresolved execution, and hidden characters."
 
 description = '''
 This guard stops execution whose actual program the reader cannot see. A
 disguised `rm -rf /` then cannot pass review as something harmless. It blocks
 code whose command text is spelled in base64, and a command whose program name
 the shell has to compute at run time from string operations, word splitting,
-or a filename pattern.
+or a filename pattern. It also blocks a shell or PowerShell command holding
+characters that make the approval prompt show other text than what runs:
+control bytes like ESC, a mid-line carriage return, bidi controls,
+invisible spaces, hyphens and fillers, and tag characters outside the England,
+Scotland and Wales flags.
 '''
 
 limits = '''
 The guard depends on Nah recognizing how a program name was computed, which it
-does not do for every shell feature. Code Nah cannot see delegates.
+does not do for every shell feature. Code Nah cannot see delegates. Only
+shell and PowerShell command text is checked for hidden characters, not files
+an agent writes or code tools.
 '''
 
 default_reason = '''
 It ships on because hiding the program an agent runs defeats every other
-guard, and ordinary scripts do not compute program names. `exec-decoded` covers
+guard, and ordinary scripts do not compute program names or embed raw control
+or bidi characters. `exec-decoded` covers
 a separate decode step feeding execution, and `exec-remote` covers network
 content.
 '''
@@ -42,6 +49,10 @@ why = "The program name is computed by reversing a string in a command substitut
 row = "exec.powershell-encoded"
 why = "-EncodedCommand carries the script as base64 a reader cannot see."
 
+[[blocks]]
+row = "shell-resolution.hidden-zero-width-space"
+why = "An invisible U+200B makes the copy's name differ from config.yml."
+
 [[passes]]
 row = "exec-obfuscated.static-eval-delegates"
 why = "eval runs a literal string Nah can read; no program is hidden."
@@ -60,6 +71,16 @@ cause = "out-of-scope"
 [[passes]]
 row = "shell-resolution.function-local-does-not-leak"
 why = "local keeps rm inside f, so \"$TOOL\" still runs echo."
+cause = "out-of-scope"
+
+[[passes]]
+row = "shell-resolution.hidden-emoji-commit-message-delegates"
+why = "Joiners, skin tones and the Scotland flag are ordinary emoji."
+cause = "out-of-scope"
+
+[[passes]]
+row = "shell-resolution.hidden-text-escape-delegates"
+why = "\\e and \\x1b are text the program interprets, not raw bytes."
 cause = "out-of-scope"
 
 [[passes]]

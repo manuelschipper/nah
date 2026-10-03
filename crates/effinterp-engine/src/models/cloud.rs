@@ -1010,8 +1010,40 @@ fn object_upload_effect(
     recursive: bool,
     delete: bool,
     connect: bool,
+    attributes: std::collections::BTreeMap<String, AttrValue>,
+    upload: Option<&[u32]>,
+) -> Option<u32> {
+    cloud_request_effect(
+        builder,
+        ctx,
+        model_node,
+        index,
+        operation,
+        resource,
+        recursive,
+        delete,
+        connect,
+        attributes,
+        upload,
+        effinterp_proto::RequestAssurance::Conservative,
+    )
+}
+
+/// `object_upload_effect` with the request assurance its caller established.
+#[allow(clippy::too_many_arguments)]
+fn cloud_request_effect(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    index: u32,
+    operation: &str,
+    resource: ResourceExpr,
+    recursive: bool,
+    delete: bool,
+    connect: bool,
     mut attributes: std::collections::BTreeMap<String, AttrValue>,
     upload: Option<&[u32]>,
+    request_assurance: effinterp_proto::RequestAssurance,
 ) -> Option<u32> {
     let arg = arg_node(builder, ctx, index);
     let mut provenance = vec![arg, model_node];
@@ -1038,7 +1070,7 @@ fn object_upload_effect(
         attributes.insert("delete".to_string(), AttrValue::Bool(true));
     }
     builder.effect(Effect {
-        request_assurance: effinterp_proto::RequestAssurance::Conservative,
+        request_assurance,
         id: Default::default(),
         operation: Operation::new(operation),
         resource,
@@ -1390,8 +1422,18 @@ impl CommandModel for Aws {
         if credential_covered.is_some() {
             return;
         }
-        if let Some(delete) = database_delete(argv) {
-            database_delete_effect(builder, ctx, model_node, &delete);
+        if let Some(delete) = resource_delete(argv) {
+            resource_delete_effect(builder, ctx, model_node, &delete);
+            return;
+        }
+        // The scope reading takes a reviewed global option's separate value
+        // (`aws --output json ec2 ...`) as the service; termination is read
+        // with every reviewed global option, as the other deletes are.
+        if let Some(service) = aws_service_after_globals(argv)
+            && argv.get(service).and_then(Word::as_literal) == Some("ec2")
+            && argv.get(service + 1).and_then(Word::as_literal) == Some("terminate-instances")
+        {
+            ec2_lifecycle(builder, ctx, model_node, service + 1);
             return;
         }
         match service {
@@ -2403,6 +2445,10 @@ fn ec2_lifecycle(
     let mut dry_run = false;
     let mut skeleton = false;
     let mut uncertain = false;
+    // An option the lifecycle verbs share but termination does not document,
+    // or an unresolved word among the instance IDs, which may be an option
+    // (`--instance-ids i-1 "$EXTRA"` with `EXTRA=--dry-run`).
+    let mut unread = false;
     let mut i = verb_index + 1;
     while i < ctx.argv.len() {
         let word = &ctx.argv[i];
@@ -2433,13 +2479,20 @@ fn ec2_lifecycle(
                 }
             }
             "--instance-ids" | "--resources" => {
+                let resources = flag == "--resources";
+                unread |= resources;
+                // argparse stores a list option, so a repeated one replaces
+                // the earlier list rather than adding to it.
+                ids.retain(|(list, _, _)| *list != resources);
                 if let Some(value) = assigned {
-                    ids.push((i as u32, value));
+                    unread |= value.as_literal().is_none();
+                    ids.push((resources, i as u32, value));
                 } else {
                     let start = i;
                     i += 1;
                     while i < ctx.argv.len() && !ctx.argv[i].render_raw().starts_with('-') {
-                        ids.push((i as u32, ctx.argv[i].clone()));
+                        unread |= ctx.argv[i].as_literal().is_none();
+                        ids.push((resources, i as u32, ctx.argv[i].clone()));
                         i += 1;
                     }
                     if i == start + 1 {
@@ -2449,6 +2502,7 @@ fn ec2_lifecycle(
                 }
             }
             "--tags" => {
+                unread = true;
                 if assigned.is_none() {
                     let start = i;
                     i += 1;
@@ -2475,6 +2529,16 @@ fn ec2_lifecycle(
             | "--query"
             | "--cli-read-timeout"
             | "--cli-connect-timeout" => {
+                unread |= matches!(
+                    flag,
+                    "--image-id"
+                        | "--count"
+                        | "--min-count"
+                        | "--max-count"
+                        | "--instance-type"
+                        | "--key-name"
+                        | "--subnet-id"
+                );
                 if assigned.is_none() {
                     if ctx
                         .argv
@@ -2496,7 +2560,7 @@ fn ec2_lifecycle(
             | "--no-cli-pager"
             | "--no-paginate"
             | "--no-sign-request"
-            | "--no-verify-ssl" => {}
+            | "--no-verify-ssl" => unread |= matches!(flag, "--hibernate" | "--no-hibernate"),
             _ => {
                 uncertain = true;
                 break;
@@ -2567,14 +2631,23 @@ fn ec2_lifecycle(
         }
         return;
     }
-    for (_, word) in ids {
-        let id = word.as_literal().filter(|id| {
-            !id.is_empty()
-                && !id.starts_with(['[', '{'])
-                && !id.starts_with("file://")
-                && !id.starts_with("fileb://")
-                && !id.chars().any(char::is_whitespace)
-        });
+    // An ID read from a file, JSON or an empty word is input Nah does not
+    // read, so no instance in that effective list is an exact target.
+    let instance_id = |word: &Word| {
+        word.as_literal()
+            .filter(|id| {
+                !id.is_empty()
+                    && !id.starts_with(['[', '{'])
+                    && !id.starts_with("file://")
+                    && !id.starts_with("fileb://")
+                    && !id.chars().any(char::is_whitespace)
+            })
+            .map(str::to_string)
+    };
+    let ids_readable = ids.iter().all(|(_, _, word)| instance_id(word).is_some());
+    for (_, _, word) in ids {
+        let id = instance_id(&word);
+        let id = id.as_deref();
         if id.is_none() {
             boundary(
                 builder,
@@ -2613,8 +2686,21 @@ fn ec2_lifecycle(
         if operation == "cloud.resource.update" {
             attributes.insert("tag_update".into(), AttrValue::Bool(true));
         }
+        // A termination whose every word was read as an option termination
+        // documents and whose effective instance list is literal is the
+        // request argv states.
+        let request_assurance = if operation == "cloud.resource.delete"
+            && !uncertain
+            && !unread
+            && ids_readable
+            && aws_service_after_globals(ctx.argv) == Some(verb_index - 1)
+        {
+            effinterp_proto::RequestAssurance::Exact
+        } else {
+            effinterp_proto::RequestAssurance::Conservative
+        };
         builder.effect(Effect {
-            request_assurance: effinterp_proto::RequestAssurance::Conservative,
+            request_assurance,
             id: Default::default(),
             operation: Operation::new(operation),
             resource,
@@ -2625,6 +2711,29 @@ fn ec2_lifecycle(
             execution: effinterp_proto::ExecutionNodeRef(0),
             provenance,
         });
+    }
+}
+
+/// The argv index of the AWS service word when every word before it is a
+/// global option the CLI documents, with its value.
+fn aws_service_after_globals(argv: &[Word]) -> Option<usize> {
+    let mut index = 1;
+    loop {
+        let word = argv.get(index)?.as_literal()?;
+        if !word.starts_with('-') {
+            return Some(index);
+        }
+        let (flag, attached) = match word.split_once('=') {
+            Some((flag, _)) => (flag, true),
+            None => (word, false),
+        };
+        if AWS_COMMON_SWITCHES.contains(&flag) && !attached {
+            index += 1;
+        } else if AWS_COMMON_VALUES.contains(&flag) {
+            index += if attached { 1 } else { 2 };
+        } else {
+            return None;
+        }
     }
 }
 
@@ -2721,8 +2830,8 @@ impl Qualified {
     }
 }
 
-/// One documented managed-database delete verb.
-struct DatabaseDelete {
+/// One documented cloud resource delete verb.
+struct ResourceDelete {
     provider: &'static str,
     service: &'static str,
     kind: &'static str,
@@ -2747,6 +2856,10 @@ struct DatabaseDelete {
     /// `file://`/`fileb://`, Azure `@file`) is input Nah does not read.
     /// DB-BAK's snapshot and backup verbs keep their literal reading.
     strict_names: bool,
+    /// Whether a checked name may contain `/` anyway: CloudWatch log groups
+    /// and ECR repositories nest names, and some verbs take an ARN whose
+    /// resource part does.
+    slash_names: bool,
     /// Other command options that take a value.
     values: &'static [&'static str],
     /// Command options without a value.
@@ -2763,7 +2876,7 @@ struct DatabaseDelete {
     backups: AutomatedBackups,
 }
 
-const AWS_DATABASE_VALUES: &[&str] = &[
+const AWS_COMMON_VALUES: &[&str] = &[
     "--region",
     "--profile",
     "--endpoint-url",
@@ -2775,7 +2888,7 @@ const AWS_DATABASE_VALUES: &[&str] = &[
     "--ca-bundle",
     "--cli-binary-format",
 ];
-const AWS_DATABASE_SWITCHES: &[&str] = &[
+const AWS_COMMON_SWITCHES: &[&str] = &[
     "--debug",
     "--no-verify-ssl",
     "--no-paginate",
@@ -2784,7 +2897,7 @@ const AWS_DATABASE_SWITCHES: &[&str] = &[
     "--cli-auto-prompt",
     "--no-cli-auto-prompt",
 ];
-const GCLOUD_DATABASE_VALUES: &[&str] = &[
+const GCLOUD_COMMON_VALUES: &[&str] = &[
     "--project",
     "--account",
     "--configuration",
@@ -2801,7 +2914,7 @@ const GCLOUD_DATABASE_VALUES: &[&str] = &[
     "--credential-file-override",
     "--universe-domain",
 ];
-const GCLOUD_DATABASE_SWITCHES: &[&str] = &[
+const GCLOUD_COMMON_SWITCHES: &[&str] = &[
     "--quiet",
     "-q",
     "--log-http",
@@ -2809,14 +2922,14 @@ const GCLOUD_DATABASE_SWITCHES: &[&str] = &[
     "--user-output-enabled",
     "--no-user-output-enabled",
 ];
-const AZ_DATABASE_VALUES: &[&str] = &[
+const AZ_COMMON_VALUES: &[&str] = &[
     "--subscription",
     "--output",
     "-o",
     "--query",
     "--change-reference",
 ];
-const AZ_DATABASE_SWITCHES: &[&str] = &[
+const AZ_COMMON_SWITCHES: &[&str] = &[
     "--debug",
     "--verbose",
     "--only-show-errors",
@@ -2824,26 +2937,20 @@ const AZ_DATABASE_SWITCHES: &[&str] = &[
 ];
 
 /// The managed-database instance, cluster, database, table, snapshot and
-/// backup deletes whose options the vendors document, and Cloud SQL's user and
-/// certificate deletes. Other verbs keep their existing handling.
-fn database_delete(argv: &[Word]) -> Option<DatabaseDelete> {
+/// backup deletes whose options the vendors document, Cloud SQL's user and
+/// certificate deletes, and the reviewed deletes of other provisioned
+/// resources: compute, networking, edge, identity and account scopes. Other
+/// verbs keep their existing handling.
+fn resource_delete(argv: &[Word]) -> Option<ResourceDelete> {
     let tool = crate::models::args::basename(argv.first()?.as_literal()?);
     let (common_values, common_switches, scope_values) = match tool {
-        "aws" => (
-            AWS_DATABASE_VALUES,
-            AWS_DATABASE_SWITCHES,
-            CLOUD_SCOPE_FLAGS,
-        ),
+        "aws" => (AWS_COMMON_VALUES, AWS_COMMON_SWITCHES, CLOUD_SCOPE_FLAGS),
         "gcloud" => (
-            GCLOUD_DATABASE_VALUES,
-            GCLOUD_DATABASE_SWITCHES,
+            GCLOUD_COMMON_VALUES,
+            GCLOUD_COMMON_SWITCHES,
             CLOUD_SCOPE_FLAGS,
         ),
-        "az" => (
-            AZ_DATABASE_VALUES,
-            AZ_DATABASE_SWITCHES,
-            AZ_GLOBAL_VALUE_FLAGS,
-        ),
+        "az" => (AZ_COMMON_VALUES, AZ_COMMON_SWITCHES, AZ_GLOBAL_VALUE_FLAGS),
         _ => return None,
     };
     // The command words are found with the same global value options the
@@ -2873,7 +2980,7 @@ fn database_delete(argv: &[Word]) -> Option<DatabaseDelete> {
     // words names it, if exactly one does; the skipped words stay out of the
     // operands. Only words that can precede a verb (at most five command words
     // and three skipped values) are candidates.
-    database_row(argv, tool, &words, globals).or_else(|| {
+    resource_delete_row(argv, tool, &words, globals).or_else(|| {
         let candidates: Vec<(usize, &str)> = (0..words.len().min(8))
             .filter_map(|position| {
                 argv[words[position] - 1]
@@ -2897,11 +3004,11 @@ fn database_delete(argv: &[Word]) -> Option<DatabaseDelete> {
                 .filter(|position| !skipped.iter().any(|(skip, _)| skip == position))
                 .map(|position| words[position])
                 .collect();
-            database_row(argv, tool, &reading, globals)
+            resource_delete_row(argv, tool, &reading, globals)
                 .filter(|delete| skipped.iter().all(|(_, flag)| !delete.is_switch(flag)))
         });
         // Readings that skip words after the verb name the same command.
-        let mut named: Vec<DatabaseDelete> = Vec::new();
+        let mut named: Vec<ResourceDelete> = Vec::new();
         for delete in readings {
             if !named.iter().any(|other| other.path == delete.path) {
                 named.push(delete);
@@ -2912,7 +3019,7 @@ fn database_delete(argv: &[Word]) -> Option<DatabaseDelete> {
 }
 
 /// The documented verb `words`, the argv indices of the command words, name.
-fn database_row(
+fn resource_delete_row(
     argv: &[Word],
     tool: &str,
     words: &[usize],
@@ -2921,7 +3028,7 @@ fn database_row(
         &'static [&'static str],
         &'static [&'static str],
     ),
-) -> Option<DatabaseDelete> {
+) -> Option<ResourceDelete> {
     use AutomatedBackups::*;
     // gcloud's alpha and beta tracks take the GA command words after the
     // track word.
@@ -2942,7 +3049,7 @@ fn database_row(
                         id_flags: &'static [&'static str],
                         skip_final: (&'static str, &'static str),
                         final_snapshot: &'static str,
-                        backups: AutomatedBackups| DatabaseDelete {
+                        backups: AutomatedBackups| ResourceDelete {
         provider: "aws",
         service,
         kind,
@@ -2954,6 +3061,7 @@ fn database_row(
         keeps_data: None,
         qualified: Qualified::None,
         strict_names: false,
+        slash_names: false,
         values: &[],
         switches: &[],
         common_values: &[],
@@ -2969,7 +3077,7 @@ fn database_row(
                  start: usize,
                  id_flags: &'static [&'static str],
                  values: &'static [&'static str],
-                 switches: &'static [&'static str]| DatabaseDelete {
+                 switches: &'static [&'static str]| ResourceDelete {
         provider,
         service,
         kind,
@@ -2981,6 +3089,7 @@ fn database_row(
         keeps_data: None,
         qualified: Qualified::None,
         strict_names: false,
+        slash_names: false,
         values,
         switches,
         common_values: &[],
@@ -2999,7 +3108,7 @@ fn database_row(
                     id_flags: &'static [&'static str],
                     parents: &'static [&'static [&'static str]],
                     values: &'static [&'static str],
-                    switches: &'static [&'static str]| DatabaseDelete {
+                    switches: &'static [&'static str]| ResourceDelete {
         parents,
         strict_names: true,
         ..point(provider, service, kind, start, id_flags, values, switches)
@@ -3036,7 +3145,7 @@ fn database_row(
             "--final-db-snapshot-identifier",
             Removed,
         ),
-        ("aws", Some("redshift"), Some("delete-cluster"), ..) => DatabaseDelete {
+        ("aws", Some("redshift"), Some("delete-cluster"), ..) => ResourceDelete {
             values: &["--final-cluster-snapshot-retention-period"],
             ..aws_resource(
                 "redshift",
@@ -3156,7 +3265,7 @@ fn database_row(
             &[],
         ),
         // --table-name also takes the table's ARN.
-        ("aws", Some("dynamodb"), Some("delete-table"), ..) => DatabaseDelete {
+        ("aws", Some("dynamodb"), Some("delete-table"), ..) => ResourceDelete {
             qualified: Qualified::Arn {
                 service: "dynamodb",
                 resource: "table",
@@ -3236,7 +3345,7 @@ fn database_row(
         ),
         // An effective --retain-primary-cluster deletes only the read
         // replicas and keeps the primary's data.
-        ("aws", Some("elasticache"), Some("delete-replication-group"), ..) => DatabaseDelete {
+        ("aws", Some("elasticache"), Some("delete-replication-group"), ..) => ResourceDelete {
             keeps_data: Some(RETAIN_PRIMARY),
             ..resource(
                 "aws",
@@ -3260,7 +3369,7 @@ fn database_row(
             &[],
         ),
         // --cluster-arn takes only the cluster's ARN.
-        ("aws", Some("docdb-elastic"), Some("delete-cluster"), ..) => DatabaseDelete {
+        ("aws", Some("docdb-elastic"), Some("delete-cluster"), ..) => ResourceDelete {
             qualified: Qualified::Arn {
                 service: "docdb-elastic",
                 resource: "cluster",
@@ -3306,7 +3415,7 @@ fn database_row(
             &["--final-snapshot-name", "--multi-region-cluster-name"],
             &[],
         ),
-        ("gcloud", Some("sql"), Some("instances"), Some("delete"), _) => DatabaseDelete {
+        ("gcloud", Some("sql"), Some("instances"), Some("delete"), _) => ResourceDelete {
             final_backup: Some("--enable-final-backup"),
             ..resource(
                 "gcp",
@@ -3368,7 +3477,7 @@ fn database_row(
         ("gcloud", Some("spanner"), Some("instances"), Some("delete"), _) => {
             resource("gcp", "spanner", "instance", 3, &[], &[], &[], &[])
         }
-        ("gcloud", Some("spanner"), Some("databases"), Some("delete"), _) => DatabaseDelete {
+        ("gcloud", Some("spanner"), Some("databases"), Some("delete"), _) => ResourceDelete {
             qualified: Qualified::Path(&["projects", "instances", "databases"]),
             ..resource(
                 "gcp",
@@ -3392,12 +3501,12 @@ fn database_row(
             &[],
         ),
         // `cbt deleteinstance` names the same resource.
-        ("gcloud", Some("bigtable"), Some("instances"), Some("delete"), _) => DatabaseDelete {
+        ("gcloud", Some("bigtable"), Some("instances"), Some("delete"), _) => ResourceDelete {
             many: true,
             qualified: Qualified::Path(&["projects", "instances"]),
             ..resource("gcp", "bigtable", "instance", 3, &[], &[], &[], &[])
         },
-        ("gcloud", Some("bigtable"), Some("tables"), Some("delete"), _) => DatabaseDelete {
+        ("gcloud", Some("bigtable"), Some("tables"), Some("delete"), _) => ResourceDelete {
             qualified: Qualified::Path(&["projects", "instances", "tables"]),
             ..resource(
                 "gcp",
@@ -3422,7 +3531,7 @@ fn database_row(
             &["--region"],
             &["--async", "--force"],
         ),
-        ("gcloud", Some("redis"), Some("instances"), Some("delete"), _) => DatabaseDelete {
+        ("gcloud", Some("redis"), Some("instances"), Some("delete"), _) => ResourceDelete {
             qualified: Qualified::Path(&["projects", "locations", "instances"]),
             ..resource(
                 "gcp",
@@ -3435,7 +3544,7 @@ fn database_row(
                 &["--async"],
             )
         },
-        ("gcloud", Some("redis"), Some("clusters"), Some("delete"), _) => DatabaseDelete {
+        ("gcloud", Some("redis"), Some("clusters"), Some("delete"), _) => ResourceDelete {
             qualified: Qualified::Path(&["projects", "locations", "clusters"]),
             ..resource(
                 "gcp",
@@ -3580,6 +3689,340 @@ fn database_row(
             &["--resource-group", "-g"],
             &["--yes", "-y"],
         ),
+        // Provisioned resources outside the managed databases. Each verb
+        // deletes the one resource its identifier option or operand names.
+        ("aws", Some("ec2"), Some(verb @ ("delete-vpc" | "delete-subnet")), ..) => resource(
+            "aws",
+            "ec2",
+            if verb == "delete-vpc" {
+                "vpc"
+            } else {
+                "subnet"
+            },
+            2,
+            if verb == "delete-vpc" {
+                &["--vpc-id"]
+            } else {
+                &["--subnet-id"]
+            },
+            &[],
+            &[],
+            &["--no-dry-run"],
+        ),
+        ("aws", Some("ec2"), Some("delete-security-group"), ..) => resource(
+            "aws",
+            "ec2",
+            "security-group",
+            2,
+            &["--group-id", "--group-name"],
+            &[],
+            &[],
+            &["--no-dry-run"],
+        ),
+        ("aws", Some("eks"), Some("delete-cluster"), ..) => {
+            resource("aws", "eks", "cluster", 2, &["--name"], &[], &[], &[])
+        }
+        ("aws", Some("efs"), Some("delete-file-system"), ..) => resource(
+            "aws",
+            "efs",
+            "file-system",
+            2,
+            &["--file-system-id"],
+            &[],
+            &[],
+            &[],
+        ),
+        ("aws", Some("kinesis"), Some("delete-stream"), ..) => resource(
+            "aws",
+            "kinesis",
+            "stream",
+            2,
+            &["--stream-name"],
+            &[],
+            &[],
+            &[
+                "--enforce-consumer-deletion",
+                "--no-enforce-consumer-deletion",
+            ],
+        ),
+        ("aws", Some("logs"), Some("delete-log-group"), ..) => ResourceDelete {
+            slash_names: true,
+            ..resource(
+                "aws",
+                "logs",
+                "log-group",
+                2,
+                &["--log-group-name"],
+                &[],
+                &[],
+                &[],
+            )
+        },
+        ("aws", Some("cloudtrail"), Some("delete-trail"), ..) => {
+            resource("aws", "cloudtrail", "trail", 2, &["--name"], &[], &[], &[])
+        }
+        ("aws", Some("route53"), Some("delete-hosted-zone"), ..) => {
+            resource("aws", "route53", "hosted-zone", 2, &["--id"], &[], &[], &[])
+        }
+        ("aws", Some("elbv2"), Some("delete-load-balancer"), ..) => ResourceDelete {
+            slash_names: true,
+            ..resource(
+                "aws",
+                "elbv2",
+                "load-balancer",
+                2,
+                &["--load-balancer-arn"],
+                &[],
+                &[],
+                &[],
+            )
+        },
+        ("aws", Some("cloudfront"), Some("delete-distribution"), ..) => resource(
+            "aws",
+            "cloudfront",
+            "distribution",
+            2,
+            &["--id"],
+            &[],
+            &["--if-match"],
+            &[],
+        ),
+        // A --qualifier deletes one version of the function, not the function.
+        ("aws", Some("lambda"), Some("delete-function"), ..) => resource(
+            "aws",
+            "lambda",
+            "function",
+            2,
+            &["--function-name"],
+            &[],
+            &[],
+            &[],
+        ),
+        ("aws", Some("ecr"), Some("delete-repository"), ..) => ResourceDelete {
+            slash_names: true,
+            ..resource(
+                "aws",
+                "ecr",
+                "repository",
+                2,
+                &["--repository-name"],
+                &[],
+                &["--registry-id"],
+                &["--force", "--no-force"],
+            )
+        },
+        ("aws", Some("iam"), Some(verb @ ("delete-user" | "delete-role" | "delete-group")), ..) => {
+            let (kind, flag): (&str, &'static [&'static str]) = match verb {
+                "delete-user" => ("user", &["--user-name"]),
+                "delete-role" => ("role", &["--role-name"]),
+                _ => ("group", &["--group-name"]),
+            };
+            resource("aws", "iam", kind, 2, flag, &[], &[], &[])
+        }
+        // --retain-resources lists resources to keep and takes several values,
+        // so it stays undocumented here.
+        ("aws", Some("cloudformation"), Some("delete-stack"), ..) => ResourceDelete {
+            slash_names: true,
+            ..resource(
+                "aws",
+                "cloudformation",
+                "stack",
+                2,
+                &["--stack-name"],
+                &[],
+                &["--role-arn", "--client-request-token", "--deletion-mode"],
+                &[],
+            )
+        },
+        // --delete-disks and --keep-disks choose what happens to the attached
+        // disks; the instances are deleted either way.
+        ("gcloud", Some("compute"), Some("instances"), Some("delete"), _) => ResourceDelete {
+            many: true,
+            qualified: Qualified::Path(&["projects", "zones", "instances"]),
+            ..resource(
+                "gcp",
+                "compute",
+                "instance",
+                3,
+                &[],
+                &[],
+                &["--zone", "--delete-disks", "--keep-disks"],
+                &[],
+            )
+        },
+        (
+            "gcloud",
+            Some("compute"),
+            Some(collection @ ("networks" | "firewall-rules")),
+            Some("delete"),
+            _,
+        ) => ResourceDelete {
+            many: true,
+            ..resource(
+                "gcp",
+                "compute",
+                if collection == "networks" {
+                    "network"
+                } else {
+                    "firewall-rule"
+                },
+                3,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+        },
+        ("gcloud", Some("container"), Some("clusters"), Some("delete"), _) => ResourceDelete {
+            many: true,
+            ..resource(
+                "gcp",
+                "container",
+                "cluster",
+                3,
+                &[],
+                &[],
+                &["--zone", "-z", "--region", "--location"],
+                &["--async"],
+            )
+        },
+        ("gcloud", Some("dataproc"), Some("clusters"), Some("delete"), _) => resource(
+            "gcp",
+            "dataproc",
+            "cluster",
+            3,
+            &[],
+            &[],
+            &["--region", "--graceful-decommission-timeout"],
+            &["--async"],
+        ),
+        ("gcloud", Some("functions"), Some("delete"), ..) => resource(
+            "gcp",
+            "functions",
+            "function",
+            2,
+            &[],
+            &[],
+            &["--region"],
+            &["--gen2", "--no-gen2"],
+        ),
+        ("gcloud", Some("run"), Some("services"), Some("delete"), _) => resource(
+            "gcp",
+            "run",
+            "service",
+            3,
+            &[],
+            &[],
+            &["--region"],
+            &["--async"],
+        ),
+        ("gcloud", Some("dns"), Some("managed-zones"), Some("delete"), _) => {
+            resource("gcp", "dns", "managed-zone", 3, &[], &[], &[], &[])
+        }
+        ("gcloud", Some("iam"), Some("service-accounts"), Some("delete"), _) => {
+            resource("gcp", "iam", "service-account", 3, &[], &[], &[], &[])
+        }
+        ("gcloud", Some("projects"), Some("delete"), ..) => {
+            resource("gcp", "projects", "project", 2, &[], &[], &[], &[])
+        }
+        // A resource group delete removes every resource in the group.
+        ("az", Some("group"), Some("delete"), ..) => resource(
+            "azure",
+            "group",
+            "resource-group",
+            2,
+            &["--name", "-n", "--resource-group", "-g"],
+            &[],
+            &["--force-deletion-types", "-f"],
+            &["--yes", "-y", "--no-wait"],
+        ),
+        ("az", Some("vm"), Some("delete"), ..) => resource(
+            "azure",
+            "vm",
+            "instance",
+            2,
+            &["--name", "-n"],
+            &[],
+            &["--resource-group", "-g", "--force-deletion"],
+            &["--yes", "-y", "--no-wait"],
+        ),
+        ("az", Some("aks"), Some("delete"), ..) => resource(
+            "azure",
+            "aks",
+            "cluster",
+            2,
+            &["--name", "-n"],
+            &[],
+            &["--resource-group", "-g"],
+            &["--yes", "-y", "--no-wait"],
+        ),
+        ("az", Some("acr"), Some("delete"), ..) => resource(
+            "azure",
+            "acr",
+            "registry",
+            2,
+            &["--name", "-n"],
+            &[],
+            &["--resource-group", "-g"],
+            &["--yes", "-y"],
+        ),
+        // A --slot deletes one deployment slot, not the app.
+        ("az", Some(service @ ("webapp" | "functionapp")), Some("delete"), ..) => resource(
+            "azure",
+            if service == "webapp" {
+                "webapp"
+            } else {
+                "functionapp"
+            },
+            "app",
+            2,
+            &["--name", "-n"],
+            &[],
+            &["--resource-group", "-g"],
+            if service == "webapp" {
+                &[
+                    "--keep-empty-plan",
+                    "--keep-metrics",
+                    "--keep-dns-registration",
+                ]
+            } else {
+                &[]
+            },
+        ),
+        ("az", Some("network"), Some("vnet"), Some("delete"), _) => resource(
+            "azure",
+            "network",
+            "vnet",
+            3,
+            &["--name", "-n"],
+            &[],
+            &["--resource-group", "-g"],
+            &["--no-wait"],
+        ),
+        ("az", Some("network"), Some("dns"), Some("zone"), Some("delete")) => resource(
+            "azure",
+            "network",
+            "dns-zone",
+            4,
+            &["--name", "-n"],
+            &[],
+            &["--resource-group", "-g"],
+            &["--yes", "-y"],
+        ),
+        ("az", Some("ad"), Some(object @ ("sp" | "app")), Some("delete"), _) => resource(
+            "azure",
+            "ad",
+            if object == "sp" {
+                "service-principal"
+            } else {
+                "application"
+            },
+            3,
+            &["--id"],
+            &[],
+            &[],
+            &[],
+        ),
         _ => return None,
     };
     (
@@ -3605,7 +4048,7 @@ const AUTOMATED_BACKUP_SWITCHES: [&str; 2] = [
     "--no-delete-automated-backups",
 ];
 
-impl DatabaseDelete {
+impl ResourceDelete {
     /// Every option this verb documents.
     fn options(&self) -> impl Iterator<Item = &'static str> + '_ {
         [
@@ -3657,11 +4100,11 @@ impl DatabaseDelete {
     /// arguments Nah does not read, AWS's `--dry-run`, which these verbs do
     /// not support, or a value option without its value leaves the request
     /// unestablished.
-    fn arguments<'a>(&self, argv: &'a [Word]) -> Option<DatabaseArguments<'a>> {
+    fn arguments<'a>(&self, argv: &'a [Word]) -> Option<DeleteArguments<'a>> {
         let indices: Vec<usize> = (1..argv.len())
             .filter(|index| !self.path.contains(index))
             .collect();
-        let mut arguments = DatabaseArguments::default();
+        let mut arguments = DeleteArguments::default();
         let mut position = 0;
         // The word after an undocumented option may be its value.
         let mut maybe_value = None;
@@ -3743,7 +4186,7 @@ impl DatabaseDelete {
 const UNSTATED: &str = "\0";
 
 #[derive(Default)]
-struct DatabaseArguments<'a> {
+struct DeleteArguments<'a> {
     operands: Vec<&'a str>,
     values: Vec<(&'a str, &'a str)>,
     switches: Vec<&'a str>,
@@ -3753,7 +4196,7 @@ struct DatabaseArguments<'a> {
     ambiguous: Vec<&'a str>,
 }
 
-impl DatabaseArguments<'_> {
+impl DeleteArguments<'_> {
     /// The last value any of `flags` gave.
     fn value(&self, flags: &[&str]) -> Option<&str> {
         self.values
@@ -4004,17 +4447,17 @@ fn aws_option_name(name: &str) -> String {
     name.to_ascii_lowercase()
 }
 
-/// A managed-database delete. A resource delete also records whether a final
-/// snapshot is taken and whether automated backups outlive the resource, where
+/// A reviewed cloud resource delete. A managed-database delete also records
+/// whether a final snapshot is taken and whether automated backups outlive the resource, where
 /// the options and the vendor's documentation establish them. Without an
 /// established request the verb keeps its earlier handling: RDS instance
 /// deletion and gcloud's SQL chain still emit their delete, the other verbs a
 /// boundary. AWS skeleton generation sends no request at all.
-fn database_delete_effect(
+fn resource_delete_effect(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
-    delete: &DatabaseDelete,
+    delete: &ResourceDelete,
 ) {
     let shape = (delete.provider == "aws")
         .then(|| aws_request_shape(ctx.argv))
@@ -4088,7 +4531,8 @@ fn database_delete_effect(
         }
         // A `/` that does not form the vendor's fully qualified operand is not
         // a name Nah can place.
-        ids.iter().all(|id| !id.contains('/') || qualified(id))
+        ids.iter()
+            .all(|id| !id.contains('/') || qualified(id) || delete.slash_names)
             && containers.iter().flatten().all(|name| !name.contains('/'))
     });
     let (Some(arguments), Some(ids)) = (arguments.as_ref(), ids) else {
@@ -4098,7 +4542,7 @@ fn database_delete_effect(
             BoundaryReason::PARTIAL_ANALYSIS,
             BoundaryClass::Unmodeled,
             &["cloud", "network"],
-            "managed-database delete options or identifier are unresolved",
+            "cloud resource delete options or identifier are unresolved",
         );
         match (delete.service, delete.kind) {
             ("rds", "db") => delete_by_flag(
@@ -4129,7 +4573,7 @@ fn database_delete_effect(
             BoundaryReason::PARTIAL_ANALYSIS,
             BoundaryClass::Unmodeled,
             &["cloud", "network"],
-            "managed-database delete options or identifier are unresolved",
+            "cloud resource delete options or identifier are unresolved",
         );
     }
     if delete
@@ -4206,7 +4650,7 @@ fn database_delete_effect(
             BoundaryReason::PARTIAL_ANALYSIS,
             BoundaryClass::Unmodeled,
             &["cloud", "network"],
-            "managed-database containing resource is not named in the arguments",
+            "the containing resource is not named in the arguments",
         );
     }
     let names = || ids.iter().chain(containers.iter().flatten());
@@ -4227,10 +4671,22 @@ fn database_delete_effect(
             detail: Some(if read_from_file {
                 "the CLI reads the resource name from a file Nah does not read".into()
             } else {
-                "the managed-database resource name is an expansion".into()
+                "the cloud resource name is an expansion".into()
             }),
         });
     }
+    // Every word is one this verb documents and every name is literal, so the
+    // request is the one argv states: help, dry runs and unread input never
+    // reach here, and an undocumented option may change what it selects.
+    let request_assurance = if !arguments.unknown
+        && arguments.ambiguous.is_empty()
+        && !names().any(|name| *name == UNSTATED)
+        && (!containers.contains(&None) || ids.iter().all(|id| qualified(id)))
+    {
+        effinterp_proto::RequestAssurance::Exact
+    } else {
+        effinterp_proto::RequestAssurance::Conservative
+    };
     for id in ids {
         // The request names one resource of this kind whatever its name.
         let id = if id == UNSTATED
@@ -4263,7 +4719,7 @@ fn database_delete_effect(
                 id,
             },
         };
-        object_effect(
+        cloud_request_effect(
             builder,
             ctx,
             model_node,
@@ -4274,6 +4730,8 @@ fn database_delete_effect(
             false,
             true,
             attributes.clone(),
+            None,
+            request_assurance,
         );
     }
 }
@@ -4305,7 +4763,7 @@ fn gcloud_secrets_group(argv: &[Word]) -> bool {
 /// --backup-id. The db family has no Cloud SQL instance identity, so the
 /// overwritten data stays unresolved.
 fn gcloud_sql_restore(argv: &[Word]) -> Option<usize> {
-    let global_values: Vec<&str> = GCLOUD_DATABASE_VALUES
+    let global_values: Vec<&str> = GCLOUD_COMMON_VALUES
         .iter()
         .chain(CLOUD_SCOPE_FLAGS)
         .copied()
@@ -4387,8 +4845,8 @@ impl CommandModel for Gcloud {
         if help || ctx.argv.get(1).and_then(Word::as_literal) == Some("--version") {
             return;
         }
-        if let Some(delete) = database_delete(ctx.argv) {
-            database_delete_effect(builder, ctx, model_node, &delete);
+        if let Some(delete) = resource_delete(ctx.argv) {
+            resource_delete_effect(builder, ctx, model_node, &delete);
             return;
         }
         if let Some(verb) = gcloud_sql_restore(ctx.argv) {
@@ -4529,7 +4987,7 @@ impl CommandModel for Gcloud {
             {
                 gcloud_ssh(builder, ctx, model_node, None, 3, Some("cloud-shell"));
             }
-            // Cloud SQL's documented deletes are `database_delete`'s. Any other
+            // Cloud SQL's documented deletes are `resource_delete`'s. Any other
             // `delete` word names no resource Nah can place, so it keeps an
             // unresolved delete.
             Some("sql") => match argv.iter().position(|w| w.as_literal() == Some("delete")) {
@@ -4936,8 +5394,8 @@ impl CommandModel for Az {
         ) {
             return;
         }
-        if let Some(delete) = database_delete(ctx.argv) {
-            database_delete_effect(builder, ctx, model_node, &delete);
+        if let Some(delete) = resource_delete(ctx.argv) {
+            resource_delete_effect(builder, ctx, model_node, &delete);
             return;
         }
         let argv = ctx.argv;
@@ -5523,7 +5981,7 @@ fn apply_cloud_scope(
             // Azure CLI reads an `@file` value from that file. The managed-
             // database deletes W1d added leave such a scope unresolved; DB-BAK's
             // verbs keep their literal reading.
-            let strict_names = database_delete(ctx.argv).is_some_and(|delete| delete.strict_names);
+            let strict_names = resource_delete(ctx.argv).is_some_and(|delete| delete.strict_names);
             for (flags, dimension) in [
                 (&["--subscription"][..], D::Subscription),
                 (&["--resource-group", "-g"][..], D::ResourceGroup),
@@ -5674,7 +6132,7 @@ fn apply_cloud_scope(
         ]
         .into_iter()
         .chain(attached_names)
-        .chain(database_delete(ctx.argv).map_or_else(Vec::new, |delete| delete.options().collect()))
+        .chain(resource_delete(ctx.argv).map_or_else(Vec::new, |delete| delete.options().collect()))
         .collect::<Vec<_>>();
         crate::models::scope::unmodeled_scope_options(
             builder, ctx, provenance, scope, &supported, "cloud",

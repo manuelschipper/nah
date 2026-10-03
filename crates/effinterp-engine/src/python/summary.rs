@@ -205,6 +205,9 @@ pub(super) fn summarize_ast(
         imported_summaries: std::collections::HashMap::new(),
         control_applications: Vec::new(),
         summary_requirements: std::collections::HashMap::new(),
+        summary_stdout: std::collections::HashMap::new(),
+        summary_returns: std::collections::HashMap::new(),
+        call_returns: std::collections::HashMap::new(),
         module_binds: HashSet::new(),
         environment_rewritten: false,
         ipython: None,
@@ -732,6 +735,15 @@ impl Walker<'_, '_> {
                     }
                     changed = true;
                 }
+                if self.summary_stdout.get(name) != Some(&cap.stdout) {
+                    self.summary_stdout.insert(name.clone(), cap.stdout.clone());
+                    changed = true;
+                }
+                if self.summary_returns.get(name) != Some(&cap.returned) {
+                    self.summary_returns
+                        .insert(name.clone(), cap.returned.clone());
+                    changed = true;
+                }
                 self.summary_spans
                     .insert(name.clone(), cap.source_spans.clone());
                 let mut effect_models = cap.effect_models;
@@ -866,6 +878,16 @@ impl Walker<'_, '_> {
             self.node_budget_hit = false;
         }
         let saved = self.capture.replace(Capture::default());
+        if let Some(def) = self.defs.iter().find(|def| def.name == function)
+            && let Some(capture) = self.capture.as_mut()
+        {
+            capture.live_returns = super::returns::reachable_returns(body, &def.params);
+            capture.params = def
+                .params
+                .iter()
+                .map(|param| (param.clone(), vec![param.clone()]))
+                .collect();
+        }
         let saved_condition_depth = self.capture_condition_depth;
         self.capture_condition_depth = self.builder.condition_depth();
         let mut saved_imports = self.imports.clone();

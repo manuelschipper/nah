@@ -11,6 +11,7 @@ fn graph() -> EffectGraph {
             kind: InvocationKind::Native,
             identity: Known("Read".into()),
             input: None,
+            hidden_characters: false,
             cwd: Unknown,
             payload_group: Known(PayloadGroupId(0)),
             visibility_ordinal: Known(0),

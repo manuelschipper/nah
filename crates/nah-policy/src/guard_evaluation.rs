@@ -11,7 +11,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use effinterp_matcher::{
-    Absence, Evaluator, LabelProvider, Outcome, QueryLimits, Selector, Truth, Witness, success_path,
+    Absence, Evaluator, LabelProvider, Outcome, QueryLimits, Refusal, Selector, Truth, Witness,
+    success_path,
 };
 use nah_proto::effects::{CallId, EvidenceError, Reach};
 use nah_proto::effinterp_proto::{
@@ -39,6 +40,11 @@ pub enum QueryQualifier {
     /// a loop body or a condition too large to decide still reaches the
     /// effect, while a position proven unreachable does not.
     FeasibleCondition,
+    LookalikeHost,
+    /// The root call's command text holds characters that make the operator's
+    /// display of it differ from what runs. Queries cannot state it: the plan
+    /// carries no command text, only the bridge's root-call evidence does.
+    HiddenCharacters,
 }
 
 /// The shipped guard registry, built and validated once: the definitions
@@ -112,8 +118,12 @@ impl ShippedGuards {
     /// scope of the unchanged plan's effects, so effect indices and occurrences
     /// stay those of the whole plan. Absence is conclusive: boundaries are not
     /// consulted, as absent effects are absent among Nah's facts, and an
-    /// indeterminate definition names its gap by `gap_code`. A query the
-    /// matcher refuses exceeds the evidence limit.
+    /// indeterminate definition names its gap by `gap_code`. A clause that
+    /// runs out of matcher work leaves its guard in `exceeded` unless another
+    /// clause matches. Guards share the evaluator's step budget in definition
+    /// order, so one that spends it leaves each later guard only its own
+    /// steps; any other refusal is an invalid query and exceeds the evidence
+    /// limit.
     pub fn evaluate(
         &self,
         plan: &Plan,
@@ -131,6 +141,7 @@ impl ShippedGuards {
         for definition in &self.definitions {
             let mut unknown_calls = BTreeSet::new();
             let mut matched = false;
+            let mut exceeded = false;
             'clauses: for clause in &definition.clauses {
                 // A clause that binds effects relates one effect to others in
                 // the plan, a listener beside a download or a route into an
@@ -155,8 +166,24 @@ impl ShippedGuards {
                             matched = plan.effects.iter().any(|effect| &effect.id == bound);
                             break 'clauses;
                         }
+                        Outcome::Refused(Refusal::WorkLimit) => exceeded = true,
                         Outcome::Refused(_) => return Err(EvidenceError::ExceedsLimit),
                         Outcome::NoMatch | Outcome::Indeterminate(_) => {}
+                    }
+                    continue;
+                }
+                // A clause that names no effect states a fact about the call
+                // itself, so it is answered once over the plan, and its
+                // qualifiers read the call rather than an effect.
+                if clause.query.effect_selectors().is_empty() {
+                    match evaluator.evaluate_in(&clause.query, &[], Absence::Conclusive) {
+                        Outcome::Match(_) if qualify_call(host, &clause.qualifiers) => {
+                            matched = true;
+                            break 'clauses;
+                        }
+                        Outcome::Refused(Refusal::WorkLimit) => exceeded = true,
+                        Outcome::Refused(_) => return Err(EvidenceError::ExceedsLimit),
+                        _ => {}
                     }
                     continue;
                 }
@@ -190,13 +217,19 @@ impl ShippedGuards {
                             unknown_calls.insert(CallId(effect.execution.0));
                         }
                         Outcome::NoMatch => {}
+                        Outcome::Refused(Refusal::WorkLimit) => exceeded = true,
                         Outcome::Refused(_) => return Err(EvidenceError::ExceedsLimit),
                     }
                 }
             }
             if matched {
                 matches.matched.push(definition.id);
-            } else if let Some(code) = definition.gap_code {
+                continue;
+            }
+            if exceeded {
+                matches.exceeded.push(definition.id);
+            }
+            if let Some(code) = definition.gap_code {
                 matches
                     .gaps
                     .extend(unknown_calls.into_iter().map(|call| ShippedGuardGap {
@@ -321,7 +354,7 @@ fn host_rule_holds(plan: &Plan, host: &dyn GuardHostFacts, rule: &HostRule, effe
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Qualification {
+pub(crate) enum Qualification {
     Match,
     NoMatch,
     Indeterminate,
@@ -345,6 +378,16 @@ fn qualify(
                 direct_path_restoration_qualifies(index, host, effect)
             }
             QueryQualifier::GithubRelease => github_release_qualifies(effect),
+            QueryQualifier::LookalikeHost => {
+                crate::network_guards::lookalike_host_qualifies(effect)
+            }
+            QueryQualifier::HiddenCharacters => {
+                if host.command_has_hidden_characters() {
+                    Qualification::Match
+                } else {
+                    Qualification::NoMatch
+                }
+            }
             QueryQualifier::FeasibleCondition => {
                 if host.condition_reach(effect_index) == Reach::No {
                     Qualification::NoMatch
@@ -360,6 +403,15 @@ fn qualify(
         }
     }
     outcome
+}
+
+/// Applies a clause's qualifiers to the call, for a clause whose query names
+/// no effect: a qualifier about an effect holds of no call.
+fn qualify_call(host: &dyn GuardHostFacts, qualifiers: &[QueryQualifier]) -> bool {
+    qualifiers.iter().all(|qualifier| match qualifier {
+        QueryQualifier::HiddenCharacters => host.command_has_hidden_characters(),
+        _ => false,
+    })
 }
 
 /// A destructive filesystem change selecting durable Git history metadata:

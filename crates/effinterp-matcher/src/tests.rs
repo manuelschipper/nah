@@ -2939,6 +2939,62 @@ fn invalid_queries_and_exhausted_work_are_refused() {
         bounded.evaluate(&query),
         Outcome::Refused(Refusal::WorkLimit)
     );
+    // Evaluating the query takes one step. Evaluations of one evaluator
+    // share the steps beyond their own: the first spends the one shared
+    // step and refuses the second, while an own step serves every one.
+    for (own_steps, shared_steps, second) in [(0, 1, false), (1, 0, true)] {
+        let shared = Evaluator::new(
+            &plan,
+            BTreeMap::from([(ExecutionNodeRef(0), Bindings::from_subject(&plan.subject))]),
+            &NO_LABELS,
+            QueryLimits {
+                own_steps,
+                shared_steps,
+                ..QueryLimits::default()
+            },
+        );
+        assert!(matches!(shared.evaluate(&query), Outcome::Match(_)));
+        assert_eq!(matches!(shared.evaluate(&query), Outcome::Match(_)), second);
+    }
+
+    // Reads chained by exact value dependencies reach nothing a listen
+    // could be: with no destination, the byte flow searches no route and
+    // spends nothing on the chain.
+    let mut chained = plan.clone();
+    let graph = chained.causality.graph.as_mut().unwrap();
+    let read = graph.nodes[10].clone();
+    let mut previous = read.id.clone();
+    for index in 0..1_500 {
+        let mut node = read.clone();
+        node.id = OccurrenceId(format!("{}-{index}", read.id.0));
+        let mut edge = graph.edges[0].clone();
+        edge.from = previous;
+        edge.to = node.id.clone();
+        edge.reason = CausalReason::ValueDependency;
+        edge.assurance = CausalAssurance::Exact;
+        previous = node.id.clone();
+        graph.nodes.push(node);
+        graph.edges.push(edge);
+    }
+    let listen = Query::new(Assertion::Flow {
+        source: Endpoint::Interaction(selector("filesystem.read", ResourcePredicate::Any)),
+        destination: Endpoint::Interaction(selector("network.listen", ResourcePredicate::Any)),
+        traversal: Traversal::ByteFlow {
+            assurance: ByteFlowAssurance::Exact,
+            edges: all_byte_edges(),
+        },
+        provenance: RouteProvenance::Any,
+    });
+    assert_eq!(
+        Evaluator::new(
+            &chained,
+            BTreeMap::from([(ExecutionNodeRef(0), Bindings::from_subject(&plan.subject))]),
+            &NO_LABELS,
+            QueryLimits::default(),
+        )
+        .evaluate(&listen),
+        Outcome::NoMatch
+    );
 
     let evaluator = Evaluator::new(
         &plan,

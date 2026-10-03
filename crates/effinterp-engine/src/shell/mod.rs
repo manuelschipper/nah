@@ -1982,16 +1982,22 @@ impl Shell<'_> {
                 builder.note_deadline();
                 return None;
             }
-            // Each top-level segment of the analyzed command gets its own
-            // allowance, so what an earlier segment spent cannot starve it. A
-            // function body's items are not segments: every call would grant
-            // its items again.
-            if walk_depth == 0
-                && self.depth == 0
-                && env.active.is_empty()
-                && !self.nest.budget.measuring()
+            // Each list item gets its own allowance, so what an earlier item
+            // spent cannot starve it, however deeply both are nested. The
+            // first item of a nested shell's own source continues the segment
+            // of the command that started that shell. Once this scope has
+            // no room for another process, no later item can add one, so
+            // none is granted more.
+            if !self.nest.budget.measuring()
+                && !builder.execution_saturated()
+                && (self.depth == 0 || walk_depth > 0 || index > 0)
+                && let Some(span) = parse::items_span(std::slice::from_ref(item))
             {
-                self.nest.budget.begin_segment();
+                self.nest.budget.begin_segment(
+                    (self.source_digest.clone(), span.start),
+                    (span.end - span.start) as usize,
+                    self.depth > 0 || walk_depth > 0 || !env.active.is_empty(),
+                );
             }
             let mut previous = index.checked_sub(1).and_then(|index| items.get(index));
             for _ in 0..effinterp_proto::MAX_CONDITION_DEPTH {
@@ -2328,6 +2334,14 @@ impl Shell<'_> {
                         self.walk_may_region(builder, env, items, walk_depth + 1);
                         env.status = None;
                     }
+                    // Nothing reaches these commands unless the command that
+                    // decided so is redefined.
+                    GroupKind::Unreachable { head } => {
+                        if head.as_ref().is_some_and(|name| env.may_redefine(name)) {
+                            self.walk_may_region(builder, env, items, walk_depth + 1);
+                            env.status = None;
+                        }
+                    }
                     GroupKind::ShortCircuit(selection) => {
                         if selected == Some(true) {
                             if let Some(termination) =
@@ -2382,7 +2396,10 @@ impl Shell<'_> {
                         self.finish_deferred(builder, &mut child);
                         env.status = match kind {
                             GroupKind::Background => Some(true),
-                            GroupKind::Subshell => child.status,
+                            // `(( N ))` is a doubled subshell around N.
+                            GroupKind::Subshell => {
+                                jobs::constant_status(std::slice::from_ref(item)).or(child.status)
+                            }
                             _ => None,
                         };
                     }
@@ -2468,9 +2485,7 @@ impl Shell<'_> {
                             && values.iter().all(|value| literal_word_text(value).is_some())
                             && !values.iter().any(|value| matches!(value.segs.first(),
                                 Some(Seg::Literal { text, quoted: false }) if text.starts_with('~')))
-                            && !env.functions.contains_key("break")
-                            && !env.disabled_builtins.contains("break")
-                            && !env.aliases.contains_key("break")
+                            && !env.may_redefine("break")
                             && let Some(stop) = items.iter().position(|item| matches!(item,
                                 ShellItem::Pipeline { cmds, conditional: false, .. }
                                 if cmds.len() == 1 && cmds[0].redirs.is_empty() && cmds[0].assignments.is_empty()
@@ -2696,14 +2711,22 @@ impl Shell<'_> {
                 && !self.source[cmd.span.start as usize..]
                     .trim_start()
                     .starts_with('!')
-                && !outcome.name.as_ref().is_some_and(|name| {
-                    env.functions.contains_key(name)
-                        || env.disabled_builtins.contains(name)
-                        || env.aliases.contains_key(name)
-                }) {
+                && !outcome
+                    .name
+                    .as_ref()
+                    .is_some_and(|name| env.may_redefine(name))
+            {
                 match outcome.name.as_deref() {
                     Some("true" | ":") if cmd.assignments.is_empty() => Some(true),
                     Some("false" | "") if cmd.assignments.is_empty() => Some(false),
+                    // `[` reaches here without a command name.
+                    Some("test") | None
+                        if cmd.words.first().and_then(parse::literal_text).is_some_and(
+                            |head| (head == "test" || head == "[") && !env.may_redefine(&head),
+                        ) =>
+                    {
+                        jobs::command_status(cmd)
+                    }
                     None if cmd.words.is_empty()
                         && cmd.assignments.iter().all(|assign| {
                             literal_word_text(&assign.value).is_some()
@@ -3699,6 +3722,17 @@ impl Shell<'_> {
 }
 
 impl ShellEnv {
+    /// Whether `name` may run something other than its builtin on some path:
+    /// a function or alias defines it here or on one branch already walked,
+    /// or the builtin may be disabled.
+    fn may_redefine(&self, name: &str) -> bool {
+        self.functions.contains_key(name)
+            || self.function_alternatives.contains_key(name)
+            || self.aliases.contains_key(name)
+            || self.alias_alternatives.contains_key(name)
+            || self.disabled_builtins.contains(name)
+    }
+
     /// Aliases a nested read (`source`, `eval`, an alias's own text) defined
     /// ended in that read's buffer. The caller's source continues after the
     /// command that started the read, so they take effect from its end.
@@ -4130,7 +4164,9 @@ fn collect_referenced_inputs(
                     | parse::GroupKind::Background
                     | parse::GroupKind::CompoundPipeline
                     | parse::GroupKind::Coprocess { .. } => inputs.current_ifs = entry_ifs,
-                    parse::GroupKind::Conditional { .. } | parse::GroupKind::ShortCircuit(_) => {
+                    parse::GroupKind::Conditional { .. }
+                    | parse::GroupKind::ShortCircuit(_)
+                    | parse::GroupKind::Unreachable { .. } => {
                         inputs.current_ifs.merge(&entry_ifs);
                     }
                 }

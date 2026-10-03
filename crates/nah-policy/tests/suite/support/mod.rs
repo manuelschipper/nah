@@ -208,7 +208,7 @@ pub(crate) fn terminal_input(provider: &str, tier: NahProtectionTier) -> GuardEv
 pub(crate) fn guard_matches(names: &[&'static str]) -> nah_proto::guard_host::ShippedGuardMatches {
     nah_proto::guard_host::ShippedGuardMatches {
         matched: names.to_vec(),
-        gaps: vec![],
+        ..Default::default()
     }
 }
 
@@ -221,6 +221,7 @@ fn graph(resources: Vec<EffectResource>, facts: Vec<EffectFact>) -> EffectGraph 
             kind: InvocationKind::Native,
             identity: Knowledge::Unknown,
             input: None,
+            hidden_characters: false,
             cwd: Knowledge::Unknown,
             payload_group: Knowledge::Unknown,
             visibility_ordinal: Knowledge::Unknown,

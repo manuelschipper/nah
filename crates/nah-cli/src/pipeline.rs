@@ -730,8 +730,8 @@ where
         .map(|name| format!("unknown project guard `{name}`"))
         .collect::<Vec<_>>();
     warnings.extend(consulted.warnings);
-    if analysis.evaluation_refusal.is_some() {
-        warnings.push("effinterp evaluation stopped: deadline-exceeded".into());
+    if let Some(refusal) = &analysis.evaluation_refusal {
+        warnings.push(format!("effinterp evaluation stopped: {}", refusal.code));
     } else if coverage == Coverage::Partial {
         warnings.push(
             "effinterp analysis is incomplete; only established effects were evaluated".into(),
@@ -995,7 +995,19 @@ where
                 })?;
             let plan_snapshot = projection.plan().clone();
             let (mut evidence, annotations) = projection.complete(&guard_matches)?;
-            let evaluation_refusal = expired.or_else(|| deadline("evidence-finalization"));
+            // A guard that ran out of matcher work is no evidence of absence:
+            // like an expired deadline, it leaves the guards that did match in
+            // force and becomes the evaluation refusal.
+            let evaluation_refusal = expired
+                .or_else(|| deadline("evidence-finalization"))
+                .or_else(|| {
+                    (!guard_matches.exceeded.is_empty()).then(|| nah_effinterp::AdapterRefusal {
+                        kind: nah_effinterp::RefusalKind::AnalysisFailed,
+                        root_tool: input.input().tool().to_owned(),
+                        component: "shipped-guards",
+                        code: "guard-work-limit",
+                    })
+                });
             if let Some(refusal) = &evaluation_refusal {
                 evidence.refuse_evaluation(refusal.component, refusal.code);
             }

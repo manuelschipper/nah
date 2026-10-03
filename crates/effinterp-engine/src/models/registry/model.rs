@@ -998,6 +998,26 @@ fn apply_behavior(
     // An operand whose lookup the host shows must fail names nothing, which
     // is a reviewed outcome rather than a form without behavior.
     let mut names_nothing = false;
+    // A declared exact request is the one argv states only when the form read
+    // every word: an option or operand it leaves unsupported may change the
+    // request. A cloud request's words are names and options, never patterns,
+    // so any unresolved word there, such as `$EXTRA`, may also be an option.
+    let unsupported_arguments = behavior.unsupported.as_ref().is_some_and(|unsupported| {
+        (unsupported.unknown_flags && !parsed.unknown_flags.is_empty())
+            || (unsupported.extra_operands
+                && !suppress_extra_operands
+                && !parsed.operands.is_empty())
+    });
+    let request_assurance = |declared, resource: &ResourceDeclaration| {
+        if !unsupported_arguments
+            && (!matches!(resource, ResourceDeclaration::Cloud { .. })
+                || ctx.argv.iter().all(|word| word.as_literal().is_some()))
+        {
+            declared
+        } else {
+            effinterp_proto::RequestAssurance::Conservative
+        }
+    };
     let arguments_are_reliable = !behavior
         .unsupported
         .as_ref()
@@ -1355,7 +1375,10 @@ fn apply_behavior(
                     };
                     for resource in resources {
                         let slot = builder.effect(Effect {
-                            request_assurance: declaration.request_assurance,
+                            request_assurance: request_assurance(
+                                declaration.request_assurance,
+                                &declaration.resource,
+                            ),
                             id: Default::default(),
                             operation: Operation::new(declaration.operation.clone()),
                             resource,

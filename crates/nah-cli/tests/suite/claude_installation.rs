@@ -278,6 +278,145 @@ fn install_runs_the_real_hook_and_uninstall_preserves_other_settings() {
     }
 }
 
+/// Python's `shlex.quote`, which Nah 0.5.1 and 0.5.2 applied to each word.
+fn shlex_quote(word: &str) -> String {
+    if word
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c))
+    {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', r#"'"'"'"#))
+    }
+}
+
+/// Nah 0.9.0 to 0.11.0's `quote_claude_argv` for one word.
+fn quote_claude_word(word: &str) -> String {
+    format!(r#""{}""#, word.replace('\\', "/").replace('"', r#"\""#))
+}
+
+#[test]
+fn install_and_uninstall_remove_nah_0x_hooks_without_touching_other_handlers() {
+    let home_temp = tempfile::tempdir().unwrap();
+    // macOS temp directories sit under a symlinked /var, and nah
+    // resolves paths before matching them
+    let temp = support::test_temp_path(home_temp.path());
+    // 0.x quoted paths holding spaces and apostrophes, and on POSIX kept a
+    // literal backslash in some releases
+    let canonical_home = temp.join(if cfg!(unix) {
+        "o'neil home\\name"
+    } else {
+        "o'neil home"
+    });
+    std::fs::create_dir_all(&canonical_home).unwrap();
+    // 0.x spelled the shim through HOME as given, here a symlink to the home
+    // nah resolves
+    #[cfg(unix)]
+    let home = {
+        let alias = temp.join("alias");
+        std::os::unix::fs::symlink(&canonical_home, &alias).unwrap();
+        alias
+    };
+    #[cfg(not(unix))]
+    let home = canonical_home.clone();
+    let home = home.as_path();
+    let settings_path = home.join(".claude/settings.json");
+    std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+    let shim = home.join(".claude/hooks/nah_guard.py");
+    let shim = shim.to_str().unwrap();
+    let canonical_shim = canonical_home.join(".claude/hooks/nah_guard.py");
+    let canonical_shim = canonical_shim.to_str().unwrap();
+    let handler = |command: String| json!({"type": "command", "command": command});
+    // Each command is what that release's `_hook_command` wrote
+    let unquoted = handler(format!("/usr/local/bin/python3.11 {shim}"));
+    let shell_quoted = handler(format!(
+        "{} {}",
+        shlex_quote("/opt/o'brien/bin/python3.12"),
+        shlex_quote(shim)
+    ));
+    // 0.5.3 to 0.5.5 wrote `as_posix()`, which keeps a POSIX backslash; 0.6.0
+    // replaced backslashes with `/`
+    let native_double_quoted = handler(format!(r#""/usr/bin/python3" "{shim}""#));
+    let double_quoted = handler(format!(
+        r#""/usr/bin/python3" "{}""#,
+        canonical_shim.replace('\\', "/")
+    ));
+    let hidden = |nah: &str| handler(format!(r#"{} "_claude-hook""#, quote_claude_word(nah)));
+    let other = handler("other-tool".into());
+    // Other programs reading the shim, and a hand-written entry naming it
+    // through `~`, are not what 0.x wrote. An unquoted interpreter path with
+    // spaces may have been 0.x's, but reads the same as a program and its
+    // arguments, so it stays too.
+    let readers = [
+        handler(format!("/usr/bin/shasum {shim}")),
+        handler(format!("/bin/cat {shim}")),
+        handler(format!("/usr/bin/nice /usr/bin/python3 {shim}")),
+        handler(format!("/bin/cat -- ./python3 {shim}")),
+        handler(format!("/bin/cat archive/python3 {shim}")),
+        handler(format!("/usr/bin/nice .venv/bin/python3 {shim}")),
+        handler(format!("/usr/bin/env ./venv/bin/python3 {shim}")),
+        handler(format!("/opt/py env/bin/python3 {shim}")),
+    ];
+    let hand_written = handler("python ~/.claude/hooks/nah_guard.py".into());
+    let original = json!({
+        "hooks": {
+            "PreToolUse": [
+                {"matcher": "Bash", "hooks": [unquoted]},
+                {"matcher": "Read", "hooks": [shell_quoted]},
+                {"matcher": "Glob", "hooks": [native_double_quoted, double_quoted]},
+                {"matcher": "Write", "hooks": [hidden(r#"/opt/say "hi"/nah"#), other.clone()]},
+                {"matcher": "Edit", "hooks": [hand_written.clone()]},
+                {"matcher": "Grep", "hooks": readers.clone()}
+            ],
+            "PostToolUse": [{"matcher": "Bash", "hooks": [hidden("/opt/bin/nah")]}],
+            "PostToolUseFailure": [{"matcher": "Bash", "hooks": [hidden("/opt/bin/nah")]}]
+        }
+    });
+    let original_bytes = serde_json::to_vec_pretty(&original).unwrap();
+    std::fs::write(&settings_path, &original_bytes).unwrap();
+    let kept = json!({
+        "hooks": {
+            "PreToolUse": [
+                {"matcher": "Write", "hooks": [other]},
+                {"matcher": "Edit", "hooks": [hand_written]},
+                {"matcher": "Grep", "hooks": readers}
+            ]
+        }
+    });
+
+    let stale = nah(home, &["hook", "claude", "status"]);
+    assert!(
+        String::from_utf8_lossy(&stale.stdout).contains("reinstall required"),
+        "{stale:?}"
+    );
+
+    let installed = nah(home, &["hook", "claude", "install"]);
+    assert!(installed.status.success(), "{installed:?}");
+    let mut configured = settings(home);
+    assert_eq!(nah_handlers(&configured).len(), 1);
+    let current = nah(home, &["hook", "claude", "status"]);
+    assert!(
+        String::from_utf8_lossy(&current.stdout).contains("wiring current"),
+        "{current:?}"
+    );
+    configured["hooks"]["PreToolUse"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|group| {
+            !group["hooks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(is_nah_handler)
+        });
+    assert_eq!(configured, kept);
+
+    std::fs::write(&settings_path, &original_bytes).unwrap();
+    let uninstalled = nah(home, &["hook", "claude", "uninstall"]);
+    assert!(uninstalled.status.success(), "{uninstalled:?}");
+    assert_eq!(settings(home), kept);
+}
+
 #[test]
 fn malformed_settings_fail_without_overwriting_user_configuration() {
     let home_temp = tempfile::tempdir().unwrap();

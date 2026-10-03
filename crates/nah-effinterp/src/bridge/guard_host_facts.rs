@@ -122,6 +122,10 @@ impl GuardHostFacts for ConversionHostFacts<'_, '_> {
     fn observed_path_spellings(&self, resource: &p::ResourceExpr) -> Vec<String> {
         resource_paths(self.view, resource)
     }
+
+    fn command_has_hidden_characters(&self) -> bool {
+        self.graph.calls.iter().any(|call| call.hidden_characters)
+    }
 }
 
 /// The observed project root a Git effect's worktree spells: the worktree

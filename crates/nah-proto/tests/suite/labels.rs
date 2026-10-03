@@ -3,7 +3,9 @@
 
 use nah_proto::action::FilesystemOperation;
 use nah_proto::ctx::{AbsolutePath, Platform};
+use nah_proto::labels::hidden_characters::has_hidden_characters;
 use nah_proto::labels::host_integrity::host_integrity_class;
+use nah_proto::labels::host_script::mixes_scripts;
 use nah_proto::labels::scope::path_scope;
 use nah_proto::labels::sensitivity::sensitivity;
 use nah_proto::labels::tier;
@@ -1042,4 +1044,136 @@ fn installed_nah_identity_and_cargo_destinations_share_one_lexical_path() {
         &[],
         Platform::Linux,
     ));
+}
+
+#[test]
+fn lookalike_hosts_mix_scripts_within_one_label() {
+    for host in [
+        // Latin with a Cyrillic U+0456, in the first label or a later one.
+        "g\u{456}thub.com",
+        "api.g\u{456}thub.com",
+        // The same label in punycode, with an uppercase prefix.
+        "xn--gthub-n2e.com",
+        "XN--gthub-n2e.com",
+        // Digits and a hyphen do not make a mixed label single-script.
+        "g\u{456}thub-2.com",
+        // URL clients decode escapes, partial or complete, before resolving.
+        "g%D1%96thub.com",
+        "%67%d1%96%74%68%75%62.com",
+        // UTS #46 maps mathematical letters to the Latin ones they draw.
+        "\u{1d558}\u{456}\u{1d565}\u{1d559}\u{1d566}\u{1d553}.com",
+        // An ideographic full stop separates labels like a dot.
+        "g\u{456}thub\u{3002}com",
+    ] {
+        assert!(mixes_scripts(host), "{host}");
+    }
+    for host in [
+        "github.com",
+        "my-site123.example.com",
+        // Single-script internationalized labels, Latin and Cyrillic.
+        "m\u{fc}nchen.de",
+        "xn--mnchen-3ya.de",
+        "\u{43f}\u{440}\u{438}\u{43c}\u{435}\u{440}-1.\u{440}\u{444}",
+        // A combining mark is Inherited, so it joins the Latin it follows.
+        "cafe\u{301}.fr",
+        // Han beside Latin is one writing system under UTS #39 revision 34.
+        "\u{6f22}\u{5b57}api.example",
+        // Han beside Katakana and Hiragana is one writing system, Japanese.
+        "\u{65e5}\u{672c}\u{30c9}\u{30e1}\u{30a4}\u{30f3}\u{306e}.jp",
+        // Scripts may differ between labels.
+        "\u{43f}\u{440}\u{438}\u{43c}\u{435}\u{440}.com",
+        // Punycode that does not decode is judged as written, all ASCII.
+        "xn--gthub-n2e!.com",
+    ] {
+        assert!(!mixes_scripts(host), "{host}");
+    }
+}
+
+#[test]
+fn hidden_characters_are_the_display_changing_classes_at_their_boundaries() {
+    // Tag letters spelling `code`, the specification of a subdivision flag.
+    let tags = |code: &str| {
+        code.chars()
+            .map(|letter| char::from_u32(0xE0000 + letter as u32).unwrap())
+            .collect::<String>()
+    };
+    let flag = |code: &str| format!("\u{1F3F4}{}\u{E007F}", tags(code));
+    for character in concat!(
+        // C0 controls other than tab and line feed; a carriage return
+        // followed by text; DEL; C1.
+        "\u{0}\u{8}\u{B}\u{C}\r\u{E}\u{1B}\u{1F}\u{7F}\u{80}\u{9B}\u{9F}",
+        // Bidi embeddings, overrides and isolates.
+        "\u{202A}\u{202E}\u{2066}\u{2069}",
+        // Invisible format characters, the soft hyphen and Hangul fillers.
+        "\u{200B}\u{2060}\u{FEFF}\u{180E}\u{AD}\u{115F}\u{1160}\u{3164}\u{FFA0}",
+        // Tag characters outside a subdivision flag.
+        "\u{E0000}\u{E0001}\u{E0041}\u{E007F}",
+    )
+    .chars()
+    {
+        let text = format!("echo a{character}b");
+        assert!(has_hidden_characters(&text), "{:X}", character as u32);
+    }
+    for character in concat!(
+        "\t\n ~\u{A0}\u{AC}\u{AE}\u{2029}\u{202F}\u{2065}\u{206A}\u{2061}\u{180F}",
+        // Hangul jamo and halfwidth letters beside the fillers.
+        "\u{115E}\u{1161}\u{3163}\u{3165}\u{FF9F}\u{FFA1}",
+        // Joiners, directional marks and variation selectors.
+        "\u{200C}\u{200D}\u{200E}\u{200F}\u{61C}\u{FE0F}\u{E0100}",
+    )
+    .chars()
+    {
+        let text = format!("echo a{character}b");
+        assert!(!has_hidden_characters(&text), "{:X}", character as u32);
+    }
+    // Windows line endings, a final carriage return such as one left when a
+    // CRLF script's last newline is trimmed, and Korean text composed or
+    // decomposed (NFD, as macOS stores file names) into jamo.
+    for text in [
+        "echo one\r\necho two\r\n",
+        "echo one\r\necho two\r",
+        "cat > run.bat <<'EOF'\r\n@echo off\r\nEOF",
+        "echo '\u{D55C}\u{AD6D}\u{C5B4} \u{D14C}\u{C2A4}\u{D2B8}'",
+        "cat '\u{1112}\u{1161}\u{11AB}\u{1100}\u{1173}\u{11AF}.txt'",
+    ] {
+        assert!(!has_hidden_characters(text), "{text:?}");
+    }
+    // A carriage return followed by anything but a line feed.
+    for text in ["echo safe\rrm -rf ~", "echo a\r\r\nb", "echo a\r b"] {
+        assert!(has_hidden_characters(text), "{text:?}");
+    }
+    // Escapes spelled as text are the characters `\`, `e` and `x`.
+    assert!(!has_hidden_characters(
+        r"printf '\e[31m\x1b[0m\033[1m'; echo $'\e'"
+    ));
+    // The recommended subdivision flags, and emoji with joiners and skin tones.
+    for text in [
+        flag("gbeng"),
+        format!("{}{}", flag("gbsct"), flag("gbwls")),
+        format!(
+            "{} \u{1F469}\u{200D}\u{1F4BB} \u{1F44D}\u{1F3FD}",
+            flag("gbsct")
+        ),
+    ] {
+        assert!(!has_hidden_characters(&text), "{text:?}");
+    }
+    // Every other tag run hides text: invalid flags (`ushuh`, `uksct`), valid
+    // ones outside the recommended set (`usca`, region `001`), and runs that
+    // only look like a flag.
+    for text in [
+        flag("ushuh"),
+        flag("uksct"),
+        flag("rmrf"),
+        flag("usca"),
+        flag("001"),
+        flag("gb"),
+        flag("gbabcdef"),
+        flag("GBSCT"),
+        flag("rm -rf"),
+        format!("\u{1F3F4}{}", tags("gbsct")),
+        format!("{}\u{E007F}", tags("gbsct")),
+        format!("{}{}", flag("gbsct"), tags("x")),
+    ] {
+        assert!(has_hidden_characters(&text), "{text:?}");
+    }
 }

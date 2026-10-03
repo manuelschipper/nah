@@ -1475,6 +1475,28 @@ impl Shell<'_> {
             {
                 return None;
             }
+            // `cat FILE` writes that file's bytes unchanged, so a client
+            // that runs its stdin as a script reads the file, as with `< FILE`.
+            if exact_output_builtin
+                && let [program, operand] = converted.as_slice()
+                && program.word.as_literal() == Some("cat")
+                && let Some(operand) = operand.word.as_literal()
+                && !operand.starts_with('-')
+                && let ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path },
+                } = crate::paths::resolve_fs_word_with_cwd(
+                    &Word::literal(operand),
+                    env.cwd_resource.clone(),
+                )
+            {
+                return Some(StdinValue {
+                    piped: true,
+                    file: Some(Box::new(Word::literal(path))),
+                    word: Word::new(vec![WordPart::Unknown]),
+                    paths: None,
+                    provenance: vec![self.span_node(builder, cmd.span)],
+                });
+            }
             let paths = builder.stdout_paths(execution?).cloned()?;
             Some(StdinValue {
                 piped: true,

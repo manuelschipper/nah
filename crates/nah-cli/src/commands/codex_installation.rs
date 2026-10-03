@@ -247,9 +247,10 @@ fn is_nah_handler(handler: &Value) -> bool {
         return false;
     };
     let executable = executable.to_ascii_lowercase();
-    (executable.starts_with('\'') && executable.ends_with("/nah'"))
-        || (executable.starts_with('"')
-            && (executable.ends_with("\\nah.exe\"") || executable.ends_with("/nah.exe\"")))
+    hook_config::is_one_quoted_word(&executable)
+        && ((executable.starts_with('\'') && executable.ends_with("/nah'"))
+            || (executable.starts_with('"')
+                && (executable.ends_with("\\nah.exe\"") || executable.ends_with("/nah.exe\""))))
 }
 
 fn is_fail_closed_handler(handler: &Value) -> bool {

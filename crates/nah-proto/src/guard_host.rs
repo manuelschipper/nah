@@ -49,6 +49,9 @@ pub trait GuardHostFacts {
     /// requested, resolved, and its real path, sorted and deduplicated. Empty
     /// for a resource that names no observable path.
     fn observed_path_spellings(&self, resource: &effinterp_proto::ResourceExpr) -> Vec<String>;
+    /// The root call's command text holds characters that make the operator's
+    /// display of it differ from what runs (`EffectCall::hidden_characters`).
+    fn command_has_hidden_characters(&self) -> bool;
 }
 
 /// A coverage gap a shipped guard names for a call whose query was
@@ -61,11 +64,16 @@ pub struct ShippedGuardGap {
 }
 
 /// The shipped guard matches of one conversion: the guards that matched, in
-/// evaluation order, and the gaps indeterminate guards named.
+/// evaluation order, the gaps indeterminate guards named, and the guards
+/// whose queries needed more matcher work than one evaluation allows.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ShippedGuardMatches {
     pub matched: Vec<&'static str>,
     pub gaps: Vec<ShippedGuardGap>,
+    /// Guards that matched nothing within the work they were allowed. Their
+    /// silence is no evidence of absence, and it never stops another guard
+    /// from matching.
+    pub exceeded: Vec<&'static str>,
 }
 
 impl ShippedGuardMatches {

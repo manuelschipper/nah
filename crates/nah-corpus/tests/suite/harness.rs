@@ -64,7 +64,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 8208);
+    assert_eq!(summary.cases, 8449);
 }
 
 #[test]
@@ -128,21 +128,22 @@ fn current_corpus_file_counts_are_pinned() {
         [
             ("code.jsonl".to_owned(), 71),
             ("compound.jsonl".to_owned(), 322),
-            ("database-services.jsonl".to_owned(), 337),
+            ("database-services.jsonl".to_owned(), 338),
             ("database.jsonl".to_owned(), 470),
             ("execution-flows.jsonl".to_owned(), 856),
-            ("filesystem.jsonl".to_owned(), 1116),
+            ("filesystem.jsonl".to_owned(), 1130),
             ("git.jsonl".to_owned(), 1265),
-            ("infrastructure.jsonl".to_owned(), 361),
+            ("infrastructure.jsonl".to_owned(), 416),
             ("kubernetes.jsonl".to_owned(), 67),
             ("local-utilities.jsonl".to_owned(), 55),
             ("macos.jsonl".to_owned(), 107),
             ("native.jsonl".to_owned(), 79),
+            ("network.jsonl".to_owned(), 40),
             ("project.jsonl".to_owned(), 22),
             ("registry.jsonl".to_owned(), 296),
-            ("secrets.jsonl".to_owned(), 1111),
+            ("secrets.jsonl".to_owned(), 1218),
             ("self-protection.jsonl".to_owned(), 1038),
-            ("shell-resolution.jsonl".to_owned(), 219),
+            ("shell-resolution.jsonl".to_owned(), 243),
             ("storage.jsonl".to_owned(), 197),
             ("threat-model.jsonl".to_owned(), 27),
             ("windows.jsonl".to_owned(), 192),
@@ -293,6 +294,11 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "infra-iac-destroy.pulumi-factory-delegates",
         "infra-iac-destroy.pulumi-target-delegates",
         "infra-iac-destroy.pulumi-preview-only-delegates",
+        "infra-iac-destroy.aws-ec2-terminate",
+        "infra-iac-destroy.az-resource-group",
+        "infra-iac-destroy.railway-environment",
+        "infra-iac-destroy.factory-delegates",
+        "infra-iac-destroy.unknown-option-delegates",
         "infra-container-reset.podman-system-reset",
         "infra-container-reset.factory-default",
         "infra-container-reset.remote-connection",

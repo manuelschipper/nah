@@ -161,7 +161,7 @@ pub(crate) struct Budget {
     state_scan_entries: Cell<u64>,
     max_analysis_steps: u64,
     max_analysis_bytes: u64,
-    /// The top-level shell segment being walked, if any.
+    /// The shell segment being walked, if any.
     segment: Cell<Option<Segment>>,
     /// Pool usage of the segments already walked and of the work before them.
     pool_steps: Cell<u64>,
@@ -169,6 +169,15 @@ pub(crate) struct Budget {
     /// What segments may still be granted beyond the pools, in total.
     reserve_steps: Cell<u64>,
     reserve_bytes: Cell<u64>,
+    /// What nested segments may still be granted, within the reserve.
+    nested_reserve_steps: Cell<u64>,
+    nested_reserve_bytes: Cell<u64>,
+    /// Every list item that has begun a segment, by its source and offset,
+    /// so a list walked again (a loop body, a function called twice, the
+    /// same `eval` text) draws no second grant for the same item.
+    segment_items: RefCell<BTreeSet<(std::rc::Rc<str>, u32)>>,
+    /// The item that began a segment last.
+    segment_item: RefCell<Option<(std::rc::Rc<str>, u32)>>,
     /// Segments that ran out of room. Past `MAX_SATURATED_SEGMENTS` no
     /// segment is granted anything more.
     saturated_segments: Cell<u32>,
@@ -208,23 +217,37 @@ const SEGMENT_BYTES_DIVISOR: u64 = 512;
 /// about 840 000 steps and 8 MiB.
 const RESERVE_STEPS_FACTOR: u64 = 32;
 const RESERVE_BYTES_FACTOR: u64 = 1;
+/// Nested segments, the items of a group, branch, loop, function body or
+/// nested shell, share a smaller part of that reserve, an eighth of the step
+/// and byte limits: enough for a deletion after a few costly prefixes, while
+/// a long script whose commands all sit in functions does not spend the
+/// whole reserve walking them.
+const NESTED_RESERVE_STEPS_DIVISOR: u64 = 8;
+const NESTED_RESERVE_BYTES_DIVISOR: u64 = 8;
 /// A segment that runs out of room is refused a charge before it spends its
 /// grant, and it may already have done work the budget does not meter (a
-/// word expansion, an interpreter parse). Granting every later segment again
-/// would repeat that work once per segment, so only this many may saturate.
+/// word expansion, an interpreter parse). Work a segment's own text pays for
+/// stays proportional to the input, so a segment at least as long as its
+/// step grant may saturate freely. A shorter one that saturates is doing work
+/// its text does not pay for, such as expanding an earlier value or calling
+/// a function again; granting every later segment again would repeat that
+/// work once per segment, so only this many may saturate.
 const MAX_SATURATED_SEGMENTS: u32 = 32;
 
-/// A top-level shell segment: one item of the analyzed command's own list,
-/// such as a `;`-separated command, a `&&` operand or a pipeline stage. Items
-/// nested in a group, subshell, branch, loop, function body, `sh -c`, `eval`
-/// or heredoc are not segments. It records the steps and retained bytes when it began,
-/// and what it was granted beyond the pools.
+/// A shell segment: one item of a shell list, such as a `;`-separated
+/// command, a `&&` operand or a pipeline stage, at any depth: in the analyzed
+/// command's own list or nested in a group, subshell, branch, loop, function
+/// body, `sh -c`, `eval` or heredoc. It records the steps and retained bytes
+/// when it began, what it was granted beyond the pools, and whether its own
+/// text pays for saturating them.
 #[derive(Clone, Copy)]
 struct Segment {
     steps: u64,
     bytes: u64,
     grant_steps: u64,
     grant_bytes: u64,
+    paid: bool,
+    nested: bool,
 }
 
 /// Full budget state, saved around a speculative walk and restored by
@@ -278,6 +301,14 @@ impl Budget {
                     .max_analysis_bytes
                     .saturating_mul(RESERVE_BYTES_FACTOR),
             ),
+            nested_reserve_steps: Cell::new(
+                limits.max_analysis_steps / NESTED_RESERVE_STEPS_DIVISOR,
+            ),
+            nested_reserve_bytes: Cell::new(
+                limits.max_analysis_bytes / NESTED_RESERVE_BYTES_DIVISOR,
+            ),
+            segment_items: RefCell::new(BTreeSet::new()),
+            segment_item: RefCell::new(None),
             saturated_segments: Cell::new(0),
             max_heredoc_expansions: limits.max_heredoc_expansions,
             steps_saturated: Cell::new(false),
@@ -411,13 +442,38 @@ impl Budget {
             .saturating_sub(self.pool_bytes.get() + self.retained_bytes.get().saturating_sub(start))
     }
 
-    /// Start a top-level shell segment: charge what the previous one spent
-    /// to its grant first and the pools after, then grant this one its share
-    /// from what the reserve has left. A pool a costly earlier segment
-    /// exhausted stays exhausted, but no longer stops this segment until its
-    /// grant is spent too. The first segment is granted nothing, so a command
-    /// of one segment keeps exactly the configured limits.
-    pub(crate) fn begin_segment(&self) {
+    /// Start a shell segment at `item`, its source and offset, `len` bytes
+    /// long: charge what the previous one spent to its grant first and the
+    /// pools after, then grant this one its share from what the reserve has
+    /// left. A pool a costly earlier segment exhausted stays exhausted, but no
+    /// longer stops this segment until its grant is spent too. The first
+    /// segment is granted nothing, so a command of one segment keeps exactly
+    /// the configured limits. An item walked again continues the segment
+    /// under way instead, which its text then no longer pays for.
+    pub(crate) fn begin_segment(&self, item: (std::rc::Rc<str>, u32), len: usize, nested: bool) {
+        // A group's or branch's first item starts where the compound does,
+        // so it continues the compound's segment.
+        if self.segment_item.borrow().as_ref() == Some(&item) {
+            return;
+        }
+        let fresh = self.segment_items.borrow_mut().insert(item.clone());
+        *self.segment_item.borrow_mut() = Some(item);
+        if !fresh {
+            // Walking an item again is work no new text pays for.
+            if let Some(segment) = self.segment.get() {
+                self.segment.set(Some(Segment {
+                    paid: false,
+                    ..segment
+                }));
+            }
+            return;
+        }
+        // Once nested segments have no steps left to grant, a nested item
+        // keeps the allowance of the segment it sits in: an empty grant
+        // would replace that allowance and starve the item.
+        if nested && (self.nested_reserve_steps.get() == 0 || self.reserve_steps.get() == 0) {
+            return;
+        }
         let (grant_steps, grant_bytes) = match self.segment.get() {
             Some(segment) => {
                 let steps = self.steps.get() - segment.steps;
@@ -432,7 +488,13 @@ impl Budget {
                     .set(self.reserve_steps.get() - granted_steps);
                 self.reserve_bytes
                     .set(self.reserve_bytes.get() - granted_bytes);
-                if self.steps_saturated.get() || self.bytes_saturated.get() {
+                if segment.nested {
+                    self.nested_reserve_steps
+                        .set(self.nested_reserve_steps.get() - granted_steps);
+                    self.nested_reserve_bytes
+                        .set(self.nested_reserve_bytes.get() - granted_bytes);
+                }
+                if !segment.paid && (self.steps_saturated.get() || self.bytes_saturated.get()) {
                     self.saturated_segments
                         .set(self.saturated_segments.get() + 1);
                 }
@@ -440,9 +502,21 @@ impl Budget {
                     self.reserve_steps.set(0);
                     self.reserve_bytes.set(0);
                 }
+                let (reserve_steps, reserve_bytes) = if nested {
+                    (
+                        self.reserve_steps
+                            .get()
+                            .min(self.nested_reserve_steps.get()),
+                        self.reserve_bytes
+                            .get()
+                            .min(self.nested_reserve_bytes.get()),
+                    )
+                } else {
+                    (self.reserve_steps.get(), self.reserve_bytes.get())
+                };
                 (
-                    (self.max_analysis_steps / SEGMENT_STEPS_DIVISOR).min(self.reserve_steps.get()),
-                    (self.max_analysis_bytes / SEGMENT_BYTES_DIVISOR).min(self.reserve_bytes.get()),
+                    (self.max_analysis_steps / SEGMENT_STEPS_DIVISOR).min(reserve_steps),
+                    (self.max_analysis_bytes / SEGMENT_BYTES_DIVISOR).min(reserve_bytes),
                 )
             }
             None => {
@@ -456,6 +530,8 @@ impl Budget {
             bytes: self.retained_bytes.get(),
             grant_steps,
             grant_bytes,
+            paid: len as u64 >= self.max_analysis_steps / SEGMENT_STEPS_DIVISOR,
+            nested,
         }));
         // Only a grant lifts a saturation: without one the walk stops, as
         // it would without segments.

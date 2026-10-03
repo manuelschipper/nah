@@ -370,12 +370,14 @@ fn bash_project_filesystem_effects_are_lowered_compositionally() {
 }
 
 /// Cheap padding before a danger must not push it past an analysis bound.
-/// Each top-level segment gets its own step and byte allowance, so neither
-/// thousands of `echo` operands nor one expensive interpreter prefix can
-/// starve the deletion that follows. The largest padding is the most the
-/// bridge admits: tool input stops at 1 MiB. Those allowances stay within a
-/// fixed total, so costly segments after the danger cannot run the analysis
-/// long enough to lose it either.
+/// Each list item, at any depth, gets its own step and byte allowance, so
+/// neither thousands of `echo` operands nor expensive interpreter prefixes,
+/// at the top level or nested, can starve the deletion that follows. The
+/// largest padding is the most the bridge admits: tool input stops at 1 MiB.
+/// Padding that saturates the causal relations still leaves the deletion
+/// established. Those allowances stay within a fixed total, so costly
+/// segments after the danger cannot run the analysis long enough to lose it
+/// either. A deletion no path reaches stays no block whatever precedes it.
 #[test]
 fn padding_around_a_danger_cannot_push_it_past_a_bound() {
     let temp = tempfile::tempdir().unwrap();
@@ -383,11 +385,35 @@ fn padding_around_a_danger_cannot_push_it_past_a_bound() {
     let context = ctx(temp.path());
     let parens = 20_000;
     let deep = format!("{}1{}", "(".repeat(parens), ")".repeat(parens));
+    let costly = format!("perl -e 'my $x={deep};'");
     let mut shapes = [40, 5_000, (1024 * 1024 - 200) / "echo y && ".len()]
         .map(|count| ("echo y && ".repeat(count), String::new()))
         .to_vec();
-    shapes.push((format!("perl -e 'my $x={deep};'; "), String::new()));
+    shapes.push((format!("{costly}; "), String::new()));
     shapes.push((format!("Rscript -e 'x <- {deep}'; "), String::new()));
+    // The most external commands one list holds, `max_execution_fanout`.
+    shapes.push(("ls; ".repeat(255), String::new()));
+    // More costly top-level segments than may saturate when short; each is
+    // a group, whose first item continues the group's segment.
+    shapes.push((
+        format!(
+            "{{ perl -e 'my $x={}1{};'; }}; ",
+            "(".repeat(8_000),
+            ")".repeat(8_000)
+        )
+        .repeat(33),
+        String::new(),
+    ));
+    for (open, close) in [
+        ("{ ", "; }"),
+        ("( ", " )"),
+        ("if true; then ", "; fi"),
+        ("for i in 1; do ", "; done"),
+        ("f() { ", "; }; f"),
+    ] {
+        shapes.push((format!("{open}{costly}; "), close.to_owned()));
+    }
+    shapes.push((format!("sh -c \"{costly}; "), "\"".to_owned()));
     shapes.push((
         format!("f() {{ perl -e 'my $x={deep};'; }}; "),
         format!("; {}", "f; ".repeat(1_000)),
@@ -413,6 +439,93 @@ fn padding_around_a_danger_cannot_push_it_past_a_bound() {
             );
             assert_eq!(result.core().verdict(), verdict, "{shape}");
             assert!(result.refusals().is_empty(), "{shape}");
+        }
+    }
+
+    // A deletion no path reaches is no block, alone or past the bound, while
+    // its reachable twin still blocks.
+    let command = format!("{}if false; then rm -rf ~; fi", "ls; ".repeat(255));
+    let result = decide_with(
+        &call("Bash", json!({ "command": command }), &repo),
+        &context,
+        support::fulfill_observation,
+    );
+    assert_eq!(result.core().verdict(), Verdict::Delegate);
+    let mut shapes = Vec::new();
+    for (dead, live) in [
+        (
+            "while false; do rm -rf ~; done",
+            "while true; do rm -rf ~; break; done",
+        ),
+        (
+            "until true; do rm -rf ~; done",
+            "until false; do rm -rf ~; break; done",
+        ),
+        (
+            "for x in; do rm -rf ~; done",
+            "for x in 1; do rm -rf ~; done",
+        ),
+        (
+            "for x in 1; do continue; rm -rf ~; done",
+            "for x in 1; do rm -rf ~; continue; done",
+        ),
+        (
+            "while true; do break; rm -rf ~; done",
+            "for x in 1 2; do [ $x = 2 ] && break; rm -rf ~; done",
+        ),
+        // A stop ends the body only bare or with one loop count of at least
+        // one: bash runs on past `--help`, zsh past extra operands.
+        (
+            "for x in 1; do break 2; rm -rf ~; done",
+            "bash -c 'for x in 1; do break --help; rm -rf ~; done'",
+        ),
+        (
+            "for x in 1; do continue 1; rm -rf ~; done",
+            "bash -c 'for x in 1; do continue --help; rm -rf ~; done'",
+        ),
+        (
+            "while true; do break 1; rm -rf ~; done",
+            "for x in 1; do break 1 2; rm -rf ~; done",
+        ),
+        (
+            "if test 1 = 2; then rm -rf ~; fi",
+            "if test 1 = 1; then rm -rf ~; fi",
+        ),
+        (
+            "if [ a != a ]; then rm -rf ~; fi",
+            "if [ a != b ]; then rm -rf ~; fi",
+        ),
+        ("if ((0)); then rm -rf ~; fi", "if ((1)); then rm -rf ~; fi"),
+    ] {
+        shapes.push((dead, Verdict::Delegate));
+        shapes.push((live, Verdict::Block));
+    }
+    // A function of the deciding command's name, defined on every path or
+    // only on some, can run the region.
+    for redefined in [
+        "false(){ return 0; }; while false; do rm -rf ~; break; done",
+        "continue(){ :; }; for i in 1; do continue; rm -rf ~; done",
+        "test(){ return 0; }; if test 1 = 2; then rm -rf ~; fi",
+        "if test -d /tmp; then false(){ return 0; }; fi; while false; do rm -rf ~; break; done",
+        "if test -d /tmp; then continue(){ :; }; fi; for i in 1; do continue; rm -rf ~; done",
+        "if test -d /tmp; then test(){ return 0; }; fi; if test 1 = 2; then rm -rf ~; fi",
+        "if test -d /tmp; then true(){ return 1; }; fi; until true; do rm -rf ~; break; done",
+    ] {
+        shapes.push((redefined, Verdict::Block));
+    }
+    for (shape, verdict) in shapes {
+        for command in [shape.to_owned(), format!("{{ {costly}; {shape}; }}")] {
+            let result = decide_with(
+                &call("Bash", json!({ "command": command }), &repo),
+                &context,
+                support::fulfill_observation,
+            );
+            assert_eq!(
+                result.core().verdict(),
+                verdict,
+                "{shape} ({} bytes)",
+                command.len()
+            );
         }
     }
 }

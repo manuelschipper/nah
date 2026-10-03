@@ -38,6 +38,18 @@ impl SelectedInput<'_> {
     }
 }
 
+/// The command text the operator approves for a shell or PowerShell tool call,
+/// as `plan_evidence` gave it to the engine; other subjects carry none.
+pub(super) fn command_text(subject: &p::Subject) -> Option<&str> {
+    match subject {
+        p::Subject::Shell { source, .. } => Some(source),
+        p::Subject::Source {
+            source, language, ..
+        } if language == "powershell" => Some(source),
+        _ => None,
+    }
+}
+
 /// The engine's typed tool call for a native tool's input, refusing fields the model does not know.
 pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, AdapterRefusal> {
     let unsupported = |code| refusal(root, RefusalKind::UnsupportedInput, code);

@@ -15,6 +15,7 @@ pub(crate) mod ipython;
 mod model;
 mod registration;
 mod resolve;
+mod returns;
 mod runtime;
 
 use crate::lang::frontend::{
@@ -227,6 +228,59 @@ struct Capture {
     control_flow: ControlFlow,
     /// What the body guarantees to a same-file caller.
     requirements: Option<Requirements>,
+    /// Local names and the `effects` slots whose bytes their value may
+    /// carry, for an output call in the body.
+    print_vars: std::collections::HashMap<String, Vec<u32>>,
+    /// `effects` slots a `print` in the body writes to stdout.
+    stdout: Vec<u32>,
+    /// The body's reachable returns, by statement range, with the
+    /// parameter guards on each path (see [`returns::reachable_returns`]).
+    live_returns: std::collections::HashMap<TextRange, Vec<returns::Guard>>,
+    /// Locals that may still hold a value the caller passed, with the
+    /// parameters that value came from: each parameter starts as its own,
+    /// and `x = p` makes `x` hold `p`'s argument too.
+    params: std::collections::HashMap<String, Vec<String>>,
+    /// What each reachable `return` in the body passes back.
+    returned: Vec<ReturnSite>,
+    /// What each same-file call in the body returns, by the call's span.
+    call_returns: std::collections::HashMap<TextRange, Vec<CallReturn>>,
+}
+
+/// What one reachable `return` passes back to a caller: the effects whose
+/// bytes its value carries and the parameters whose argument it returns,
+/// when its path's parameter guards hold.
+#[derive(Clone, PartialEq)]
+struct ReturnSite {
+    guards: Vec<returns::Guard>,
+    effects: Vec<u32>,
+    params: Vec<String>,
+}
+
+/// A return site of `callee` as one call site received it, its effects
+/// mapped to the caller's slots.
+#[derive(Clone)]
+struct CallReturn {
+    callee: String,
+    site: ReturnSite,
+}
+
+/// The argument a call binds to one parameter of a same-file callable.
+enum Bound {
+    /// The call's argument at this position among its positional and then
+    /// keyword arguments.
+    Index(usize),
+    Default(Rc<Expr>),
+    /// Unpacked arguments may bind it.
+    Unknown,
+    Missing,
+}
+
+/// A call's positional arguments, then its keyword values.
+fn call_arguments(call: &ast::ExprCall) -> Vec<&Expr> {
+    call.args
+        .iter()
+        .chain(call.keywords.iter().map(|keyword| &keyword.value))
+        .collect()
 }
 
 /// How a call's evaluation was modeled, for its control-flow site.
@@ -313,6 +367,129 @@ fn is_main_guard_test(test: &Expr) -> bool {
 /// Split top-level statements into those the module executes on import and
 /// those under a `__main__` guard (entrypoint-only). TYPE_CHECKING bodies are
 /// dropped entirely; each guard's `else` arm executes on import.
+/// The `print` arguments whose text it writes: every positional argument,
+/// `end`, and `sep` when it separates more than one value.
+fn print_emitted(call: &ast::ExprCall) -> Vec<&Expr> {
+    let separated = call.args.len() > 1
+        || call
+            .args
+            .iter()
+            .any(|argument| matches!(argument, Expr::Starred(_)));
+    call.args
+        .iter()
+        .chain(
+            call.keywords
+                .iter()
+                .filter_map(|keyword| match keyword.arg.as_deref() {
+                    Some("end") => Some(&keyword.value),
+                    Some("sep") if separated => Some(&keyword.value),
+                    _ => None,
+                }),
+        )
+        .collect()
+}
+
+/// The call spans and local names an expression's value is produced by, as
+/// the def-use walk reads it: the call itself, the receiver call a wrapper
+/// such as `open(p).read()` passes through, a response's `.text`/`.content`,
+/// the elements and keys of a literal container, and the arms of a
+/// conditional expression its literal test does not rule out. A call to a
+/// local function or method (`is_local`) is not on the spine, because the
+/// reads inside it need not be what it returns; it goes to `locals`, whose
+/// summary says what it returns.
+fn value_spine<'e>(
+    expr: &'e Expr,
+    is_local: &dyn Fn(&Expr) -> bool,
+    spans: &mut Vec<TextRange>,
+    locals: &mut Vec<&'e ast::ExprCall>,
+    names: &mut Vec<&'e str>,
+) {
+    let mut spine = |e: &'e Expr| value_spine(e, is_local, spans, locals, names);
+    match expr {
+        Expr::Name(name) => names.push(name.id.as_str()),
+        Expr::Call(call) if is_local(&call.func) => locals.push(call),
+        Expr::Call(call) => {
+            spans.push(call.range);
+            if let Expr::Attribute(attribute) = call.func.as_ref()
+                && matches!(attribute.value.as_ref(), Expr::Call(_))
+            {
+                value_spine(&attribute.value, is_local, spans, locals, names);
+            }
+        }
+        Expr::Attribute(attribute) if matches!(attribute.attr.as_str(), "text" | "content") => {
+            spine(&attribute.value);
+        }
+        Expr::List(list) => list.elts.iter().for_each(spine),
+        Expr::Tuple(tuple) => tuple.elts.iter().for_each(spine),
+        Expr::Set(set) => set.elts.iter().for_each(spine),
+        Expr::Dict(dict) => dict
+            .keys
+            .iter()
+            .flatten()
+            .chain(&dict.values)
+            .for_each(spine),
+        Expr::Starred(starred) => spine(&starred.value),
+        Expr::IfExp(branch) => match control::truthy(&branch.test) {
+            Some(true) => spine(&branch.body),
+            Some(false) => spine(&branch.orelse),
+            None => {
+                spine(&branch.body);
+                spine(&branch.orelse);
+            }
+        },
+        _ => {}
+    }
+}
+
+/// A literal that iterates at least once: a nonempty string or a container
+/// display with at least one element and no unpacking.
+fn literal_nonempty(iter: &Expr) -> bool {
+    let elements = match iter {
+        Expr::List(list) => &list.elts,
+        Expr::Tuple(tuple) => &tuple.elts,
+        Expr::Set(set) => &set.elts,
+        Expr::Dict(dict) => return dict.keys.iter().any(Option::is_some),
+        Expr::Constant(constant) => {
+            return matches!(&constant.value, ast::Constant::Str(text) if !text.is_empty());
+        }
+        _ => return false,
+    };
+    !elements.is_empty()
+        && !elements
+            .iter()
+            .any(|element| matches!(element, Expr::Starred(_)))
+}
+
+/// The names of a `a, b = p, q` target each paired with its element of a
+/// literal value of the same length, when neither side unpacks with `*`.
+fn literal_unpack<'v>(target: &Expr, value: &'v Expr) -> Vec<(String, &'v Expr)> {
+    let names = match target {
+        Expr::Tuple(tuple) => &tuple.elts,
+        Expr::List(list) => &list.elts,
+        _ => return Vec::new(),
+    };
+    let elements = match value {
+        Expr::Tuple(tuple) => &tuple.elts,
+        Expr::List(list) => &list.elts,
+        _ => return Vec::new(),
+    };
+    if names.len() != elements.len()
+        || elements
+            .iter()
+            .any(|element| matches!(element, Expr::Starred(_)))
+    {
+        return Vec::new();
+    }
+    names
+        .iter()
+        .zip(elements)
+        .filter_map(|(name, element)| match name {
+            Expr::Name(name) => Some((name.id.to_string(), element)),
+            _ => None,
+        })
+        .collect()
+}
+
 fn partition_top_level(body: &[Stmt]) -> (Vec<Stmt>, Vec<Stmt>) {
     let mut import_stmts = Vec::new();
     let mut main_stmts = Vec::new();
@@ -1099,6 +1276,9 @@ impl<'a, 'b> Walker<'a, 'b> {
             imported_summaries: std::collections::HashMap::new(),
             control_applications: Vec::new(),
             summary_requirements: std::collections::HashMap::new(),
+            summary_stdout: std::collections::HashMap::new(),
+            summary_returns: std::collections::HashMap::new(),
+            call_returns: std::collections::HashMap::new(),
             module_binds: HashSet::new(),
             environment_rewritten: false,
             ipython: ipython.map(|cell| IpythonState {
@@ -2417,6 +2597,13 @@ struct Walker<'a, 'b> {
     control_applications: Vec<SiteFacts>,
     /// What each current summary guarantees to a same-file caller.
     summary_requirements: std::collections::HashMap<String, Requirements>,
+    /// The summary effects each callable prints to stdout.
+    summary_stdout: std::collections::HashMap<String, Vec<u32>>,
+    /// What each callable's reachable returns pass back.
+    summary_returns: std::collections::HashMap<String, Vec<ReturnSite>>,
+    /// What each same-file call walked outside a summary returns, in plan
+    /// effects, by the call's span, until its value is bound.
+    call_returns: std::collections::HashMap<TextRange, Vec<CallReturn>>,
     /// Module-level names that shadow builtins, including assignments and imports.
     module_binds: HashSet<String>,
     /// Whether the program has replaced an environment value, after which a
@@ -3013,7 +3200,23 @@ impl Walker<'_, '_> {
     }
 
     fn walk_for(&mut self, target: &Expr, iter: &Expr, body: &[Stmt], orelse: &[Stmt]) {
+        let before = self.capture.as_ref().map(|capture| capture.effects.len());
         self.walk_deferred(iter);
+        // In a summarized body a single loop target holds an element of
+        // `iter`: an item of a list, a line of a file, a key of a dict.
+        // Unpacked targets are not projected.
+        let element = before.map(|before| match (target, iter) {
+            (Expr::Name(_), Expr::Dict(dict)) => dict
+                .keys
+                .iter()
+                .flatten()
+                .flat_map(|key| self.carried_effects(key, before))
+                .collect(),
+            (Expr::Name(_), _) => self.carried_effects(iter, before),
+            _ => Vec::new(),
+        });
+        let rebound = rebound_target_names(target);
+        let prior_printed = self.printed_by(&rebound);
         let path_iter_resource = self.path_iter_resource(iter);
         let static_values = self.static_iter_resources(iter);
         let static_instances = self.static_iter_instances(iter);
@@ -3052,6 +3255,9 @@ impl Walker<'_, '_> {
         }
         if path_iter_resource.is_none() && (loop_name.is_none() || static_values.is_none()) {
             self.invalidate_rebound_target(target);
+        }
+        if let Some(element) = element {
+            self.rebind_printed(&rebound, &element);
         }
 
         if let Some(name) = &loop_name
@@ -3114,6 +3320,12 @@ impl Walker<'_, '_> {
                 self.deferred_vars.insert(loop_name, prior);
             }
         }
+        // After the loop the target may still hold its prior value, unless a
+        // nonempty literal proves the loop ran and no enclosing branch can be
+        // skipped.
+        if !literal_nonempty(iter) || self.capture_conditional() {
+            self.restore_printed(prior_printed);
+        }
     }
 
     fn bind_context(&mut self, item: &ast::WithItem) {
@@ -3128,6 +3340,9 @@ impl Walker<'_, '_> {
             return;
         };
         self.walk_assignment_target(target);
+        if self.capture.is_some() {
+            self.rebind_printed(&rebound_target_names(target), &[]);
+        }
         let Expr::Name(target) = target else {
             self.invalidate_rebound_target(target);
             return;
@@ -3204,6 +3419,12 @@ impl Walker<'_, '_> {
     }
 
     fn walk_with(&mut self, items: &[ast::WithItem], body: &[Stmt]) {
+        let rebound: Vec<_> = items
+            .iter()
+            .filter_map(|item| item.optional_vars.as_deref())
+            .flat_map(rebound_target_names)
+            .collect();
+        let prior_printed = self.printed_by(&rebound);
         let mut contexts = Vec::new();
         for item in items {
             // Entering a context does not consume a filesystem iterator.
@@ -3275,6 +3496,10 @@ impl Walker<'_, '_> {
         self.walk_body(body);
         for (class, receiver, span) in contexts.into_iter().rev() {
             self.apply_context_method(&class, "__exit__", &receiver, span);
+        }
+        // Paths skipping an enclosing branch keep the targets' prior values.
+        if self.capture_conditional() {
+            self.restore_printed(prior_printed);
         }
     }
 
@@ -3757,7 +3982,23 @@ impl Walker<'_, '_> {
             }
             Stmt::Return(s) => {
                 if let Some(value) = &s.value {
-                    self.walk_expr(value);
+                    let mut effects = self.capture_value(value);
+                    effects.sort_unstable();
+                    effects.dedup();
+                    let params = self.returned_params(value);
+                    if let Some(capture) = self.capture.as_mut()
+                        && let Some(guards) = capture.live_returns.get(&s.range)
+                        && !(effects.is_empty() && params.is_empty())
+                    {
+                        let site = ReturnSite {
+                            guards: guards.clone(),
+                            effects,
+                            params,
+                        };
+                        if !capture.returned.contains(&site) {
+                            capture.returned.push(site);
+                        }
+                    }
                 }
             }
             _ => {}
@@ -3931,6 +4172,13 @@ impl Walker<'_, '_> {
                     self.call(call);
                     self.walk_expr(&call.func);
                     self.walk_consumed_arguments(call);
+                    continue;
+                }
+                if self.capture.is_some()
+                    && self.imports.resolve_callee(&call.func).as_deref() == Some("print")
+                    && self.prints_to_stdout(call)
+                {
+                    self.capture_print(call);
                     continue;
                 }
                 self.call(call);
@@ -4392,7 +4640,31 @@ impl Walker<'_, '_> {
     /// effects, then bind (or drop) the target name's producer stage.
     fn flow_assign(&mut self, targets: &[Expr], value: &Expr) {
         if self.capture.is_some() {
+            // `x = y = v` binds `v` to both names. Unpacking a literal
+            // `a, b = p, q` binds each name its element; other unpacking is
+            // not projected.
+            let before = self
+                .capture
+                .as_ref()
+                .map_or(0, |capture| capture.effects.len());
             self.walk_expr(value);
+            for target in targets {
+                if let Expr::Name(name) = target {
+                    let effects = self.carried_effects(value, before);
+                    let origins = self.returned_params(value);
+                    self.capture_assign(name.id.as_str(), effects, origins);
+                    continue;
+                }
+                let projected = literal_unpack(target, value);
+                for name in rebound_target_names(target) {
+                    let effects = projected
+                        .iter()
+                        .find(|(bound, _)| *bound == name)
+                        .map(|(_, element)| self.carried_effects(element, before))
+                        .unwrap_or_default();
+                    self.capture_assign(&name, effects, Vec::new());
+                }
+            }
             return;
         }
         let stage = self.flow_expr(value);
@@ -4588,12 +4860,10 @@ impl Walker<'_, '_> {
             return producer;
         }
         // A call into a local user function composes that function's effects at
-        // this site, but the value it returns is not tracked to any single
-        // effect (the function may read a file yet return something unrelated),
-        // so it is not a def-use producer and its arguments are not wired.
-        let is_local_fn = matches!(call.func.as_ref(), Expr::Name(n)
-            if self.imports.resolve_callee(&call.func).is_none()
-                && self.defs.iter().any(|d| d.name == n.id.as_str()));
+        // this site. Its value is only what its summary returns (the function
+        // may read a file yet return something unrelated), and its arguments
+        // are not wired.
+        let is_local_fn = self.is_local_fn(&call.func);
         // An ordinary call: it may itself produce effects (a stage) and may
         // consume tracked variables through its arguments.
         let before = self.builder.effects_len();
@@ -4603,13 +4873,370 @@ impl Walker<'_, '_> {
         // producer here — the receiver-is-call shape is handled above).
         self.walk_expr(&call.func);
         if is_local_fn {
-            // Still walk arguments for nested effects, but wire nothing.
-            self.wire_args(call, None);
-            return None;
+            // Still walk arguments for nested effects; they reach the value
+            // only through a returned parameter.
+            let arguments = self.argument_producers(call);
+            return self.call_value(call, &arguments);
         }
         let stage = self.new_stage(call.range, before, after);
+        // A local method's effects consume its arguments, and its value may
+        // also be an argument it returns.
+        if self.is_local_callable(&call.func) {
+            let arguments = self.argument_producers(call);
+            if let Some(stage) = stage {
+                for (index, producers) in arguments.iter().enumerate() {
+                    for producer in producers {
+                        self.stage_writer.add_edge(*producer, stage, index as u32);
+                    }
+                }
+            }
+            let returned = self.call_value(call, &arguments);
+            return match (stage, returned) {
+                (Some(stage), Some(returned)) => {
+                    let node = self.span_node(call.range);
+                    Some(self.stage_writer.join_values(node, &[stage, returned]))
+                }
+                (stage, returned) => stage.or(returned),
+            };
+        }
+        if stage.is_none() && callee.as_deref() == Some("print") && self.prints_to_stdout(call) {
+            let emitted = print_emitted(call);
+            let mut producers = Vec::new();
+            for argument in call
+                .args
+                .iter()
+                .chain(call.keywords.iter().map(|keyword| &keyword.value))
+            {
+                // A local method prints only what its summary returns; the
+                // reads inside it need not be what it returns. A local
+                // function's call is its returned value already.
+                let emits = emitted.iter().any(|value| std::ptr::eq(*value, argument));
+                match argument {
+                    Expr::Call(inner)
+                        if self.is_local_callable(&inner.func)
+                            && !self.is_local_fn(&inner.func) =>
+                    {
+                        self.call(inner);
+                        self.walk_expr(&inner.func);
+                        let arguments = self.argument_producers(inner);
+                        let returned = self.call_value(inner, &arguments);
+                        producers.extend(returned.filter(|_| emits));
+                    }
+                    _ if emits => self.collect_flow_producers(argument, &mut producers),
+                    _ => self.walk_expr(argument),
+                }
+            }
+            if !producers.is_empty() {
+                let node = self.span_node(call.range);
+                let execution = self.builder.current_execution();
+                self.stage_writer
+                    .print_to_stdout(node, execution, &producers);
+            }
+            return None;
+        }
         self.wire_args(call, stage);
         stage
+    }
+
+    /// `print` writes its arguments to this program's own stdout: no `file`,
+    /// `file=None`, or `file=sys.stdout`.
+    fn prints_to_stdout(&self, call: &ast::ExprCall) -> bool {
+        self.imports.ordinary_stdout()
+            && call.keywords.iter().all(|keyword| {
+                keyword.arg.as_deref() != Some("file")
+                    || matches!(&keyword.value, Expr::Constant(constant)
+                        if matches!(constant.value, ast::Constant::None))
+                    || self.imports.resolve_callee(&keyword.value).as_deref() == Some("sys.stdout")
+            })
+    }
+
+    /// Walk a `print` inside a function being summarized: record the body's
+    /// effects whose bytes its emitted values carry, so a caller connects
+    /// them to its own stdout.
+    fn capture_print(&mut self, call: &ast::ExprCall) {
+        self.call(call);
+        self.walk_expr(&call.func);
+        let emitted = print_emitted(call);
+        let mut printed = Vec::new();
+        for argument in call
+            .args
+            .iter()
+            .chain(call.keywords.iter().map(|keyword| &keyword.value))
+        {
+            if emitted.iter().any(|value| std::ptr::eq(*value, argument)) {
+                printed.extend(self.capture_value(argument));
+            } else {
+                self.walk_expr(argument);
+            }
+        }
+        if let Some(capture) = self.capture.as_mut() {
+            capture.stdout.extend(printed);
+            capture.stdout.sort_unstable();
+            capture.stdout.dedup();
+        }
+    }
+
+    /// Walk an expression inside a function being summarized, returning the
+    /// body's effects whose bytes its value carries: those of the calls on its
+    /// value spine (see [`value_spine`]) and of the locals it names.
+    fn capture_value(&mut self, expr: &Expr) -> Vec<u32> {
+        let before = self
+            .capture
+            .as_ref()
+            .map_or(0, |capture| capture.effects.len());
+        self.walk_expr(expr);
+        self.carried_effects(expr, before)
+    }
+
+    /// The captured effects from slot `before` on, plus the effects held by
+    /// the locals it names, whose bytes the already walked `expr` carries.
+    fn carried_effects(&self, expr: &Expr, before: usize) -> Vec<u32> {
+        let mut spans = Vec::new();
+        let mut locals = Vec::new();
+        let mut names = Vec::new();
+        value_spine(
+            expr,
+            &|func| self.is_local_callable(func),
+            &mut spans,
+            &mut locals,
+            &mut names,
+        );
+        let Some(capture) = self.capture.as_ref() else {
+            return Vec::new();
+        };
+        let mut effects = (before..capture.effects.len())
+            .filter(|&slot| {
+                capture.effects[slot].provenance.iter().any(|reference| {
+                    capture
+                        .source_spans
+                        .get(reference.0 as usize)
+                        .is_some_and(|span| spans.contains(span))
+                })
+            })
+            .map(|slot| slot as u32)
+            .collect::<Vec<_>>();
+        for name in names {
+            effects.extend(capture.print_vars.get(name).into_iter().flatten());
+        }
+        for call in locals {
+            let arguments = call_arguments(call);
+            for returned in capture.call_returns.get(&call.range).into_iter().flatten() {
+                if !self.return_feasible(returned, call) {
+                    continue;
+                }
+                effects.extend(&returned.site.effects);
+                for index in self.returned_arguments(returned, call) {
+                    effects.extend(self.carried_effects(arguments[index], 0));
+                }
+            }
+        }
+        effects
+    }
+
+    /// The parameters whose argument a returned or assigned `value` passes
+    /// on, through the locals still holding it and the same-file calls that
+    /// return their own argument.
+    fn returned_params(&self, value: &Expr) -> Vec<String> {
+        let Some(capture) = self.capture.as_ref() else {
+            return Vec::new();
+        };
+        let (mut spans, mut locals, mut names) = (Vec::new(), Vec::new(), Vec::new());
+        value_spine(
+            value,
+            &|func| self.is_local_callable(func),
+            &mut spans,
+            &mut locals,
+            &mut names,
+        );
+        let mut params = names
+            .into_iter()
+            .filter_map(|name| capture.params.get(name))
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        for call in locals {
+            let arguments = call_arguments(call);
+            for returned in capture.call_returns.get(&call.range).into_iter().flatten() {
+                if !self.return_feasible(returned, call) {
+                    continue;
+                }
+                for index in self.returned_arguments(returned, call) {
+                    params.extend(self.returned_params(arguments[index]));
+                }
+            }
+        }
+        params.sort_unstable();
+        params.dedup();
+        params
+    }
+
+    /// The argument `call` binds to `param` of the same-file `callee`.
+    fn bound_argument(&self, callee: &str, call: &ast::ExprCall, param: &str) -> Bound {
+        let Some(def) = self.defs.iter().find(|def| def.name == callee) else {
+            return Bound::Unknown;
+        };
+        let Some(position) = def.params.iter().position(|name| name == param) else {
+            return Bound::Unknown;
+        };
+        if position < def.positional_param_count {
+            let unpacked = call
+                .args
+                .iter()
+                .take(position + 1)
+                .any(|argument| matches!(argument, Expr::Starred(_)));
+            if unpacked {
+                return Bound::Unknown;
+            }
+            if position < call.args.len() {
+                return Bound::Index(position);
+            }
+        }
+        if let Some(index) = call
+            .keywords
+            .iter()
+            .position(|keyword| keyword.arg.as_deref() == Some(param))
+        {
+            return Bound::Index(call.args.len() + index);
+        }
+        if call.keywords.iter().any(|keyword| keyword.arg.is_none())
+            || call
+                .args
+                .iter()
+                .any(|argument| matches!(argument, Expr::Starred(_)))
+        {
+            return Bound::Unknown;
+        }
+        match def.param_defaults.get(position).cloned().flatten() {
+            Some(default) => Bound::Default(default),
+            None => Bound::Missing,
+        }
+    }
+
+    /// Whether `call`'s arguments can satisfy the parameter guards on the
+    /// path to a returned site: a literal argument or default decides one.
+    fn return_feasible(&self, returned: &CallReturn, call: &ast::ExprCall) -> bool {
+        let arguments = call_arguments(call);
+        returned.site.guards.iter().all(|guard| {
+            match self.bound_argument(&returned.callee, call, &guard.param) {
+                Bound::Index(index) => !guard.refuted_by(arguments[index]),
+                Bound::Default(default) => !guard.refuted_by(&default),
+                Bound::Unknown | Bound::Missing => true,
+            }
+        })
+    }
+
+    /// Positions among `call`'s arguments whose value a returned site
+    /// passes back through a parameter; every one when unpacking hides
+    /// which binds it.
+    fn returned_arguments(&self, returned: &CallReturn, call: &ast::ExprCall) -> Vec<usize> {
+        let mut indexes = Vec::new();
+        for param in &returned.site.params {
+            match self.bound_argument(&returned.callee, call, param) {
+                Bound::Index(index) => indexes.push(index),
+                Bound::Unknown => indexes.extend(0..call_arguments(call).len()),
+                Bound::Default(_) | Bound::Missing => {}
+            }
+        }
+        indexes.sort_unstable();
+        indexes.dedup();
+        indexes
+    }
+
+    /// A call to a function defined in this file, which a summary composes.
+    fn is_local_fn(&self, func: &Expr) -> bool {
+        matches!(func, Expr::Name(n)
+            if self.imports.resolve_callee(func).is_none()
+                && self.defs.iter().any(|d| d.name == n.id.as_str()))
+    }
+
+    /// A call to a function, method or class this file defines, including
+    /// one [`Self::local_callee`] resolves through a receiver.
+    fn is_local_callable(&self, func: &Expr) -> bool {
+        self.is_local_fn(func) || self.local_callee(func).is_some()
+    }
+
+    /// Whether a branch condition of the summarized body is active here.
+    fn capture_conditional(&self) -> bool {
+        self.builder
+            .condition_since(self.capture_condition_depth)
+            .is_some()
+    }
+
+    /// The effects each of `names` holds in the summarized body.
+    fn printed_by(&self, names: &[String]) -> Vec<(String, Vec<u32>)> {
+        let Some(capture) = self.capture.as_ref() else {
+            return Vec::new();
+        };
+        names
+            .iter()
+            .filter_map(|name| Some((name.clone(), capture.print_vars.get(name)?.clone())))
+            .collect()
+    }
+
+    /// Bind `names` to exactly `effects` for a body that runs only after
+    /// the binding, such as a loop or `with` body, whatever branch encloses it.
+    fn rebind_printed(&mut self, names: &[String], effects: &[u32]) {
+        let Some(capture) = self.capture.as_mut() else {
+            return;
+        };
+        for name in names {
+            capture.params.remove(name);
+            if effects.is_empty() {
+                capture.print_vars.remove(name);
+            } else {
+                capture.print_vars.insert(name.clone(), effects.to_vec());
+            }
+        }
+    }
+
+    /// Add back what names held before a binding that may have been skipped.
+    fn restore_printed(&mut self, prior: Vec<(String, Vec<u32>)>) {
+        let Some(capture) = self.capture.as_mut() else {
+            return;
+        };
+        for (name, held) in prior {
+            let printed = capture.print_vars.entry(name).or_default();
+            printed.extend(held);
+            printed.sort_unstable();
+            printed.dedup();
+        }
+    }
+
+    /// Bind a summarized body's local to the effects its assigned value
+    /// carries and the parameters whose argument it passes on. A conditional
+    /// assignment adds to what the local may hold; only an unconditional one
+    /// replaces it.
+    fn capture_assign(&mut self, name: &str, effects: Vec<u32>, mut origins: Vec<String>) {
+        let conditional = self
+            .builder
+            .condition_since(self.capture_condition_depth)
+            .is_some();
+        let Some(capture) = self.capture.as_mut() else {
+            return;
+        };
+        if conditional {
+            origins.extend(capture.params.remove(name).unwrap_or_default());
+        }
+        origins.sort_unstable();
+        origins.dedup();
+        if origins.is_empty() {
+            capture.params.remove(name);
+        } else {
+            capture.params.insert(name.to_string(), origins);
+        }
+        let mut held = if conditional {
+            capture.print_vars.remove(name).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        held.extend(effects);
+        held.sort_unstable();
+        held.dedup();
+        if held.is_empty() {
+            capture.print_vars.remove(name);
+        } else {
+            capture.print_vars.insert(name.to_string(), held);
+        }
     }
 
     /// Buffer a flow stage for the effects in `[before, after)`, binding each
@@ -4621,6 +5248,48 @@ impl Walker<'_, '_> {
         let node = self.span_node(range);
         let id = self.stage_writer.new_stage(node, before, after)?;
         Some(id)
+    }
+
+    /// The flow stage of the value a same-file call returned: the plan
+    /// effects of its feasible return sites, joined with the producers of the
+    /// `arguments` (by position, then keyword) its returned parameters bind.
+    fn call_value(&mut self, call: &ast::ExprCall, arguments: &[Vec<usize>]) -> Option<usize> {
+        let mut producers = Vec::new();
+        for returned in self.call_returns.remove(&call.range).unwrap_or_default() {
+            if !self.return_feasible(&returned, call) {
+                continue;
+            }
+            for index in self.returned_arguments(&returned, call) {
+                producers.extend(arguments.get(index).into_iter().flatten().copied());
+            }
+            if !returned.site.effects.is_empty() {
+                let node = self.span_node(call.range);
+                producers.push(self.stage_writer.value_stage(node, returned.site.effects));
+            }
+        }
+        producers.sort_unstable();
+        producers.dedup();
+        match producers.as_slice() {
+            [] => None,
+            [producer] => Some(*producer),
+            _ => {
+                let node = self.span_node(call.range);
+                Some(self.stage_writer.join_values(node, &producers))
+            }
+        }
+    }
+
+    /// Walk a call's arguments, positional then keyword, for effects and
+    /// dataflow, returning the producers each one carries.
+    fn argument_producers(&mut self, call: &ast::ExprCall) -> Vec<Vec<usize>> {
+        call_arguments(call)
+            .into_iter()
+            .map(|argument| {
+                let mut producers = Vec::new();
+                self.collect_flow_producers(argument, &mut producers);
+                producers
+            })
+            .collect()
     }
 
     /// Walk a call's arguments for effects and dataflow, emitting an edge into
@@ -7936,6 +8605,53 @@ impl Walker<'_, '_> {
                 continue;
             };
             self.record_transfer(Some(*source), Some(*destination));
+        }
+        // What the callee prints reaches this program's stdout too.
+        let printed = self
+            .summary_stdout
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter_map(|slot| slots.get(*slot as usize).copied().flatten())
+            .collect::<Vec<_>>();
+        match self.capture.as_mut() {
+            Some(capture) => {
+                capture.stdout.extend(printed);
+                capture.stdout.sort_unstable();
+                capture.stdout.dedup();
+            }
+            None => crate::flow::effects_to_stdout(
+                self.builder,
+                printed,
+                effinterp_proto::CausalAssurance::Conservative,
+                vec![node],
+            ),
+        }
+        // What the callee returns is the value of this call, for the caller
+        // that binds or prints it.
+        let returned = self
+            .summary_returns
+            .get(name)
+            .into_iter()
+            .flatten()
+            .map(|site| CallReturn {
+                callee: name.to_string(),
+                site: ReturnSite {
+                    effects: site
+                        .effects
+                        .iter()
+                        .filter_map(|slot| slots.get(*slot as usize).copied().flatten())
+                        .collect(),
+                    ..site.clone()
+                },
+            })
+            .collect::<Vec<_>>();
+        if !returned.is_empty() {
+            let call_returns = match self.capture.as_mut() {
+                Some(capture) => &mut capture.call_returns,
+                None => &mut self.call_returns,
+            };
+            call_returns.entry(span).or_default().extend(returned);
         }
         // A summary still converging in a recursive group proves nothing yet.
         let application = match self.summary_requirements.get(name) {

@@ -1399,7 +1399,8 @@ pub(crate) fn parse_url_endpoint(url: &str) -> Option<ResourceIdentity> {
         Some((scheme, rest)) => (Some(scheme.to_string()), rest),
         None => (None, url),
     };
-    let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
+    // The authority ends at the path, query or fragment, whichever comes first.
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = rest[..authority_end].rsplit('@').next().unwrap_or_default();
     let path = (authority_end < rest.len()).then(|| rest[authority_end..].to_string());
     let (host, port) = if let Some(bracketed) = authority.strip_prefix('[') {
@@ -1596,6 +1597,15 @@ mod tests {
                 Some("http".into()),
                 Some(8080),
                 Some("/".into()),
+            ))
+        );
+        assert_eq!(
+            endpoint_parts("https://example.com#overview"),
+            Some((
+                "example.com".into(),
+                Some("https".into()),
+                None,
+                Some("#overview".into()),
             ))
         );
         for url in ["/api/x", "", "http:///x", "https://user@/x"] {

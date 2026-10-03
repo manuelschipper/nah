@@ -1501,6 +1501,8 @@ name = "nah-proto"
 version = "1.6.1"
 dependencies = [
  "effinterp-proto",
+ "icu_properties",
+ "idna",
  "serde",
  "serde_json",
  "sha2",

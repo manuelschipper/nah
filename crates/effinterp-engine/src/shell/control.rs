@@ -191,7 +191,9 @@ impl Builder<'_, '_> {
                 GroupKind::Background
                 | GroupKind::CompoundPipeline
                 | GroupKind::Coprocess { .. } => status,
-                GroupKind::Conditional { .. } => self.repeat(everything, items),
+                GroupKind::Conditional { .. } | GroupKind::Unreachable { .. } => {
+                    self.repeat(everything, items)
+                }
                 GroupKind::ShortCircuit(selection) => {
                     let (run, bypass) = select(status, true, *selection);
                     let ran = self.items(run, items);

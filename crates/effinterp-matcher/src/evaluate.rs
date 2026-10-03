@@ -29,6 +29,17 @@ use crate::query::{
 use crate::render;
 use crate::validate::{Budget, QueryLimits};
 
+/// Flow endpoint candidates: occurrences with what the endpoint leaves of them.
+type Candidates<'a> = Vec<(&'a OccurrenceId, Truth)>;
+/// A selector's possible effects, by plan index, each with its selection or
+/// the refusal selecting it met.
+type Selections = Vec<(usize, Result<Truth, Refusal>)>;
+/// Byte-flow reach by source occurrence and traversal.
+type ByteReaches<'a> = BTreeMap<
+    (&'a OccurrenceId, ByteFlowAssurance, Vec<ByteFlowEdgeKind>),
+    std::rc::Rc<BTreeSet<&'a OccurrenceId>>,
+>;
+
 struct BindingScope<'a> {
     effect_bindings: &'a BTreeMap<String, usize>,
     depth: usize,
@@ -45,11 +56,31 @@ pub struct Evaluator<'a> {
     bindings: BTreeMap<ExecutionNodeRef, Bindings>,
     label_provider: &'a dyn LabelProvider,
     limits: QueryLimits,
+    /// What remains of `limits.shared_steps` for later evaluations.
+    shared_steps: Cell<usize>,
     nodes: BTreeMap<&'a OccurrenceId, &'a OccurrenceNode>,
+    /// Every causal node by id, in graph order; a repeated id lists each.
+    nodes_by_id: BTreeMap<&'a OccurrenceId, Vec<&'a OccurrenceNode>>,
     /// The causality graph's edges by source occurrence, for byte-flow paths.
     edges_from: BTreeMap<&'a OccurrenceId, Vec<&'a CausalEdge>>,
     effect_occurrences: Vec<Option<&'a OccurrenceId>>,
     reachability: OnceCell<Result<Reachability, DetailUnavailable>>,
+    /// Whether each resource-transition edge carries state, by the edge's
+    /// address in the plan: the answer depends on the edge alone, and every
+    /// byte-flow search of every query asks it again.
+    state_transitions: RefCell<BTreeMap<*const CausalEdge, bool>>,
+    /// What each byte-flow source reaches, by source and traversal; it
+    /// depends on the plan alone, so every query shares it.
+    byte_reaches: RefCell<ByteReaches<'a>>,
+    /// The candidates of each flow endpoint that names no binding, by the
+    /// endpoint's address in the query under evaluation, which every binding
+    /// of an enclosing effect would otherwise recompute.
+    endpoint_candidates: RefCell<BTreeMap<*const Endpoint, Candidates<'a>>>,
+    /// The scoped effects each unrelated `BindEffect` selector does not rule
+    /// out, by the selector's address in the query under evaluation: a
+    /// selection depends on the effect alone, and every binding of an
+    /// enclosing effect would otherwise scan the plan again.
+    selections: RefCell<BTreeMap<*const Selector, std::rc::Rc<Selections>>>,
     /// The version of the query under evaluation: a schema-3 label keeps its
     /// schema-3 meaning on a selection that is not concrete.
     schema_version: Cell<u32>,
@@ -74,23 +105,37 @@ impl<'a> Evaluator<'a> {
         limits: QueryLimits,
     ) -> Self {
         let mut nodes = BTreeMap::new();
+        let mut nodes_by_id: BTreeMap<_, Vec<_>> = BTreeMap::new();
         for node in plan.causality.graph.iter().flat_map(|graph| &graph.nodes) {
             nodes.entry(&node.id).or_insert(node);
+            nodes_by_id.entry(&node.id).or_default().push(node);
         }
         let mut edges_from: BTreeMap<_, Vec<_>> = BTreeMap::new();
         for edge in plan.causality.graph.iter().flat_map(|graph| &graph.edges) {
             edges_from.entry(&edge.from).or_default().push(edge);
+        }
+        // Interactions by execution and operation, in graph order, so each
+        // effect searches only the occurrences that could own it.
+        let mut interactions: BTreeMap<_, Vec<_>> = BTreeMap::new();
+        for node in plan.causality.graph.iter().flat_map(|graph| &graph.nodes) {
+            if let (Some(execution), OccurrenceKind::ResourceInteraction { operation, .. }) =
+                (node.execution, &node.occurrence)
+            {
+                interactions
+                    .entry((execution, operation.0.as_str()))
+                    .or_default()
+                    .push(node);
+            }
         }
         let mut claimed = BTreeSet::new();
         let effect_occurrences = plan
             .effects
             .iter()
             .map(|effect| {
-                let occurrence = plan
-                    .causality
-                    .graph
-                    .iter()
-                    .flat_map(|graph| &graph.nodes)
+                let occurrence = interactions
+                    .get(&(effect.execution, effect.operation.0.as_str()))
+                    .into_iter()
+                    .flatten()
                     .find(|node| {
                         !claimed.contains(&node.id) && occurrence_owns_effect(node, effect)
                     })
@@ -106,10 +151,16 @@ impl<'a> Evaluator<'a> {
             bindings,
             label_provider,
             limits,
+            shared_steps: Cell::new(limits.shared_steps),
             nodes,
+            nodes_by_id,
             edges_from,
             effect_occurrences,
             reachability: OnceCell::new(),
+            state_transitions: RefCell::new(BTreeMap::new()),
+            byte_reaches: RefCell::new(BTreeMap::new()),
+            endpoint_candidates: RefCell::new(BTreeMap::new()),
+            selections: RefCell::new(BTreeMap::new()),
             schema_version: Cell::new(SCHEMA_VERSION),
             scope: RefCell::new(Vec::new()),
             absence: Cell::new(Absence::Closure),
@@ -129,6 +180,10 @@ impl<'a> Evaluator<'a> {
     /// and keeps its plan index and occurrence, but is never selected or bound
     /// itself. `absence` says when finding no selected effect is conclusive.
     ///
+    /// The evaluation may spend its own steps and what earlier evaluations
+    /// left of the evaluator's shared steps, never more than `max_steps`, and
+    /// is refused with [`Refusal::WorkLimit`] when it needs more.
+    ///
     /// The query is validated on every call and refused when invalid; the
     /// scope is not. Scope entries must be strictly ascending plan-effect
     /// positions below `plan.effects.len()`, as [`Self::candidate_effects`]
@@ -146,16 +201,25 @@ impl<'a> Evaluator<'a> {
                 .last()
                 .is_none_or(|last| *last < self.plan.effects.len())
         );
-        let mut budget = Budget(self.limits.max_steps);
+        let allowance = self.limits.max_steps.min(
+            self.limits
+                .own_steps
+                .saturating_add(self.shared_steps.get()),
+        );
+        let mut budget = Budget(allowance);
         self.schema_version.set(query.schema_version);
         self.absence.set(absence);
         let mut current = self.scope.borrow_mut();
         current.clear();
         current.extend_from_slice(scope);
         drop(current);
+        self.endpoint_candidates.borrow_mut().clear();
+        self.selections.borrow_mut().clear();
         let outcome = query
             .validate_with(self.limits, absence)
             .and_then(|()| self.assertion(&query.assertion, &BTreeMap::new(), 0, &mut budget));
+        let drawn = (allowance - budget.0).saturating_sub(self.limits.own_steps);
+        self.shared_steps.set(self.shared_steps.get() - drawn);
         outcome.unwrap_or_else(Outcome::Refused)
     }
 
@@ -325,8 +389,13 @@ impl<'a> Evaluator<'a> {
     ) -> Result<Outcome, Refusal> {
         let mut unknowns = Vec::new();
         for &index in self.scope.borrow().iter() {
-            budget.charge()?;
             let effect = &self.plan.effects[index];
+            // An effect of another operation is never selected, so it is
+            // never examined either.
+            if !selector.operation.matches(effect.operation.as_str()) {
+                continue;
+            }
+            budget.charge()?;
             match self.select_effect(index, selector)? {
                 Truth::True => {
                     return Ok(Outcome::Match(Witness::Effect {
@@ -350,22 +419,38 @@ impl<'a> Evaluator<'a> {
         budget: &mut Budget,
     ) -> Result<Outcome, Refusal> {
         let mut unknowns = Vec::new();
-        for &index in self.scope.borrow().iter() {
-            budget.charge()?;
-            let effect = &self.plan.effects[index];
-            let selected = match scope.related {
-                Some(related) => self
-                    .relation(
+        let cached = scope.related.is_none().then(|| self.selections(selector));
+        let indices = match &cached {
+            Some(candidates) => candidates.iter().map(|(index, _)| *index).collect(),
+            None => self.scope.borrow().clone(),
+        };
+        for (position, index) in indices.into_iter().enumerate() {
+            let selected = match (&cached, scope.related) {
+                (Some(candidates), _) => {
+                    budget.charge()?;
+                    candidates[position].1.clone()?
+                }
+                (None, Some(related)) => {
+                    if !selector
+                        .operation
+                        .matches(self.plan.effects[index].operation.as_str())
+                    {
+                        continue;
+                    }
+                    budget.charge()?;
+                    self.relation(
                         scope.effect_bindings[&related.binding],
                         index,
                         related.relationship,
                     )
-                    .and(|| self.select_effect(index, selector))?,
-                None => self.select_effect(index, selector)?,
+                    .and(|| self.select_effect(index, selector))?
+                }
+                (None, None) => unreachable!("an unrelated binding is cached"),
             };
             if selected == Truth::False {
                 continue;
             }
+            let effect = &self.plan.effects[index];
             let mut nested_bindings = scope.effect_bindings.clone();
             nested_bindings.insert(name.to_owned(), index);
             let nested = self.assertion(assertion, &nested_bindings, scope.depth + 1, budget)?;
@@ -391,6 +476,33 @@ impl<'a> Evaluator<'a> {
         Ok(self.effect_absence(closure, unknowns))
     }
 
+    /// The scoped effects `selector` does not rule out, in scope order. The
+    /// search costs no steps: a binding charges one for each candidate it
+    /// considers, never more than a scan of every effect would.
+    fn selections(&self, selector: &Selector) -> std::rc::Rc<Selections> {
+        let key = selector as *const Selector;
+        if let Some(candidates) = self.selections.borrow().get(&key) {
+            return candidates.clone();
+        }
+        let candidates: std::rc::Rc<Selections> = std::rc::Rc::new(
+            self.scope
+                .borrow()
+                .iter()
+                .filter(|&&index| {
+                    selector
+                        .operation
+                        .matches(self.plan.effects[index].operation.as_str())
+                })
+                .filter_map(|&index| match self.select_effect(index, selector) {
+                    Ok(Truth::False) => None,
+                    selected => Some((index, selected)),
+                })
+                .collect(),
+        );
+        self.selections.borrow_mut().insert(key, candidates.clone());
+        candidates
+    }
+
     fn related_effect(
         &self,
         binding: &str,
@@ -403,6 +515,9 @@ impl<'a> Evaluator<'a> {
         let bound = effect_bindings[binding];
         let mut unknowns = Vec::new();
         for (index, effect) in self.plan.effects.iter().enumerate() {
+            if !selector.operation.matches(effect.operation.as_str()) {
+                continue;
+            }
             budget.charge()?;
             match self
                 .relation(bound, index, relationship)
@@ -688,13 +803,22 @@ impl<'a> Evaluator<'a> {
                 }
             }
             Traversal::ByteFlow { assurance, edges } => {
-                let sources = self.candidates(source, effect_bindings, budget)?;
                 let destinations = self.candidates(destination, effect_bindings, budget)?;
+                // With nothing to reach, no source is searched.
+                let sources = if destinations.is_empty() {
+                    Vec::new()
+                } else {
+                    self.candidates(source, effect_bindings, budget)?
+                };
                 for (from, from_truth) in &sources {
+                    let reached = self.byte_reach(from, assurance, &edges);
                     for (to, to_truth) in &destinations {
+                        if !reached.contains(*to) {
+                            continue;
+                        }
                         budget.charge()?;
                         let Some((route, route_truth)) =
-                            self.byte_path(graph, from, to, assurance, &edges)?
+                            self.byte_path(from, to, assurance, &edges)?
                         else {
                             continue;
                         };
@@ -926,7 +1050,6 @@ impl<'a> Evaluator<'a> {
 
     fn byte_path(
         &self,
-        graph: &effinterp_proto::CausalityGraph,
         from: &OccurrenceId,
         to: &OccurrenceId,
         assurance: ByteFlowAssurance,
@@ -948,7 +1071,7 @@ impl<'a> Evaluator<'a> {
             },
             |edge| {
                 matches!(
-                    self.byte_edge(graph, edge, source, destination, assurance, edges),
+                    self.byte_edge(edge, source, destination, assurance, edges),
                     Ok(Truth::True)
                 )
             },
@@ -968,7 +1091,7 @@ impl<'a> Evaluator<'a> {
             },
             |edge| {
                 !matches!(
-                    self.byte_edge(graph, edge, source, destination, assurance, edges),
+                    self.byte_edge(edge, source, destination, assurance, edges),
                     Ok(Truth::False)
                 )
             },
@@ -985,18 +1108,52 @@ impl<'a> Evaluator<'a> {
         }
         for pair in route.windows(2) {
             truth = truth.and(|| {
-                self.byte_link(
-                    graph,
-                    &pair[0],
-                    &pair[1],
-                    source,
-                    destination,
-                    assurance,
-                    edges,
-                )
+                self.byte_link(&pair[0], &pair[1], source, destination, assurance, edges)
             })?;
         }
         Ok(Some((route, truth)))
+    }
+
+    /// The occurrences in `from`'s realm that some chain of byte edges of
+    /// the traversal's kinds reaches from it, `from` included, whatever their
+    /// conditions. A byte route needs such a chain, so a destination outside
+    /// this set is never searched; one search per source then serves every
+    /// destination. Like the route search it narrows, it costs no steps: a
+    /// step is charged for each destination it reaches instead.
+    fn byte_reach(
+        &self,
+        from: &'a OccurrenceId,
+        assurance: ByteFlowAssurance,
+        edges: &[ByteFlowEdgeKind],
+    ) -> std::rc::Rc<BTreeSet<&'a OccurrenceId>> {
+        let key = (from, assurance, edges.to_vec());
+        if let Some(reached) = self.byte_reaches.borrow().get(&key) {
+            return reached.clone();
+        }
+        let mut reached = BTreeSet::new();
+        let Some(source) = self.nodes.get(from) else {
+            return std::rc::Rc::new(reached);
+        };
+        let mut pending = vec![from];
+        reached.insert(from);
+        while let Some(id) = pending.pop() {
+            for edge in self.edges_from.get(id).into_iter().flatten() {
+                if self.byte_edge_kind(edge, assurance, edges) == Truth::False
+                    || self
+                        .nodes
+                        .get(&edge.to)
+                        .is_none_or(|node| node.realm != source.realm)
+                {
+                    continue;
+                }
+                if reached.insert(&edge.to) {
+                    pending.push(&edge.to);
+                }
+            }
+        }
+        let reached = std::rc::Rc::new(reached);
+        self.byte_reaches.borrow_mut().insert(key, reached.clone());
+        reached
     }
 
     fn byte_occurrence(
@@ -1018,7 +1175,6 @@ impl<'a> Evaluator<'a> {
     #[allow(clippy::too_many_arguments)]
     fn byte_link(
         &self,
-        graph: &effinterp_proto::CausalityGraph,
         from: &OccurrenceId,
         to: &OccurrenceId,
         source: &OccurrenceNode,
@@ -1027,10 +1183,9 @@ impl<'a> Evaluator<'a> {
         edges: &[ByteFlowEdgeKind],
     ) -> Result<Truth, Refusal> {
         let mut truth = Truth::False;
-        for edge in &graph.edges {
-            if edge.from == *from && edge.to == *to {
-                truth = truth
-                    .or(|| self.byte_edge(graph, edge, source, destination, assurance, edges))?;
+        for edge in self.edges_from.get(from).into_iter().flatten() {
+            if edge.to == *to {
+                truth = truth.or(|| self.byte_edge(edge, source, destination, assurance, edges))?;
             }
         }
         Ok(truth)
@@ -1038,14 +1193,29 @@ impl<'a> Evaluator<'a> {
 
     fn byte_edge(
         &self,
-        graph: &effinterp_proto::CausalityGraph,
         edge: &CausalEdge,
         source: &OccurrenceNode,
         destination: &OccurrenceNode,
         assurance: ByteFlowAssurance,
         edges: &[ByteFlowEdgeKind],
     ) -> Result<Truth, Refusal> {
-        let kind = match edge.reason {
+        self.byte_edge_kind(edge, assurance, edges).and(|| {
+            self.route_condition(
+                edge.condition.as_ref(),
+                source.condition.as_ref(),
+                destination.condition.as_ref(),
+            )
+        })
+    }
+
+    /// Whether `edge` is of a kind the traversal follows, before conditions.
+    fn byte_edge_kind(
+        &self,
+        edge: &CausalEdge,
+        assurance: ByteFlowAssurance,
+        edges: &[ByteFlowEdgeKind],
+    ) -> Truth {
+        match edge.reason {
             CausalReason::ValueDependency if edges.contains(&ByteFlowEdgeKind::ValueDependency) => {
                 match assurance {
                     ByteFlowAssurance::Exact => (edge.assurance == CausalAssurance::Exact).into(),
@@ -1063,7 +1233,7 @@ impl<'a> Evaluator<'a> {
             CausalReason::ResourceTransition
                 if edges.contains(&ByteFlowEdgeKind::StateTransition) =>
             {
-                self.state_transition(graph, edge).into()
+                self.state_transition(edge).into()
             }
             CausalReason::ValueDependency
             | CausalReason::ResourceTransfer
@@ -1072,17 +1242,20 @@ impl<'a> Evaluator<'a> {
             | CausalReason::ControlDependency
             | CausalReason::Launch
             | CausalReason::Containment => Truth::False,
-        };
-        kind.and(|| {
-            self.route_condition(
-                edge.condition.as_ref(),
-                source.condition.as_ref(),
-                destination.condition.as_ref(),
-            )
-        })
+        }
     }
 
-    fn state_transition(&self, graph: &effinterp_proto::CausalityGraph, edge: &CausalEdge) -> bool {
+    fn state_transition(&self, edge: &CausalEdge) -> bool {
+        let key = std::ptr::from_ref(edge);
+        if let Some(known) = self.state_transitions.borrow().get(&key) {
+            return *known;
+        }
+        let carries = self.carries_state(edge);
+        self.state_transitions.borrow_mut().insert(key, carries);
+        carries
+    }
+
+    fn carries_state(&self, edge: &CausalEdge) -> bool {
         let Some(from) = self.nodes.get(&edge.from) else {
             return false;
         };
@@ -1105,18 +1278,17 @@ impl<'a> Evaluator<'a> {
         {
             return false;
         }
-        let superseded = graph.edges.iter().any(|intermediate| {
-            intermediate.from == edge.from
-                && intermediate.to != edge.to
+        let edges_from = |id| self.edges_from.get(id).into_iter().flatten();
+        let superseded = edges_from(&edge.from).any(|intermediate| {
+            intermediate.to != edge.to
                 && intermediate.reason == CausalReason::ResourceTransition
                 && matches!(self.byte_edge_condition(intermediate), Ok(Truth::True))
                 && self
                     .nodes
                     .get(&intermediate.to)
                     .is_some_and(|node| occurrence_operation(node) == Some("filesystem.write"))
-                && graph.edges.iter().any(|later| {
-                    later.from == intermediate.to
-                        && later.to == edge.to
+                && edges_from(&intermediate.to).any(|later| {
+                    later.to == edge.to
                         && later.reason == CausalReason::ResourceTransition
                         && matches!(self.byte_edge_condition(later), Ok(Truth::True))
                 })
@@ -1589,13 +1761,38 @@ impl<'a> Evaluator<'a> {
         })
     }
 
-    /// Occurrences the endpoint does not disprove, in graph order.
+    /// Occurrences the endpoint does not disprove, in graph order. A bound
+    /// effect's endpoint is its own occurrence, found without a scan; any
+    /// other endpoint that names no binding is scanned once per query.
     fn candidates(
         &self,
         endpoint: &Endpoint,
         effect_bindings: &BTreeMap<String, usize>,
         budget: &mut Budget,
-    ) -> Result<Vec<(&'a OccurrenceId, Truth)>, Refusal> {
+    ) -> Result<Candidates<'a>, Refusal> {
+        let bound = match endpoint {
+            Endpoint::EffectBinding { name } => {
+                budget.charge()?;
+                return Ok(self.effect_occurrences[effect_bindings[name]]
+                    .and_then(|id| self.nodes_by_id.get(id))
+                    .into_iter()
+                    .flatten()
+                    .filter(|node| {
+                        matches!(node.occurrence, OccurrenceKind::ResourceInteraction { .. })
+                    })
+                    .map(|node| (&node.id, Truth::True))
+                    .collect());
+            }
+            Endpoint::Port {
+                scope: PortScope::SameExecution { .. },
+                ..
+            } => true,
+            Endpoint::Interaction(_) | Endpoint::Value(_) | Endpoint::Port { .. } => false,
+        };
+        let key = std::ptr::from_ref(endpoint);
+        if !bound && let Some(candidates) = self.endpoint_candidates.borrow().get(&key) {
+            return Ok(candidates.clone());
+        }
         let mut out = Vec::new();
         for node in self
             .plan
@@ -1609,6 +1806,11 @@ impl<'a> Evaluator<'a> {
                 Truth::False => {}
                 truth => out.push((&node.id, truth)),
             }
+        }
+        if !bound {
+            self.endpoint_candidates
+                .borrow_mut()
+                .insert(key, out.clone());
         }
         Ok(out)
     }

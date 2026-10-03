@@ -113,6 +113,7 @@ fn every_shipped_guard_blocks_end_to_end() {
         "secrets-env",
         "secrets-credentials",
         "secrets-store-read",
+        "net-lookalike-host",
     ]
     .into_iter()
     .collect::<BTreeSet<_>>();

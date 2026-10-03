@@ -581,6 +581,228 @@ fn npm_rebuild(
     }
 }
 
+/// pip install's long options that take a value, from pip 25.1's install
+/// parser (its own options and pip's general options).
+const PIP_INSTALL_VALUE_OPTIONS: &[&str] = &[
+    "--abi",
+    "--cache-dir",
+    "--cert",
+    "--client-cert",
+    "--config-settings",
+    "--constraint",
+    "--default-timeout",
+    "--editable",
+    "--exists-action",
+    "--extra-index-url",
+    "--find-links",
+    "--global-option",
+    "--group",
+    "--implementation",
+    "--index-url",
+    "--keyring-provider",
+    "--local-log",
+    "--log",
+    "--log-file",
+    "--no-binary",
+    "--only-binary",
+    "--platform",
+    "--prefix",
+    "--progress-bar",
+    "--proxy",
+    "--pypi-url",
+    "--python",
+    "--python-version",
+    "--report",
+    "--requirement",
+    "--resume-retries",
+    "--retries",
+    "--root",
+    "--root-user-action",
+    "--source",
+    "--source-dir",
+    "--source-directory",
+    "--src",
+    "--target",
+    "--timeout",
+    "--trusted-host",
+    "--upgrade-strategy",
+    "--use-deprecated",
+    "--use-feature",
+];
+
+/// pip install's long options that take no value. optparse accepts any
+/// unique prefix of a long option, so a prefix is resolved against both lists.
+const PIP_INSTALL_FLAG_OPTIONS: &[&str] = &[
+    "--break-system-packages",
+    "--check-build-dependencies",
+    "--compile",
+    "--debug",
+    "--disable-pip-version-check",
+    "--dry-run",
+    "--force-reinstall",
+    "--help",
+    "--ignore-installed",
+    "--ignore-requires-python",
+    "--isolated",
+    "--no-build-isolation",
+    "--no-cache-dir",
+    "--no-clean",
+    "--no-color",
+    "--no-compile",
+    "--no-dependencies",
+    "--no-deps",
+    "--no-index",
+    "--no-input",
+    "--no-python-version-warning",
+    "--no-use-pep517",
+    "--no-user",
+    "--no-warn-conflicts",
+    "--no-warn-script-location",
+    "--pre",
+    "--prefer-binary",
+    "--quiet",
+    "--require-hashes",
+    "--require-venv",
+    "--require-virtualenv",
+    "--upgrade",
+    "--use-pep517",
+    "--user",
+    "--verbose",
+    "--version",
+];
+
+/// pip install's short options that take a value; its other short options
+/// (`-I`, `-U`, `-V`, `-h`, `-q`, `-v`) take none.
+const PIP_INSTALL_SHORT_VALUE_OPTIONS: &str = "Ccefirt";
+
+/// The requirements a `pip install` whose subcommand is at `sub_index` installs,
+/// each with the argv index that spells it, or `None` when help, before or
+/// after the subcommand, ends pip before it installs anything.
+fn pip_install_requirements<'a>(
+    ctx: &'a InvocationCtx<'_>,
+    sub_index: usize,
+) -> Option<Vec<(usize, &'a str)>> {
+    // pip parses its global options up to the subcommand, then the install
+    // options after it; either phase's help exits.
+    pip_arguments(ctx, 1..sub_index)?;
+    pip_arguments(ctx, sub_index + 1..ctx.argv.len())
+}
+
+/// The requirement operands and `-e`/`--editable` values among `range` of the
+/// argv, each with its index, read the way pip's optparse parser assigns
+/// arguments to options; `None` when the range asks for help. Other options'
+/// values, such as `--target` or `-r`, are never requirements, and a value
+/// spelled `--help` is not help.
+fn pip_arguments<'a>(
+    ctx: &'a InvocationCtx<'_>,
+    range: std::ops::Range<usize>,
+) -> Option<Vec<(usize, &'a str)>> {
+    let mut requirements = Vec::new();
+    let mut words = ctx
+        .argv
+        .iter()
+        .enumerate()
+        .take(range.end)
+        .skip(range.start);
+    while let Some((index, word)) = words.next() {
+        let Some(word) = word.as_literal() else {
+            continue;
+        };
+        if word == "--" {
+            requirements
+                .extend(words.filter_map(|(index, word)| Some((index, word.as_literal()?))));
+            break;
+        }
+        // A long option, or a unique prefix of one, with its value attached
+        // after `=` or in the next argument.
+        if let Some(long) = word.strip_prefix("--") {
+            let (name, attached) = match long.split_once('=') {
+                Some((name, value)) => (name, Some(value)),
+                None => (long, None),
+            };
+            let name = format!("--{name}");
+            let known = PIP_INSTALL_VALUE_OPTIONS
+                .iter()
+                .chain(PIP_INSTALL_FLAG_OPTIONS)
+                .copied();
+            let option = known.clone().find(|option| *option == name).or_else(|| {
+                let mut matches = known.filter(|option| option.starts_with(&name));
+                matches.next().filter(|_| matches.next().is_none())
+            });
+            if option == Some("--help") {
+                return None;
+            }
+            if option.is_some_and(|option| PIP_INSTALL_VALUE_OPTIONS.contains(&option)) {
+                let value = match attached {
+                    Some(value) => Some((index, value)),
+                    None => words
+                        .next()
+                        .and_then(|(index, word)| Some((index, word.as_literal()?))),
+                };
+                if option == Some("--editable") {
+                    requirements.extend(value);
+                }
+            }
+            continue;
+        }
+        // A cluster of short options; a value-taking one takes the rest of the
+        // word, or the next argument.
+        if let Some(cluster) = word.strip_prefix('-').filter(|cluster| !cluster.is_empty()) {
+            for (offset, short) in cluster.char_indices() {
+                if short == 'h' {
+                    return None;
+                }
+                if PIP_INSTALL_SHORT_VALUE_OPTIONS.contains(short) {
+                    let rest = &cluster[offset + short.len_utf8()..];
+                    let value = if rest.is_empty() {
+                        words
+                            .next()
+                            .and_then(|(index, word)| Some((index, word.as_literal()?)))
+                    } else {
+                        Some((index, rest))
+                    };
+                    if short == 'e' {
+                        requirements.extend(value);
+                    }
+                    break;
+                }
+            }
+            continue;
+        }
+        requirements.push((index, word));
+    }
+    Some(requirements)
+}
+
+/// The repository a pip VCS requirement clones: a `git+http://`,
+/// `git+https://` or `git+ssh://` URL, alone or as the direct reference of a
+/// named requirement (`name @ git+…`, PEP 508). The endpoint is read from the
+/// URL; its `@rev` and `#egg=` suffixes stay in the endpoint's path.
+fn pip_vcs_endpoint(requirement: &str) -> Option<ResourceIdentity> {
+    let url = match requirement.split_once('@') {
+        Some((name, reference)) if !requirement.starts_with("git+") => {
+            let name = name.trim();
+            let name = name.split_once('[').map_or(name, |(name, _)| name);
+            if name.is_empty()
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+            {
+                return None;
+            }
+            // A marker follows the URL after whitespace.
+            reference.split_whitespace().next()?
+        }
+        _ => requirement,
+    };
+    let url = url.strip_prefix("git+")?;
+    ["http://", "https://", "ssh://"]
+        .iter()
+        .any(|scheme| url.to_ascii_lowercase().starts_with(scheme))
+        .then(|| crate::value::parse_url_endpoint(url))
+        .flatten()
+}
+
 fn bun_package_operand_index(ctx: &InvocationCtx<'_>, sub_index: usize) -> u32 {
     // Value-taking options from Bun 1.4.2 add/install/remove --help.
     let mut words = ctx.argv.iter().enumerate().skip(sub_index + 1);
@@ -2639,6 +2861,25 @@ impl CommandModel for PkgMgr {
                 },
                 Default::default(),
             );
+            // A literal VCS requirement also names the repository pip clones;
+            // its dependencies still come from the index above.
+            if mgr.starts_with("pip") && sub == "install" {
+                for (index, requirement) in
+                    pip_install_requirements(ctx, sub_index).unwrap_or_default()
+                {
+                    if let Some(identity) = pip_vcs_endpoint(requirement) {
+                        arg_effect(
+                            builder,
+                            ctx,
+                            model_node,
+                            index as u32,
+                            "network.download",
+                            ResourceExpr::Concrete { identity },
+                            Default::default(),
+                        );
+                    }
+                }
+            }
             let op = if removes && mgr != "bun" {
                 "filesystem.delete"
             } else {
