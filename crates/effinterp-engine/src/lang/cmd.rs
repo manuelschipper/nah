@@ -161,13 +161,13 @@ impl CmdWalk<'_> {
     fn apply(&mut self, builder: &mut PlanBuilder, line: &Line) -> Result<(), String> {
         for redirect in &line.redirects {
             match redirect.operation {
-                Redirection::Read => {
+                CmdRedirection::Read => {
                     self.effect(builder, "filesystem.read", &redirect.target, &[])?
                 }
-                Redirection::Write => {
+                CmdRedirection::Write => {
                     self.effect(builder, "filesystem.write", &redirect.target, &[])?
                 }
-                Redirection::Append => self.effect(
+                CmdRedirection::Append => self.effect(
                     builder,
                     "filesystem.write",
                     &redirect.target,
@@ -470,7 +470,7 @@ impl CmdWalk<'_> {
         let mut current = CmdWord::default();
         let mut started = false;
         let mut quoted = false;
-        let mut pending: Option<Redirection> = None;
+        let mut pending: Option<CmdRedirection> = None;
         let mut rest = source;
         while let Some(character) = rest.chars().next() {
             rest = &rest[character.len_utf8()..];
@@ -516,17 +516,17 @@ impl CmdWalk<'_> {
                         rest = &rest[1..];
                     }
                     if started {
-                        push(&mut line, &mut current, &mut started, &mut pending);
+                        push_word(&mut line, &mut current, &mut started, &mut pending);
                     }
                     pending = Some(match (character, append) {
-                        ('<', _) => Redirection::Read,
-                        (_, true) => Redirection::Append,
-                        _ => Redirection::Write,
+                        ('<', _) => CmdRedirection::Read,
+                        (_, true) => CmdRedirection::Append,
+                        _ => CmdRedirection::Write,
                     });
                 }
                 character if character.is_whitespace() => {
                     if started {
-                        push(&mut line, &mut current, &mut started, &mut pending);
+                        push_word(&mut line, &mut current, &mut started, &mut pending);
                     }
                 }
                 // A trailing stream selector belongs to the redirection.
@@ -543,7 +543,7 @@ impl CmdWalk<'_> {
             return Err("cmd quoted argument is unterminated".into());
         }
         if started {
-            push(&mut line, &mut current, &mut started, &mut pending);
+            push_word(&mut line, &mut current, &mut started, &mut pending);
         }
         if pending.is_some() {
             return Err("cmd redirection has no target".into());
@@ -648,11 +648,11 @@ fn commands(source: &str) -> (Vec<&str>, bool) {
     (commands, partial)
 }
 
-fn push(
+fn push_word(
     line: &mut Line,
     word: &mut CmdWord,
     started: &mut bool,
-    pending: &mut Option<Redirection>,
+    pending: &mut Option<CmdRedirection>,
 ) {
     let word = std::mem::take(word);
     *started = false;
@@ -725,11 +725,11 @@ struct Line {
 }
 
 struct Redirect {
-    operation: Redirection,
+    operation: CmdRedirection,
     target: CmdWord,
 }
 
-enum Redirection {
+enum CmdRedirection {
     Read,
     Write,
     Append,

@@ -127,7 +127,7 @@ impl HostSourceObservations {
                 });
                 SourceResponse::Source(observed.bytes)
             }
-            Err(unavailable) => self.refuse(demanded, refusal(unavailable)),
+            Err(unavailable) => self.refuse(demanded, source_refusal(unavailable)),
         }
     }
 
@@ -472,7 +472,7 @@ fn sibling_directory(demanded: &str) -> Option<String> {
 }
 
 /// Reasons the engine already publishes in boundary evidence; Nah adds none.
-fn refusal(unavailable: SourceFileUnavailable) -> SourceRefusal {
+fn source_refusal(unavailable: SourceFileUnavailable) -> SourceRefusal {
     match unavailable {
         SourceFileUnavailable::TooLarge => SourceRefusal::Limit {
             limit: "max_source_bytes",
@@ -494,7 +494,7 @@ fn refusal(unavailable: SourceFileUnavailable) -> SourceRefusal {
 fn listing_reason(unavailable: SourceFileUnavailable) -> &'static str {
     match unavailable {
         SourceFileUnavailable::TooLarge => SOURCE_ENTRIES_LIMIT,
-        other => refusal_reason(refusal(other)),
+        other => refusal_reason(source_refusal(other)),
     }
 }
 

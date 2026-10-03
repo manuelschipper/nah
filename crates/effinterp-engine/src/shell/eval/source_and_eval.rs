@@ -14,7 +14,7 @@ use crate::flow::{BindEnd, Descriptor, FlowStage, PortBinding};
 use crate::models::StdinValue;
 use crate::nest::{SourceResolution, Transition};
 use crate::paths::{join_source_path, process_identity_with_cwd};
-use crate::shell::lex::{Seg, Span, Tok, WordTok};
+use crate::shell::lex::{Seg, ShellSpan, Tok, WordTok};
 use crate::shell::parse::Simple;
 use crate::shell::{
     Converted, Shell, ShellEnv, Termination, analyze_shell_with_env, lex, parse,
@@ -542,7 +542,7 @@ impl Shell<'_> {
     /// this shell. Record the same program-input read and file execution a
     /// followed file records, so bytes an earlier command wrote to the path
     /// (`curl -o f && . f`) reach the execution.
-    fn unfollowed_source_input(&self, builder: &mut PlanBuilder, path: &str, span: Span) {
+    fn unfollowed_source_input(&self, builder: &mut PlanBuilder, path: &str, span: ShellSpan) {
         let node = self.span_node(builder, span);
         let effects = [
             (

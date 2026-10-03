@@ -159,12 +159,12 @@ fn database_effect(
     });
 }
 
-fn object_kind(kind: &str) -> Attrs {
+fn object_kind_attrs(kind: &str) -> Attrs {
     Attrs::from([("object_kind".to_string(), AttrValue::String(kind.into()))])
 }
 
 /// A gap with explicit provenance; the affected domains become partial.
-fn gap(builder: &mut PlanBuilder, provenance: &[ProvenanceRef], domains: &[&str], detail: &str) {
+fn db_gap(builder: &mut PlanBuilder, provenance: &[ProvenanceRef], domains: &[&str], detail: &str) {
     for domain in domains {
         builder.declare_coverage(Domain::new(*domain), CoverageLevel::Partial);
     }
@@ -1247,7 +1247,7 @@ fn sql_client(
         } else if let Some((_, detail)) =
             spec.unmodeled_values.iter().find(|(flag, _)| *flag == name)
         {
-            gap(builder, &[model_node], CLIENT_DOMAINS, detail);
+            db_gap(builder, &[model_node], CLIENT_DOMAINS, detail);
         } else if name == "--enable-templating" && literal == Some("NONE") {
             substitute = false;
         }
@@ -1314,7 +1314,7 @@ fn sql_client(
         }
     }
     if symbolic {
-        gap(
+        db_gap(
             builder,
             &[model_node],
             CLIENT_DOMAINS,
@@ -1341,7 +1341,7 @@ fn sql_client(
     }
     if let Some(index) = named_connection.filter(|_| server_index.is_none()) {
         // The configuration file names the account we cannot read.
-        gap(
+        db_gap(
             builder,
             &[model_node],
             &["database", "network"],
@@ -1389,7 +1389,7 @@ fn sql_client(
     }
     for (index, word) in outputs {
         if word.literal_prefix().starts_with('|') {
-            gap(
+            db_gap(
                 builder,
                 &[model_node],
                 CLIENT_DOMAINS,
@@ -1453,7 +1453,7 @@ fn sql_client(
         if spec.stdin_flags.is_empty() || scanned.has(spec.stdin_flags) {
             run.stdin(builder);
         } else {
-            gap(
+            db_gap(
                 builder,
                 &[model_node],
                 &["database"],
@@ -1506,7 +1506,7 @@ impl Run<'_, '_> {
             Program::Sql(word, index) => {
                 let arg = arg_node(builder, self.ctx, index as u32);
                 let Some(source) = word.as_literal() else {
-                    gap(
+                    db_gap(
                         builder,
                         &[arg],
                         &["database"],
@@ -1553,7 +1553,7 @@ impl Run<'_, '_> {
                             );
                         }
                     }
-                    None => gap(
+                    None => db_gap(
                         builder,
                         &[self.model_node],
                         &["database"],
@@ -1577,7 +1577,7 @@ impl Run<'_, '_> {
                 Some(path) => {
                     self.script(builder, path, &provenance);
                 }
-                None => gap(
+                None => db_gap(
                     builder,
                     &provenance,
                     &["database"],
@@ -1589,14 +1589,14 @@ impl Run<'_, '_> {
             provenance.extend(self.ctx.stdin.unwrap().provenance.iter().copied());
             self.text(builder, source, None, &provenance);
         } else if self.ctx.stdin.is_some() {
-            gap(
+            db_gap(
                 builder,
                 &[self.model_node],
                 &["database"],
                 "stdin SQL not statically recoverable after expansion",
             );
         } else {
-            gap(
+            db_gap(
                 builder,
                 &[self.model_node],
                 &["database"],
@@ -1617,7 +1617,7 @@ impl Run<'_, '_> {
             Meta::Psql if command.starts_with('\\') => {
                 let (mut segments, end) = psql_meta(text, at, text.len());
                 if !text[end..].trim().is_empty() {
-                    segments.push(Segment::Opaque(
+                    segments.push(ClientInputSegment::Opaque(
                         "psql runs one meta-command from a -c string".into(),
                     ));
                 }
@@ -1652,7 +1652,7 @@ impl Run<'_, '_> {
         if readings.len() > 1 {
             // Each reading is what some server configuration runs; analyze
             // them all from the same starting connection.
-            gap(
+            db_gap(
                 builder,
                 provenance,
                 CLIENT_DOMAINS,
@@ -1678,20 +1678,20 @@ impl Run<'_, '_> {
     fn segments(
         &mut self,
         builder: &mut PlanBuilder,
-        segments: Vec<Segment>,
+        segments: Vec<ClientInputSegment>,
         origin: Option<&str>,
         provenance: &[ProvenanceRef],
     ) {
         for segment in segments {
             match segment {
-                Segment::Sql(sql) => self.sql(builder, sql, origin, provenance),
-                Segment::Include { path, relative } => {
+                ClientInputSegment::Sql(sql) => self.sql(builder, sql, origin, provenance),
+                ClientInputSegment::Include { path, relative } => {
                     let path = match (relative, origin) {
                         (true, Some(origin)) => {
                             match relative_include(origin, self.ctx.runtime_cwd, &path) {
                                 Some(path) => path,
                                 None => {
-                                    gap(
+                                    db_gap(
                                         builder,
                                         provenance,
                                         &["database"],
@@ -1705,20 +1705,22 @@ impl Run<'_, '_> {
                     };
                     self.include(builder, &path, provenance);
                 }
-                Segment::Connect {
+                ClientInputSegment::Connect {
                     database,
                     server,
                     file,
                 } => self.connect(builder, database, server, file, provenance),
-                Segment::Shell(command) => self.shell(builder, command, provenance),
+                ClientInputSegment::Shell(command) => self.shell(builder, command, provenance),
                 // duckdb shares the dot-command reader but not sqlite's .restore.
-                Segment::Restore(_) if self.spec.dialect != SqlDialect::Sqlite => gap(
-                    builder,
-                    provenance,
-                    CLIENT_DOMAINS,
-                    "dot-command .restore is not modeled",
-                ),
-                Segment::Restore(schema) => {
+                ClientInputSegment::Restore(_) if self.spec.dialect != SqlDialect::Sqlite => {
+                    db_gap(
+                        builder,
+                        provenance,
+                        CLIENT_DOMAINS,
+                        "dot-command .restore is not modeled",
+                    )
+                }
+                ClientInputSegment::Restore(schema) => {
                     let resource = match (schema.as_deref(), self.conn.database.as_deref()) {
                         // An in-memory main database holds nothing that outlives
                         // the session.
@@ -1743,9 +1745,11 @@ impl Run<'_, '_> {
                         provenance.to_vec(),
                     );
                 }
-                Segment::Opaque(detail) => gap(builder, provenance, CLIENT_DOMAINS, &detail),
-                Segment::Stop(detail) => {
-                    gap(builder, provenance, CLIENT_DOMAINS, &detail);
+                ClientInputSegment::Opaque(detail) => {
+                    db_gap(builder, provenance, CLIENT_DOMAINS, &detail)
+                }
+                ClientInputSegment::Stop(detail) => {
+                    db_gap(builder, provenance, CLIENT_DOMAINS, &detail);
                     self.stopped = true;
                     return;
                 }
@@ -1802,7 +1806,7 @@ impl Run<'_, '_> {
             Switch::Keep => {}
             Switch::Set(database) => self.conn.database = Some(database),
             Switch::Unknown => {
-                gap(
+                db_gap(
                     builder,
                     provenance,
                     &["database"],
@@ -1840,7 +1844,7 @@ impl Run<'_, '_> {
         provenance: &[ProvenanceRef],
     ) {
         if self.substitute && self.spec.substitution.applies(&source) {
-            gap(
+            db_gap(
                 builder,
                 provenance,
                 &["database"],
@@ -1906,7 +1910,7 @@ impl Run<'_, '_> {
         provenance: &[ProvenanceRef],
     ) -> bool {
         if self.includes.len() >= MAX_INCLUDE_DEPTH {
-            gap(
+            db_gap(
                 builder,
                 provenance,
                 &["database"],
@@ -1921,7 +1925,7 @@ impl Run<'_, '_> {
         {
             SourceResolution::Source { origin, source } => {
                 if self.includes.contains(&origin) {
-                    gap(
+                    db_gap(
                         builder,
                         provenance,
                         &["database"],
@@ -1936,17 +1940,19 @@ impl Run<'_, '_> {
             }
             SourceResolution::Refused(refusal) => {
                 if let Some(detail) = source_refusal_detail(builder, refusal, unavailable) {
-                    gap(builder, provenance, &["database"], &detail);
+                    db_gap(builder, provenance, &["database"], &detail);
                 }
             }
-            SourceResolution::UnsupportedEncoding => gap(
+            SourceResolution::UnsupportedEncoding => db_gap(
                 builder,
                 provenance,
                 &["database"],
                 "SQL script file is not valid UTF-8",
             ),
             SourceResolution::AlreadySelected => {}
-            SourceResolution::Unavailable => gap(builder, provenance, &["database"], unavailable),
+            SourceResolution::Unavailable => {
+                db_gap(builder, provenance, &["database"], unavailable)
+            }
         }
         false
     }
@@ -1999,7 +2005,7 @@ enum Meta {
 
 /// One piece of client input, in execution order.
 #[derive(Debug, PartialEq, Eq)]
-enum Segment {
+enum ClientInputSegment {
     Sql(String),
     /// Run a script file: relative to the including script for `\ir`.
     Include {
@@ -2231,9 +2237,9 @@ fn client_segments(
     meta: Meta,
     dialect: SqlDialect,
     backslash_escapes: bool,
-) -> Vec<Segment> {
+) -> Vec<ClientInputSegment> {
     if meta == Meta::None {
-        return vec![Segment::Sql(text.to_string())];
+        return vec![ClientInputSegment::Sql(text.to_string())];
     }
     let bytes = text.as_bytes();
     let mut out = Vec::new();
@@ -2285,7 +2291,7 @@ fn client_segments(
         };
         push_sql(&mut out, &text[start..i]);
         for segment in segments {
-            let stop = matches!(segment, Segment::Stop(_));
+            let stop = matches!(segment, ClientInputSegment::Stop(_));
             out.push(segment);
             if stop {
                 return out;
@@ -2297,15 +2303,15 @@ fn client_segments(
         lexed = positions(&text[end..], dialect, backslash_escapes);
     }
     if out.is_empty() && start == 0 {
-        return vec![Segment::Sql(text.to_string())];
+        return vec![ClientInputSegment::Sql(text.to_string())];
     }
     push_sql(&mut out, &text[start..]);
     out
 }
 
-fn push_sql(out: &mut Vec<Segment>, sql: &str) {
+fn push_sql(out: &mut Vec<ClientInputSegment>, sql: &str) {
     if !sql.trim().is_empty() {
-        out.push(Segment::Sql(sql.to_string()));
+        out.push(ClientInputSegment::Sql(sql.to_string()));
     }
 }
 
@@ -2313,7 +2319,7 @@ fn push_sql(out: &mut Vec<Segment>, sql: &str) {
 /// command, and if so whether that command needs no statement partly
 /// buffered before it.
 fn command_start(meta: Meta, line: &str, at_line_start: bool) -> Option<bool> {
-    let word = leading_word(line);
+    let word = leading_word_chars(line);
     match meta {
         Meta::Psql => line.starts_with('\\').then_some(false),
         Meta::Mysql | Meta::MysqlNamed => {
@@ -2339,7 +2345,7 @@ fn command_start(meta: Meta, line: &str, at_line_start: bool) -> Option<bool> {
 }
 
 /// The leading run of word characters, if a word boundary follows it.
-fn leading_word(text: &str) -> &str {
+fn leading_word_chars(text: &str) -> &str {
     let end = text
         .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
         .unwrap_or(text.len());
@@ -2371,10 +2377,10 @@ fn first_arg(args: &str) -> Option<String> {
         .then(|| arg.to_string())
 }
 
-fn include(args: &str, relative: bool, client: &str) -> Segment {
+fn include(args: &str, relative: bool, client: &str) -> ClientInputSegment {
     match first_arg(args) {
-        Some(path) => Segment::Include { path, relative },
-        None => Segment::Opaque(format!(
+        Some(path) => ClientInputSegment::Include { path, relative },
+        None => ClientInputSegment::Opaque(format!(
             "{client} include path is not statically recoverable"
         )),
     }
@@ -2387,7 +2393,7 @@ const PSQL_LINE_COMMANDS: &[&str] = &["!", "copy", "ef", "ev", "h", "help", "sf"
 /// backslash, with `eol` the end of its line: its segments, and where input
 /// resumes. Arguments end at the next unquoted backslash, which starts
 /// another command; `\\` returns to SQL.
-fn psql_meta(text: &str, i: usize, eol: usize) -> (Vec<Segment>, usize) {
+fn psql_meta(text: &str, i: usize, eol: usize) -> (Vec<ClientInputSegment>, usize) {
     let rest = &text[i + 1..eol];
     if rest.starts_with('\\') {
         return (Vec::new(), i + 2);
@@ -2411,7 +2417,10 @@ fn psql_meta(text: &str, i: usize, eol: usize) -> (Vec<Segment>, usize) {
         end
     };
     // psql runs backquoted argument text as a shell command first.
-    let mut segments = shells.into_iter().map(Segment::Shell).collect::<Vec<_>>();
+    let mut segments = shells
+        .into_iter()
+        .map(ClientInputSegment::Shell)
+        .collect::<Vec<_>>();
     segments.extend(psql_command(name, text[start..end].trim()));
     (segments, resume)
 }
@@ -2450,53 +2459,53 @@ fn psql_arguments(text: &str, start: usize, eol: usize) -> (usize, Vec<String>) 
 }
 
 /// The segment a psql meta-command `name` with arguments `args` contributes.
-fn psql_command(name: &str, args: &str) -> Option<Segment> {
+fn psql_command(name: &str, args: &str) -> Option<ClientInputSegment> {
     match name {
         "i" | "include" => Some(include(args, false, "psql")),
         "ir" | "include_relative" => Some(include(args, true, "psql")),
         "c" | "connect" => Some(psql_connect(args)),
-        "cd" => Some(Segment::Stop(
+        "cd" => Some(ClientInputSegment::Stop(
             "psql \\cd changes the directory later scripts resolve against".into(),
         )),
-        "g" | "gx" | "s" if !args.is_empty() => Some(Segment::Opaque(format!(
+        "g" | "gx" | "s" if !args.is_empty() => Some(ClientInputSegment::Opaque(format!(
             "psql \\{name} writes to a file or command"
         ))),
-        "!" if args.is_empty() => Some(Segment::Opaque(
+        "!" if args.is_empty() => Some(ClientInputSegment::Opaque(
             "psql \\! starts an interactive shell".into(),
         )),
-        "!" => Some(Segment::Shell(args.to_string())),
+        "!" => Some(ClientInputSegment::Shell(args.to_string())),
         _ if PSQL_INERT.contains(&name) || name.starts_with('d') => None,
-        _ => Some(Segment::Opaque(format!(
+        _ => Some(ClientInputSegment::Opaque(format!(
             "psql meta-command \\{name} is not modeled"
         ))),
     }
 }
 
 /// psql `\\c [dbname [username [host [port]]]]`, or a connection string.
-fn psql_connect(args: &str) -> Segment {
+fn psql_connect(args: &str) -> ClientInputSegment {
     let words = args
         .split_whitespace()
         .filter(|word| !word.starts_with("-reuse-previous"))
         .collect::<Vec<_>>();
     let Some(first) = words.first() else {
-        return connect(Switch::Keep, Switch::Keep);
+        return connect_segment(Switch::Keep, Switch::Keep);
     };
     if !first.contains(['=', ':']) {
-        return connect(Switch::word(words.first()), Switch::word(words.get(2)));
+        return connect_segment(Switch::word(words.first()), Switch::word(words.get(2)));
     }
     let conninfo = words.join(" ");
     let conninfo = conninfo.trim_matches(['\'', '"']);
     match parse_conn_url(conninfo, PG_SCHEMES).or_else(|| parse_conninfo(conninfo)) {
-        Some((server, database)) => connect(
+        Some((server, database)) => connect_segment(
             database.map_or(Switch::Keep, Switch::Set),
             server.map_or(Switch::Keep, Switch::Set),
         ),
-        None => connect(Switch::Unknown, Switch::Unknown),
+        None => connect_segment(Switch::Unknown, Switch::Unknown),
     }
 }
 
-fn connect(database: Switch, server: Switch) -> Segment {
-    Segment::Connect {
+fn connect_segment(database: Switch, server: Switch) -> ClientInputSegment {
+    ClientInputSegment::Connect {
         database,
         server,
         file: None,
@@ -2586,7 +2595,7 @@ const MYSQL_NAMED: &[&str] = &[
 
 /// A mysql client command at `i`, and where its text ends. Short forms
 /// (`\.`) may appear mid-line; most take arguments up to `;` or end of line.
-fn mysql_command(text: &str, i: usize, eol: usize) -> (Option<Segment>, usize) {
+fn mysql_command(text: &str, i: usize, eol: usize) -> (Option<ClientInputSegment>, usize) {
     // A command's parameters end at the delimiter; mysql reads the rest of
     // the line as SQL.
     let delimited = text[i..eol].find(';').map_or(eol, |n| i + n + 1);
@@ -2612,7 +2621,7 @@ fn mysql_command(text: &str, i: usize, eol: usize) -> (Option<Segment>, usize) {
                 }
                 _ => {
                     return (
-                        Some(Segment::Opaque(format!(
+                        Some(ClientInputSegment::Opaque(format!(
                             "mysql client command \\{short} is not modeled"
                         ))),
                         delimited,
@@ -2622,7 +2631,7 @@ fn mysql_command(text: &str, i: usize, eol: usize) -> (Option<Segment>, usize) {
             (name.to_string(), &rest[short.len_utf8()..])
         }
         None => {
-            let word = leading_word(line);
+            let word = leading_word_chars(line);
             (word.to_ascii_lowercase(), &line[word.len()..])
         }
     };
@@ -2631,9 +2640,9 @@ fn mysql_command(text: &str, i: usize, eol: usize) -> (Option<Segment>, usize) {
         // `\\!` mysql resumes SQL past the delimiter; `system` takes the line.
         let command = args.trim();
         let segment = if command.is_empty() {
-            Segment::Opaque("mysql system without a command".into())
+            ClientInputSegment::Opaque("mysql system without a command".into())
         } else {
-            Segment::Shell(command.to_string())
+            ClientInputSegment::Shell(command.to_string())
         };
         return (Some(segment), if backslash { delimited } else { eol });
     }
@@ -2648,12 +2657,12 @@ fn mysql_command(text: &str, i: usize, eol: usize) -> (Option<Segment>, usize) {
             } else {
                 Switch::Keep
             };
-            Some(connect(Switch::word(words.first()), host))
+            Some(connect_segment(Switch::word(words.first()), host))
         }
-        "delimiter" => Some(Segment::Stop(
+        "delimiter" => Some(ClientInputSegment::Stop(
             "mysql DELIMITER changes how later statements split".into(),
         )),
-        "tee" | "pager" | "edit" => Some(Segment::Opaque(format!(
+        "tee" | "pager" | "edit" => Some(ClientInputSegment::Opaque(format!(
             "mysql {name} sends output to a file or command"
         ))),
         _ => None,
@@ -2662,50 +2671,52 @@ fn mysql_command(text: &str, i: usize, eol: usize) -> (Option<Segment>, usize) {
 }
 
 /// A sqlite3 (or duckdb) dot-command line.
-fn dot_command(line: &str) -> Option<Segment> {
+fn dot_command(line: &str) -> Option<ClientInputSegment> {
     let rest = &line[1..];
     let name_len = rest
         .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
         .unwrap_or(rest.len());
     let (name, args) = (&rest[..name_len], rest[name_len..].trim());
     match name {
-        "read" if args.starts_with('|') || args.starts_with("'|") => Some(Segment::Opaque(
-            "dot-command .read runs a shell command".into(),
-        )),
+        "read" if args.starts_with('|') || args.starts_with("'|") => Some(
+            ClientInputSegment::Opaque("dot-command .read runs a shell command".into()),
+        ),
         "read" => Some(include(args, false, "dot-command .read")),
         "open" => {
             let file = args
                 .split_whitespace()
                 .rfind(|word| !word.starts_with('-'))
                 .map(|word| word.trim_matches(['\'', '"']).to_string());
-            Some(Segment::Connect {
+            Some(ClientInputSegment::Connect {
                 database: file.clone().map_or(Switch::Unknown, Switch::Set),
                 server: Switch::Keep,
                 file,
             })
         }
-        "connection" if !args.is_empty() => Some(connect(Switch::Unknown, Switch::Keep)),
+        "connection" if !args.is_empty() => Some(connect_segment(Switch::Unknown, Switch::Keep)),
         // sqlite unquotes the arguments and rebuilds the command line, which
         // matches the text only when it has no quoting.
-        "shell" | "system" if args.contains(['\'', '"', '\\']) => Some(Segment::Opaque(format!(
-            "dot-command .{name} runs a shell command sqlite rebuilds from quoted arguments"
-        ))),
-        "shell" | "system" if !args.is_empty() => Some(Segment::Shell(args.to_string())),
-        "cd" => Some(Segment::Stop(
+        "shell" | "system" if args.contains(['\'', '"', '\\']) => {
+            Some(ClientInputSegment::Opaque(format!(
+                "dot-command .{name} runs a shell command sqlite rebuilds from quoted arguments"
+            )))
+        }
+        "shell" | "system" if !args.is_empty() => Some(ClientInputSegment::Shell(args.to_string())),
+        "cd" => Some(ClientInputSegment::Stop(
             "dot-command .cd changes the directory later scripts resolve against".into(),
         )),
         // sqlite unquotes the arguments, so only plain words are read.
         "restore" if !args.contains(['\'', '"', '\\']) => {
             match args.split_whitespace().collect::<Vec<_>>()[..] {
-                [_] => Some(Segment::Restore(None)),
-                [schema, _] => Some(Segment::Restore(Some(schema.to_string()))),
-                _ => Some(Segment::Opaque(
+                [_] => Some(ClientInputSegment::Restore(None)),
+                [schema, _] => Some(ClientInputSegment::Restore(Some(schema.to_string()))),
+                _ => Some(ClientInputSegment::Opaque(
                     "dot-command .restore arguments are not modeled".into(),
                 )),
             }
         }
         _ if DOT_INERT.contains(&name) => None,
-        _ => Some(Segment::Opaque(format!(
+        _ => Some(ClientInputSegment::Opaque(format!(
             "dot-command .{name} is not modeled"
         ))),
     }
@@ -2770,7 +2781,7 @@ fn is_go(line: &str) -> bool {
 }
 
 /// A sqlcmd command line: `GO`, `:r file`, `:setvar`, `!! cmd`, and so on.
-fn sqlcmd_command(line: &str) -> Option<Segment> {
+fn sqlcmd_command(line: &str) -> Option<ClientInputSegment> {
     if is_go(line) {
         return None;
     }
@@ -2780,8 +2791,8 @@ fn sqlcmd_command(line: &str) -> Option<Segment> {
         .trim_start_matches(' ');
     if let Some(command) = rest.strip_prefix("!!") {
         return Some(match command.trim() {
-            "" => Segment::Opaque("sqlcmd !! without a command".into()),
-            command => Segment::Shell(command.to_string()),
+            "" => ClientInputSegment::Opaque("sqlcmd !! without a command".into()),
+            command => ClientInputSegment::Shell(command.to_string()),
         });
     }
     let name_len = rest
@@ -2795,7 +2806,7 @@ fn sqlcmd_command(line: &str) -> Option<Segment> {
         "r" => Some(include(args, false, "sqlcmd :r")),
         // `:connect server[\\instance] [-l timeout] [-U user [-P password]]`
         // logs in to that server's default database.
-        "connect" => Some(connect(
+        "connect" => Some(connect_segment(
             Switch::Unknown,
             match Switch::word(args.split_whitespace().next().as_ref()) {
                 Switch::Set(server) => Switch::Set(host_name(&server)),
@@ -2805,21 +2816,23 @@ fn sqlcmd_command(line: &str) -> Option<Segment> {
         "out" | "error" | "perftrace"
             if !["stdout", "stderr"].contains(&args.to_ascii_lowercase().as_str()) =>
         {
-            Some(Segment::Opaque(format!("sqlcmd :{name} writes to a file")))
+            Some(ClientInputSegment::Opaque(format!(
+                "sqlcmd :{name} writes to a file"
+            )))
         }
-        "exit" if args.starts_with('(') && args != "()" => {
-            Some(Segment::Opaque("sqlcmd :exit runs a query".into()))
-        }
+        "exit" if args.starts_with('(') && args != "()" => Some(ClientInputSegment::Opaque(
+            "sqlcmd :exit runs a query".into(),
+        )),
         "setvar" | "on" | "out" | "error" | "perftrace" | "exit" | "quit" | "reset" | "list"
         | "listvar" | "serverlist" | "xml" | "help" => None,
-        _ => Some(Segment::Opaque(format!(
+        _ => Some(ClientInputSegment::Opaque(format!(
             "sqlcmd command :{name} is not modeled"
         ))),
     }
 }
 
 /// A SnowSQL or Snowflake CLI `!command` line.
-fn snow_command(line: &str) -> Option<Segment> {
+fn snow_command(line: &str) -> Option<ClientInputSegment> {
     let rest = &line[1..];
     let name_len = rest
         .find(|c: char| !c.is_ascii_alphabetic())
@@ -2830,27 +2843,31 @@ fn snow_command(line: &str) -> Option<Segment> {
     );
     match name.as_str() {
         "source" | "load" => Some(include(args, false, "!source")),
-        "system" if args.is_empty() => Some(Segment::Opaque("!system without a command".into())),
-        "system" => Some(Segment::Shell(args.to_string())),
-        "spool" | "edit" => Some(Segment::Opaque(format!(
+        "system" if args.is_empty() => Some(ClientInputSegment::Opaque(
+            "!system without a command".into(),
+        )),
+        "system" => Some(ClientInputSegment::Shell(args.to_string())),
+        "spool" | "edit" => Some(ClientInputSegment::Opaque(format!(
             "!{name} writes to a file or runs an editor"
         ))),
         // A named connection from the client's configuration.
-        "connect" => Some(connect(Switch::Unknown, Switch::Unknown)),
+        "connect" => Some(connect_segment(Switch::Unknown, Switch::Unknown)),
         "set" | "print" | "define" | "variables" | "options" | "queries" | "result" | "abort"
         | "quit" | "exit" | "disconnect" | "help" | "rehash" | "pause" => None,
-        _ => Some(Segment::Opaque(format!("!{name} is not modeled"))),
+        _ => Some(ClientInputSegment::Opaque(format!(
+            "!{name} is not modeled"
+        ))),
     }
 }
 
 /// A cqlsh shell command that starts a statement.
-fn cql_command(statement: &str) -> Option<Segment> {
-    let word = leading_word(statement);
+fn cql_command(statement: &str) -> Option<ClientInputSegment> {
+    let word = leading_word_chars(statement);
     let args = statement[word.len()..].trim().trim_end_matches(';');
     if word.eq_ignore_ascii_case("SOURCE") {
         return Some(include(args, false, "cqlsh SOURCE"));
     }
-    Some(Segment::Opaque(format!(
+    Some(ClientInputSegment::Opaque(format!(
         "cqlsh {} reads or writes a file",
         word.to_ascii_uppercase()
     )))
@@ -3283,7 +3300,7 @@ fn drop_database(
         builder,
         "database.schema_drop",
         resource,
-        object_kind("database"),
+        object_kind_attrs("database"),
         provenance,
     );
 }
@@ -3353,7 +3370,7 @@ impl CommandModel for Dropdb {
             );
         }
         let (server, server_index, port, port_index) =
-            endpoint(&scanned, &["-h", "--host"], &["-p", "--port"]);
+            client_host_and_port(&scanned, &["-h", "--host"], &["-p", "--port"]);
         connect_effect(
             builder,
             ctx,
@@ -3386,7 +3403,7 @@ impl CommandModel for Dropdb {
 }
 
 /// The host and port a scanned client selects, with their argv positions.
-fn endpoint(
+fn client_host_and_port(
     scanned: &Scanned,
     host: &[&str],
     port: &[&str],
@@ -3545,7 +3562,7 @@ impl CommandModel for Mysqladmin {
             );
         }
         let (server, server_index, port, port_index) =
-            endpoint(&scanned, MYSQLADMIN.host, MYSQLADMIN.port);
+            client_host_and_port(&scanned, MYSQLADMIN.host, MYSQLADMIN.port);
         connect_effect(
             builder,
             ctx,
@@ -3766,7 +3783,7 @@ impl CommandModel for PgRestore {
             return;
         };
         let (mut server, mut server_index, port, port_index) =
-            endpoint(&scanned, &["-h", "--host"], &["-p", "--port"]);
+            client_host_and_port(&scanned, &["-h", "--host"], &["-p", "--port"]);
         let mut database = database.as_literal().map(str::to_string);
         if let Some((host, name)) = database
             .as_deref()
@@ -3821,7 +3838,7 @@ impl CommandModel for PgRestore {
                 builder,
                 "database.schema_drop",
                 unresolved_resource("db"),
-                object_kind("database"),
+                object_kind_attrs("database"),
                 provenance,
             );
         } else {
@@ -3829,7 +3846,7 @@ impl CommandModel for PgRestore {
                 builder,
                 "database.schema_drop",
                 target,
-                object_kind("database_objects"),
+                object_kind_attrs("database_objects"),
                 provenance,
             );
         }

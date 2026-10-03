@@ -7,13 +7,14 @@ use std::collections::HashSet;
 
 use effinterp_proto::ResourceExpr;
 use im::HashMap as PersistentHashMap;
+use oxc_span::Span;
 
-use super::aggregate_alias::restore_aggregate_aliases;
+use super::aggregate_alias::{add_aggregate_alias, restore_aggregate_aliases};
 use super::model;
 use super::resolve::ParamEnv;
 use super::{
-    AggregateAliases, CallableEnv, SourceStringNames, binding_is_within,
-    binding_names_with_descendants,
+    AggregateAliases, CallableBinding, CallableEnv, EffectVisitor, SourceStringNames,
+    binding_is_within, binding_names_with_descendants,
 };
 
 #[derive(Clone)]
@@ -251,4 +252,255 @@ pub(super) fn restore_source_string_state_names(
         &source.aggregate_aliases,
         &names,
     );
+}
+
+/// The effect visitor's snapshot, restore and join of its source-string state,
+/// and the analysis budget charge for each snapshot it retains.
+impl<'a> EffectVisitor<'_, 'a> {
+    pub(super) fn restore_source_string_names(
+        &mut self,
+        state: &SourceStringState,
+        names: &HashSet<String>,
+    ) {
+        if names.is_empty() {
+            return;
+        }
+        self.nest.budget.note_state_scan(
+            self.source_string_state().binding_entries() + state.binding_entries(),
+        );
+        let names = binding_names_with_descendants(
+            names,
+            self.param_env
+                .keys()
+                .chain(self.source_env.keys())
+                .chain(self.unbounded_source_env.iter())
+                .chain(self.definitely_nullish_env.iter())
+                .chain(state.param_env.keys())
+                .chain(state.source_env.keys())
+                .chain(state.unbounded_source_env.iter())
+                .chain(state.definitely_nullish_env.iter())
+                .chain(self.callable_env.keys())
+                .chain(state.callable_env.keys()),
+        );
+        for name in &names {
+            match state.param_env.get(name) {
+                Some(resource) => {
+                    self.param_env.insert(name.clone(), resource.clone());
+                }
+                None => {
+                    self.param_env.remove(name);
+                }
+            }
+            match state.source_env.get(name) {
+                Some(resource) => {
+                    self.source_env.insert(name.clone(), resource.clone());
+                }
+                None => {
+                    self.source_env.remove(name);
+                }
+            }
+            if state.unbounded_source_env.contains(name) {
+                self.unbounded_source_env.insert(name.clone());
+            } else {
+                self.unbounded_source_env.remove(name);
+            }
+            if state.definitely_nullish_env.contains(name) {
+                self.definitely_nullish_env.insert(name.clone());
+            } else {
+                self.definitely_nullish_env.remove(name);
+            }
+            match state.callable_env.get(name) {
+                Some(binding) => {
+                    self.callable_env.insert(name.clone(), *binding);
+                }
+                None => {
+                    self.callable_env.remove(name);
+                }
+            }
+        }
+        restore_aggregate_aliases(
+            &mut self.aggregate_aliases,
+            &state.aggregate_aliases,
+            &names,
+        );
+        self.sync_module_source_strings();
+    }
+
+    pub(super) fn observe_state_budget(&mut self, span: Span) {
+        if self.nest.budget.bytes_saturated() {
+            self.builder
+                .note_saturated_at("max_analysis_bytes", Some((span.start, span.end)));
+            self.saturated = true;
+        } else if self.nest.budget.cancelled() {
+            self.saturated = true;
+        }
+    }
+
+    pub(super) fn charge_state_bytes(&mut self, bytes: u64, span: Span) -> bool {
+        self.observe_state_budget(span);
+        if self.saturated {
+            return false;
+        }
+        if !crate::nest::charge_analysis_bytes(
+            self.builder,
+            self.nest.budget,
+            bytes,
+            Some((span.start, span.end)),
+        ) {
+            self.saturated = true;
+            return false;
+        }
+        true
+    }
+
+    /// Charge retained state bytes for `state` plus `extra_bytes`, and make
+    /// `state` the snapshot later retained snapshots are charged against.
+    pub(super) fn charge_retained_state(
+        &mut self,
+        state: &SourceStringState,
+        extra_bytes: u64,
+        span: Span,
+    ) -> bool {
+        let bytes = retained_state_bytes(state, self.charged_source_state.as_ref()) + extra_bytes;
+        if !self.charge_state_bytes(bytes, span) {
+            return false;
+        }
+        self.charged_source_state = Some(state.clone());
+        true
+    }
+
+    pub(super) fn retain_exception_source_state(&mut self, span: Span) {
+        if self.exception_source_states.is_empty() || self.saturated {
+            return;
+        }
+        let state = self.source_string_state();
+        if self.charge_retained_state(&state, 0, span) {
+            self.exception_source_states.last_mut().unwrap().push(state);
+        }
+    }
+
+    pub(super) fn retain_return_source_state(&mut self, span: Span) {
+        if self.return_source_states.is_empty() || self.saturated {
+            return;
+        }
+        let state = self.source_string_state();
+        if self.charge_retained_state(&state, 0, span) {
+            self.return_source_states.last_mut().unwrap().push(state);
+        }
+    }
+
+    pub(super) fn source_string_state(&self) -> SourceStringState {
+        SourceStringState {
+            param_env: self.param_env.clone(),
+            source_env: self.source_env.clone(),
+            unbounded_source_env: self.unbounded_source_env.clone(),
+            definitely_nullish_env: self.definitely_nullish_env.clone(),
+            callable_env: self.callable_env.clone(),
+            aggregate_aliases: self.aggregate_aliases.clone(),
+        }
+    }
+
+    pub(super) fn restore_source_string_state(&mut self, state: SourceStringState) {
+        self.param_env = state.param_env;
+        self.source_env = state.source_env;
+        self.unbounded_source_env = state.unbounded_source_env;
+        self.definitely_nullish_env = state.definitely_nullish_env;
+        self.callable_env = state.callable_env;
+        self.aggregate_aliases = state.aggregate_aliases;
+        self.sync_module_source_strings();
+    }
+
+    /// Join two possible source-string states. Divergent concatenations keep
+    /// enough shape to reach sink lowering, but are marked unbounded so the
+    /// sink emits a boundary instead of choosing one branch at full coverage.
+    pub(super) fn join_source_string_states(
+        &mut self,
+        left: SourceStringState,
+        right: SourceStringState,
+        span: Span,
+    ) {
+        if self.saturated {
+            return;
+        }
+        self.nest
+            .budget
+            .note_state_scan(left.binding_entries() + right.binding_entries());
+        let names: HashSet<String> = left
+            .param_env
+            .keys()
+            .chain(right.param_env.keys())
+            .chain(left.source_env.keys())
+            .chain(right.source_env.keys())
+            .chain(left.unbounded_source_env.iter())
+            .chain(right.unbounded_source_env.iter())
+            .chain(left.definitely_nullish_env.iter())
+            .chain(right.definitely_nullish_env.iter())
+            .chain(left.callable_env.keys())
+            .chain(right.callable_env.keys())
+            .cloned()
+            .collect();
+        self.param_env = right.param_env;
+        self.source_env = right.source_env;
+        self.unbounded_source_env = right.unbounded_source_env;
+        self.definitely_nullish_env = right.definitely_nullish_env;
+        self.definitely_nullish_env
+            .retain(|name| left.definitely_nullish_env.contains(name));
+        self.callable_env = right.callable_env;
+        self.aggregate_aliases = right.aggregate_aliases;
+        for (name, targets) in left.aggregate_aliases {
+            for target in targets {
+                add_aggregate_alias(&mut self.aggregate_aliases, name.clone(), target);
+            }
+        }
+        for name in names {
+            let same_source = left.source_env.get(&name) == self.source_env.get(&name)
+                && left.unbounded_source_env.contains(&name)
+                    == self.unbounded_source_env.contains(&name);
+            if !same_source {
+                let concatenation = left
+                    .source_env
+                    .get(&name)
+                    .or_else(|| self.source_env.get(&name))
+                    .filter(|resource| matches!(resource, ResourceExpr::Join { .. }));
+                let bytes = concatenation.map(crate::limits::resource_bytes);
+                if let Some(bytes) = bytes
+                    && !self.charge_state_bytes(bytes, span)
+                {
+                    return;
+                }
+                let concatenation = left
+                    .source_env
+                    .get(&name)
+                    .or_else(|| self.source_env.get(&name))
+                    .filter(|resource| matches!(resource, ResourceExpr::Join { .. }))
+                    .cloned();
+                self.source_env.remove(&name);
+                if let Some(concatenation) = concatenation {
+                    self.source_env.insert(name.clone(), concatenation);
+                }
+                self.unbounded_source_env.insert(name.clone());
+                self.param_env.remove(&name);
+            } else if left.param_env.get(&name) != self.param_env.get(&name) {
+                self.param_env.remove(&name);
+            }
+            if left.callable_env.get(&name) != self.callable_env.get(&name) {
+                self.callable_env.insert(name, CallableBinding::Unbounded);
+            }
+        }
+        self.sync_module_source_strings();
+    }
+
+    pub(super) fn sync_module_source_strings(&mut self) {
+        if self.function_depth == 0 {
+            self.module_env.clone_from(&self.param_env);
+            self.source_strings.clone_from(&self.source_env);
+            self.unbounded_source_strings
+                .clone_from(&self.unbounded_source_env);
+            self.module_definitely_nullish_env
+                .clone_from(&self.definitely_nullish_env);
+            self.module_callable_env.clone_from(&self.callable_env);
+            self.module_aggregate_aliases
+                .clone_from(&self.aggregate_aliases);
+        }
+    }
 }

@@ -166,7 +166,7 @@ pub fn guard_knowledge() -> &'static [GuardKnowledge] {
     })
 }
 
-pub(crate) fn knowledge(name: &str) -> &'static GuardKnowledge {
+pub(crate) fn knowledge_for_guard(name: &str) -> &'static GuardKnowledge {
     guard_knowledge()
         .iter()
         .find(|guard| guard.name == name)
@@ -199,7 +199,7 @@ fn row_command(row: &str) -> &'static str {
 
 /// `name`'s section of the guard reference, starting with its name.
 pub(crate) fn reference_section(name: &str) -> String {
-    render_section(knowledge(name), row_commands())
+    render_section(knowledge_for_guard(name), row_commands())
 }
 
 fn render_section(guard: &GuardKnowledge, commands: &BTreeMap<String, String>) -> String {

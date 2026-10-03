@@ -43,7 +43,8 @@ mod model;
 use crate::lang::frontend::{
     Frontend, FrontendInput, MAX_CALLBACK_VALUES, ParseFailure, ParseOutcome, WalkOutcome,
 };
-use crate::value::unresolved_resource;
+use crate::lang::tree_sitter_nodes::node_span;
+use crate::value::{fs_path_resource, unresolved_resource};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use effinterp_proto::{
@@ -352,7 +353,7 @@ fn file_ctx(root: Node, src: &str) -> FileCtx {
                     ctx.consts
                         .entry(owner.clone())
                         .or_default()
-                        .insert(text(name, src).to_string(), fs_path(&value));
+                        .insert(text(name, src).to_string(), fs_path_resource(&value));
                 } else {
                     ctx.top_consts.insert(text(name, src).to_string(), value);
                 }
@@ -382,7 +383,7 @@ fn file_ctx(root: Node, src: &str) -> FileCtx {
                 ctx.static_props
                     .entry(owner.clone())
                     .or_default()
-                    .insert(text(name, src).to_string(), fs_path(&value));
+                    .insert(text(name, src).to_string(), fs_path_resource(&value));
             }
         }
         let mut cursor = node.walk();
@@ -964,7 +965,7 @@ struct PhpWalker<'a, 'b> {
     >,
     /// Capture sites whose output a local may hold, each with whether the
     /// local holds those bytes verbatim.
-    capture_locals: HashMap<String, Vec<HeldCapture>>,
+    capture_locals: HashMap<String, Vec<PhpHeldCapture>>,
     /// Locals whose last definite assignment was a literal, with its PHP
     /// truth value, so `print_r`'s return mode can be read from them.
     truth_locals: HashMap<String, bool>,
@@ -973,7 +974,7 @@ struct PhpWalker<'a, 'b> {
     globals_written: bool,
     /// Inside a call, the top-level scope's value facts as the outermost call
     /// began, which a `global` declaration binds to.
-    global_facts: Option<ValueFacts>,
+    global_facts: Option<PhpValueFacts>,
 }
 
 /// How the walker evaluated a call, for its control-flow site.
@@ -1007,7 +1008,7 @@ impl<'a, 'b> PhpWalker<'a, 'b> {
             _ => SiteFacts::unknown(),
         };
         self.builder
-            .control_site_since(self.src, false, control::span(n), since, facts);
+            .control_site_since(self.src, false, node_span(n), since, facts);
     }
 
     /// A construct whose own modeled occurrences are all it reaches.
@@ -1865,7 +1866,7 @@ impl<'a, 'b> PhpWalker<'a, 'b> {
     /// begins; says whether this call is that one.
     fn enter_facts(
         &mut self,
-        captures: &HashMap<String, Vec<HeldCapture>>,
+        captures: &HashMap<String, Vec<PhpHeldCapture>>,
         truths: &HashMap<String, bool>,
     ) -> bool {
         let outermost = self.global_facts.is_none();
@@ -1879,7 +1880,7 @@ impl<'a, 'b> PhpWalker<'a, 'b> {
     /// through `global` or `$GLOBALS` may have changed them.
     fn restore_facts(
         &mut self,
-        captures: HashMap<String, Vec<HeldCapture>>,
+        captures: HashMap<String, Vec<PhpHeldCapture>>,
         truths: HashMap<String, bool>,
         globals_written: bool,
     ) {
@@ -2529,10 +2530,10 @@ impl<'a, 'b> PhpWalker<'a, 'b> {
                     _ => None,
                 }
             }
-            "member_access_expression" => concrete_fs_path(&self.this_property_value(n)?),
-            "class_constant_access_expression" => concrete_fs_path(&self.class_constant_value(n)?),
+            "member_access_expression" => resource_fs_path(&self.this_property_value(n)?),
+            "class_constant_access_expression" => resource_fs_path(&self.class_constant_value(n)?),
             "scoped_property_access_expression" => {
-                concrete_fs_path(&self.static_property_value(n)?)
+                resource_fs_path(&self.static_property_value(n)?)
             }
             "binary_expression" => {
                 let mut path = String::new();
@@ -2906,7 +2907,7 @@ impl<'a, 'b> PhpWalker<'a, 'b> {
         let unresolved = || unresolved_resource("network");
         let Some(arg) = arg else { return unresolved() };
         if let Some(url) = literal_string(arg, self.src) {
-            return model::endpoint(&url).unwrap_or_else(unresolved);
+            return model::absolute_url_endpoint(&url).unwrap_or_else(unresolved);
         }
         if arg.kind() == "encapsed_string" {
             let mut values = env.clone();
@@ -2915,17 +2916,18 @@ impl<'a, 'b> PhpWalker<'a, 'b> {
                 return arg
                     .named_child(0)
                     .filter(|part| matches!(part.kind(), "string_content" | "escape_sequence"))
-                    .and_then(|part| model::endpoint(text(part, self.src)))
+                    .and_then(|part| model::absolute_url_endpoint(text(part, self.src)))
                     .unwrap_or_else(unresolved);
             }
-            return model::endpoint(&self.interpolate(arg, &values)).unwrap_or_else(unresolved);
+            return model::absolute_url_endpoint(&self.interpolate(arg, &values))
+                .unwrap_or_else(unresolved);
         }
         let mut values = env.clone();
         values.extend(self.locals.clone());
         match self.resolve_value(arg, &values) {
             ResourceExpr::Concrete {
                 identity: ResourceIdentity::FsPath { path },
-            } => model::endpoint(&path).unwrap_or_else(unresolved),
+            } => model::absolute_url_endpoint(&path).unwrap_or_else(unresolved),
             ResourceExpr::Concrete {
                 identity:
                     ResourceIdentity::NetworkEndpoint {
@@ -3041,7 +3043,7 @@ impl<'a, 'b> PhpWalker<'a, 'b> {
         if contains_unresolved(&resource)
             && let Some(path) = self.static_path(n, &values)
         {
-            resource = fs_path(&path);
+            resource = fs_path_resource(&path);
         }
         let resource =
             effinterp_proto::normalize_resource(resource, effinterp_proto::PathPlatform::Posix);
@@ -3088,7 +3090,7 @@ impl<'a, 'b> PhpWalker<'a, 'b> {
         if contains_unresolved(&value)
             && let Some(path) = self.static_path(node, &values)
         {
-            return fs_path(&path);
+            return fs_path_resource(&path);
         }
         value
     }
@@ -3134,7 +3136,7 @@ impl<'a, 'b> PhpWalker<'a, 'b> {
                 for part in node.named_children(&mut cursor) {
                     match part.kind() {
                         "string_content" | "escape_sequence" => {
-                            parts.push(fs_path(text(part, self.src)))
+                            parts.push(fs_path_resource(text(part, self.src)))
                         }
                         _ => parts.push(self.resolve_value(part, env)),
                     }
@@ -3162,7 +3164,9 @@ impl<'a, 'b> PhpWalker<'a, 'b> {
             "sprintf" => {
                 resolve_sprintf(node, self.src, |argument| self.resolve_value(argument, env))
             }
-            "dirname" => self.static_path(node, env).map(|path| fs_path(&path)),
+            "dirname" => self
+                .static_path(node, env)
+                .map(|path| fs_path_resource(&path)),
             _ => None,
         }
     }
@@ -3434,17 +3438,17 @@ fn literal_truth(node: Node, src: &str) -> Option<bool> {
 }
 
 /// A capture site's span, with whether a value holds its bytes verbatim.
-type HeldCapture = ((usize, usize), bool);
+type PhpHeldCapture = ((usize, usize), bool);
 
 /// A scope's captured output by local, and its locals' literal truth values.
-type ValueFacts = (HashMap<String, Vec<HeldCapture>>, HashMap<String, bool>);
+type PhpValueFacts = (HashMap<String, Vec<PhpHeldCapture>>, HashMap<String, bool>);
 
 /// The capture sites (backticks, `shell_exec`, `exec`) and local names whose
 /// bytes an expression's value carries. Only forms that keep the text pass
 /// them on: interpolation, `.` concatenation, a branch's result, whitespace
 /// trimming and string conversion. A length, a comparison or any other
 /// computation over captured output does not carry its bytes.
-fn capture_sources(node: Node, src: &str) -> (Vec<HeldCapture>, Vec<(String, bool)>) {
+fn capture_sources(node: Node, src: &str) -> (Vec<PhpHeldCapture>, Vec<(String, bool)>) {
     let mut spans = Vec::new();
     let mut locals = Vec::new();
     // Each source is paired with whether its bytes reach the value verbatim;
@@ -3802,14 +3806,14 @@ fn literal_string(n: Node, src: &str) -> Option<String> {
 fn resolve_expr(n: Node, src: &str, env: &HashMap<String, ResourceExpr>) -> ResourceExpr {
     match n.kind() {
         "string" | "encapsed_string" => match literal_string(n, src) {
-            Some(s) => fs_path(&s),
+            Some(s) => fs_path_resource(&s),
             None if n.kind() == "encapsed_string" => {
                 let mut parts = Vec::new();
                 let mut cursor = n.walk();
                 for part in n.named_children(&mut cursor) {
                     match part.kind() {
                         "string_content" | "escape_sequence" => {
-                            parts.push(fs_path(text(part, src)))
+                            parts.push(fs_path_resource(text(part, src)))
                         }
                         _ => parts.push(resolve_expr(part, src, env)),
                     }
@@ -3874,7 +3878,7 @@ fn resolve_sprintf<'a>(
     let mut parts = Vec::new();
     for (index, literal) in literals.iter().enumerate() {
         if !literal.is_empty() {
-            parts.push(fs_path(literal));
+            parts.push(fs_path_resource(literal));
         }
         if let Some(argument) = args.get(index + 1) {
             let value = resolve(*argument);
@@ -3913,17 +3917,9 @@ fn collect_concat(
     }
 }
 
-fn fs_path(s: &str) -> ResourceExpr {
-    ResourceExpr::Concrete {
-        identity: ResourceIdentity::FsPath {
-            path: s.to_string(),
-        },
-    }
-}
-
 fn text_concat(mut parts: Vec<ResourceExpr>) -> ResourceExpr {
     match parts.len() {
-        0 => return fs_path(""),
+        0 => return fs_path_resource(""),
         1 => return parts.pop().unwrap(),
         _ => {}
     }
@@ -3954,20 +3950,20 @@ fn text_concat(mut parts: Vec<ResourceExpr>) -> ResourceExpr {
         };
         text.push_str(path);
     }
-    fs_path(&text)
+    fs_path_resource(&text)
 }
 
 /// A textual concatenation whose parts are now all literal is one path.
 fn fold_host_path(resource: ResourceExpr) -> ResourceExpr {
     match &resource {
-        ResourceExpr::Literal { value } => fs_path(value),
+        ResourceExpr::Literal { value } => fs_path_resource(value),
         ResourceExpr::Join { parts }
             if has_text_concat(&resource)
                 && parts
                     .iter()
                     .all(|part| matches!(part, ResourceExpr::Literal { .. })) =>
         {
-            fs_path(
+            fs_path_resource(
                 &parts
                     .iter()
                     .filter_map(|part| match part {
@@ -3981,7 +3977,7 @@ fn fold_host_path(resource: ResourceExpr) -> ResourceExpr {
     }
 }
 
-fn concrete_fs_path(resource: &ResourceExpr) -> Option<String> {
+fn resource_fs_path(resource: &ResourceExpr) -> Option<String> {
     match resource {
         ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },
@@ -4486,7 +4482,7 @@ impl<'a, 'b> PhpCalls<'a, 'b> {
                 _ => {}
             }
             if self.edges.len() == start + 1 {
-                self.sites.insert(control::span(node), start as u32);
+                self.sites.insert(node_span(node), start as u32);
             }
             let guard = (self.edges.len() != start)
                 .then(|| super::conditions::tree_condition(self.src, node))
@@ -5273,7 +5269,7 @@ impl<'a> PhpCaptureWalker<'a> {
                 self.control.register(
                     self.src,
                     true,
-                    control::span(n),
+                    node_span(n),
                     SiteFacts::known(
                         (effect_start..self.effects.len())
                             .map(|slot| ControlFact::Effect(slot as u32))
@@ -5292,8 +5288,7 @@ impl<'a> PhpCaptureWalker<'a> {
             {
                 let mut facts = SiteFacts::known(Vec::new());
                 facts.exit = Some(ControlExit::Import { module });
-                self.control
-                    .register(self.src, true, control::span(n), facts);
+                self.control.register(self.src, true, node_span(n), facts);
             }
             let guard = (self.effects.len() != effect_start)
                 .then(|| super::conditions::tree_condition(self.src, n))

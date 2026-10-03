@@ -24,7 +24,7 @@ pub(crate) fn mutate_opencode_hook(
     let platform = live_state::host_platform();
     reject_unsupported_windows_runtime(platform)?;
     let path = live_state::home(platform).and_then(|home| {
-        reject_custom_home(&home)?;
+        reject_custom_opencode_home(&home)?;
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
@@ -49,7 +49,7 @@ pub(crate) fn opencode_hook_status() -> Result<RuntimeHookStatus, String> {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
     let home = live_state::home(platform)?;
-    reject_custom_home(&home)?;
+    reject_custom_opencode_home(&home)?;
     let paths = OpenCodeHookPaths::new(&home);
     reject_opencode_hook_symlinks(&paths)?;
     let bytes = match std::fs::read(&paths.plugin) {
@@ -59,15 +59,15 @@ pub(crate) fn opencode_hook_status() -> Result<RuntimeHookStatus, String> {
         }
         Err(_) => return Err("opencode-plugin-read-failed".into()),
     };
-    if !owned(&bytes) {
+    if !is_owned_opencode_plugin(&bytes) {
         return Err("opencode-plugin-not-owned".into());
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     Ok(
-        if bytes == plugin(&executable, FailurePolicy::Delegate)?.as_bytes() {
+        if bytes == opencode_plugin_source(&executable, FailurePolicy::Delegate)?.as_bytes() {
             RuntimeHookStatus::WiringCurrent
-        } else if bytes == plugin(&executable, FailurePolicy::Block)?.as_bytes() {
+        } else if bytes == opencode_plugin_source(&executable, FailurePolicy::Block)?.as_bytes() {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
             let strict = bytes
@@ -88,11 +88,11 @@ pub(crate) fn opencode_hook_status() -> Result<RuntimeHookStatus, String> {
 pub(crate) fn opencode_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
-    reject_custom_home(&home)?;
+    reject_custom_opencode_home(&home)?;
     Ok(vec![OpenCodeHookPaths::new(&home).plugin])
 }
 
-fn reject_custom_home(home: &AbsolutePath) -> Result<(), String> {
+fn reject_custom_opencode_home(home: &AbsolutePath) -> Result<(), String> {
     let standard = PathBuf::from(home.as_str()).join(".config");
     if std::env::var_os("XDG_CONFIG_HOME")
         .is_some_and(|configured| Path::new(&configured) != standard)
@@ -117,10 +117,12 @@ fn install_opencode_plugin(
         .ok_or_else(|| "invalid-opencode-plugin-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "opencode-plugin-write-failed")?;
     reject_opencode_hook_symlinks(&paths)?;
-    let desired = plugin(executable, policy)?;
+    let desired = opencode_plugin_source(executable, policy)?;
     match std::fs::read(&paths.plugin) {
         Ok(bytes) if bytes == desired.as_bytes() => {}
-        Ok(bytes) if owned(&bytes) => save_opencode_plugin(&paths.plugin, desired.as_bytes())?,
+        Ok(bytes) if is_owned_opencode_plugin(&bytes) => {
+            save_opencode_plugin(&paths.plugin, desired.as_bytes())?
+        }
         Ok(_) => return Err("opencode-plugin-not-owned".into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             save_opencode_plugin(&paths.plugin, desired.as_bytes())?;
@@ -136,7 +138,7 @@ fn uninstall_opencode_plugin(home: &AbsolutePath) -> Result<PathBuf, String> {
     let lock = acquire_hook_lock(&paths.lock, &OPENCODE_HOOK_LOCK_ERRORS)?;
     reject_opencode_hook_symlinks(&paths)?;
     match std::fs::read(&paths.plugin) {
-        Ok(bytes) if owned(&bytes) => {
+        Ok(bytes) if is_owned_opencode_plugin(&bytes) => {
             std::fs::remove_file(&paths.plugin).map_err(|_| "opencode-plugin-remove-failed")?;
             if let Some(parent) = paths.plugin.parent() {
                 sync_parent_directory(parent)
@@ -209,7 +211,7 @@ fn save_opencode_plugin(path: &Path, bytes: &[u8]) -> Result<(), String> {
     write_hook_file_atomically(path, bytes, &OPENCODE_PLUGIN_WRITE_ERRORS)
 }
 
-fn plugin(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
+fn opencode_plugin_source(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -247,7 +249,7 @@ export default {{
     ))
 }
 
-fn owned(bytes: &[u8]) -> bool {
+fn is_owned_opencode_plugin(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bytes);
     text.starts_with(MARKER) && text.contains(r#"["hook", "opencode", "run""#)
 }

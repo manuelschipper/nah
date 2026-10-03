@@ -98,11 +98,11 @@ struct LuaWalk<'a> {
     depth: u64,
     /// Global names a definition or `name = {}` bound. A replaced name no
     /// longer reaches the standard library; earlier calls already did.
-    globals: Frame,
+    globals: LuaScopeFrame,
     /// The locals visible here, one frame per declaration, innermost last.
     /// A function's body sees the frames visible where it was defined, shared
     /// as Lua upvalues are, so a later assignment to one reaches the body.
-    locals: Vec<Frame>,
+    locals: Vec<LuaScopeFrame>,
     /// Every function defined so far.
     functions: Vec<Function>,
     /// Every argument value bound to a parameter so far.
@@ -110,10 +110,10 @@ struct LuaWalk<'a> {
     understood: bool,
 }
 
-type Frame = Rc<RefCell<BTreeMap<String, Binding>>>;
+type LuaScopeFrame = Rc<RefCell<BTreeMap<String, LuaBinding>>>;
 
 #[derive(Clone, Copy)]
-enum Binding {
+enum LuaBinding {
     /// An index into [`LuaWalk::functions`].
     Function(usize),
     /// Replaced by an empty table.
@@ -127,7 +127,7 @@ struct Function {
     params: Vec<String>,
     body: String,
     /// The local frames visible at the definition.
-    captured: Vec<Frame>,
+    captured: Vec<LuaScopeFrame>,
     called: bool,
 }
 
@@ -149,13 +149,13 @@ impl LuaWalk<'_> {
                 return false;
             }
             if let Some((local, name)) = replacement(&statement) {
-                self.bind(local, name, Binding::Replaced);
+                self.bind(local, name, LuaBinding::Replaced);
                 continue;
             }
             // A definition rebinds the name, so later calls reach its body.
-            if let Some((local, name, params, body)) = definition(&statement) {
+            if let Some((local, name, params, body)) = lua_function_definition(&statement) {
                 let index = self.functions.len();
-                self.bind(local, name, Binding::Function(index));
+                self.bind(local, name, LuaBinding::Function(index));
                 self.functions.push(Function {
                     name: name.to_string(),
                     params,
@@ -182,7 +182,7 @@ impl LuaWalk<'_> {
     /// A `local` declaration opens a new frame that ends with its block.
     /// Any other binding assigns the innermost visible local of that name, or
     /// else the global.
-    fn bind(&mut self, local: bool, name: &str, binding: Binding) {
+    fn bind(&mut self, local: bool, name: &str, binding: LuaBinding) {
         let declared = BTreeMap::from([(name.to_string(), binding)]);
         if local {
             self.locals.push(Rc::new(RefCell::new(declared)));
@@ -197,7 +197,7 @@ impl LuaWalk<'_> {
         frame.borrow_mut().extend(declared);
     }
 
-    fn lookup(&self, name: &str) -> Option<Binding> {
+    fn lookup(&self, name: &str) -> Option<LuaBinding> {
         self.locals
             .iter()
             .rev()
@@ -211,7 +211,7 @@ impl LuaWalk<'_> {
         &mut self,
         builder: &mut PlanBuilder,
         source: &str,
-        scopes: Vec<Frame>,
+        scopes: Vec<LuaScopeFrame>,
         depth: u32,
     ) -> bool {
         let caller = std::mem::replace(&mut self.locals, scopes);
@@ -239,13 +239,13 @@ impl LuaWalk<'_> {
         };
         let root = call.callee.split('.').next().unwrap_or_default();
         match self.lookup(root) {
-            Some(Binding::Replaced) => {
+            Some(LuaBinding::Replaced) => {
                 return Err(format!("lua global {root} was replaced before this call"));
             }
-            Some(Binding::Value(_)) => {
+            Some(LuaBinding::Value(_)) => {
                 return Err(format!("lua call through parameter {root} is not modeled"));
             }
-            Some(Binding::Function(index)) => {
+            Some(LuaBinding::Function(index)) => {
                 if call.callee != root
                     || call.arguments.len() != self.functions[index].params.len()
                     || call.invoked
@@ -267,7 +267,7 @@ impl LuaWalk<'_> {
                 // Each call binds its parameters as fresh locals of the body.
                 let mut frame = BTreeMap::new();
                 for (param, argument) in params.into_iter().zip(&call.arguments) {
-                    frame.insert(param, Binding::Value(self.values.len()));
+                    frame.insert(param, LuaBinding::Value(self.values.len()));
                     self.values.push(LuaValue(argument.0.clone()));
                 }
                 scopes.push(Rc::new(RefCell::new(frame)));
@@ -395,7 +395,7 @@ impl LuaWalk<'_> {
         for part in &value.0 {
             match part {
                 LuaValuePart::Name(name) => match self.lookup(name) {
-                    Some(Binding::Value(index)) => parts.extend(self.values[index].0.clone()),
+                    Some(LuaBinding::Value(index)) => parts.extend(self.values[index].0.clone()),
                     _ => return Err(format!("lua name {name} is not a bound parameter")),
                 },
                 part => parts.push(part.clone()),
@@ -681,7 +681,7 @@ fn function_block_len(source: &str) -> Result<Option<usize>, String> {
 
 /// Whether a `[local] function name(params) ... end` definition is local,
 /// with its name, parameter names and body.
-fn definition(statement: &str) -> Option<(bool, &str, Vec<String>, &str)> {
+fn lua_function_definition(statement: &str) -> Option<(bool, &str, Vec<String>, &str)> {
     let statement = statement.trim();
     let local = statement
         .strip_prefix("local")

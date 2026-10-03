@@ -133,7 +133,7 @@ const KINDS: &[(&[&str], &str, &str, bool)] = &[
 ];
 
 #[derive(Default)]
-struct Options {
+struct KubectlOptions {
     namespace: Option<ResourceExpr>,
     server: Option<ResourceExpr>,
     context: Option<ResourceExpr>,
@@ -154,9 +154,9 @@ struct Options {
 }
 
 pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: ProvenanceRef) {
-    let mut opts = Options {
+    let mut opts = KubectlOptions {
         grammar_known: true,
-        ..Options::default()
+        ..KubectlOptions::default()
     };
     let mut copy_options_known = true;
     let mut cluster_override = false;
@@ -726,7 +726,7 @@ fn copy(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model: ProvenanceRef,
-    opts: Options,
+    opts: KubectlOptions,
     options_known: bool,
 ) {
     let operands = &opts.operands[1..];
@@ -828,7 +828,7 @@ fn copy(
 fn delete_attributes(
     scope: &str,
     selection: &str,
-    opts: &Options,
+    opts: &KubectlOptions,
 ) -> std::collections::BTreeMap<String, effinterp_proto::AttrValue> {
     let active = opts.dry_run.is_none();
     let mut attributes: std::collections::BTreeMap<String, effinterp_proto::AttrValue> = [
@@ -870,7 +870,11 @@ fn delete_attributes(
     attributes
 }
 
-fn delete_scope(opts: &Options, verb: Option<&str>, resource: &ResourceExpr) -> &'static str {
+fn delete_scope(
+    opts: &KubectlOptions,
+    verb: Option<&str>,
+    resource: &ResourceExpr,
+) -> &'static str {
     if verb != Some("delete") {
         return "unknown";
     }
@@ -908,7 +912,7 @@ fn delete_scope(opts: &Options, verb: Option<&str>, resource: &ResourceExpr) -> 
 fn target(
     builder: &mut PlanBuilder,
     provenance: &[ProvenanceRef],
-    opts: &Options,
+    opts: &KubectlOptions,
     kind: &str,
     group: Option<&str>,
     mut name: ResourceExpr,
@@ -1013,7 +1017,7 @@ fn target(
 fn manifest(
     builder: &mut PlanBuilder,
     provenance: &[ProvenanceRef],
-    opts: &Options,
+    opts: &KubectlOptions,
     value: &serde_json::Value,
     targets: &mut Vec<ResourceExpr>,
     depth: usize,

@@ -40,7 +40,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         }
         serde_json::from_value::<KiroHookInput>(value)
             .map_err(|error| error.to_string())
-            .and_then(normalize)
+            .and_then(normalize_kiro_hook_input)
     });
     match request {
         Ok(Some(request)) => {
@@ -107,7 +107,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize(KiroHookInput {
+    normalize_kiro_hook_input(KiroHookInput {
         hook_event_name: "PreToolUse".into(),
         tool_name: tool_name.into(),
         tool_input,
@@ -117,7 +117,7 @@ pub(crate) fn normalize_call(
     .map(|request| request.expect("a PreToolUse event always yields a tool call"))
 }
 
-fn normalize(input: KiroHookInput) -> Result<Option<ToolCallInput>, String> {
+fn normalize_kiro_hook_input(input: KiroHookInput) -> Result<Option<ToolCallInput>, String> {
     if !matches!(input.hook_event_name.as_str(), "PreToolUse" | "preToolUse") {
         return Ok(None);
     }
@@ -218,7 +218,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(KiroHookInput {
+        normalize_kiro_hook_input(KiroHookInput {
             hook_event_name: "PreToolUse".into(),
             tool_name: tool_name.into(),
             tool_input,
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn accepts_transition_event_case_and_keeps_malformed_tools_opaque() {
-        let transition = normalize(KiroHookInput {
+        let transition = normalize_kiro_hook_input(KiroHookInput {
             hook_event_name: "preToolUse".into(),
             tool_name: "shell".into(),
             tool_input: json!({"command":"pwd"}),
@@ -306,7 +306,7 @@ mod tests {
             ("fs_write", json!({"operations":[{"path":7}]})),
             ("str_replace", json!({"path":""})),
         ] {
-            let call = normalize(KiroHookInput {
+            let call = normalize_kiro_hook_input(KiroHookInput {
                 hook_event_name: "PreToolUse".into(),
                 tool_name: tool.into(),
                 tool_input: input.clone(),

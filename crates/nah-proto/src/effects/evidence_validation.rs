@@ -24,7 +24,7 @@ fn index<K: Ord, V>(items: &[V], id: impl Fn(&V) -> K) -> Result<BTreeMap<K, &V>
     }
     Ok(indexed)
 }
-pub(super) fn require(value: bool, error: EvidenceError) -> Result<(), EvidenceError> {
+pub(super) fn require_evidence(value: bool, error: EvidenceError) -> Result<(), EvidenceError> {
     if value { Ok(()) } else { Err(error) }
 }
 
@@ -32,7 +32,7 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
     // Conditions count like any other item: a relation between two
     // conditional occurrences carries its own conjunction, so their number
     // grows with the relations rather than with the command.
-    require(
+    require_evidence(
         graph.calls.len()
             + graph.resources.len()
             + graph.facts.len()
@@ -50,18 +50,18 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
     let conditions = index(&graph.conditions, |v| v.id)?;
     let gaps = unique(graph.gaps.iter().map(|v| v.id))?;
     let condition = |v: &Option<ConditionUse>| {
-        require(
+        require_evidence(
             v.as_ref().is_none_or(|c| conditions.contains_key(&c.id)),
             EvidenceError::DanglingReference,
         )
     };
     for call in &graph.calls {
-        require(
+        require_evidence(
             call.parent.is_none_or(|id| calls.contains_key(&id)),
             EvidenceError::DanglingReference,
         )?;
         if let Some(input) = &call.input {
-            require(
+            require_evidence(
                 serde_json::to_vec(input.invocation_input())
                     .map_err(|_| EvidenceError::InvalidPayload)?
                     .len()
@@ -72,7 +72,7 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
         let mut seen = BTreeSet::new();
         let mut parent = Some(call.id);
         while let Some(id) = parent {
-            require(seen.insert(id), EvidenceError::Cycle)?;
+            require_evidence(seen.insert(id), EvidenceError::Cycle)?;
             parent = calls.get(&id).and_then(|c| c.parent);
         }
     }
@@ -81,8 +81,8 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
         let mut work = 0;
         while let Some((id, mut ancestors)) = pending.pop() {
             work += 1;
-            require(work <= 4096, EvidenceError::ExceedsLimit)?;
-            require(ancestors.insert(id), EvidenceError::Cycle)?;
+            require_evidence(work <= 4096, EvidenceError::ExceedsLimit)?;
+            require_evidence(ancestors.insert(id), EvidenceError::Cycle)?;
             let node = conditions
                 .get(&id)
                 .ok_or(EvidenceError::DanglingReference)?;
@@ -96,20 +96,20 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
     }
     for resource in &graph.resources {
         if let Some(labels) = &resource.labels {
-            require(
+            require_evidence(
                 resource.realm == Realm::Host && resource.identity.kind == ResourceKind::HostPath,
                 EvidenceError::InvalidLabelRealm,
             )?;
             for path in [&labels.lexical, &labels.canonical, &labels.link_target] {
                 if let Knowledge::Known(path) = path {
-                    require(
+                    require_evidence(
                         is_lexically_normalized_path(path.as_str()),
                         EvidenceError::InvalidLabel,
                     )?;
                 }
             }
             if let Knowledge::Known(PathScope::Project { root }) = &labels.scope {
-                require(
+                require_evidence(
                     is_lexically_normalized_path(root.as_str()),
                     EvidenceError::InvalidLabel,
                 )?;
@@ -122,23 +122,23 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
                         }
                         Knowledge::Unknown => false,
                     });
-                require(inside, EvidenceError::InvalidLabel)?;
+                require_evidence(inside, EvidenceError::InvalidLabel)?;
             }
             // Every observed descendant of a selected tree is an identity here,
             // so the bound follows the observation bound.
-            require(
+            require_evidence(
                 labels.reach.len() <= crate::observation::MAX_DESCENDANT_PATHS + 4096,
                 EvidenceError::ExceedsLimit,
             )?;
             unique(labels.reach.iter().map(|reach| &reach.identity))?;
-            require(
+            require_evidence(
                 labels
                     .reach
                     .iter()
                     .all(|reach| is_lexically_normalized_path(reach.identity.as_str())),
                 EvidenceError::InvalidLabel,
             )?;
-            require(
+            require_evidence(
                 labels.is_symlink != Knowledge::Known(false)
                     || matches!(labels.link_target, Knowledge::Unknown),
                 EvidenceError::InvalidLabel,
@@ -146,7 +146,7 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
         }
     }
     for fact in &graph.facts {
-        require(
+        require_evidence(
             calls.contains_key(&fact.call),
             EvidenceError::DanglingReference,
         )?;
@@ -178,11 +178,11 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
         };
         for id in fact.payload.resource_ids() {
             let resource = resources.get(&id).ok_or(EvidenceError::DanglingReference)?;
-            require(
+            require_evidence(
                 resource.realm == fact.realm,
                 EvidenceError::InvalidLabelRealm,
             )?;
-            require(
+            require_evidence(
                 allowed_kinds.is_none_or(|allowed| {
                     resource.identity.kind == ResourceKind::Unknown
                         || allowed.contains(&resource.identity.kind)
@@ -190,7 +190,7 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
                 EvidenceError::InvalidPayload,
             )?;
         }
-        require(
+        require_evidence(
             fact.payload
                 .occurrence_ids()
                 .iter()
@@ -198,7 +198,7 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
             EvidenceError::DanglingReference,
         )?;
         if let Some(bounds) = &fact.occurrences {
-            require(
+            require_evidence(
                 bounds.lower > 0 && !matches!(bounds.upper, Bound::Finite(n) if n < bounds.lower),
                 EvidenceError::InvalidBounds,
             )?;
@@ -210,7 +210,7 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
             ..
         } = &fact.payload
         {
-            require(
+            require_evidence(
                 if *operation == FilesystemOperation::Move {
                     destination.is_some_and(|id| id != *target)
                 } else {
@@ -223,7 +223,7 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
             nested_subjects, ..
         } = &fact.payload
         {
-            require(
+            require_evidence(
                 nested_subjects.iter().all(|id| calls.contains_key(id)),
                 EvidenceError::DanglingReference,
             )?;
@@ -235,7 +235,7 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
             ..
         } = &fact.payload
         {
-            require(
+            require_evidence(
                 [operation, domain, resource_kind]
                     .iter()
                     .all(|v| stable_code(v)),
@@ -247,16 +247,16 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
             ..
         } = &fact.payload
         {
-            require(query.len() <= 4096, EvidenceError::ExceedsLimit)?;
+            require_evidence(query.len() <= 4096, EvidenceError::ExceedsLimit)?;
         }
     }
     for occurrence in &graph.occurrences {
         condition(&occurrence.condition)?;
         if let Some(id) = occurrence.fact {
             let fact = facts.get(&id).ok_or(EvidenceError::DanglingReference)?;
-            require(fact.call == occurrence.call, EvidenceError::InvalidPayload)?;
+            require_evidence(fact.call == occurrence.call, EvidenceError::InvalidPayload)?;
         }
-        require(
+        require_evidence(
             calls.contains_key(&occurrence.call)
                 && occurrence.fact.is_none_or(|id| facts.contains_key(&id))
                 && occurrence
@@ -266,35 +266,35 @@ pub(super) fn validate_effect_graph(graph: &EffectGraph) -> Result<(), EvidenceE
         )?;
     }
     for relation in &graph.relations {
-        require(
+        require_evidence(
             occurrences.contains(&relation.from) && occurrences.contains(&relation.to),
             EvidenceError::DanglingReference,
         )?;
         condition(&relation.condition)?;
-        require(
+        require_evidence(
             !matches!(relation.kind, RelationKind::ConservativeDataflow { .. })
                 || relation.certainty == Certainty::Conservative,
             EvidenceError::InvalidPayload,
         )?;
     }
     for gap in &graph.gaps {
-        require(
+        require_evidence(
             calls.contains_key(&gap.call),
             EvidenceError::DanglingReference,
         )?;
-        require(stable_code(&gap.code), EvidenceError::InvalidGap)?;
+        require_evidence(stable_code(&gap.code), EvidenceError::InvalidGap)?;
     }
     let mut claims = BTreeSet::new();
     for claim in &graph.coverage {
-        require(
+        require_evidence(
             claims.insert((claim.call, format!("{:?}", claim.domain))),
             EvidenceError::InvalidCoverage,
         )?;
-        require(
+        require_evidence(
             calls.contains_key(&claim.call) && claim.gaps.iter().all(|id| gaps.contains(id)),
             EvidenceError::DanglingReference,
         )?;
-        require(
+        require_evidence(
             claim.level != ClaimLevel::Full || claim.gaps.is_empty(),
             EvidenceError::InvalidCoverage,
         )?;
@@ -325,7 +325,7 @@ pub(super) fn validate_public_selection(
         .iter()
         .map(|o| o.id)
         .collect::<BTreeSet<_>>();
-    require(
+    require_evidence(
         public.calls.is_subset(&calls)
             && public.facts.is_subset(&facts)
             && public.resources.is_subset(&resources)
@@ -344,17 +344,17 @@ pub(super) fn validate_public_selection(
             return Err(EvidenceError::InvalidProjection);
         };
         let ordinals = groups.entry(*group).or_insert_with(BTreeSet::new);
-        require(
+        require_evidence(
             ordinals.insert(*ordinal) && ordinals.len() <= 64,
             EvidenceError::InvalidProjection,
         )?;
-        require(
+        require_evidence(
             call.parent.is_none_or(|id| public.calls.contains(&id)),
             EvidenceError::InvalidProjection,
         )?;
     }
     for fact in graph.facts.iter().filter(|f| public.facts.contains(&f.id)) {
-        require(
+        require_evidence(
             public.calls.contains(&fact.call)
                 && fact
                     .payload
@@ -374,7 +374,7 @@ pub(super) fn validate_public_selection(
         .iter()
         .filter(|o| public.occurrences.contains(&o.id))
     {
-        require(
+        require_evidence(
             public.calls.contains(&occurrence.call)
                 && occurrence.fact.is_none_or(|id| public.facts.contains(&id))
                 && occurrence
@@ -385,13 +385,13 @@ pub(super) fn validate_public_selection(
     }
     for index in &public.relations {
         let relation = &graph.relations[*index];
-        require(
+        require_evidence(
             public.occurrences.contains(&relation.from)
                 && public.occurrences.contains(&relation.to),
             EvidenceError::InvalidProjection,
         )?;
     }
-    require(
+    require_evidence(
         !public.complete || !graph.gaps.iter().any(|g| g.phase == GapPhase::Projection),
         EvidenceError::InvalidProjection,
     )

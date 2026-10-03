@@ -49,15 +49,17 @@ pub(crate) fn prime_agent_hook_status() -> Result<RuntimeHookStatus, String> {
         }
         Err(_) => return Err("prime-agent-extension-read-failed".into()),
     };
-    if !owned(&bytes) {
+    if !is_owned_prime_agent_extension(&bytes) {
         return Err("prime-agent-extension-not-owned".into());
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     Ok(
-        if bytes == extension(&executable, FailurePolicy::Delegate)?.as_bytes() {
+        if bytes == prime_agent_extension_source(&executable, FailurePolicy::Delegate)?.as_bytes() {
             RuntimeHookStatus::WiringCurrent
-        } else if bytes == extension(&executable, FailurePolicy::Block)?.as_bytes() {
+        } else if bytes
+            == prime_agent_extension_source(&executable, FailurePolicy::Block)?.as_bytes()
+        {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
             let strict = bytes
@@ -126,10 +128,10 @@ fn install_prime_agent_extension(
         .ok_or_else(|| "invalid-prime-agent-extension-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "prime-agent-extension-write-failed".to_owned())?;
     reject_prime_agent_hook_symlinks(&paths)?;
-    let desired = extension(executable, policy)?;
+    let desired = prime_agent_extension_source(executable, policy)?;
     match std::fs::read(&paths.extension) {
         Ok(bytes) if bytes == desired.as_bytes() => {}
-        Ok(bytes) if owned(&bytes) => {
+        Ok(bytes) if is_owned_prime_agent_extension(&bytes) => {
             save_prime_agent_extension(&paths.extension, desired.as_bytes())?
         }
         Ok(_) => return Err("prime-agent-extension-not-owned".into()),
@@ -150,7 +152,7 @@ fn uninstall_prime_agent_extension(
     let lock = acquire_prime_agent_hook_lock(&paths)?;
     reject_prime_agent_hook_symlinks(&paths)?;
     match std::fs::read(&paths.extension) {
-        Ok(bytes) if owned(&bytes) => {
+        Ok(bytes) if is_owned_prime_agent_extension(&bytes) => {
             std::fs::remove_file(&paths.extension)
                 .map_err(|_| "prime-agent-extension-remove-failed".to_owned())?;
             if let Some(parent) = paths.extension.parent() {
@@ -236,7 +238,10 @@ fn save_prime_agent_extension(path: &Path, bytes: &[u8]) -> Result<(), String> {
     write_hook_file_atomically(path, bytes, &PRIME_AGENT_EXTENSION_WRITE_ERRORS)
 }
 
-fn extension(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
+fn prime_agent_extension_source(
+    executable: &Path,
+    policy: FailurePolicy,
+) -> Result<String, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -356,7 +361,7 @@ module.exports = function nahPrimeAgentExtension(prime) {{
     ))
 }
 
-fn owned(bytes: &[u8]) -> bool {
+fn is_owned_prime_agent_extension(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bytes);
     text.starts_with(MARKER) && text.contains(r#"["hook", "prime-agent", "run""#)
 }

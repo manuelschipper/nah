@@ -19,7 +19,8 @@ use oxc_span::SourceType;
 
 use super::{Bindings, ModuleCall};
 use crate::ImportBinding;
-use crate::value::{parse_url_endpoint, unresolved_resource};
+use crate::summary::is_resolvable;
+use crate::value::{fs_path_resource, parse_url_endpoint, unresolved_resource};
 
 const MAX_DYNAMIC_IMPORT_TARGETS: usize = 64;
 
@@ -199,7 +200,7 @@ impl<'a> Visit<'a> for DynamicCallCollector<'_> {
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         if let Some((loader, callback_expr)) = then_callback(it)
             && let Some(targets) = loader_targets(loader, self.wrappers, self.bindings)
-            && let Some((parameter, body)) = callback_parameter(callback_expr)
+            && let Some((parameter, body)) = callback_parameter_and_body(callback_expr)
             && !callback_reassigns(body, parameter)
         {
             let mut aliases = Vec::with_capacity(targets.len());
@@ -405,7 +406,9 @@ fn loader_span(loader: &Expression<'_>) -> u32 {
     }
 }
 
-fn callback_parameter<'a>(expr: &'a Expression<'a>) -> Option<(&'a str, &'a FunctionBody<'a>)> {
+fn callback_parameter_and_body<'a>(
+    expr: &'a Expression<'a>,
+) -> Option<(&'a str, &'a FunctionBody<'a>)> {
     let (params, body) = match unwrap_expr(expr) {
         Expression::FunctionExpression(function) => (&function.params, function.body.as_deref()?),
         Expression::ArrowFunctionExpression(function) => (&function.params, function.body.as_ref()),
@@ -952,7 +955,7 @@ pub(super) fn fs_resource(
                         .then(|| super::literal_property_name(&member.expression))
                         .flatten()
                         .and_then(|name| {
-                            environment_path(
+                            environment_variable_path(
                                 &name,
                                 member.span.start,
                                 runtime_cwd.clone(),
@@ -964,7 +967,9 @@ pub(super) fn fs_resource(
         }
         Expression::StaticMemberExpression(member) if bindings.process_runtime() => {
             process_env_name(member)
-                .and_then(|name| environment_path(&name, member.span.start, runtime_cwd, bindings))
+                .and_then(|name| {
+                    environment_variable_path(&name, member.span.start, runtime_cwd, bindings)
+                })
                 .unwrap_or(unresolved_resource("filesystem"))
         }
         Expression::StringLiteral(s) => {
@@ -989,7 +994,7 @@ pub(super) fn fs_resource(
                     parts.push(if i == 0 {
                         crate::paths::resolve_fs_path_with_cwd(raw, runtime_cwd.clone())
                     } else {
-                        concrete_fs(raw)
+                        fs_path_resource(raw)
                     });
                 }
                 if let Some(e) = t.expressions.get(i) {
@@ -1015,7 +1020,7 @@ pub(super) fn fs_resource(
         Expression::CallExpression(call)
             if super::source_string::is_home_directory_call(call, bindings) =>
         {
-            environment_path("HOME", call.span.start, runtime_cwd, bindings)
+            environment_variable_path("HOME", call.span.start, runtime_cwd, bindings)
                 .unwrap_or(unresolved_resource("filesystem"))
         }
         Expression::CallExpression(call) => {
@@ -1028,11 +1033,11 @@ pub(super) fn fs_resource(
                     .iter()
                     .filter_map(|a| a.as_expression())
                     .map(|e| match unwrap_expr(e) {
-                        Expression::StringLiteral(value) => concrete_fs(value.value.as_str()),
+                        Expression::StringLiteral(value) => fs_path_resource(value.value.as_str()),
                         Expression::TemplateLiteral(value) if value.expressions.is_empty() => {
                             cooked_template_string(value).map_or_else(
                                 || unresolved_resource("filesystem"),
-                                |value| concrete_fs(&value),
+                                |value| fs_path_resource(&value),
                             )
                         }
                         _ => fs_resource(e, None, source_cwd, env, bindings),
@@ -1076,7 +1081,7 @@ pub(super) fn fs_resource(
 /// stays symbolic for the effect site to resolve from the host context; a
 /// literal module-scope write before the read is its value. A module that can
 /// rewrite the environment otherwise leaves the path unresolved.
-fn environment_path(
+fn environment_variable_path(
     name: &str,
     span: u32,
     cwd: Option<ResourceExpr>,
@@ -1099,13 +1104,6 @@ fn environment_path(
     (!bindings.environment_is_rewritten()).then(|| ResourceExpr::Environment {
         name: name.to_string(),
     })
-}
-
-/// Whether a lowered expression carries usable information (is not a bare
-/// unresolved family placeholder). A `Join` with an unresolved part still
-/// counts: its concrete prefix is meaningful.
-fn is_resolvable(expr: &ResourceExpr) -> bool {
-    !matches!(expr, ResourceExpr::Unresolved { .. })
 }
 
 /// Record module-level `const/let/var NAME = <path>` constants whose value
@@ -1219,14 +1217,6 @@ pub(super) fn infer_returns(
         return None;
     }
     Some(first)
-}
-
-fn concrete_fs(text: &str) -> ResourceExpr {
-    ResourceExpr::Concrete {
-        identity: ResourceIdentity::FsPath {
-            path: text.to_string(),
-        },
-    }
 }
 
 /// Lower a URL argument expression to a network endpoint identity.

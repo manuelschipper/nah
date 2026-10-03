@@ -219,7 +219,7 @@ fn script(
     let statements = match statements(source) {
         Ok(statements) => statements,
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
     };
@@ -270,7 +270,7 @@ const VARIABLE_PARAMETERS: &[&str] = &[
 fn variable_writes(
     builder: &mut PlanBuilder,
     session: &mut Session,
-    bound: &Bound,
+    bound: &PsBoundParameters,
     node: ProvenanceRef,
 ) -> bool {
     let mut complete = true;
@@ -291,7 +291,7 @@ fn variable_writes(
                 .retain(|(bound, _)| !bound.eq_ignore_ascii_case(name)),
             _ => {
                 session.contents.clear();
-                boundary(
+                powershell_boundary(
                     builder,
                     node,
                     "PowerShell common parameter writes a variable the grammar cannot name",
@@ -337,7 +337,7 @@ fn unsupported(node: ProvenanceRef) -> Boundary {
     }
 }
 
-fn boundary(builder: &mut PlanBuilder, node: ProvenanceRef, detail: &str) {
+fn powershell_boundary(builder: &mut PlanBuilder, node: ProvenanceRef, detail: &str) {
     let mut boundary = unsupported(node);
     boundary.detail = Some(detail.into());
     builder.boundary(boundary);
@@ -356,9 +356,9 @@ fn statement(
 ) -> bool {
     // A function or filter definition replaces whatever its name resolved
     // to. Its body runs only when called, and a call to it is refused below.
-    if let Some(name) = definition(statement) {
+    if let Some(name) = ps_function_definition(statement) {
         session.define_function(name);
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell function definition is not modeled",
@@ -405,7 +405,7 @@ fn statement(
         }
         // A preference variable set to a constant changes only how later
         // commands report and stop; it writes nothing.
-        if !piped && preference(name) && constant(command) {
+        if !piped && preference(name) && constant_value(command) {
             return true;
         }
     }
@@ -424,7 +424,7 @@ fn statement(
     let mut parsed = match words(statement) {
         Ok(parsed) => parsed,
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
     };
@@ -448,7 +448,7 @@ fn statement(
         return complete;
     };
     if head.quoted && !call {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell command name is a quoted expression",
@@ -461,14 +461,14 @@ fn statement(
         session.location_moved = true;
     }
     if session.shadows(&head.text) || session.shadows(command) {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell command is redefined earlier in the source",
         );
         return false;
     }
-    let dispatched = dispatch(
+    let dispatched = dispatch_command(
         builder,
         nest,
         session,
@@ -540,7 +540,7 @@ fn cmdlet(command: &str) -> Option<&'static Cmdlet> {
 
 /// Run one parsed command: `words` is its name followed by its arguments.
 #[allow(clippy::too_many_arguments)]
-fn dispatch(
+fn dispatch_command(
     builder: &mut PlanBuilder,
     nest: &Nest,
     session: &mut Session,
@@ -561,7 +561,7 @@ fn dispatch(
             .iter()
             .any(|argument| session.content(argument).is_some())
     {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell file content variable reaches an unmodeled parameter",
@@ -600,7 +600,7 @@ fn dispatch(
         // reaches is named by a redirection, which the caller models; its
         // arguments are bound only for the variables they write.
         if let Err(detail) = bind(arguments, &WRITE_OUTPUT) {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
         return true;
@@ -613,7 +613,7 @@ fn dispatch(
         .find(|cmdlet| cmdlet.name.eq_ignore_ascii_case(command))
     {
         if let Err(detail) = bind(arguments, quiet) {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
         return true;
@@ -623,7 +623,7 @@ fn dispatch(
     // name this grammar does not model stays a boundary instead of becoming a
     // program invocation the command models would read with another grammar.
     if command.contains('-') {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell cmdlet is outside the modeled grammar",
@@ -663,7 +663,7 @@ fn preference(name: &str) -> bool {
 
 /// Whether an assigned value is a constant: a single-quoted string, or one
 /// double-quoted or bare word with no expansion or expression.
-fn constant(value: &str) -> bool {
+fn constant_value(value: &str) -> bool {
     let value = value.trim();
     let inner = match value.as_bytes().first() {
         Some(b'\'') | Some(b'"') => value
@@ -721,7 +721,7 @@ fn content_assignment(
     let written = bind(arguments, &file.cmdlet)
         .is_ok_and(|bound| variable_writes(builder, session, &bound, node));
     if piped {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell assignment captures the output of a pipeline",
@@ -735,7 +735,7 @@ fn content_assignment(
 }
 
 /// The name a `function` or `filter` statement defines.
-fn definition(statement: &str) -> Option<&str> {
+fn ps_function_definition(statement: &str) -> Option<&str> {
     let statement = statement.trim_start();
     let keyword = statement.split(char::is_whitespace).next()?;
     if !keyword.eq_ignore_ascii_case("function") && !keyword.eq_ignore_ascii_case("filter") {
@@ -797,7 +797,7 @@ fn program(
     // PowerShell passes each element of a collection to a program as an
     // argument of its own, which the words below do not model.
     if words.iter().any(|word| !word.elements.is_empty()) {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell collection argument to a program is not modeled",
@@ -856,7 +856,7 @@ fn native(
 fn redirected_write(
     builder: &mut PlanBuilder,
     nest: &Nest,
-    redirection: &Redirection,
+    redirection: &PsRedirection,
     location: Option<&str>,
     node: ProvenanceRef,
 ) -> bool {
@@ -903,7 +903,7 @@ fn invoke_expression(
     depth: u32,
 ) -> bool {
     let [argument] = arguments else {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell Invoke-Expression has no single literal statement",
@@ -919,7 +919,7 @@ fn invoke_expression(
         return false;
     }
     if !argument.elements.is_empty() {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell Invoke-Expression has no single literal statement",
@@ -940,7 +940,7 @@ fn nested_cmd(
     depth: u32,
 ) -> bool {
     let Some((switch, command)) = arguments.split_first() else {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell cmd invocation has no command line",
@@ -948,7 +948,7 @@ fn nested_cmd(
         return false;
     };
     if switch.quoted || !matches!(switch.text.to_ascii_lowercase().as_str(), "/c" | "/k") {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell cmd invocation does not pass a command line",
@@ -1117,7 +1117,7 @@ fn expand_environment_words(
     nest: &Nest,
     session: &Session,
     requests_web: bool,
-    statement: &mut Statement,
+    statement: &mut PsStatement,
     node: ProvenanceRef,
 ) -> bool {
     let mut complete = true;
@@ -1138,7 +1138,7 @@ fn expand_environment_words(
         match expand_home_variable(builder, nest, &word.text, node) {
             Ok(text) => word.text = text,
             Err(detail) => {
-                boundary(builder, node, detail);
+                powershell_boundary(builder, node, detail);
                 complete = false;
             }
         }
@@ -1157,7 +1157,7 @@ fn expand_home_variable(
     let mut read = Vec::new();
     let mut environment_read_once = |builder: &mut PlanBuilder, name: &str| {
         if !read.iter().any(|read: &String| read == name) {
-            environment_read(builder, node, name);
+            ps_environment_read(builder, node, name);
             read.push(name.to_string());
         }
     };
@@ -1248,7 +1248,7 @@ fn variable(text: &str) -> Option<(Variable<'_>, usize)> {
     Some((found, length))
 }
 
-fn environment_read(builder: &mut PlanBuilder, node: ProvenanceRef, name: &str) {
+fn ps_environment_read(builder: &mut PlanBuilder, node: ProvenanceRef, name: &str) {
     builder.effect(Effect {
         id: Default::default(),
         operation: Operation::new("environment.read"),
@@ -1276,18 +1276,18 @@ fn removal(
     let bound = match bind(arguments, &REMOVE_ITEM) {
         Ok(bound) => bound,
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
     };
     let (paths, wildcards) = match bound.paths("Path") {
         Ok(Some(paths)) => paths,
         Ok(None) => {
-            boundary(builder, node, "PowerShell Remove-Item has no literal path");
+            powershell_boundary(builder, node, "PowerShell Remove-Item has no literal path");
             return false;
         }
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
     };
@@ -1402,7 +1402,7 @@ fn file_cmdlet(
     let bound = match bind(arguments, cmdlet) {
         Ok(bound) => bound,
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return (false, Vec::new());
         }
     };
@@ -1410,7 +1410,7 @@ fn file_cmdlet(
     let (paths, wildcards) = match bound.paths(path_parameter) {
         Ok(Some(paths)) => paths,
         Ok(None) => {
-            boundary(
+            powershell_boundary(
                 builder,
                 node,
                 &format!("PowerShell {} has no literal path", cmdlet.name),
@@ -1418,7 +1418,7 @@ fn file_cmdlet(
             return (false, Vec::new());
         }
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return (false, Vec::new());
         }
     };
@@ -1494,7 +1494,7 @@ fn move_item(
     let bound = match bind(arguments, cmdlet) {
         Ok(bound) => bound,
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
     };
@@ -1503,7 +1503,7 @@ fn move_item(
             (paths, wildcards)
         }
         Ok(_) => {
-            boundary(
+            powershell_boundary(
                 builder,
                 node,
                 &format!("PowerShell {command} does not name its source"),
@@ -1511,7 +1511,7 @@ fn move_item(
             return false;
         }
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
     };
@@ -1524,7 +1524,7 @@ fn move_item(
         .collect::<Vec<_>>();
     let foreign = items.iter().any(Option::is_none);
     if foreign {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             &format!("PowerShell {command} source is outside the filesystem provider"),
@@ -1580,7 +1580,7 @@ fn move_item(
     let flattens = copy && bound.bound("Container") && !bound.switch("Container");
     if flattens {
         complete = false;
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell Copy-Item -Container:$false flattens what it copies, which is not modeled",
@@ -1643,7 +1643,7 @@ fn move_item(
                 // The departures below name every entry the wildcard
                 // matches, including those the filters leave in place.
                 complete = false;
-                boundary(
+                powershell_boundary(
                     builder,
                     node,
                     &format!(
@@ -1679,7 +1679,7 @@ fn move_item(
                     }
                     None => {
                         complete = false;
-                        boundary(
+                        powershell_boundary(
                             builder,
                             node,
                             &format!(
@@ -1694,7 +1694,7 @@ fn move_item(
     }
     // A destination matters only for a source that is moved or copied.
     if destination_unread && resolved.iter().any(Option::is_some) {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             &format!("PowerShell {command} destination is not one literal path"),
@@ -1783,7 +1783,7 @@ fn move_item(
         .collect::<Vec<_>>();
     if !rename && (0..resolved.len()).any(|index| resolved[index].is_some() && !current(index)) {
         complete = false;
-        boundary(
+        powershell_boundary(
             builder,
             node,
             &format!(
@@ -1861,7 +1861,7 @@ fn move_item(
             }
             _ => {
                 complete = false;
-                boundary(
+                powershell_boundary(
                     builder,
                     node,
                     &format!(
@@ -2344,7 +2344,7 @@ fn glob_components_below(glob: &str, root: &str) -> u32 {
 /// negation: `[!e]` is `!` or `e`. `fold` compares without regard to case.
 /// `None` for an unterminated set, which PowerShell rejects.
 fn wildcard_match(pattern: &str, text: &str, fold: bool) -> Option<bool> {
-    enum Token {
+    enum WildcardToken {
         Any,
         One,
         Set(Vec<(char, char)>),
@@ -2361,9 +2361,9 @@ fn wildcard_match(pattern: &str, text: &str, fold: bool) -> Option<bool> {
     let mut chars = pattern.chars();
     while let Some(c) = chars.next() {
         tokens.push(match c {
-            '*' => Token::Any,
-            '?' => Token::One,
-            '`' => Token::Literal(chars.next().unwrap_or('`')),
+            '*' => WildcardToken::Any,
+            '?' => WildcardToken::One,
+            '`' => WildcardToken::Literal(chars.next().unwrap_or('`')),
             '[' => {
                 // Each member, and whether it was escaped.
                 let mut members = Vec::new();
@@ -2393,9 +2393,9 @@ fn wildcard_match(pattern: &str, text: &str, fold: bool) -> Option<bool> {
                         index += 1;
                     }
                 }
-                Token::Set(set)
+                WildcardToken::Set(set)
             }
-            c => Token::Literal(c),
+            c => WildcardToken::Literal(c),
         });
     }
     let text = text.chars().collect::<Vec<_>>();
@@ -2406,11 +2406,11 @@ fn wildcard_match(pattern: &str, text: &str, fold: bool) -> Option<bool> {
         let mut next = vec![false; text.len() + 1];
         for j in 0..=text.len() {
             match token {
-                Token::Any => next[j] = matched[j] || j > 0 && next[j - 1],
+                WildcardToken::Any => next[j] = matched[j] || j > 0 && next[j - 1],
                 _ if j == 0 => {}
-                Token::One => next[j] = matched[j - 1],
-                Token::Literal(c) => next[j] = matched[j - 1] && same(*c, text[j - 1]),
-                Token::Set(set) => {
+                WildcardToken::One => next[j] = matched[j - 1],
+                WildcardToken::Literal(c) => next[j] = matched[j - 1] && same(*c, text[j - 1]),
+                WildcardToken::Set(set) => {
                     let c = text[j - 1];
                     next[j] = matched[j - 1]
                         && set.iter().any(|&(low, high)| {
@@ -2512,7 +2512,7 @@ fn new_item(
     let bound = match bind(arguments, &NEW_ITEM) {
         Ok(bound) => bound,
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
     };
@@ -2524,7 +2524,7 @@ fn new_item(
         _ => None,
     };
     let (Some(target), Ok(Some(link)), true) = (target, bound.value("Path"), hard_link) else {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell New-Item is outside the modeled hard-link grammar",
@@ -2577,7 +2577,7 @@ fn web_request(
     let bound = match bind(arguments, &WEB_REQUEST) {
         Ok(bound) => bound,
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
     };
@@ -2593,7 +2593,7 @@ fn web_request(
         .enumerate()
         .any(|(index, argument)| session_variable(argument) && !readable.contains(&index))
     {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell web request argument is a variable the grammar cannot read",
@@ -2604,7 +2604,7 @@ fn web_request(
         return upload(builder, nest, session, arguments, &bound, location, node);
     }
     let (Ok(Some(uri)), Ok(Some(file))) = (bound.value("Uri"), bound.value("OutFile")) else {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell web request does not name one URI and one -OutFile",
@@ -2631,7 +2631,7 @@ fn upload(
     nest: &Nest,
     session: &Session,
     arguments: &[PsWord],
-    bound: &Bound,
+    bound: &PsBoundParameters,
     location: Option<&str>,
     node: ProvenanceRef,
 ) -> bool {
@@ -2641,7 +2641,7 @@ fn upload(
             .iter()
             .any(|upload| upload.eq_ignore_ascii_case(method))
     }) {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell web request body is sent without a POST, PUT or PATCH method",
@@ -2653,7 +2653,7 @@ fn upload(
         bound.value("InFile"),
         bound.value("Body"),
     ) else {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell web request does not name one URI and one body",
@@ -2661,7 +2661,7 @@ fn upload(
         return false;
     };
     if bound.bound("OutFile") || in_file.is_some() && body.is_some() {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell web request combines -InFile, -Body or -OutFile",
@@ -2692,7 +2692,7 @@ fn upload(
             Some(body) if session_variable(body) => {
                 let content = session.content(body);
                 if content.is_none() {
-                    boundary(
+                    powershell_boundary(
                         builder,
                         node,
                         "PowerShell web request body is a variable the grammar cannot read",
@@ -2775,7 +2775,7 @@ fn webclient_download(
         _ => &[],
     };
     let [url, file] = elements else {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell WebClient.DownloadFile does not pass two literal strings",
@@ -3198,14 +3198,14 @@ fn start_process(
     let bound = match bind(arguments, &START_PROCESS) {
         Ok(bound) => bound,
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
     };
     let program_name = match bound.value("FilePath") {
         Ok(Some(program)) => program,
         _ => {
-            boundary(
+            powershell_boundary(
                 builder,
                 node,
                 "PowerShell Start-Process does not name one program",
@@ -3217,7 +3217,7 @@ fn start_process(
     // A double quote groups words in the program's own command-line parsing,
     // which this split does not model.
     if command_line.contains('"') {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell Start-Process argument list quotes its words",
@@ -3251,12 +3251,12 @@ fn set_alias(
     let bound = match bind(arguments, &SET_ALIAS) {
         Ok(bound) => bound,
         Err(detail) => {
-            boundary(builder, node, detail);
+            powershell_boundary(builder, node, detail);
             return false;
         }
     };
     let Ok(Some(name)) = bound.value("Name") else {
-        boundary(builder, node, "PowerShell alias definition names no alias");
+        powershell_boundary(builder, node, "PowerShell alias definition names no alias");
         return false;
     };
     if !bound.switch("WhatIf") {
@@ -3280,7 +3280,7 @@ fn resolved_path(
     command: &str,
 ) -> Option<ResourceExpr> {
     let Some(path) = expand_home(builder, nest, path, node) else {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell ~ has no home directory in the host context",
@@ -3306,7 +3306,7 @@ fn resolved_path(
         _ => path,
     };
     let Some(windows) = absolute_filesystem_path(&path, None) else {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             &format!(
@@ -3388,7 +3388,7 @@ fn expand_home(
 /// own evaluation.
 fn single(builder: &mut PlanBuilder, node: ProvenanceRef, paths: &[String]) -> bool {
     if paths.len() > 1 {
-        boundary(
+        powershell_boundary(
             builder,
             node,
             "PowerShell collection argument binds several paths",
@@ -3625,7 +3625,7 @@ const SET_ALIAS: Cmdlet = Cmdlet {
 
 /// The parameters one invocation bound.
 #[derive(Default)]
-struct Bound {
+struct PsBoundParameters {
     switches: Vec<(&'static str, bool)>,
     values: Vec<(&'static str, Vec<String>)>,
     /// The argument word each value parameter bound, where its value is a
@@ -3635,7 +3635,7 @@ struct Bound {
     unbound: usize,
 }
 
-impl Bound {
+impl PsBoundParameters {
     fn bound(&self, name: &str) -> bool {
         self.switches.iter().any(|(bound, _)| *bound == name)
             || self.values.iter().any(|(bound, _)| *bound == name)
@@ -3685,7 +3685,7 @@ impl Bound {
     /// whether there were none.
     fn complete(&self, builder: &mut PlanBuilder, node: ProvenanceRef, command: &str) -> bool {
         if self.unbound > 0 {
-            boundary(
+            powershell_boundary(
                 builder,
                 node,
                 &format!("PowerShell {command} has an unbound operand"),
@@ -3700,8 +3700,8 @@ impl Bound {
 /// including `-Name:value` with the value attached, then positional arguments
 /// in position order. An argument that fails to bind stops the cmdlet from
 /// running, so it is an error rather than a partial binding.
-fn bind(arguments: &[PsWord], cmdlet: &Cmdlet) -> Result<Bound, &'static str> {
-    let mut bound = Bound::default();
+fn bind(arguments: &[PsWord], cmdlet: &Cmdlet) -> Result<PsBoundParameters, &'static str> {
+    let mut bound = PsBoundParameters::default();
     let mut positional = Vec::new();
     let mut arguments = arguments.iter().enumerate();
     while let Some((index, argument)) = arguments.next() {
@@ -3940,12 +3940,12 @@ impl PsWord {
 
 /// One statement's command words and the files its redirections write.
 #[derive(Default)]
-struct Statement {
+struct PsStatement {
     words: Vec<PsWord>,
-    redirections: Vec<Redirection>,
+    redirections: Vec<PsRedirection>,
 }
 
-struct Redirection {
+struct PsRedirection {
     /// `>>` adds to the file; `>` replaces it.
     append: bool,
     /// The file the stream writes, or `None` where the operator merges the
@@ -3955,8 +3955,8 @@ struct Redirection {
 
 /// Split one statement into its words and redirections, refusing any expansion
 /// or expression operator whose value the literal grammar cannot recover.
-fn words(statement: &str) -> Result<Statement, &'static str> {
-    let mut parsed = Statement::default();
+fn words(statement: &str) -> Result<PsStatement, &'static str> {
+    let mut parsed = PsStatement::default();
     let mut rest = statement.trim();
     while !rest.is_empty() {
         if let Some((redirection, remainder)) = redirection(rest)? {
@@ -3976,7 +3976,7 @@ fn words(statement: &str) -> Result<Statement, &'static str> {
 /// `&1`/`&2` — which names no file — or the file the stream writes. The
 /// operator also ends the word it runs into, so `Write-Output x>file`
 /// redirects rather than naming a word `x>file`.
-fn redirection(rest: &str) -> Result<Option<(Redirection, &str)>, &'static str> {
+fn redirection(rest: &str) -> Result<Option<(PsRedirection, &str)>, &'static str> {
     let stream_selected = matches!(rest.as_bytes().first(), Some(b'*' | b'1'..=b'6'));
     let Some(after) = rest[usize::from(stream_selected)..].strip_prefix('>') else {
         return Ok(None);
@@ -3991,7 +3991,7 @@ fn redirection(rest: &str) -> Result<Option<(Redirection, &str)>, &'static str> 
             return Err("PowerShell redirection merges an unrecognized stream");
         };
         return Ok(Some((
-            Redirection {
+            PsRedirection {
                 append,
                 target: None,
             },
@@ -4007,7 +4007,7 @@ fn redirection(rest: &str) -> Result<Option<(Redirection, &str)>, &'static str> 
         return Err("PowerShell redirection names a collection");
     }
     Ok(Some((
-        Redirection {
+        PsRedirection {
             append,
             target: Some(target),
         },

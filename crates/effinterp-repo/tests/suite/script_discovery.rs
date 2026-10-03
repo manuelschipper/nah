@@ -9,24 +9,7 @@ use effinterp_repo::{
 };
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
-fn ids(idx: &effinterp_repo::RepoIndex) -> Vec<String> {
-    idx.entrypoints
-        .iter()
-        .map(|e| e.entrypoint.id.clone())
-        .collect()
-}
-
-fn display(effect: &effinterp_proto::EffectFact) -> String {
-    effinterp_proto::display_resource(&effect.resource)
-}
-
-fn origin(effect: &effinterp_proto::EffectFact) -> &str {
-    effect
-        .origin
-        .as_ref()
-        .map(|origin| origin.source_file.as_str())
-        .unwrap_or("")
-}
+use crate::support::{display, ids, origin};
 
 #[test]
 fn python_main_guard_is_an_entrypoint_library_is_not() {

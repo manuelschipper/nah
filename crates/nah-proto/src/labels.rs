@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::ctx::{AbsolutePath, Platform};
 use crate::runtime::HOOK_RUNTIME_NAMES;
-pub use lexical_path::{contains, join};
-use lexical_path::{fold, installed_binary_paths, lexically_normalized, same_path};
+use lexical_path::{fold_path_spelling, installed_binary_paths, lexically_normalized, same_path};
+pub use lexical_path::{join_lexical_path, lexically_contains};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -235,7 +235,7 @@ pub fn standard_executable_directory(directory: &str, platform: Platform) -> boo
                     )
         }
         Platform::Windows => matches!(
-            fold(directory, platform).as_str(),
+            fold_path_spelling(directory, platform).as_str(),
             "c:/windows" | "c:/windows/system32"
         ),
     }
@@ -412,11 +412,11 @@ pub fn protected_path_ancestor(
     }
     let ancestor_of = |candidate: &str| {
         let candidate = lexically_normalized(candidate, platform);
-        !same_path(&path, &candidate, platform) && contains(&path, &candidate, platform)
+        !same_path(&path, &candidate, platform) && lexically_contains(&path, &candidate, platform)
     };
     let mut owned = installed_binary_paths(&home, platform);
-    owned.push(join(&home, ".nah", platform));
-    if contains(&home, &path, platform)
+    owned.push(join_lexical_path(&home, ".nah", platform));
+    if lexically_contains(&home, &path, platform)
         && owned
             .iter()
             .map(String::as_str)
@@ -441,24 +441,24 @@ pub fn protected_path_ancestor(
 /// `<directory>/*` and `<directory>/.*` narrow no name: they select every entry
 /// of a directory, which the whole-directory rules such as `fs-home` already
 /// answer, and reading them as a bound would flag every ordinary glob.
-pub fn selects(known: &str, path: &str, platform: Platform, pattern: bool) -> bool {
-    if contains(known, path, platform) {
+pub fn selects_known_path(known: &str, path: &str, platform: Platform, pattern: bool) -> bool {
+    if lexically_contains(known, path, platform) {
         return true;
     }
     if !pattern {
         return false;
     }
     let bound = crate::action::pattern_bound(path);
-    // A pattern without a wildcard names only itself, which `contains`
+    // A pattern without a wildcard names only itself, which `lexically_contains`
     // settled: `**/.py` does not select `.pypirc`.
     if bound.len() == path.len() {
         return false;
     }
-    let bound = fold(bound, platform);
+    let bound = fold_path_spelling(bound, platform);
     let name = bound
         .rsplit_once('/')
         .map_or(bound.as_str(), |(_, name)| name);
-    !matches!(name, "" | ".") && fold(known, platform).starts_with(&bound)
+    !matches!(name, "" | ".") && fold_path_spelling(known, platform).starts_with(&bound)
 }
 
 /// Reports whether a requested word reaches the HOME root itself.
@@ -466,7 +466,11 @@ pub fn selects_home(requested: &str, home: &str, platform: Platform, pattern: bo
     // A Windows glob arrives spelled with forward slashes while the home root
     // keeps its backslashes, so normalize both to one separator before
     // comparing; otherwise `C:/Users/test/*` never matches home `C:\Users\test`.
-    let (requested, home, separator) = (fold(requested, platform), fold(home, platform), '/');
+    let (requested, home, separator) = (
+        fold_path_spelling(requested, platform),
+        fold_path_spelling(home, platform),
+        '/',
+    );
     if requested == home {
         return true;
     }

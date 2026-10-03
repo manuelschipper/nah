@@ -34,6 +34,7 @@ mod control;
 mod destructuring_defaults;
 mod flow_tracking;
 mod model;
+mod plus_coercion;
 mod resolve;
 mod source_string;
 mod source_string_state;
@@ -59,10 +60,10 @@ use im::{HashMap as PersistentHashMap, HashSet as PersistentHashSet};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, BlockStatement,
-    CallExpression, CatchClause, ChainElement, Class, ClassBody, ClassElement, Expression,
-    ForInStatement, ForOfStatement, ForStatement, FormalParameters, FunctionBody, IfStatement,
-    MemberExpression, MethodDefinition, NewExpression, ObjectProperty, PropertyDefinition,
-    PropertyKey, SimpleAssignmentTarget, Statement, SwitchStatement, TaggedTemplateExpression,
+    CallExpression, CatchClause, ChainElement, ClassBody, ClassElement, Expression, ForInStatement,
+    ForOfStatement, ForStatement, FormalParameters, FunctionBody, IfStatement, MemberExpression,
+    MethodDefinition, NewExpression, ObjectProperty, PropertyDefinition, PropertyKey,
+    SimpleAssignmentTarget, Statement, SwitchStatement, TaggedTemplateExpression,
     VariableDeclaration, VariableDeclarationKind, WhileStatement,
 };
 use oxc_ast_visit::{Visit, walk};
@@ -76,25 +77,22 @@ use crate::flow::StageWriter;
 use crate::nest::Nest;
 use crate::summary::bind_positional;
 use aggregate_alias::{
-    AggregateAliasPaths, EvaluatedAggregateAliases, add_aggregate_alias,
-    aggregate_alias_binding_names, aggregate_alias_binding_paths, clear_aggregate_aliases,
-    expression_aggregate_alias_paths, extend_aggregate_alias_paths,
-    project_array_rest_aggregate_alias_paths, project_object_rest_aggregate_alias_paths,
-    restore_aggregate_aliases,
+    AggregateAliasPaths, EvaluatedAggregateAliases, aggregate_alias_binding_names,
+    clear_aggregate_aliases, expression_aggregate_alias_paths, extend_aggregate_alias_paths,
 };
 use aggregate_source_string_members::collect_aggregate_source_string_members;
 use collect::FnTable;
+use plus_coercion::{PLUS_COERCION_BINDING_SUFFIX, plus_coercion_binding_name};
 use resolve::ParamEnv;
 use source_string::{
-    AggregateBindingValue, EvaluatedSourceStrings, SourceBindingValue, SourceStringValue,
-    bind_source_string_pattern, collect_source_string_bindings, is_global_undefined,
-    is_home_directory_call, is_string_concatenation, mark_unbounded_source_string,
-    project_array_aggregate_binding, project_object_aggregate_binding, set_source_string_binding,
+    EvaluatedSourceStrings, SourceBindingValue, SourceStringValue, bind_source_string_pattern,
+    collect_source_string_bindings, is_global_undefined, is_home_directory_call,
+    is_string_concatenation, mark_unbounded_source_string, set_source_string_binding,
     source_string_resource,
 };
 use source_string_state::{
     SourceStringState, changed_captured_bindings, object_literal_bytes,
-    restore_source_string_state_names, retained_state_bytes,
+    restore_source_string_state_names,
 };
 
 const JS_DOMAINS: [&str; 4] = ["environment", "filesystem", "network", "process"];
@@ -610,29 +608,6 @@ enum CallableBinding {
 type CallableEnv = PersistentHashMap<String, CallableBinding>;
 type AggregateAliases = PersistentHashMap<String, HashSet<String>>;
 type SourceStringNames = PersistentHashSet<String>;
-
-const PLUS_COERCION_BINDING_SUFFIX: &str = ".[plus-coercion]";
-
-fn plus_coercion_binding_name(name: &str) -> String {
-    format!("{name}{PLUS_COERCION_BINDING_SUFFIX}")
-}
-
-pub(super) fn is_plus_coercion_property(key: &PropertyKey<'_>) -> bool {
-    if matches!(key.static_name().as_deref(), Some("valueOf" | "toString")) {
-        return true;
-    }
-    match key {
-        PropertyKey::StaticMemberExpression(member) => {
-            expression_flow_key(&member.object).as_deref() == Some("Symbol")
-                && member.property.name == "toPrimitive"
-        }
-        PropertyKey::ComputedMemberExpression(member) => {
-            expression_flow_key(&member.object).as_deref() == Some("Symbol")
-                && literal_property_name(&member.expression).as_deref() == Some("toPrimitive")
-        }
-        _ => false,
-    }
-}
 
 fn binding_is_within(binding: &str, name: &str) -> bool {
     binding == name
@@ -1492,7 +1467,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                 self.callback_seed = settled.and_then(|stage| {
                     let parameter =
                         usize::from(matches!(handler, Some((_, _, MessageHandler::File))));
-                    let (body, param) = callback_parameter(expr, parameter)?;
+                    let (body, param) = inline_callback_parameter(expr, parameter)?;
                     Some((body, param.to_string(), stage, response))
                 });
                 if let Some((_, _, MessageHandler::End)) = handler {
@@ -1967,89 +1942,6 @@ impl<'a> EffectVisitor<'_, 'a> {
             Expression::AwaitExpression(awaited) => self.follow_callback(&awaited.argument),
             _ => false,
         }
-    }
-
-    fn follow_plus_coercion_callbacks(&mut self, expr: &Expression<'a>) {
-        self.follow_plus_coercion_callbacks_inner(expr, &mut HashSet::new());
-    }
-
-    fn follow_plus_coercion_callbacks_inner(
-        &mut self,
-        expr: &Expression<'a>,
-        visiting: &mut HashSet<u32>,
-    ) {
-        let direct_callbacks = match unparen(expr) {
-            Expression::ObjectExpression(object) => object
-                .properties
-                .iter()
-                .filter_map(|property| property.as_property())
-                .filter(|property| is_plus_coercion_property(&property.key))
-                .map(|property| &property.value)
-                .collect::<Vec<_>>(),
-            _ => Vec::new(),
-        };
-        for callback in direct_callbacks {
-            self.follow_callback(callback);
-        }
-        if matches!(unparen(expr), Expression::ObjectExpression(_)) {
-            return;
-        }
-        let Some(CallableBinding::PlusCoercion(owner_span)) =
-            self.plus_coercion_binding(expr, &self.callable_env, &self.aggregate_aliases)
-        else {
-            return;
-        };
-        self.follow_plus_coercion_owner(owner_span, visiting);
-    }
-
-    fn follow_plus_coercion_owner(&mut self, owner_span: u32, visiting: &mut HashSet<u32>) {
-        if !visiting.insert(owner_span) {
-            return;
-        }
-        if let Some(callbacks) = self.plus_coercion_callbacks.get(&owner_span).cloned() {
-            for callback in callbacks {
-                self.follow_callback(callback);
-            }
-        }
-        if let Some(callbacks) = self
-            .functions
-            .class_plus_coercion_callbacks
-            .get(&owner_span)
-            .cloned()
-        {
-            for callback in callbacks {
-                if callback.generator {
-                    continue;
-                }
-                if let Some(body) = &callback.body {
-                    let self_binding = callback.id.as_ref().map(|id| id.name.as_str());
-                    let _ = self.enter_inline_body(
-                        body,
-                        &callback.params,
-                        self_binding,
-                        &[],
-                        &[],
-                        false,
-                        callback.r#async,
-                        false,
-                    );
-                }
-            }
-        }
-        if let Some(returns) = self
-            .functions
-            .class_constructor_returns
-            .get(&owner_span)
-            .cloned()
-        {
-            for returned in returns {
-                self.follow_plus_coercion_callbacks_inner(returned, visiting);
-            }
-        }
-        if let Some(super_span) = self.class_super_plus_coercions.get(&owner_span).copied() {
-            self.follow_plus_coercion_owner(super_span, visiting);
-        }
-        visiting.remove(&owner_span);
     }
 
     fn active_lexical_source_state(&self, body: Span) -> Option<SourceStringState> {
@@ -2596,596 +2488,6 @@ impl<'a> EffectVisitor<'_, 'a> {
         }
     }
 
-    fn bind_parameter_plus_coercion(
-        &mut self,
-        pattern: &BindingPattern<'a>,
-        value: SourceBindingValue<'_, 'a>,
-        argument_state: Option<&SourceStringState>,
-        caller_state: &SourceStringState,
-    ) {
-        let state = argument_state.unwrap_or(caller_state);
-        let value = match value {
-            SourceBindingValue::Argument(expression) => AggregateBindingValue::Argument(expression),
-            SourceBindingValue::Local(expression) => AggregateBindingValue::Local(expression),
-            SourceBindingValue::Missing => AggregateBindingValue::Missing,
-            SourceBindingValue::Unbounded => AggregateBindingValue::Unbounded,
-        };
-        self.bind_plus_coercion_pattern(
-            pattern,
-            value,
-            &state.source_env,
-            &state.unbounded_source_env,
-            &state.callable_env,
-            &state.aggregate_aliases,
-        );
-    }
-
-    fn plus_coercion_binding(
-        &self,
-        expression: &Expression<'a>,
-        callable_env: &CallableEnv,
-        aggregate_aliases: &AggregateAliases,
-    ) -> Option<CallableBinding> {
-        match unparen(expression) {
-            Expression::ObjectExpression(object)
-                if self
-                    .plus_coercion_callbacks
-                    .contains_key(&object.span.start) =>
-            {
-                Some(CallableBinding::PlusCoercion(object.span.start))
-            }
-            Expression::ClassExpression(class) => {
-                self.class_plus_coercion_binding(class, callable_env, aggregate_aliases)
-            }
-            Expression::NewExpression(new_expression) => match unparen(&new_expression.callee) {
-                Expression::ClassExpression(class) => {
-                    self.class_plus_coercion_binding(class, callable_env, aggregate_aliases)
-                }
-                Expression::Identifier(identifier) => callable_env
-                    .get(&plus_coercion_binding_name(identifier.name.as_str()))
-                    .copied()
-                    .filter(|binding| matches!(binding, CallableBinding::PlusCoercion(_))),
-                _ => None,
-            },
-            _ => {
-                let paths = expression_aggregate_alias_paths(
-                    self.nest.budget,
-                    expression,
-                    aggregate_aliases,
-                    &self.evaluated_aggregate_aliases,
-                );
-                let mut binding = None;
-                for source in paths.get("")? {
-                    let candidate = self.plus_coercion_binding_from_key(
-                        source,
-                        callable_env,
-                        aggregate_aliases,
-                    )?;
-                    if binding.is_some_and(|binding| binding != candidate) {
-                        return None;
-                    }
-                    binding = Some(candidate);
-                }
-                binding
-            }
-        }
-    }
-
-    fn class_plus_coercion_binding(
-        &self,
-        class: &Class<'a>,
-        callable_env: &CallableEnv,
-        aggregate_aliases: &AggregateAliases,
-    ) -> Option<CallableBinding> {
-        if self.class_has_plus_coercion_callbacks(class.span.start)
-            || self
-                .class_super_plus_coercions
-                .contains_key(&class.span.start)
-        {
-            return Some(CallableBinding::PlusCoercion(class.span.start));
-        }
-        self.plus_coercion_binding(class.super_class.as_ref()?, callable_env, aggregate_aliases)
-    }
-
-    fn class_has_plus_coercion_callbacks(&self, span: u32) -> bool {
-        self.plus_coercion_callbacks.contains_key(&span)
-            || self
-                .functions
-                .class_plus_coercion_callbacks
-                .contains_key(&span)
-            || self.functions.class_constructor_returns.contains_key(&span)
-    }
-
-    fn plus_coercion_binding_from_key(
-        &self,
-        source: &str,
-        callable_env: &CallableEnv,
-        aggregate_aliases: &AggregateAliases,
-    ) -> Option<CallableBinding> {
-        let mut binding = None;
-        for source in aggregate_alias_binding_names(
-            self.nest.budget,
-            aggregate_aliases,
-            &HashSet::from([source.to_string()]),
-        ) {
-            let Some(candidate) = callable_env
-                .get(&plus_coercion_binding_name(&source))
-                .copied()
-            else {
-                continue;
-            };
-            if !matches!(candidate, CallableBinding::PlusCoercion(_))
-                || binding.is_some_and(|binding| binding != candidate)
-            {
-                return None;
-            }
-            binding = Some(candidate);
-        }
-        binding
-    }
-
-    fn bind_plus_coercion_pattern<'r>(
-        &mut self,
-        pattern: &BindingPattern<'a>,
-        value: AggregateBindingValue<'r, 'a>,
-        argument_source_env: &ParamEnv,
-        argument_unbounded_source_env: &SourceStringNames,
-        argument_callable_env: &CallableEnv,
-        argument_aggregate_aliases: &AggregateAliases,
-    ) {
-        match pattern {
-            BindingPattern::BindingIdentifier(identifier) => {
-                let binding = match value {
-                    AggregateBindingValue::Argument(expression) => self.plus_coercion_binding(
-                        expression,
-                        argument_callable_env,
-                        argument_aggregate_aliases,
-                    ),
-                    AggregateBindingValue::Local(expression) => self.plus_coercion_binding(
-                        expression,
-                        &self.callable_env,
-                        &self.aggregate_aliases,
-                    ),
-                    AggregateBindingValue::ArgumentKey(source) => self
-                        .plus_coercion_binding_from_key(
-                            &source,
-                            argument_callable_env,
-                            argument_aggregate_aliases,
-                        ),
-                    AggregateBindingValue::LocalKey(source) => self.plus_coercion_binding_from_key(
-                        &source,
-                        &self.callable_env,
-                        &self.aggregate_aliases,
-                    ),
-                    AggregateBindingValue::Projected(_)
-                    | AggregateBindingValue::Missing
-                    | AggregateBindingValue::Unbounded => None,
-                }
-                .unwrap_or(CallableBinding::Unbounded);
-                self.callable_env.insert(
-                    plus_coercion_binding_name(identifier.name.as_str()),
-                    binding,
-                );
-            }
-            BindingPattern::AssignmentPattern(assignment) => {
-                let value = self.aggregate_binding_default(
-                    value,
-                    &assignment.right,
-                    argument_source_env,
-                    argument_unbounded_source_env,
-                );
-                self.bind_plus_coercion_pattern(
-                    &assignment.left,
-                    value,
-                    argument_source_env,
-                    argument_unbounded_source_env,
-                    argument_callable_env,
-                    argument_aggregate_aliases,
-                );
-            }
-            BindingPattern::ArrayPattern(array) => {
-                for (index, element) in array.elements.iter().enumerate() {
-                    let Some(element) = element else { continue };
-                    self.bind_plus_coercion_pattern(
-                        element,
-                        project_array_aggregate_binding(value.clone(), index),
-                        argument_source_env,
-                        argument_unbounded_source_env,
-                        argument_callable_env,
-                        argument_aggregate_aliases,
-                    );
-                }
-                if let Some(rest) = &array.rest {
-                    self.bind_plus_coercion_pattern(
-                        &rest.argument,
-                        AggregateBindingValue::Unbounded,
-                        argument_source_env,
-                        argument_unbounded_source_env,
-                        argument_callable_env,
-                        argument_aggregate_aliases,
-                    );
-                }
-            }
-            BindingPattern::ObjectPattern(object) => {
-                for property in &object.properties {
-                    let property_value = property
-                        .key
-                        .static_name()
-                        .map_or(AggregateBindingValue::Unbounded, |key| {
-                            project_object_aggregate_binding(value.clone(), &key)
-                        });
-                    self.bind_plus_coercion_pattern(
-                        &property.value,
-                        property_value,
-                        argument_source_env,
-                        argument_unbounded_source_env,
-                        argument_callable_env,
-                        argument_aggregate_aliases,
-                    );
-                }
-                if let Some(rest) = &object.rest {
-                    self.bind_plus_coercion_pattern(
-                        &rest.argument,
-                        AggregateBindingValue::Unbounded,
-                        argument_source_env,
-                        argument_unbounded_source_env,
-                        argument_callable_env,
-                        argument_aggregate_aliases,
-                    );
-                }
-            }
-        }
-    }
-
-    fn bind_parameter_aggregate_alias(
-        &mut self,
-        pattern: &BindingPattern<'a>,
-        argument: Option<&Expression<'a>>,
-        argument_state: Option<&SourceStringState>,
-        caller_state: &SourceStringState,
-    ) {
-        let Some(argument) = argument else {
-            return;
-        };
-        let state = argument_state.unwrap_or(caller_state);
-        self.bind_aggregate_alias_pattern(
-            pattern,
-            AggregateBindingValue::Argument(argument),
-            &state.source_env,
-            &state.unbounded_source_env,
-            &state.aggregate_aliases,
-        );
-    }
-
-    fn aggregate_binding_default<'r>(
-        &self,
-        value: AggregateBindingValue<'r, 'a>,
-        default: &'r Expression<'a>,
-        argument_source_env: &ParamEnv,
-        argument_unbounded_source_env: &SourceStringNames,
-    ) -> AggregateBindingValue<'r, 'a> {
-        match value {
-            AggregateBindingValue::Argument(expression)
-                if is_global_undefined(
-                    expression,
-                    argument_source_env,
-                    argument_unbounded_source_env,
-                ) =>
-            {
-                AggregateBindingValue::Local(default)
-            }
-            AggregateBindingValue::Local(expression)
-                if is_global_undefined(
-                    expression,
-                    &self.source_env,
-                    &self.unbounded_source_env,
-                ) =>
-            {
-                AggregateBindingValue::Local(default)
-            }
-            AggregateBindingValue::Missing => AggregateBindingValue::Local(default),
-            AggregateBindingValue::ArgumentKey(_)
-            | AggregateBindingValue::LocalKey(_)
-            | AggregateBindingValue::Projected(_)
-            | AggregateBindingValue::Unbounded => AggregateBindingValue::Unbounded,
-            value => value,
-        }
-    }
-
-    fn aggregate_binding_alias_paths(
-        &self,
-        value: AggregateBindingValue<'_, 'a>,
-        argument_aliases: &AggregateAliases,
-    ) -> AggregateAliasPaths {
-        match value {
-            AggregateBindingValue::Argument(expression) => expression_aggregate_alias_paths(
-                self.nest.budget,
-                expression,
-                argument_aliases,
-                &self.evaluated_aggregate_aliases,
-            ),
-            AggregateBindingValue::Local(expression) => expression_aggregate_alias_paths(
-                self.nest.budget,
-                expression,
-                &self.aggregate_aliases,
-                &self.evaluated_aggregate_aliases,
-            ),
-            AggregateBindingValue::ArgumentKey(key) => {
-                aggregate_alias_binding_paths(self.nest.budget, argument_aliases, &key)
-            }
-            AggregateBindingValue::LocalKey(key) => {
-                aggregate_alias_binding_paths(self.nest.budget, &self.aggregate_aliases, &key)
-            }
-            AggregateBindingValue::Projected(paths) => paths,
-            AggregateBindingValue::Missing | AggregateBindingValue::Unbounded => {
-                AggregateAliasPaths::new()
-            }
-        }
-    }
-
-    fn bind_aggregate_alias_name(
-        &mut self,
-        name: &str,
-        value: AggregateBindingValue<'_, 'a>,
-        argument_aliases: &AggregateAliases,
-    ) {
-        let argument = matches!(value, AggregateBindingValue::Argument(_));
-        let paths = self.aggregate_binding_alias_paths(value, argument_aliases);
-        clear_aggregate_aliases(
-            &mut self.aggregate_aliases,
-            &HashSet::from([name.to_string()]),
-        );
-        for (path, targets) in paths {
-            let alias = format!("{name}{path}");
-            for target in targets {
-                // Argument paths name caller bindings. A parameter with the same
-                // name shadows that binding; retaining it creates a false cycle
-                // such as node -> node.moduleSpecifier -> node.moduleSpecifier.moduleSpecifier.
-                if argument && binding_is_within(&target, name) {
-                    continue;
-                }
-                add_aggregate_alias(&mut self.aggregate_aliases, alias.clone(), target);
-            }
-        }
-    }
-
-    fn bind_aggregate_alias_pattern<'r>(
-        &mut self,
-        pattern: &BindingPattern<'a>,
-        value: AggregateBindingValue<'r, 'a>,
-        argument_source_env: &ParamEnv,
-        argument_unbounded_source_env: &SourceStringNames,
-        argument_aliases: &AggregateAliases,
-    ) {
-        match pattern {
-            BindingPattern::BindingIdentifier(identifier) => {
-                self.bind_aggregate_alias_name(identifier.name.as_str(), value, argument_aliases)
-            }
-            BindingPattern::AssignmentPattern(assignment) => {
-                let value = self.aggregate_binding_default(
-                    value,
-                    &assignment.right,
-                    argument_source_env,
-                    argument_unbounded_source_env,
-                );
-                self.bind_aggregate_alias_pattern(
-                    &assignment.left,
-                    value,
-                    argument_source_env,
-                    argument_unbounded_source_env,
-                    argument_aliases,
-                );
-            }
-            BindingPattern::ArrayPattern(array) => {
-                for (index, element) in array.elements.iter().enumerate() {
-                    if let Some(element) = element {
-                        self.bind_aggregate_alias_pattern(
-                            element,
-                            project_array_aggregate_binding(value.clone(), index),
-                            argument_source_env,
-                            argument_unbounded_source_env,
-                            argument_aliases,
-                        );
-                    }
-                }
-                if let Some(rest) = &array.rest {
-                    let paths = project_array_rest_aggregate_alias_paths(
-                        self.aggregate_binding_alias_paths(value, argument_aliases),
-                        array.elements.len(),
-                    );
-                    self.bind_aggregate_alias_pattern(
-                        &rest.argument,
-                        AggregateBindingValue::Projected(paths),
-                        argument_source_env,
-                        argument_unbounded_source_env,
-                        argument_aliases,
-                    );
-                }
-            }
-            BindingPattern::ObjectPattern(object) => {
-                for property in &object.properties {
-                    let value = property
-                        .key
-                        .static_name()
-                        .map_or(AggregateBindingValue::Unbounded, |key| {
-                            project_object_aggregate_binding(value.clone(), &key)
-                        });
-                    self.bind_aggregate_alias_pattern(
-                        &property.value,
-                        value,
-                        argument_source_env,
-                        argument_unbounded_source_env,
-                        argument_aliases,
-                    );
-                }
-                if let Some(rest) = &object.rest {
-                    let excluded = object
-                        .properties
-                        .iter()
-                        .filter_map(|property| {
-                            property.key.static_name().map(|key| key.to_string())
-                        })
-                        .collect();
-                    let paths = project_object_rest_aggregate_alias_paths(
-                        self.aggregate_binding_alias_paths(value, argument_aliases),
-                        &excluded,
-                    );
-                    self.bind_aggregate_alias_pattern(
-                        &rest.argument,
-                        AggregateBindingValue::Projected(paths),
-                        argument_source_env,
-                        argument_unbounded_source_env,
-                        argument_aliases,
-                    );
-                }
-            }
-        }
-    }
-
-    fn bind_assignment_aggregate_alias<'r>(
-        &mut self,
-        target: &AssignmentTarget<'a>,
-        value: AggregateBindingValue<'r, 'a>,
-        argument_source_env: &ParamEnv,
-        argument_unbounded_source_env: &SourceStringNames,
-        argument_aliases: &AggregateAliases,
-    ) {
-        match target {
-            AssignmentTarget::ArrayAssignmentTarget(array) => {
-                for (index, element) in array.elements.iter().enumerate() {
-                    if let Some(element) = element {
-                        self.bind_assignment_maybe_default_aggregate_alias(
-                            element,
-                            project_array_aggregate_binding(value.clone(), index),
-                            argument_source_env,
-                            argument_unbounded_source_env,
-                            argument_aliases,
-                        );
-                    }
-                }
-                if let Some(rest) = &array.rest {
-                    let paths = project_array_rest_aggregate_alias_paths(
-                        self.aggregate_binding_alias_paths(value, argument_aliases),
-                        array.elements.len(),
-                    );
-                    self.bind_assignment_aggregate_alias(
-                        &rest.target,
-                        AggregateBindingValue::Projected(paths),
-                        argument_source_env,
-                        argument_unbounded_source_env,
-                        argument_aliases,
-                    );
-                }
-            }
-            AssignmentTarget::ObjectAssignmentTarget(object) => {
-                for property in &object.properties {
-                    match property {
-                        oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(
-                            property,
-                        ) => {
-                            let mut property_value = project_object_aggregate_binding(
-                                value.clone(),
-                                property.binding.name.as_str(),
-                            );
-                            if let Some(default) = &property.init {
-                                property_value = self.aggregate_binding_default(
-                                    property_value,
-                                    default,
-                                    argument_source_env,
-                                    argument_unbounded_source_env,
-                                );
-                            }
-                            self.bind_aggregate_alias_name(
-                                property.binding.name.as_str(),
-                                property_value,
-                                argument_aliases,
-                            );
-                        }
-                        oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(
-                            property,
-                        ) => {
-                            let property_value = property.name.static_name().map_or(
-                                AggregateBindingValue::Unbounded,
-                                |key| project_object_aggregate_binding(value.clone(), &key),
-                            );
-                            self.bind_assignment_maybe_default_aggregate_alias(
-                                &property.binding,
-                                property_value,
-                                argument_source_env,
-                                argument_unbounded_source_env,
-                                argument_aliases,
-                            );
-                        }
-                    }
-                }
-                if let Some(rest) = &object.rest {
-                    let excluded = object
-                        .properties
-                        .iter()
-                        .filter_map(|property| match property {
-                            oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(
-                                property,
-                            ) => Some(property.binding.name.as_str().to_string()),
-                            oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(
-                                property,
-                            ) => property.name.static_name().map(|key| key.to_string()),
-                        })
-                        .collect();
-                    let paths = project_object_rest_aggregate_alias_paths(
-                        self.aggregate_binding_alias_paths(value, argument_aliases),
-                        &excluded,
-                    );
-                    self.bind_assignment_aggregate_alias(
-                        &rest.target,
-                        AggregateBindingValue::Projected(paths),
-                        argument_source_env,
-                        argument_unbounded_source_env,
-                        argument_aliases,
-                    );
-                }
-            }
-            _ => {
-                if let Some(name) = assignment_flow_key(target) {
-                    self.bind_aggregate_alias_name(&name, value, argument_aliases);
-                }
-            }
-        }
-    }
-
-    fn bind_assignment_maybe_default_aggregate_alias<'r>(
-        &mut self,
-        target: &oxc_ast::ast::AssignmentTargetMaybeDefault<'a>,
-        value: AggregateBindingValue<'r, 'a>,
-        argument_source_env: &ParamEnv,
-        argument_unbounded_source_env: &SourceStringNames,
-        argument_aliases: &AggregateAliases,
-    ) {
-        match target {
-            oxc_ast::ast::AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(default) => {
-                let value = self.aggregate_binding_default(
-                    value,
-                    &default.init,
-                    argument_source_env,
-                    argument_unbounded_source_env,
-                );
-                self.bind_assignment_aggregate_alias(
-                    &default.binding,
-                    value,
-                    argument_source_env,
-                    argument_unbounded_source_env,
-                    argument_aliases,
-                );
-            }
-            _ => self.bind_assignment_aggregate_alias(
-                target.to_assignment_target(),
-                value,
-                argument_source_env,
-                argument_unbounded_source_env,
-                argument_aliases,
-            ),
-        }
-    }
-
     fn propagate_captured_writes(
         &mut self,
         body_entry: &SourceStringState,
@@ -3424,16 +2726,6 @@ impl<'a> EffectVisitor<'_, 'a> {
         self.sync_module_source_strings();
     }
 
-    fn track_plus_coercion_binding(&mut self, name: &str, value: &Expression<'a>) {
-        self.record_source_string_write_name(name);
-        let binding = self
-            .plus_coercion_binding(value, &self.callable_env, &self.aggregate_aliases)
-            .unwrap_or(CallableBinding::Unbounded);
-        self.callable_env
-            .insert(plus_coercion_binding_name(name), binding);
-        self.sync_module_source_strings();
-    }
-
     fn mark_callable_binding_unbounded(&mut self, name: String) {
         self.record_source_string_write_name(&name);
         if !name.ends_with(PLUS_COERCION_BINDING_SUFFIX) {
@@ -3522,94 +2814,6 @@ impl<'a> EffectVisitor<'_, 'a> {
         self.mark_source_strings_unbounded(&names);
     }
 
-    fn track_aggregate_alias(&mut self, name: &str, value: &Expression<'a>) {
-        let names = HashSet::from([name.to_string()]);
-        clear_aggregate_aliases(&mut self.aggregate_aliases, &names);
-        let paths = expression_aggregate_alias_paths(
-            self.nest.budget,
-            value,
-            &self.aggregate_aliases,
-            &self.evaluated_aggregate_aliases,
-        );
-        self.insert_aggregate_alias_paths(name, paths);
-    }
-
-    fn insert_aggregate_alias_paths(&mut self, name: &str, paths: AggregateAliasPaths) {
-        self.record_source_string_write_name(name);
-        for (path, targets) in paths {
-            let alias = format!("{name}{path}");
-            for target in targets {
-                add_aggregate_alias(&mut self.aggregate_aliases, alias.clone(), target);
-            }
-        }
-        self.sync_module_source_strings();
-    }
-
-    fn restore_source_string_names(&mut self, state: &SourceStringState, names: &HashSet<String>) {
-        if names.is_empty() {
-            return;
-        }
-        self.nest.budget.note_state_scan(
-            self.source_string_state().binding_entries() + state.binding_entries(),
-        );
-        let names = binding_names_with_descendants(
-            names,
-            self.param_env
-                .keys()
-                .chain(self.source_env.keys())
-                .chain(self.unbounded_source_env.iter())
-                .chain(self.definitely_nullish_env.iter())
-                .chain(state.param_env.keys())
-                .chain(state.source_env.keys())
-                .chain(state.unbounded_source_env.iter())
-                .chain(state.definitely_nullish_env.iter())
-                .chain(self.callable_env.keys())
-                .chain(state.callable_env.keys()),
-        );
-        for name in &names {
-            match state.param_env.get(name) {
-                Some(resource) => {
-                    self.param_env.insert(name.clone(), resource.clone());
-                }
-                None => {
-                    self.param_env.remove(name);
-                }
-            }
-            match state.source_env.get(name) {
-                Some(resource) => {
-                    self.source_env.insert(name.clone(), resource.clone());
-                }
-                None => {
-                    self.source_env.remove(name);
-                }
-            }
-            if state.unbounded_source_env.contains(name) {
-                self.unbounded_source_env.insert(name.clone());
-            } else {
-                self.unbounded_source_env.remove(name);
-            }
-            if state.definitely_nullish_env.contains(name) {
-                self.definitely_nullish_env.insert(name.clone());
-            } else {
-                self.definitely_nullish_env.remove(name);
-            }
-            match state.callable_env.get(name) {
-                Some(binding) => {
-                    self.callable_env.insert(name.clone(), *binding);
-                }
-                None => {
-                    self.callable_env.remove(name);
-                }
-            }
-        }
-        restore_aggregate_aliases(
-            &mut self.aggregate_aliases,
-            &state.aggregate_aliases,
-            &names,
-        );
-        self.sync_module_source_strings();
-    }
-
     fn for_statement_left_lexical_names(
         &self,
         left: &oxc_ast::ast::ForStatementLeft<'a>,
@@ -3634,184 +2838,6 @@ impl<'a> EffectVisitor<'_, 'a> {
             bindings.visit_assignment_target(target);
         }
         bindings.names
-    }
-
-    fn observe_state_budget(&mut self, span: Span) {
-        if self.nest.budget.bytes_saturated() {
-            self.builder
-                .note_saturated_at("max_analysis_bytes", Some((span.start, span.end)));
-            self.saturated = true;
-        } else if self.nest.budget.cancelled() {
-            self.saturated = true;
-        }
-    }
-
-    fn charge_state_bytes(&mut self, bytes: u64, span: Span) -> bool {
-        self.observe_state_budget(span);
-        if self.saturated {
-            return false;
-        }
-        if !crate::nest::charge_analysis_bytes(
-            self.builder,
-            self.nest.budget,
-            bytes,
-            Some((span.start, span.end)),
-        ) {
-            self.saturated = true;
-            return false;
-        }
-        true
-    }
-
-    /// Charge retained state bytes for `state` plus `extra_bytes`, and make
-    /// `state` the snapshot later retained snapshots are charged against.
-    fn charge_retained_state(
-        &mut self,
-        state: &SourceStringState,
-        extra_bytes: u64,
-        span: Span,
-    ) -> bool {
-        let bytes = retained_state_bytes(state, self.charged_source_state.as_ref()) + extra_bytes;
-        if !self.charge_state_bytes(bytes, span) {
-            return false;
-        }
-        self.charged_source_state = Some(state.clone());
-        true
-    }
-
-    fn retain_exception_source_state(&mut self, span: Span) {
-        if self.exception_source_states.is_empty() || self.saturated {
-            return;
-        }
-        let state = self.source_string_state();
-        if self.charge_retained_state(&state, 0, span) {
-            self.exception_source_states.last_mut().unwrap().push(state);
-        }
-    }
-
-    fn retain_return_source_state(&mut self, span: Span) {
-        if self.return_source_states.is_empty() || self.saturated {
-            return;
-        }
-        let state = self.source_string_state();
-        if self.charge_retained_state(&state, 0, span) {
-            self.return_source_states.last_mut().unwrap().push(state);
-        }
-    }
-
-    fn source_string_state(&self) -> SourceStringState {
-        SourceStringState {
-            param_env: self.param_env.clone(),
-            source_env: self.source_env.clone(),
-            unbounded_source_env: self.unbounded_source_env.clone(),
-            definitely_nullish_env: self.definitely_nullish_env.clone(),
-            callable_env: self.callable_env.clone(),
-            aggregate_aliases: self.aggregate_aliases.clone(),
-        }
-    }
-
-    fn restore_source_string_state(&mut self, state: SourceStringState) {
-        self.param_env = state.param_env;
-        self.source_env = state.source_env;
-        self.unbounded_source_env = state.unbounded_source_env;
-        self.definitely_nullish_env = state.definitely_nullish_env;
-        self.callable_env = state.callable_env;
-        self.aggregate_aliases = state.aggregate_aliases;
-        self.sync_module_source_strings();
-    }
-
-    /// Join two possible source-string states. Divergent concatenations keep
-    /// enough shape to reach sink lowering, but are marked unbounded so the
-    /// sink emits a boundary instead of choosing one branch at full coverage.
-    fn join_source_string_states(
-        &mut self,
-        left: SourceStringState,
-        right: SourceStringState,
-        span: Span,
-    ) {
-        if self.saturated {
-            return;
-        }
-        self.nest
-            .budget
-            .note_state_scan(left.binding_entries() + right.binding_entries());
-        let names: HashSet<String> = left
-            .param_env
-            .keys()
-            .chain(right.param_env.keys())
-            .chain(left.source_env.keys())
-            .chain(right.source_env.keys())
-            .chain(left.unbounded_source_env.iter())
-            .chain(right.unbounded_source_env.iter())
-            .chain(left.definitely_nullish_env.iter())
-            .chain(right.definitely_nullish_env.iter())
-            .chain(left.callable_env.keys())
-            .chain(right.callable_env.keys())
-            .cloned()
-            .collect();
-        self.param_env = right.param_env;
-        self.source_env = right.source_env;
-        self.unbounded_source_env = right.unbounded_source_env;
-        self.definitely_nullish_env = right.definitely_nullish_env;
-        self.definitely_nullish_env
-            .retain(|name| left.definitely_nullish_env.contains(name));
-        self.callable_env = right.callable_env;
-        self.aggregate_aliases = right.aggregate_aliases;
-        for (name, targets) in left.aggregate_aliases {
-            for target in targets {
-                add_aggregate_alias(&mut self.aggregate_aliases, name.clone(), target);
-            }
-        }
-        for name in names {
-            let same_source = left.source_env.get(&name) == self.source_env.get(&name)
-                && left.unbounded_source_env.contains(&name)
-                    == self.unbounded_source_env.contains(&name);
-            if !same_source {
-                let concatenation = left
-                    .source_env
-                    .get(&name)
-                    .or_else(|| self.source_env.get(&name))
-                    .filter(|resource| matches!(resource, ResourceExpr::Join { .. }));
-                let bytes = concatenation.map(crate::limits::resource_bytes);
-                if let Some(bytes) = bytes
-                    && !self.charge_state_bytes(bytes, span)
-                {
-                    return;
-                }
-                let concatenation = left
-                    .source_env
-                    .get(&name)
-                    .or_else(|| self.source_env.get(&name))
-                    .filter(|resource| matches!(resource, ResourceExpr::Join { .. }))
-                    .cloned();
-                self.source_env.remove(&name);
-                if let Some(concatenation) = concatenation {
-                    self.source_env.insert(name.clone(), concatenation);
-                }
-                self.unbounded_source_env.insert(name.clone());
-                self.param_env.remove(&name);
-            } else if left.param_env.get(&name) != self.param_env.get(&name) {
-                self.param_env.remove(&name);
-            }
-            if left.callable_env.get(&name) != self.callable_env.get(&name) {
-                self.callable_env.insert(name, CallableBinding::Unbounded);
-            }
-        }
-        self.sync_module_source_strings();
-    }
-
-    fn sync_module_source_strings(&mut self) {
-        if self.function_depth == 0 {
-            self.module_env.clone_from(&self.param_env);
-            self.source_strings.clone_from(&self.source_env);
-            self.unbounded_source_strings
-                .clone_from(&self.unbounded_source_env);
-            self.module_definitely_nullish_env
-                .clone_from(&self.definitely_nullish_env);
-            self.module_callable_env.clone_from(&self.callable_env);
-            self.module_aggregate_aliases
-                .clone_from(&self.aggregate_aliases);
-        }
     }
 
     fn sync_module_object_literals(&mut self) {
@@ -4394,174 +3420,6 @@ impl<'a> EffectVisitor<'_, 'a> {
         (!shadowed).then(|| producers.clone())
     }
 
-    /// A call writes its arguments to this program's own stdout when its
-    /// callee is a runtime console method that prints here, or a binding
-    /// whose last value was one.
-    fn prints_to_stdout(&self, callee: &Expression<'a>) -> bool {
-        match unparen(callee) {
-            Expression::Identifier(id) => self
-                .bindings
-                .console
-                .references
-                .get(&id.span.start)
-                .is_some_and(|symbol| self.console_binding_prints(*symbol)),
-            callee => self
-                .bindings
-                .console
-                .method(callee)
-                .is_some_and(|method| self.console_method_prints(method)),
-        }
-    }
-
-    /// Whether `expression` may evaluate to a stdout printer here: a printing
-    /// console method or a binding holding one, its `.bind(...)`, or either
-    /// value a conditional or logical expression may yield.
-    fn is_console_printer(&self, expression: &Expression<'a>) -> bool {
-        match unparen(expression) {
-            Expression::CallExpression(call) => matches!(unparen(&call.callee),
-                Expression::StaticMemberExpression(member)
-                    if member.property.name == "bind" && self.is_console_printer(&member.object)),
-            Expression::ConditionalExpression(branch) => {
-                self.is_console_printer(&branch.consequent)
-                    || self.is_console_printer(&branch.alternate)
-            }
-            Expression::LogicalExpression(logical) => {
-                self.is_console_printer(&logical.left) || self.is_console_printer(&logical.right)
-            }
-            Expression::SequenceExpression(sequence) => sequence
-                .expressions
-                .last()
-                .is_some_and(|last| self.is_console_printer(last)),
-            expression => self.prints_to_stdout(expression),
-        }
-    }
-
-    /// Whether a value assigned to a console method provably writes nothing
-    /// to stdout: a function that does nothing or a binding that holds one,
-    /// a console method that does not print here such as `console.error`
-    /// or its `.bind(...)`, or a conditional expression whose arms are both
-    /// silent.
-    fn is_silent(&self, expression: &Expression<'a>) -> bool {
-        match unparen(expression) {
-            Expression::Identifier(id) => self.bindings.console.silent.contains(&id.span.start),
-            Expression::CallExpression(call) => matches!(unparen(&call.callee),
-                Expression::StaticMemberExpression(member)
-                    if member.property.name == "bind" && self.is_silent(&member.object)),
-            Expression::ConditionalExpression(branch) => {
-                self.is_silent(&branch.consequent) && self.is_silent(&branch.alternate)
-            }
-            expression => {
-                self.bindings.console.silent_function(expression)
-                    || self
-                        .bindings
-                        .console
-                        .method(expression)
-                        .is_some_and(|method| !self.console_method_prints(method))
-            }
-        }
-    }
-
-    /// Whether the runtime console's `method` may print to stdout here. It
-    /// starts as a printer for `log`, `info` and `debug`; an assignment that
-    /// may print makes it one under any condition, and a silent assignment
-    /// stops it only when [`Self::definite_here`].
-    fn console_method_prints(&self, method: &str) -> bool {
-        self.console_assignments
-            .iter()
-            .filter(|assignment| {
-                assignment
-                    .method
-                    .as_deref()
-                    .is_none_or(|name| name == method)
-            })
-            .fold(
-                console::STDOUT_METHODS.contains(&method),
-                |prints, assignment| {
-                    if !assignment.silences {
-                        true
-                    } else if self.definite_here(&assignment.condition, &assignment.regions) {
-                        false
-                    } else {
-                        prints
-                    }
-                },
-            )
-    }
-
-    /// Whether a binding that may hold a console method holds a stdout
-    /// printer here, by the same rule as [`Self::console_method_prints`]:
-    /// a write of a printer makes it one, and any other write stops it only
-    /// when definite here.
-    fn console_binding_prints(&self, symbol: oxc_semantic::SymbolId) -> bool {
-        self.console_binding_writes
-            .iter()
-            .filter(|write| write.symbol == symbol)
-            .fold(false, |prints, write| {
-                if write.prints {
-                    true
-                } else if self.definite_here(&write.condition, &write.regions) {
-                    false
-                } else {
-                    prints
-                }
-            })
-    }
-
-    /// Whether an earlier write under `condition` within the try and catch
-    /// `regions` ran on every path reaching here: made under no condition
-    /// outside any try block or catch clause, or under this same condition
-    /// within the regions still being walked, where a throw skipping the
-    /// write also skips this point.
-    fn definite_here(
-        &self,
-        condition: &Option<effinterp_proto::Condition>,
-        regions: &[u32],
-    ) -> bool {
-        (condition.is_none() || *condition == self.builder.current_condition())
-            && self.exception_regions.starts_with(regions)
-    }
-
-    /// Record an assignment or `delete` of a runtime console method, in
-    /// program order (see [`Self::console_method_prints`]). A computed name
-    /// Nah cannot read may be any method, so a value that may print makes
-    /// every method print and a silent one changes nothing. A write through
-    /// anything but the global `console` may be undone where Nah does not
-    /// look, so it can only make methods print.
-    fn note_console_assignment(&mut self, member: &MemberExpression<'a>, silences: bool) {
-        let console = &self.bindings.console;
-        if !console.is_console(member.object()) {
-            return;
-        }
-        let method = member.static_property_name().map(|name| name.to_string());
-        if silences && method.is_none() {
-            return;
-        }
-        let silences = silences && method.is_some() && console.is_global_console(member.object());
-        self.console_assignments.push(ConsoleAssignment {
-            silences,
-            method,
-            condition: self.builder.current_condition(),
-            regions: self.exception_regions.clone(),
-        });
-    }
-
-    /// Bind a console method binding (see
-    /// [`console::ConsoleAliases::bindings`]) to whether its value prints.
-    fn bind_console_printer(&mut self, alias: u32, prints: bool) {
-        if let Some(symbol) = self.bindings.console.bindings.get(&alias) {
-            self.note_console_binding_write(*symbol, prints);
-        }
-    }
-
-    fn note_console_binding_write(&mut self, symbol: oxc_semantic::SymbolId, prints: bool) {
-        self.console_binding_writes.push(ConsoleBindingWrite {
-            symbol,
-            prints,
-            condition: self.builder.current_condition(),
-            regions: self.exception_regions.clone(),
-        });
-    }
-
     /// Wire def-use edges into `consumer` from each argument that carries a
     /// tracked variable's value or a producer call nested directly in it.
     fn wire_arguments(&mut self, arguments: &[Argument<'a>], consumer: usize) {
@@ -4908,7 +3766,7 @@ fn position_can_match(wanted: usize, min_index: usize, max_index: Option<usize>)
 }
 
 /// The body and selected parameter of an inline callback with a plain name.
-fn callback_parameter<'e>(expr: &'e Expression<'_>, index: usize) -> Option<(u32, &'e str)> {
+fn inline_callback_parameter<'e>(expr: &'e Expression<'_>, index: usize) -> Option<(u32, &'e str)> {
     let (params, body) = match unparen(expr) {
         Expression::ArrowFunctionExpression(function) => (&function.params, &function.body),
         Expression::FunctionExpression(function) => (&function.params, function.body.as_ref()?),
@@ -4941,7 +3799,7 @@ fn chunk_accumulators(expr: &Expression<'_>) -> Vec<String> {
         },
         _ => return Vec::new(),
     };
-    let Some((_, chunk)) = callback_parameter(expr, 0) else {
+    let Some((_, chunk)) = inline_callback_parameter(expr, 0) else {
         return Vec::new();
     };
     let mut local = function_local_binding_names(body);
@@ -5228,26 +4086,6 @@ fn assignment_flow_key(target: &AssignmentTarget<'_>) -> Option<String> {
         AssignmentTarget::TSSatisfiesExpression(target) => expression_flow_key(&target.expression),
         AssignmentTarget::TSNonNullExpression(target) => expression_flow_key(&target.expression),
         AssignmentTarget::TSTypeAssertion(target) => expression_flow_key(&target.expression),
-        _ => None,
-    }
-}
-
-pub(super) fn plus_coercion_assignment_object(target: &AssignmentTarget<'_>) -> Option<String> {
-    match target {
-        AssignmentTarget::StaticMemberExpression(member)
-            if matches!(member.property.name.as_str(), "valueOf" | "toString") =>
-        {
-            expression_flow_key(&member.object)
-        }
-        AssignmentTarget::ComputedMemberExpression(member)
-            if matches!(
-                literal_property_name(&member.expression).as_deref(),
-                Some("valueOf" | "toString")
-            ) || expression_flow_key(&member.expression).as_deref()
-                == Some("Symbol.toPrimitive") =>
-        {
-            expression_flow_key(&member.object)
-        }
         _ => None,
     }
 }
@@ -5775,7 +4613,7 @@ fn js_guard_regions(
             end: value.span().end,
         }
     }
-    struct Collector<'s> {
+    struct JsGuardRegionCollector<'s> {
         source: &'s str,
         bindings: &'s Bindings,
         throws_reject: bool,
@@ -5787,7 +4625,7 @@ fn js_guard_regions(
         /// and candidate `http(s).get` response handlers and listeners.
         fulfillment: HashSet<u32>,
     }
-    impl Collector<'_> {
+    impl JsGuardRegionCollector<'_> {
         fn function_region(&mut self, origin: ByteSpan, body: ByteSpan) {
             if self.immediate.contains(&origin.start) {
                 return;
@@ -5803,7 +4641,7 @@ fn js_guard_regions(
                 .add(self.source, origin, body, kind, 0, 2, positive);
         }
     }
-    impl<'a> Visit<'a> for Collector<'_> {
+    impl<'a> Visit<'a> for JsGuardRegionCollector<'_> {
         fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
             let callee = unparen(&it.callee);
             if matches!(
@@ -6073,7 +4911,7 @@ fn js_guard_regions(
             walk::walk_switch_statement(self, it);
         }
     }
-    let mut collector = Collector {
+    let mut collector = JsGuardRegionCollector {
         source,
         bindings,
         throws_reject,

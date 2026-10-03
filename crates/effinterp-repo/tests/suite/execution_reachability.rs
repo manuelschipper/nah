@@ -10,29 +10,11 @@ use effinterp_proto::{
     CausalReason, ContainerStorage, ExecutionAssurance, ExecutionEdgeKind, ExecutionRealm,
     OccurrenceKind, ResourceExpr, ResourceIdentity, Subject,
 };
-use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, build_index, effects_of};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
+use crate::support::{deletes_important, display, literal};
 use crate::{causal_path, plan_causality, plan_execution};
-
-fn deletes_important(root: &Path) -> bool {
-    let idx = build_index(root, IndexLimits::default());
-    reach(
-        &idx,
-        &ResourceSelector::parse("fs:/important").unwrap(),
-        None,
-    )
-    .payload
-    .as_reach()
-    .unwrap()
-    .matches
-    .iter()
-    .any(|h| h.fact.operation.0 == "filesystem.delete")
-}
-
-fn display(effect: &effinterp_proto::EffectFact) -> String {
-    effinterp_proto::display_resource(&effect.resource)
-}
 
 fn originates(effect: &effinterp_proto::EffectFact, source_file: &str) -> bool {
     effect
@@ -163,13 +145,6 @@ const SHELL: &str = "#!/bin/sh\npsql -h db -d app -c 'UPDATE audit.events SET se
 const NORTH_STAR_ENTRYPOINT: &str = "package.json:scripts.run";
 const NORTH_STAR_SQL_EXECUTION: u32 = 9;
 const NORTH_STAR_DECOY_EXECUTION: usize = 10;
-
-fn literal(expr: &ResourceExpr) -> Option<&str> {
-    match expr {
-        ResourceExpr::Literal { value } => Some(value),
-        _ => None,
-    }
-}
 
 fn cwd(expr: Option<&ResourceExpr>) -> Option<&str> {
     match expr {

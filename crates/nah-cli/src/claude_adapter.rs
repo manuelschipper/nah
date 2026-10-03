@@ -18,17 +18,19 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
 ) -> u8 {
     match hook_adapter::decide(stdin, stderr, Runtime::Claude, failure_policy) {
         hook_adapter::HookOutcome::Decision(decision) => match decision.verdict() {
-            Verdict::Block => emit(
+            Verdict::Block => hook_adapter::write_hook_reply_line(
                 stdout,
-                deny(
+                claude_deny_reply(
                     &hook_adapter::feedback(&decision),
                     decision.guard_block_incomplete(),
                 ),
             ),
-            Verdict::Delegate if decision.evaluation_failed() => emit(
-                stdout,
-                json!({"systemMessage":hook_adapter::DELEGATED_FAILURE_MESSAGE}),
-            ),
+            Verdict::Delegate if decision.evaluation_failed() => {
+                hook_adapter::write_hook_reply_line(
+                    stdout,
+                    json!({"systemMessage":hook_adapter::DELEGATED_FAILURE_MESSAGE}),
+                )
+            }
             Verdict::Delegate => {}
         },
         hook_adapter::HookOutcome::IrrelevantEvent => {}
@@ -38,13 +40,15 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                 Runtime::Claude,
                 hook_adapter::IntegrationUnavailable::MalformedInput,
             ) {
-                emit(stdout, deny(&reason, false));
+                hook_adapter::write_hook_reply_line(stdout, claude_deny_reply(&reason, false));
             }
         }
         hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
             match hook_adapter::unavailable_feedback(failure_policy, Runtime::Claude, kind) {
-                Some(reason) => emit(stdout, deny(&reason, false)),
-                None => emit(
+                Some(reason) => {
+                    hook_adapter::write_hook_reply_line(stdout, claude_deny_reply(&reason, false))
+                }
+                None => hook_adapter::write_hook_reply_line(
                     stdout,
                     json!({"systemMessage":hook_adapter::DELEGATED_FAILURE_MESSAGE}),
                 ),
@@ -54,12 +58,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     0
 }
 
-fn emit<W: Write>(stdout: &mut W, value: Value) {
-    let _ = serde_json::to_writer(&mut *stdout, &value);
-    let _ = writeln!(stdout);
-}
-
-fn deny(reason: &str, incomplete: bool) -> Value {
+fn claude_deny_reply(reason: &str, incomplete: bool) -> Value {
     let mut output = json!({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",

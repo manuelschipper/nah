@@ -33,7 +33,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
 ) -> u8 {
     let request = serde_json::from_reader::<_, AmpHookInput>(stdin)
         .map_err(|error| error.to_string())
-        .and_then(normalize);
+        .and_then(normalize_amp_hook_input);
     let output = match request {
         Ok(request) => {
             match hook_adapter::decide_input(request, stderr, Runtime::Amp, failure_policy) {
@@ -67,8 +67,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         )
         .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
 }
 
@@ -78,7 +77,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize(AmpHookInput {
+    normalize_amp_hook_input(AmpHookInput {
         tool_name: tool_name.into(),
         tool_input,
         cwd: cwd.into(),
@@ -86,7 +85,7 @@ pub(crate) fn normalize_call(
     })
 }
 
-fn normalize(input: AmpHookInput) -> Result<ToolCallInput, String> {
+fn normalize_amp_hook_input(input: AmpHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_input.clone();
     let lowered = input
         .tool_input
@@ -163,7 +162,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(AmpHookInput {
+        normalize_amp_hook_input(AmpHookInput {
             tool_name: tool_name.into(),
             tool_input,
             cwd: "/repo".into(),
@@ -268,7 +267,7 @@ mod tests {
                 json!({"path":"/repo/file","old_str":"a","new_str":"b","replace_all":"yes"}),
             ),
         ] {
-            let call = normalize(AmpHookInput {
+            let call = normalize_amp_hook_input(AmpHookInput {
                 tool_name: name.into(),
                 tool_input: input.clone(),
                 cwd: "/repo".into(),

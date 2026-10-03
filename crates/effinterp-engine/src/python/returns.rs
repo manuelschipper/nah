@@ -12,7 +12,7 @@ use super::control::truthy;
 /// gives `flag` truthy in its body and not truthy in its `else`. Only a
 /// parameter the body never rebinds still holds the caller's argument there.
 #[derive(Clone, PartialEq)]
-pub(super) struct Guard {
+pub(super) struct ReturnPathGuard {
     pub(super) param: String,
     test: Test,
     holds: bool,
@@ -28,7 +28,7 @@ enum Test {
     IsNone,
 }
 
-impl Guard {
+impl ReturnPathGuard {
     /// Whether a call passing `argument` for the parameter cannot take this
     /// path: only a literal argument decides it.
     pub(super) fn refuted_by(&self, argument: &Expr) -> bool {
@@ -98,7 +98,7 @@ fn literal_equals(left: &Constant, right: &Constant) -> Option<bool> {
 pub(super) fn reachable_returns(
     body: &[Stmt],
     params: &[String],
-) -> HashMap<TextRange, Vec<Guard>> {
+) -> HashMap<TextRange, Vec<ReturnPathGuard>> {
     let mut returns = HashMap::new();
     let rebound = super::rebound_body_names(body, false);
     let params = params
@@ -116,7 +116,7 @@ struct Reach {
 
 /// Whether control may complete a statement normally, and the guards that
 /// then hold beyond those it started with.
-type Falls = Option<Vec<Guard>>;
+type Falls = Option<Vec<ReturnPathGuard>>;
 
 impl Reach {
     /// Collect the returns of `stmts`. A statement that falls through only
@@ -125,8 +125,8 @@ impl Reach {
     fn block(
         &self,
         stmts: &[Stmt],
-        guards: &mut Vec<Guard>,
-        out: &mut HashMap<TextRange, Vec<Guard>>,
+        guards: &mut Vec<ReturnPathGuard>,
+        out: &mut HashMap<TextRange, Vec<ReturnPathGuard>>,
     ) -> Falls {
         let depth = guards.len();
         for stmt in stmts {
@@ -144,8 +144,8 @@ impl Reach {
     fn stmt(
         &self,
         stmt: &Stmt,
-        guards: &mut Vec<Guard>,
-        out: &mut HashMap<TextRange, Vec<Guard>>,
+        guards: &mut Vec<ReturnPathGuard>,
+        out: &mut HashMap<TextRange, Vec<ReturnPathGuard>>,
     ) -> Falls {
         match stmt {
             Stmt::Return(_) => {
@@ -222,8 +222,8 @@ impl Reach {
         &self,
         body: &[Stmt],
         orelse: &[Stmt],
-        guards: &mut Vec<Guard>,
-        out: &mut HashMap<TextRange, Vec<Guard>>,
+        guards: &mut Vec<ReturnPathGuard>,
+        out: &mut HashMap<TextRange, Vec<ReturnPathGuard>>,
     ) -> Falls {
         let after = self.block(orelse, guards, out);
         if jumps(body, false) {
@@ -242,8 +242,8 @@ impl Reach {
         handlers: &[ast::ExceptHandler],
         orelse: &[Stmt],
         finalbody: &[Stmt],
-        guards: &mut Vec<Guard>,
-        out: &mut HashMap<TextRange, Vec<Guard>>,
+        guards: &mut Vec<ReturnPathGuard>,
+        out: &mut HashMap<TextRange, Vec<ReturnPathGuard>>,
     ) -> Falls {
         let mut pending = HashMap::new();
         let mut falls = self.block(body, guards, &mut pending).and_then(|after| {
@@ -272,13 +272,13 @@ impl Reach {
 
     /// The parameter test a branch reads: `p`, `p == <literal>`,
     /// `p is None`, or their negations.
-    fn guard(&self, test: &Expr) -> Option<Guard> {
+    fn guard(&self, test: &Expr) -> Option<ReturnPathGuard> {
         let param = |expr: &Expr| match expr {
             Expr::Name(name) if self.params.contains(name.id.as_str()) => Some(name.id.to_string()),
             _ => None,
         };
         match test {
-            Expr::Name(_) => Some(Guard {
+            Expr::Name(_) => Some(ReturnPathGuard {
                 param: param(test)?,
                 test: Test::Truthy,
                 holds: true,
@@ -300,7 +300,7 @@ impl Reach {
                     (CmpOp::IsNot, Constant::None) => (Test::IsNone, false),
                     _ => return None,
                 };
-                Some(Guard {
+                Some(ReturnPathGuard {
                     param: name,
                     test,
                     holds,

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use effinterp_bench::invocation::corpus::BenchRow;
+use effinterp_bench::invocation::corpus::InvocationRow;
 use effinterp_bench::invocation::judge::{Verdict, judge_plan};
 use effinterp_bench::invocation::score::{
     AdversarialScore, Drop, ExeShare, Invocation, SCOREBOARD_SCHEMA, Scoreboard, SourceScore,
@@ -82,7 +82,7 @@ fn plans_land_in_one_bucket() {
 /// row was not understood, so the share is not `1 - gap`.
 #[test]
 fn understood_excludes_failed_rows() {
-    let row = |weight| BenchRow {
+    let row = |weight| InvocationRow {
         file: "f.jsonl".into(),
         id: format!("row-{weight}"),
         source: "swe".into(),

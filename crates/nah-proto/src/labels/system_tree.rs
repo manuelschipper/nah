@@ -1,6 +1,6 @@
 //! The system-tree catalog: the Unix and macOS trees whose loss breaks the host.
 
-use super::lexical_path::fold;
+use super::lexical_path::fold_path_spelling;
 use super::pattern::selects_every_entry;
 use crate::action::pattern_bound;
 use crate::ctx::Platform;
@@ -100,7 +100,7 @@ pub fn selects_root_or_system_tree(target: &str) -> bool {
 
 fn selects_windows_root_or_system_tree(target: &str) -> bool {
     // The Windows trees are read in the Windows spelling on every host.
-    let target = fold(target, Platform::Windows);
+    let target = fold_path_spelling(target, Platform::Windows);
     let tree = target
         .as_bytes()
         .get(1)

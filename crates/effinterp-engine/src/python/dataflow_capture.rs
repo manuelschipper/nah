@@ -7,8 +7,8 @@ use rustpython_parser::ast::Expr;
 use rustpython_parser::text_size::TextRange;
 
 use super::{
-    Bound, CallReturn, PythonWalker, call_arguments, literal_unpack, model, print_emitted,
-    python_call_argument, rebound_target_names, value_spine,
+    CallReturn, PythonBoundArgument, PythonWalker, call_arguments, literal_unpack, model,
+    print_emitted, python_call_argument, rebound_target_names, value_spine,
 };
 
 impl PythonWalker<'_, '_> {
@@ -447,12 +447,17 @@ impl PythonWalker<'_, '_> {
     }
 
     /// The argument `call` binds to `param` of the same-file `callee`.
-    pub(super) fn bound_argument(&self, callee: &str, call: &ast::ExprCall, param: &str) -> Bound {
+    pub(super) fn bound_argument(
+        &self,
+        callee: &str,
+        call: &ast::ExprCall,
+        param: &str,
+    ) -> PythonBoundArgument {
         let Some(def) = self.defs.iter().find(|def| def.name == callee) else {
-            return Bound::Unknown;
+            return PythonBoundArgument::Unknown;
         };
         let Some(position) = def.params.iter().position(|name| name == param) else {
-            return Bound::Unknown;
+            return PythonBoundArgument::Unknown;
         };
         if position < def.positional_param_count {
             let unpacked = call
@@ -461,10 +466,10 @@ impl PythonWalker<'_, '_> {
                 .take(position + 1)
                 .any(|argument| matches!(argument, Expr::Starred(_)));
             if unpacked {
-                return Bound::Unknown;
+                return PythonBoundArgument::Unknown;
             }
             if position < call.args.len() {
-                return Bound::Index(position);
+                return PythonBoundArgument::Index(position);
             }
         }
         if let Some(index) = call
@@ -472,7 +477,7 @@ impl PythonWalker<'_, '_> {
             .iter()
             .position(|keyword| keyword.arg.as_deref() == Some(param))
         {
-            return Bound::Index(call.args.len() + index);
+            return PythonBoundArgument::Index(call.args.len() + index);
         }
         if call.keywords.iter().any(|keyword| keyword.arg.is_none())
             || call
@@ -480,11 +485,11 @@ impl PythonWalker<'_, '_> {
                 .iter()
                 .any(|argument| matches!(argument, Expr::Starred(_)))
         {
-            return Bound::Unknown;
+            return PythonBoundArgument::Unknown;
         }
         match def.param_defaults.get(position).cloned().flatten() {
-            Some(default) => Bound::Default(default),
-            None => Bound::Missing,
+            Some(default) => PythonBoundArgument::Default(default),
+            None => PythonBoundArgument::Missing,
         }
     }
 
@@ -494,9 +499,9 @@ impl PythonWalker<'_, '_> {
         let arguments = call_arguments(call);
         returned.site.guards.iter().all(|guard| {
             match self.bound_argument(&returned.callee, call, &guard.param) {
-                Bound::Index(index) => !guard.refuted_by(arguments[index]),
-                Bound::Default(default) => !guard.refuted_by(&default),
-                Bound::Unknown | Bound::Missing => true,
+                PythonBoundArgument::Index(index) => !guard.refuted_by(arguments[index]),
+                PythonBoundArgument::Default(default) => !guard.refuted_by(&default),
+                PythonBoundArgument::Unknown | PythonBoundArgument::Missing => true,
             }
         })
     }
@@ -512,9 +517,9 @@ impl PythonWalker<'_, '_> {
         let mut indexes = Vec::new();
         for param in &returned.site.params {
             match self.bound_argument(&returned.callee, call, param) {
-                Bound::Index(index) => indexes.push(index),
-                Bound::Unknown => indexes.extend(0..call_arguments(call).len()),
-                Bound::Default(_) | Bound::Missing => {}
+                PythonBoundArgument::Index(index) => indexes.push(index),
+                PythonBoundArgument::Unknown => indexes.extend(0..call_arguments(call).len()),
+                PythonBoundArgument::Default(_) | PythonBoundArgument::Missing => {}
             }
         }
         indexes.sort_unstable();

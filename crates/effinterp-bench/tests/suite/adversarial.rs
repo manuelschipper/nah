@@ -13,7 +13,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use effinterp_bench::invocation::corpus::load_bench;
+use effinterp_bench::invocation::corpus::load_invocation_rows;
 use effinterp_bench::invocation::score::{AdversarialScore, Scoreboard, score_adversarial};
 use effinterp_bench::invocation::{Mutation, analyze_rows};
 use effinterp_engine::Engine;
@@ -36,7 +36,7 @@ fn committed() -> AdversarialScore {
 /// it must not break the build.
 #[test]
 fn adversarial_verdicts_and_symbolic_operands_hold() {
-    let rows: Vec<_> = load_bench(&bench_dir().join("invocation"))
+    let rows: Vec<_> = load_invocation_rows(&bench_dir().join("invocation"))
         .unwrap()
         .into_iter()
         .filter(|row| row.source == "adversarial")

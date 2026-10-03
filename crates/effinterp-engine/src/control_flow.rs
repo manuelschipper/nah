@@ -1033,7 +1033,7 @@ pub(crate) enum Jump {
     Continue(Option<String>),
 }
 
-enum Scope {
+enum ControlScope {
     Catch {
         thrown: Vec<u32>,
     },
@@ -1084,7 +1084,7 @@ pub(crate) struct Graph {
     /// Nodes that leave successfully unless the construct at the span is
     /// registered as unable to divert control there.
     guards: Vec<(u32, Span)>,
-    scopes: Vec<Scope>,
+    scopes: Vec<ControlScope>,
     budget: Option<Rc<Budget>>,
     caps: ControlCaps,
     bytes: u64,
@@ -1279,11 +1279,12 @@ impl Graph {
     }
 
     fn exception(&mut self, from: u32) {
-        if self
-            .scopes
-            .iter()
-            .any(|scope| matches!(scope, Scope::Catch { .. } | Scope::Cleanup { .. }))
-        {
+        if self.scopes.iter().any(|scope| {
+            matches!(
+                scope,
+                ControlScope::Catch { .. } | ControlScope::Cleanup { .. }
+            )
+        }) {
             if let Some(thrown) = self.node(vec![from]) {
                 self.flow.nodes[thrown as usize].exceptional = true;
                 self.jump(Some(thrown), Jump::Throw);
@@ -1294,11 +1295,11 @@ impl Graph {
     }
 
     pub(crate) fn push_catch(&mut self) {
-        self.scopes.push(Scope::Catch { thrown: Vec::new() });
+        self.scopes.push(ControlScope::Catch { thrown: Vec::new() });
     }
 
     pub(crate) fn pop_catch(&mut self) -> Vec<u32> {
-        let Some(Scope::Catch { thrown }) = self.scopes.pop() else {
+        let Some(ControlScope::Catch { thrown }) = self.scopes.pop() else {
             unreachable!("catch scopes are balanced")
         };
         thrown
@@ -1382,7 +1383,7 @@ impl Graph {
     }
 
     pub(crate) fn push_loop(&mut self, label: Option<String>, continues: bool) {
-        self.scopes.push(Scope::Loop {
+        self.scopes.push(ControlScope::Loop {
             label,
             continues,
             unlabeled: true,
@@ -1393,7 +1394,7 @@ impl Graph {
 
     /// A labeled statement that is not a loop: only `break label` leaves it.
     pub(crate) fn push_block(&mut self, label: String) {
-        self.scopes.push(Scope::Loop {
+        self.scopes.push(ControlScope::Loop {
             label: Some(label),
             continues: false,
             unlabeled: false,
@@ -1405,7 +1406,7 @@ impl Graph {
     /// Break and continue sources of the innermost loop scope.
     pub(crate) fn pop_loop(&mut self) -> (Vec<u32>, Vec<u32>) {
         match self.scopes.pop() {
-            Some(Scope::Loop {
+            Some(ControlScope::Loop {
                 breaks, continued, ..
             }) => (breaks, continued),
             _ => unreachable!("loop scopes are balanced"),
@@ -1413,7 +1414,7 @@ impl Graph {
     }
 
     pub(crate) fn push_cleanup(&mut self) {
-        self.scopes.push(Scope::Cleanup {
+        self.scopes.push(ControlScope::Cleanup {
             pending: Vec::new(),
         });
     }
@@ -1421,7 +1422,7 @@ impl Graph {
     /// Jumps that left the protected region and still owe the cleanup.
     pub(crate) fn pop_cleanup(&mut self) -> Vec<(u32, Jump)> {
         match self.scopes.pop() {
-            Some(Scope::Cleanup { pending }) => pending,
+            Some(ControlScope::Cleanup { pending }) => pending,
             _ => unreachable!("cleanup scopes are balanced"),
         }
     }
@@ -1434,17 +1435,17 @@ impl Graph {
         };
         for scope in self.scopes.iter_mut().rev() {
             match scope {
-                Scope::Catch { thrown } => {
+                ControlScope::Catch { thrown } => {
                     if jump == Jump::Throw {
                         thrown.push(from);
                         return;
                     }
                 }
-                Scope::Cleanup { pending } => {
+                ControlScope::Cleanup { pending } => {
                     pending.push((from, jump));
                     return;
                 }
-                Scope::Loop {
+                ControlScope::Loop {
                     label,
                     continues,
                     unlabeled,
@@ -1620,7 +1621,7 @@ struct ChildRun {
     requirements: Requirements,
 }
 
-struct Frame {
+struct ControlStackFrame {
     capture: bool,
     root: bool,
     source: (usize, usize),
@@ -1648,7 +1649,7 @@ pub(crate) struct ControlCheckpoint {
 /// owns it so nested runtimes compose through their launch sites.
 #[derive(Default)]
 pub(crate) struct ControlStack {
-    frames: Vec<Frame>,
+    frames: Vec<ControlStackFrame>,
     /// Whether the outermost frame describes the analyzed subject itself.
     roots: bool,
 }
@@ -1714,7 +1715,7 @@ impl ControlStack {
         let root = !capture && self.roots && self.frames.is_empty() && execution_depth == 1;
         let mut graph = Graph::new(budget, caps);
         build(&mut graph);
-        self.frames.push(Frame {
+        self.frames.push(ControlStackFrame {
             capture,
             root,
             source: source_key(source),
@@ -1743,7 +1744,7 @@ impl ControlStack {
     }
 
     /// Whether registrations from a walk of `source` in this mode apply.
-    fn top(&mut self, source: &str, capture: bool) -> Option<&mut Frame> {
+    fn top(&mut self, source: &str, capture: bool) -> Option<&mut ControlStackFrame> {
         self.frames
             .last_mut()
             .filter(|frame| frame.capture == capture && frame.source == source_key(source))
@@ -1866,7 +1867,7 @@ impl ControlStack {
     /// frame that launched it; the analyzed subject's own frame promotes the
     /// plan effects it requires.
     pub(crate) fn leave(&mut self, effects: usize) -> Option<Finished> {
-        let Frame {
+        let ControlStackFrame {
             capture,
             root,
             execution,

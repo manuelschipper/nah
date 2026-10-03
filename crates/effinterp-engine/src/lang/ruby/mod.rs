@@ -24,10 +24,11 @@ mod control;
 mod load_path;
 mod model;
 
+use crate::lang::depth::ruby_nesting_exceeds;
 use crate::lang::frontend::{
     Frontend, FrontendInput, MAX_WALK_DEPTH, ParseFailure, ParseOutcome, WalkOutcome,
 };
-use crate::value::unresolved_resource;
+use crate::value::{fs_path_resource, unresolved_resource};
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -54,8 +55,8 @@ use crate::{
     CallableValue, ObjectIdentity, ScopeKey, SemanticValue, SemanticValueKind, ValueArgument,
 };
 use model::{
-    Modeled, Scope, apply_live_assign, assigned_proc, candidate_limit_boundary, constant_env,
-    effect, env_index_read, env_key, exe, fs_path, guarded_ruby_children, invoked_procs,
+    RubyModelScope, RubyModeledSend, apply_live_assign, assigned_proc, candidate_limit_boundary,
+    constant_env, effect, env_index_read, env_key, exe, guarded_ruby_children, invoked_procs,
     literal_str, model, network_sink, passed_procs, poison_boundary, poisoned_send_reference,
     push_proc, resolve, spawn_of_parts, value_arguments, yielded_argument_sets,
 };
@@ -85,12 +86,6 @@ fn parse(source: &str) -> Option<Box<Node>> {
         ..Default::default()
     };
     Parser::new(source.as_bytes(), options).do_parse().ast
-}
-
-/// Whether Ruby source nests deeper than the walk limit anywhere; see
-/// [`crate::lang::depth::ruby_nesting_exceeds`].
-fn ruby_nesting_exceeds(source: &str) -> bool {
-    crate::lang::depth::ruby_nesting_exceeds(source)
 }
 
 /// lib-ruby-parser rejects a final `=end` without a trailing newline even
@@ -348,7 +343,7 @@ enum LocalTy {
 /// or module contributing a [`ClassEntry`]. Nesting uses the innermost
 /// constant name (`ColorLS::Flags` registers as `Flags`), matching how call
 /// edges name their heads.
-fn collect(node: &Node, ctx: &mut RubyFileContext) {
+fn collect_definitions(node: &Node, ctx: &mut RubyFileContext) {
     collect_at(node, ctx, 0);
 }
 
@@ -551,8 +546,8 @@ fn collect_constant(
 
 fn constant_resource(node: &Node) -> Option<ResourceExpr> {
     match node {
-        Node::Str(string) => Some(fs_path(&string.value.to_string_lossy())),
-        Node::Dstr(string) => literal_parts(&string.parts).map(|value| fs_path(&value)),
+        Node::Str(string) => Some(fs_path_resource(&string.value.to_string_lossy())),
+        Node::Dstr(string) => literal_parts(&string.parts).map(|value| fs_path_resource(&value)),
         Node::Send(send)
             if send.recv.as_deref().and_then(constant_path).as_deref() == Some("File")
                 && send.method_name == "join"
@@ -561,7 +556,7 @@ fn constant_resource(node: &Node) -> Option<ResourceExpr> {
             let parts = send
                 .args
                 .iter()
-                .map(|argument| literal_str(argument).map(|value| fs_path(&value)))
+                .map(|argument| literal_str(argument).map(|value| fs_path_resource(&value)))
                 .collect::<Option<Vec<_>>>()?;
             Some(ResourceExpr::Join { parts })
         }
@@ -1117,7 +1112,7 @@ fn formatted_arguments(args: &[Node]) -> Option<Vec<&Node>> {
 }
 
 /// A backtick's span, with whether a value holds its bytes verbatim.
-type HeldCapture = ((usize, usize), bool);
+type RubyHeldCapture = ((usize, usize), bool);
 
 /// The backtick spans and local names whose bytes an expression's value
 /// carries. Only forms that keep the text pass them on: interpolation,
@@ -1126,7 +1121,7 @@ type HeldCapture = ((usize, usize), bool);
 /// output does not carry its bytes. Each source is paired with whether its
 /// bytes reach the value verbatim; a format this reading cannot follow may or
 /// may not print them.
-fn capture_sources(node: &Node) -> (Vec<HeldCapture>, Vec<(String, bool)>) {
+fn capture_sources(node: &Node) -> (Vec<RubyHeldCapture>, Vec<(String, bool)>) {
     let mut spans = Vec::new();
     let mut locals = Vec::new();
     let mut stack = vec![(node, true)];
@@ -1395,7 +1390,7 @@ impl Frontend for RubyFrontend {
             ..RubyFileContext::default()
         };
         for stmt in top_statements(root) {
-            collect(stmt, &mut ctx);
+            collect_definitions(stmt, &mut ctx);
             collect_exact(stmt, None, &mut ctx, 0);
         }
         ctx.rake_dsl = has_rake_dsl(root);
@@ -1551,7 +1546,7 @@ pub(super) fn summarize_ast(source: &str, root: &Node) -> ModuleSummary {
         ..RubyFileContext::default()
     };
     for stmt in top_statements(root) {
-        collect(stmt, &mut ctx);
+        collect_definitions(stmt, &mut ctx);
         collect_exact(stmt, None, &mut ctx, 0);
     }
     ctx.rake_dsl = has_rake_dsl(root);
@@ -1917,13 +1912,13 @@ static CAPTURE_SOURCE: &str = "ruby capture";
 
 /// Effects/boundaries/calls captured while summarizing a method body.
 #[derive(Clone, Default)]
-struct Capture {
+struct RubySummaryCapture {
     effects: Vec<Effect>,
     /// Transfer pairings among `effects`, by slot.
     transfers: Vec<TransferBinding>,
     boundaries: Vec<Boundary>,
     calls: Vec<CallEdge>,
-    spawns: Vec<(Modeled, Option<effinterp_proto::Condition>)>,
+    spawns: Vec<(RubyModeledSend, Option<effinterp_proto::Condition>)>,
     /// What the body guarantees over `effects` slots, when it was walked.
     control: Option<Requirements>,
     control_flow: crate::control_flow::ControlFlow,
@@ -1935,9 +1930,9 @@ fn capture(
     params: &[String],
     class: Option<&str>,
     ctx: &RubyFileContext,
-) -> Capture {
+) -> RubySummaryCapture {
     let _walk = crate::limits::summary_walk();
-    let mut cap = Capture::default();
+    let mut cap = RubySummaryCapture::default();
     let Some(node) = body else {
         return cap;
     };
@@ -1983,7 +1978,7 @@ fn capture_into(
     stack: &mut Vec<String>,
     nodes_left: &mut u64,
     control: &mut ControlStack,
-    cap: &mut Capture,
+    cap: &mut RubySummaryCapture,
 ) {
     let statements = top_statements(body);
     control.enter(
@@ -2030,7 +2025,7 @@ fn capture_into(
 /// Capture-mode walker: collects a method's parameterized effects and edges
 /// without a live plan.
 struct RubyCaptureWalker<'a> {
-    cap: &'a mut Capture,
+    cap: &'a mut RubySummaryCapture,
     env: HashMap<String, ResourceExpr>,
     class: Option<&'a str>,
     ctx: &'a RubyFileContext,
@@ -2292,7 +2287,7 @@ impl RubyCaptureWalker<'_> {
     }
 
     fn send_modeled(&mut self, s: &Send) -> SendControl {
-        let scope = Scope {
+        let scope = RubyModelScope {
             env: &self.env,
             cwd: None,
             class: self.class,
@@ -2303,7 +2298,7 @@ impl RubyCaptureWalker<'_> {
             remote_bodies: &self.remote_bodies,
         };
         match model(s, &scope) {
-            Modeled::Effects {
+            RubyModeledSend::Effects {
                 effects,
                 transfers,
                 boundary,
@@ -2324,12 +2319,12 @@ impl RubyCaptureWalker<'_> {
                     .extend(transfers.into_iter().map(|binding| binding.shifted(base)));
                 SendControl::modeled(s)
             }
-            Modeled::LiteralEval(_) => {
+            RubyModeledSend::LiteralEval(_) => {
                 // Captures cannot transfer the eval lexical scope to a nested source.
                 self.cap.boundaries.push(model::dyn_boundary("eval"));
                 SendControl::Unknown
             }
-            Modeled::RemoteEval(url) => {
+            RubyModeledSend::RemoteEval(url) => {
                 let base = self.cap.effects.len() as u32;
                 self.cap.effects.extend(model::remote_eval_effects(url));
                 self.cap
@@ -2338,7 +2333,7 @@ impl RubyCaptureWalker<'_> {
                 self.cap.boundaries.push(model::dyn_boundary("eval"));
                 SendControl::Unknown
             }
-            Modeled::DecodedEval => {
+            RubyModeledSend::DecodedEval => {
                 let base = self.cap.effects.len() as u32;
                 let (decode, execution) = model::decoded_eval_effects();
                 self.cap.effects.extend([decode, execution]);
@@ -2348,13 +2343,13 @@ impl RubyCaptureWalker<'_> {
                 self.cap.boundaries.push(model::dyn_boundary("eval"));
                 SendControl::Unknown
             }
-            Modeled::Boundary(b) => {
+            RubyModeledSend::Boundary(b) => {
                 self.cap.boundaries.push(b);
                 SendControl::Unknown
             }
-            spawned @ (Modeled::ShellSpawn { .. }
-            | Modeled::ExecSpawn { .. }
-            | Modeled::SpawnUnresolved(_)) => {
+            spawned @ (RubyModeledSend::ShellSpawn { .. }
+            | RubyModeledSend::ExecSpawn { .. }
+            | RubyModeledSend::SpawnUnresolved(_)) => {
                 self.spawned(spawned);
                 // The launched command's occurrences are not summary slots.
                 match SendControl::spawn(s) {
@@ -2362,7 +2357,7 @@ impl RubyCaptureWalker<'_> {
                     other => other,
                 }
             }
-            Modeled::Calls(edges) => {
+            RubyModeledSend::Calls(edges) => {
                 let mut applied = Vec::with_capacity(edges.len());
                 for edge in edges {
                     applied.push(self.inline_local(&edge, s));
@@ -2377,7 +2372,7 @@ impl RubyCaptureWalker<'_> {
                     _ => SendControl::Unknown,
                 }
             }
-            Modeled::None => {
+            RubyModeledSend::None => {
                 if let Some(callee) = unmodeled_receiver_call(s, self.ctx) {
                     self.cap.boundaries.push(Boundary {
                         reason: BoundaryReason::UNRESOLVED_CALL,
@@ -2423,10 +2418,12 @@ impl RubyCaptureWalker<'_> {
     /// A subprocess inside a summarized method: recorded as a process.exec
     /// effect on the summary (the nested command is not composed here — the
     /// executable name is kept when statically known).
-    fn spawned(&mut self, m: Modeled) {
+    fn spawned(&mut self, m: RubyModeledSend) {
         if matches!(
             m,
-            Modeled::ShellSpawn { .. } | Modeled::ExecSpawn { .. } | Modeled::SpawnUnresolved(_)
+            RubyModeledSend::ShellSpawn { .. }
+                | RubyModeledSend::ExecSpawn { .. }
+                | RubyModeledSend::SpawnUnresolved(_)
         ) {
             self.cap.spawns.push((m, None));
         }
@@ -2469,7 +2466,7 @@ impl RubyCaptureWalker<'_> {
             self.class,
             self.ctx,
         ));
-        let mut inner = Capture::default();
+        let mut inner = RubySummaryCapture::default();
         let mut inner_env = constant_env(self.ctx, class.as_deref());
         inner_env.extend(
             params
@@ -2866,7 +2863,7 @@ struct RubyWalker<'a> {
     poisoned: HashSet<String>,
     procs: HashMap<String, Vec<ProcDef>>,
     active_procs: HashSet<usize>,
-    captures: HashMap<String, Rc<Capture>>,
+    captures: HashMap<String, Rc<RubySummaryCapture>>,
     applications: HashMap<String, HashSet<String>>,
     nodes_left: u64,
     truncated: bool,
@@ -2900,7 +2897,7 @@ struct RubyWalker<'a> {
     >,
     /// Backtick spans whose output a local holds, each with whether the local
     /// holds those bytes verbatim.
-    capture_locals: HashMap<String, Vec<HeldCapture>>,
+    capture_locals: HashMap<String, Vec<RubyHeldCapture>>,
     /// Local assignments a reached `begin … end while`/`until` body's first
     /// iteration reaches, by start offset. The body runs at least once, so a
     /// `true` one replaces the output a local held; a `false` one sits in a
@@ -3381,7 +3378,7 @@ impl RubyWalker<'_> {
     }
 
     fn send_modeled(&mut self, s: &Send) -> SendControl {
-        let scope = Scope {
+        let scope = RubyModelScope {
             env: &self.env,
             cwd: self.cwd,
             class: None,
@@ -3394,7 +3391,7 @@ impl RubyWalker<'_> {
         let begin = s.expression_l.begin;
         let end = s.expression_l.end;
         match model(s, &scope) {
-            Modeled::Effects {
+            RubyModeledSend::Effects {
                 effects,
                 transfers,
                 boundary: unknown,
@@ -3420,7 +3417,7 @@ impl RubyWalker<'_> {
                 crate::summary::replay_transfers(self.builder, &transfers, &slots);
                 SendControl::modeled(s)
             }
-            Modeled::LiteralEval(source) => {
+            RubyModeledSend::LiteralEval(source) => {
                 let site = self.span(begin, end);
                 self.nest.nest(
                     self.builder,
@@ -3448,7 +3445,7 @@ impl RubyWalker<'_> {
                 self.procs.clear();
                 SendControl::Unknown
             }
-            Modeled::DecodedEval => {
+            RubyModeledSend::DecodedEval => {
                 let (decode, execution) = model::decoded_eval_effects();
                 let slots = [
                     self.emit_applying(decode, begin, end, Some("ruby/base64@v0")),
@@ -3464,7 +3461,7 @@ impl RubyWalker<'_> {
                 self.builder.boundary(boundary);
                 SendControl::Unknown
             }
-            Modeled::RemoteEval(url) => {
+            RubyModeledSend::RemoteEval(url) => {
                 let slots: Vec<Option<u32>> = model::remote_eval_effects(url)
                     .into_iter()
                     .map(|e| self.emit(e, begin, end))
@@ -3480,7 +3477,7 @@ impl RubyWalker<'_> {
                 SendControl::Unknown
             }
             // A require this launch followed by path is composed, not opaque.
-            Modeled::Boundary(_)
+            RubyModeledSend::Boundary(_)
                 if extract_imports(&Node::Send(s.clone()), true)
                     .first()
                     .is_some_and(|import| {
@@ -3496,18 +3493,18 @@ impl RubyWalker<'_> {
             {
                 SendControl::Unknown
             }
-            Modeled::Boundary(mut b) => {
+            RubyModeledSend::Boundary(mut b) => {
                 b.provenance.push(self.span(begin, end));
                 self.builder.boundary(b);
                 SendControl::Unknown
             }
-            spawned @ (Modeled::ShellSpawn { .. }
-            | Modeled::ExecSpawn { .. }
-            | Modeled::SpawnUnresolved(_)) => {
+            spawned @ (RubyModeledSend::ShellSpawn { .. }
+            | RubyModeledSend::ExecSpawn { .. }
+            | RubyModeledSend::SpawnUnresolved(_)) => {
                 self.spawned(spawned, begin, end, false);
                 SendControl::spawn(s)
             }
-            Modeled::Calls(edges) => {
+            RubyModeledSend::Calls(edges) => {
                 let mut applied: Vec<Option<SiteFacts>> =
                     edges.iter().map(|edge| self.follow(edge, s)).collect();
                 match (applied.len(), applied.pop()) {
@@ -3515,7 +3512,7 @@ impl RubyWalker<'_> {
                     _ => SendControl::Unknown,
                 }
             }
-            Modeled::None => {
+            RubyModeledSend::None => {
                 if let Some(callee) = unmodeled_receiver_call(s, self.ctx) {
                     let arguments = model::value_arguments(&s.args, &self.env, self.cwd);
                     let site = self.span(begin, end);
@@ -3557,7 +3554,7 @@ impl RubyWalker<'_> {
     /// name-only) executable.
     fn spawn_guarded(
         &mut self,
-        spawn: Modeled,
+        spawn: RubyModeledSend,
         mut condition: Option<effinterp_proto::Condition>,
         begin: usize,
         end: usize,
@@ -3577,11 +3574,10 @@ impl RubyWalker<'_> {
 
     /// `captured` spawns return their stdout to the program as a value, as
     /// backticks do, so it does not reach the program's own stdout.
-    fn spawned(&mut self, m: Modeled, begin: usize, end: usize, captured: bool) {
+    fn spawned(&mut self, m: RubyModeledSend, begin: usize, end: usize, captured: bool) {
         let stdout = match &m {
-            Modeled::ShellSpawn { stdout, .. } | Modeled::ExecSpawn { stdout, .. } => {
-                stdout.clone()
-            }
+            RubyModeledSend::ShellSpawn { stdout, .. }
+            | RubyModeledSend::ExecSpawn { stdout, .. } => stdout.clone(),
             _ => None,
         };
         let child = self.builder.next_execution();
@@ -3596,7 +3592,7 @@ impl RubyWalker<'_> {
             None => transition,
         };
         match m {
-            Modeled::ShellSpawn { source, cwd, .. } => {
+            RubyModeledSend::ShellSpawn { source, cwd, .. } => {
                 let node = self.span(begin, end);
                 let cwd_path = resource_cwd_path(&cwd).or_else(|| self.cwd.map(str::to_string));
                 match resource_command_text(&source) {
@@ -3654,7 +3650,7 @@ impl RubyWalker<'_> {
                     }
                 }
             }
-            Modeled::ExecSpawn { argv, cwd, .. } => {
+            RubyModeledSend::ExecSpawn { argv, cwd, .. } => {
                 let node = self.span(begin, end);
                 let words: Vec<Word> = argv
                     .iter()
@@ -3685,7 +3681,7 @@ impl RubyWalker<'_> {
                     self.depth,
                 );
             }
-            Modeled::SpawnUnresolved(argv0) => {
+            RubyModeledSend::SpawnUnresolved(argv0) => {
                 self.emit(
                     effect("process.exec", exe(argv0.as_deref()), false),
                     begin,
@@ -4061,7 +4057,7 @@ impl RubyWalker<'_> {
             if let Some(cwd) = self.cwd {
                 effect.resource = substitute_resource_expr(
                     &effect.resource,
-                    &HashMap::from([("cwd".to_string(), fs_path(cwd))]),
+                    &HashMap::from([("cwd".to_string(), fs_path_resource(cwd))]),
                 );
             }
         }
@@ -4082,7 +4078,7 @@ impl RubyWalker<'_> {
             return resource;
         }
         match effinterp_proto::normalize_resource(resource, effinterp_proto::PathPlatform::Posix) {
-            ResourceExpr::Literal { value } => fs_path(&value),
+            ResourceExpr::Literal { value } => fs_path_resource(&value),
             resource => resource,
         }
     }
@@ -4186,18 +4182,21 @@ fn resource_cwd_path(cwd: &Option<ResourceExpr>) -> Option<String> {
     cwd.as_ref().and_then(resource_command_text)
 }
 
-fn substitute_modeled_spawn(spawn: Modeled, bindings: &HashMap<String, ResourceExpr>) -> Modeled {
+fn substitute_modeled_spawn(
+    spawn: RubyModeledSend,
+    bindings: &HashMap<String, ResourceExpr>,
+) -> RubyModeledSend {
     match spawn {
-        Modeled::ShellSpawn {
+        RubyModeledSend::ShellSpawn {
             source,
             cwd,
             stdout,
-        } => Modeled::ShellSpawn {
+        } => RubyModeledSend::ShellSpawn {
             source: substitute_resource_expr(&source, bindings),
             cwd: cwd.map(|cwd| substitute_resource_expr(&cwd, bindings)),
             stdout: stdout.map(|stdout| substitute_resource_expr(&stdout, bindings)),
         },
-        Modeled::ExecSpawn { argv, cwd, stdout } => Modeled::ExecSpawn {
+        RubyModeledSend::ExecSpawn { argv, cwd, stdout } => RubyModeledSend::ExecSpawn {
             argv: argv
                 .into_iter()
                 .map(|word| substitute_resource_expr(&word, bindings))
@@ -4209,18 +4208,18 @@ fn substitute_modeled_spawn(spawn: Modeled, bindings: &HashMap<String, ResourceE
     }
 }
 
-fn materialize_ruby_spawn(spawn: &Modeled) -> Effect {
+fn materialize_ruby_spawn(spawn: &RubyModeledSend) -> Effect {
     let resource = match spawn {
-        Modeled::ShellSpawn { source, .. } => resource_command_text(source)
+        RubyModeledSend::ShellSpawn { source, .. } => resource_command_text(source)
             .as_deref()
             .map(model::shell_exe)
             .unwrap_or_else(|| exe(None)),
-        Modeled::ExecSpawn { argv, .. } => argv
+        RubyModeledSend::ExecSpawn { argv, .. } => argv
             .first()
             .and_then(resource_command_text)
             .map(|name| exe(Some(&name)))
             .unwrap_or_else(|| exe(None)),
-        Modeled::SpawnUnresolved(argv0) => exe(argv0.as_deref()),
+        RubyModeledSend::SpawnUnresolved(argv0) => exe(argv0.as_deref()),
         _ => exe(None),
     };
     effect("process.exec", resource, false)

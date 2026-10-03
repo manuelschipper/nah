@@ -23,7 +23,7 @@ use crate::paths::{join_cwd, process_identity_with_cwd};
 use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
-use super::lex::{DupTarget, ExpansionBudget, RedirKind, Seg, Span, WordTok};
+use super::lex::{ExpansionBudget, RedirKind, Seg, ShellDupTarget, ShellSpan, WordTok};
 use super::parse::{ShellItem, Simple};
 use super::{
     ArrayValue, CommandHeadKey, Converted, DeferredProcess, EFFECTLESS_BUILTINS, FnEntry,
@@ -1200,7 +1200,12 @@ impl Shell<'_> {
 
     /// The exact code execution `exec-obfuscated` matches: a program the
     /// shell computes at run time rather than one the source spells.
-    fn emit_hidden_program_effect(&self, builder: &mut PlanBuilder, env: &ShellEnv, span: Span) {
+    fn emit_hidden_program_effect(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &ShellEnv,
+        span: ShellSpan,
+    ) {
         let source = self.span_node(builder, span);
         let node = builder.node(
             ProvenanceKind::ModelApplication {
@@ -2312,7 +2317,8 @@ impl Shell<'_> {
                     if redir.named_fd.is_none()
                         && redir.fd.unwrap_or(0) == 0
                         && redir.kind == RedirKind::Dup
-                        && let Some(DupTarget::Fd(source) | DupTarget::Move(source)) = redir.dup
+                        && let Some(ShellDupTarget::Fd(source) | ShellDupTarget::Move(source)) =
+                            redir.dup
                         && let Some(producer) = self.read_input_producer(
                             builder,
                             env,
@@ -3797,7 +3803,7 @@ impl Shell<'_> {
     fn wire_arg_producers(
         &self,
         builder: &mut PlanBuilder,
-        span: Span,
+        span: ShellSpan,
         execution: Option<ExecutionNodeRef>,
         converted: &[Converted],
         eff_start: usize,
@@ -3943,7 +3949,7 @@ impl Shell<'_> {
     pub(super) fn wire_code_producers(
         &self,
         builder: &mut PlanBuilder,
-        span: Span,
+        span: ShellSpan,
         execution: Option<ExecutionNodeRef>,
         producers: &[FlowRef],
         eff_start: usize,
@@ -4042,13 +4048,18 @@ impl Shell<'_> {
 
     /// The text an alias expands to here: aliases are enabled, the name is
     /// aliased, and the shell read the definition on an earlier line.
-    fn alias_expansion(&self, env: &ShellEnv, name: &str, span: Span) -> Option<String> {
+    fn alias_expansion(&self, env: &ShellEnv, name: &str, span: ShellSpan) -> Option<String> {
         self.alias_chain(env, name, span).map(|(text, _)| text)
     }
 
     /// The alias text as `alias_expansion` gives it, with the names expanded
     /// to reach it.
-    fn alias_chain(&self, env: &ShellEnv, name: &str, span: Span) -> Option<(String, Vec<String>)> {
+    fn alias_chain(
+        &self,
+        env: &ShellEnv,
+        name: &str,
+        span: ShellSpan,
+    ) -> Option<(String, Vec<String>)> {
         if !env.expand_aliases {
             return None;
         }
@@ -4091,7 +4102,7 @@ impl Shell<'_> {
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
         source: &str,
-        span: Span,
+        span: ShellSpan,
     ) -> Option<u32> {
         if !self.charge(builder, 1, source.len() as u64, span)
             || self.structural_saturated(builder, env)
@@ -4136,7 +4147,7 @@ impl Shell<'_> {
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
         name: Option<&str>,
-        span: Span,
+        span: ShellSpan,
         conditional: bool,
     ) {
         let source = &self.source[span.start as usize..span.end as usize];
@@ -4303,7 +4314,7 @@ impl Shell<'_> {
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
         source: &str,
-        span: Span,
+        span: ShellSpan,
         mode: NestedShellMode,
     ) -> Option<ExecutionNodeRef> {
         let span_node = self.span_node(builder, span);

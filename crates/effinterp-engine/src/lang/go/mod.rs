@@ -28,12 +28,12 @@ pub use model::go_external_effects;
 pub(crate) use model::go_callback_positions;
 use model::string_of;
 use summary::{
-    BlockWrites, EscapedCallables, GoFunc, Imports, addressed_name, allocated_class,
+    BlockWrites, EscapedCallables, GoFunc, GoImports, addressed_name, allocated_class,
     assigned_outer_names, assignment_base_name, collect_funcs, collect_imports, compute_summaries,
     constructed_class, construction_site, declared_callable_names, declared_type_names,
     escaped_address_names, escaped_callables, field_types, function_locals, go_dispatch_contracts,
     init_names, is_callback_field, is_str_lit, literal_function_name, named_type, named_type_ref,
-    package_var_names, reassigned_names, returns_instances, unambiguous, unquote,
+    package_var_names, reassigned_names, returns_instances, unambiguous, unquote_go_string,
 };
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -169,7 +169,7 @@ impl Frontend for GoFrontend {
         let import_spans: Vec<_> = file
             .imports
             .iter()
-            .filter(|import| !crate::external::is_go_stdlib(&unquote(&import.path.value)))
+            .filter(|import| !crate::external::is_go_stdlib(&unquote_go_string(&import.path.value)))
             .map(control::import_span)
             .collect();
         {
@@ -238,7 +238,7 @@ impl Frontend for GoFrontend {
             control_applications: Vec::new(),
         };
         for import in &file.imports {
-            let path = unquote(&import.path.value);
+            let path = unquote_go_string(&import.path.value);
             if !crate::external::is_go_stdlib(&path) {
                 let node = w.node((
                     import.path.pos as u32,
@@ -338,7 +338,7 @@ impl Frontend for GoFrontend {
 // The walker: emits to the plan (execution) or collects into a summary.
 
 #[derive(Default)]
-struct Capture {
+struct GoSummaryCapture {
     control: ControlStack,
     flow: ControlFlow,
     call_sites: BTreeMap<crate::control_flow::Span, u32>,
@@ -359,7 +359,7 @@ enum Out<'a, 'b> {
         cwd_node: Option<ProvenanceRef>,
         depth: u64,
     },
-    Capture(&'a mut Capture),
+    Capture(&'a mut GoSummaryCapture),
 }
 
 /// The caller bindings one call may overwrite, split by how: storage handed to
@@ -392,7 +392,7 @@ struct GoWalker<'a, 'b> {
     /// step pool as the plan-emitting walk. Repository summary extraction has
     /// no plan budget and leaves this empty.
     analysis_budget: Option<(&'a mut PlanBuilder, &'b crate::nest::Budget)>,
-    imports: &'a Imports,
+    imports: &'a GoImports,
     funcs: &'a HashMap<String, GoFunc>,
     summaries: &'a HashMap<String, Summary>,
     params: HashMap<String, ResourceExpr>,
@@ -1380,17 +1380,17 @@ impl GoWalker<'_, '_> {
         // Iterative: left-deep `+` / `&&` spines overflow the process stack
         // before the node cap can fire. Nested calls still go through
         // walk_call, which is depth-bounded separately.
-        enum Work<'a> {
+        enum GoExprWork<'a> {
             Expr(&'a Expression),
             Push(&'a Expression, bool),
             Pop,
         }
         let initial_depth = self.conditions.len();
-        let mut stack = vec![Work::Expr(expr)];
+        let mut stack = vec![GoExprWork::Expr(expr)];
         while let Some(work) = stack.pop() {
             let expr = match work {
-                Work::Expr(expr) => expr,
-                Work::Push(origin, positive) => {
+                GoExprWork::Expr(expr) => expr,
+                GoExprWork::Push(origin, positive) => {
                     let (start, end) = expression_pos(origin);
                     self.push_condition(effinterp_proto::Condition::from_source_with_digest(
                         self.source,
@@ -1404,7 +1404,7 @@ impl GoWalker<'_, '_> {
                     ));
                     continue;
                 }
-                Work::Pop => {
+                GoExprWork::Pop => {
                     self.conditions.pop();
                     continue;
                 }
@@ -1415,31 +1415,31 @@ impl GoWalker<'_, '_> {
             }
             match expr {
                 Expression::Call(call) => self.walk_call(call),
-                Expression::Paren(p) => stack.push(Work::Expr(&p.expr)),
+                Expression::Paren(p) => stack.push(GoExprWork::Expr(&p.expr)),
                 Expression::Operation(op) => {
                     if let Some(y) = &op.y {
                         if matches!(op.op, Operator::AndAnd | Operator::OrOr) {
-                            stack.push(Work::Pop);
-                            stack.push(Work::Expr(y));
-                            stack.push(Work::Push(&op.x, op.op == Operator::AndAnd));
+                            stack.push(GoExprWork::Pop);
+                            stack.push(GoExprWork::Expr(y));
+                            stack.push(GoExprWork::Push(&op.x, op.op == Operator::AndAnd));
                         } else {
-                            stack.push(Work::Expr(y));
+                            stack.push(GoExprWork::Expr(y));
                         }
                     }
-                    stack.push(Work::Expr(&op.x));
+                    stack.push(GoExprWork::Expr(&op.x));
                 }
-                Expression::Star(s) => stack.push(Work::Expr(&s.right)),
+                Expression::Star(s) => stack.push(GoExprWork::Expr(&s.right)),
                 Expression::Index(i) => {
-                    stack.push(Work::Expr(&i.index));
-                    stack.push(Work::Expr(&i.left));
+                    stack.push(GoExprWork::Expr(&i.index));
+                    stack.push(GoExprWork::Expr(&i.left));
                 }
                 Expression::IndexList(i) => {
                     for index in i.indices.iter().rev() {
-                        stack.push(Work::Expr(index));
+                        stack.push(GoExprWork::Expr(index));
                     }
-                    stack.push(Work::Expr(&i.left));
+                    stack.push(GoExprWork::Expr(&i.left));
                 }
-                Expression::TypeAssert(t) => stack.push(Work::Expr(&t.left)),
+                Expression::TypeAssert(t) => stack.push(GoExprWork::Expr(&t.left)),
                 Expression::CompositeLit(cl) => {
                     self.record_inline_construction(expr);
                     self.walk_literal_value(&cl.val, 0);
@@ -1872,7 +1872,7 @@ impl GoWalker<'_, '_> {
     fn value_of(&self, expr: &Expression) -> Option<SemanticValue> {
         match expr {
             Expression::BasicLit(literal) if is_str_lit(literal) => {
-                Some(SemanticValue::literal(unquote(&literal.value)))
+                Some(SemanticValue::literal(unquote_go_string(&literal.value)))
             }
             Expression::Ident(ident) => self.values.get(&ident.name).cloned().or_else(|| {
                 if self.named_func(&ident.name).is_some() {
@@ -1981,7 +1981,7 @@ impl GoWalker<'_, '_> {
                     && is_str_lit(key)
                     && let SemanticValueKind::Collection { properties, .. } = &value.kind
                 {
-                    return properties.get(&unquote(&key.value)).cloned();
+                    return properties.get(&unquote_go_string(&key.value)).cloned();
                 }
                 let index = match &*index.index {
                     Expression::BasicLit(literal) => literal.value.parse::<usize>().ok()?,
@@ -4258,7 +4258,7 @@ impl GoWalker<'_, '_> {
         match expr {
             Expression::BasicLit(lit) if is_str_lit(lit) => ResourceExpr::Concrete {
                 identity: ResourceIdentity::FsPath {
-                    path: unquote(&lit.value),
+                    path: unquote_go_string(&lit.value),
                 },
             },
             Expression::Ident(id) => match self.params.get(&id.name) {
@@ -4368,7 +4368,7 @@ impl GoWalker<'_, '_> {
     fn network_arg(&self, expr: &Expression) -> ResourceExpr {
         match expr {
             Expression::BasicLit(literal) if is_str_lit(literal) => {
-                url_endpoint_resource(&unquote(&literal.value))
+                url_endpoint_resource(&unquote_go_string(&literal.value))
             }
             Expression::Paren(paren) => self.network_arg(&paren.expr),
             Expression::Operation(operation)
@@ -4402,7 +4402,7 @@ impl GoWalker<'_, '_> {
     fn concatenation_part(&self, expr: &Expression, domain: &str) -> ResourceExpr {
         match expr {
             Expression::BasicLit(literal) if is_str_lit(literal) => ResourceExpr::Literal {
-                value: unquote(&literal.value),
+                value: unquote_go_string(&literal.value),
             },
             Expression::Paren(paren) => self.concatenation_part(&paren.expr, domain),
             Expression::Operation(operation)

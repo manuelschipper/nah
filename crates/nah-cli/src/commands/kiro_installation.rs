@@ -53,11 +53,11 @@ pub(crate) fn kiro_hook_status() -> Result<RuntimeHookStatus, String> {
     };
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    if configured.config == desired_hook(&executable, FailurePolicy::Delegate)? {
+    if configured.config == desired_kiro_hook(&executable, FailurePolicy::Delegate)? {
         Ok(RuntimeHookStatus::WiringCurrent)
-    } else if configured.config == desired_hook(&executable, FailurePolicy::Block)? {
+    } else if configured.config == desired_kiro_hook(&executable, FailurePolicy::Block)? {
         Ok(RuntimeHookStatus::WiringCurrentFailClosed)
-    } else if is_owned(&configured.config) {
+    } else if is_owned_kiro_hook(&configured.config) {
         Ok(RuntimeHookStatus::stale(
             if configured.config.to_string().contains("run --fail-closed") {
                 FailurePolicy::Block
@@ -87,14 +87,14 @@ fn install_kiro_hook(
     let lock = acquire_kiro_hook_lock(&paths)?;
     let directory =
         open_hook_directory(&paths, true)?.ok_or_else(|| "kiro-hook-write-failed".to_owned())?;
-    let desired = desired_hook(executable, policy)?;
+    let desired = desired_kiro_hook(executable, policy)?;
     let configured = load_kiro_hook(&directory)?;
     if let Some(configured) = configured.as_ref() {
         if configured.config == desired {
             drop(lock);
             return Ok(paths.hook);
         }
-        if !is_owned(&configured.config) {
+        if !is_owned_kiro_hook(&configured.config) {
             return Err("kiro-hook-file-conflict".into());
         }
     }
@@ -111,10 +111,10 @@ fn uninstall_kiro_hook(home: &AbsolutePath, root: &Path) -> Result<PathBuf, Stri
         return Ok(paths.hook);
     };
     if let Some(configured) = load_kiro_hook(&directory)? {
-        if !is_owned(&configured.config) {
+        if !is_owned_kiro_hook(&configured.config) {
             return Err("kiro-hook-file-conflict".into());
         }
-        remove(&directory, &configured)?;
+        remove_kiro_hook(&directory, &configured)?;
     }
     drop(lock);
     Ok(paths.hook)
@@ -165,7 +165,7 @@ impl KiroHookPaths {
     }
 }
 
-fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
+fn desired_kiro_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -200,7 +200,7 @@ fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, Strin
     }))
 }
 
-fn is_owned(config: &Value) -> bool {
+fn is_owned_kiro_hook(config: &Value) -> bool {
     let Some(root) = config.as_object() else {
         return false;
     };
@@ -234,12 +234,12 @@ fn is_owned(config: &Value) -> bool {
                             && action
                                 .get("command")
                                 .and_then(Value::as_str)
-                                .is_some_and(is_owned_command)
+                                .is_some_and(is_owned_kiro_command)
                     })
         })
 }
 
-fn is_owned_command(command: &str) -> bool {
+fn is_owned_kiro_command(command: &str) -> bool {
     let command = command.replacen(" hook kiro run --fail-closed", " hook kiro run", 1);
     let command = command.as_str();
     const UNIX_SUFFIX: &str = " hook kiro run || { status=$?; [ \"$status\" -eq 1 ] && exit 1; \
@@ -626,7 +626,7 @@ fn save_kiro_hook(
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn remove(directory: &HookDirectory, expected: &LoadedHook) -> Result<(), String> {
+fn remove_kiro_hook(directory: &HookDirectory, expected: &LoadedHook) -> Result<(), String> {
     use rustix::fs::{AtFlags, RenameFlags};
 
     let temporary = format!(
@@ -669,7 +669,7 @@ fn remove(directory: &HookDirectory, expected: &LoadedHook) -> Result<(), String
     not(target_os = "redox"),
     not(any(target_os = "linux", target_os = "android"))
 ))]
-fn remove(directory: &HookDirectory, expected: &LoadedHook) -> Result<(), String> {
+fn remove_kiro_hook(directory: &HookDirectory, expected: &LoadedHook) -> Result<(), String> {
     use rustix::fs::AtFlags;
 
     unchanged(directory, Some(expected))?;
@@ -682,7 +682,7 @@ fn remove(directory: &HookDirectory, expected: &LoadedHook) -> Result<(), String
 }
 
 #[cfg(not(all(unix, not(target_os = "redox"))))]
-fn remove(directory: &HookDirectory, expected: &LoadedHook) -> Result<(), String> {
+fn remove_kiro_hook(directory: &HookDirectory, expected: &LoadedHook) -> Result<(), String> {
     unchanged(directory, Some(expected))?;
     std::fs::remove_file(directory.path.join("nah.json")).map_err(|_| "kiro-hook-remove-failed")?;
     sync_parent(&directory.path)
@@ -699,20 +699,24 @@ mod tests {
         let unix = "'/usr/bin/nah' hook kiro run || { status=$?; [ \"$status\" -eq 1 ] && exit 1; \
                     [ \"$status\" -eq 2 ] && exit 2; printf '%s\\n' \
                     'nah - evaluation failed; this call was delegated to the runtime' >&2; exit 1; }";
-        assert!(is_owned_command(unix));
-        assert!(is_owned_command("\"C:\\tools\\nah.exe\" hook kiro run"));
-        assert!(!is_owned_command("'/usr/bin/nah' hook kiro run"));
-        assert!(!is_owned_command(
+        assert!(is_owned_kiro_command(unix));
+        assert!(is_owned_kiro_command(
+            "\"C:\\tools\\nah.exe\" hook kiro run"
+        ));
+        assert!(!is_owned_kiro_command("'/usr/bin/nah' hook kiro run"));
+        assert!(!is_owned_kiro_command(
             "\"C:\\tools\\nah.exe\" hook kiro run || { exit 2; }"
         ));
-        assert!(!is_owned_command(
+        assert!(!is_owned_kiro_command(
             "'relative/nah' hook kiro run || { status=$?; [ \
              \"$status\" -eq 1 ] && exit 1; [ \"$status\" -eq 2 ] && exit 2; printf '%s\\n' \
              'nah - evaluation failed; this call was delegated to the runtime' >&2; exit 1; }"
         ));
-        assert!(!is_owned_command("\"relative/nah.exe\" hook kiro run"));
-        assert!(!is_owned_command(&format!("{unix}; printf user-command")));
-        assert!(!is_owned_command(
+        assert!(!is_owned_kiro_command("\"relative/nah.exe\" hook kiro run"));
+        assert!(!is_owned_kiro_command(&format!(
+            "{unix}; printf user-command"
+        )));
+        assert!(!is_owned_kiro_command(
             "'/tmp/nah'; printf user-command; '/tmp/nah' hook kiro run || { status=$?; [ \
              \"$status\" -eq 1 ] && exit 1; [ \"$status\" -eq 2 ] && exit 2; printf '%s\\n' \
              'nah - evaluation failed; this call was delegated to the runtime' >&2; exit 1; }"
@@ -736,7 +740,7 @@ mod tests {
 
         save_kiro_hook(
             &directory,
-            &desired_hook(Path::new("/usr/bin/nah"), FailurePolicy::Delegate).unwrap(),
+            &desired_kiro_hook(Path::new("/usr/bin/nah"), FailurePolicy::Delegate).unwrap(),
             None,
         )
         .unwrap();
@@ -744,7 +748,7 @@ mod tests {
         assert!(!target.join("nah.json").exists());
 
         let configured = load_kiro_hook(&directory).unwrap().unwrap();
-        remove(&directory, &configured).unwrap();
+        remove_kiro_hook(&directory, &configured).unwrap();
         assert!(!moved.join("nah.json").exists());
         assert!(!target.join("nah.json").exists());
     }
@@ -756,7 +760,8 @@ mod tests {
         let home_absolute = AbsolutePath::new(Platform::Linux, home_path).unwrap();
         let paths = KiroHookPaths::new(&home_absolute, &home.path().join(".kiro"));
         let directory = open_hook_directory(&paths, true).unwrap().unwrap();
-        let desired = desired_hook(Path::new("/usr/bin/nah"), FailurePolicy::Delegate).unwrap();
+        let desired =
+            desired_kiro_hook(Path::new("/usr/bin/nah"), FailurePolicy::Delegate).unwrap();
 
         save_kiro_hook(&directory, &desired, None).unwrap();
         let configured = load_kiro_hook(&directory).unwrap().unwrap();
@@ -768,7 +773,7 @@ mod tests {
             Err("kiro-hook-file-conflict".into())
         );
         assert_eq!(
-            remove(&directory, &configured),
+            remove_kiro_hook(&directory, &configured),
             Err("kiro-hook-file-conflict".into())
         );
         assert_eq!(

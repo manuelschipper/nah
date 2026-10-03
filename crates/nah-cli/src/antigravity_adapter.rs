@@ -43,7 +43,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
 ) -> u8 {
     let request = serde_json::from_reader::<_, AntigravityHookInput>(stdin)
         .map_err(|error| error.to_string())
-        .and_then(normalize);
+        .and_then(normalize_antigravity_hook_input);
     let output = match request {
         Ok(request) => {
             match hook_adapter::decide_input(request, stderr, Runtime::Antigravity, failure_policy)
@@ -53,7 +53,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                         if decision.guard_block_incomplete() {
                             let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
                         }
-                        deny(&hook_adapter::feedback(&decision))
+                        antigravity_deny_reply(&hook_adapter::feedback(&decision))
                     }
                     Verdict::Delegate => {
                         if decision.evaluation_failed() {
@@ -68,14 +68,17 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     Runtime::Antigravity,
                     hook_adapter::IntegrationUnavailable::MalformedInput,
                 )
-                .map_or_else(|| json!({"decision":"ask"}), |reason| deny(&reason)),
+                .map_or_else(
+                    || json!({"decision":"ask"}),
+                    |reason| antigravity_deny_reply(&reason),
+                ),
                 hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
                     match hook_adapter::unavailable_feedback(
                         failure_policy,
                         Runtime::Antigravity,
                         kind,
                     ) {
-                        Some(reason) => deny(&reason),
+                        Some(reason) => antigravity_deny_reply(&reason),
                         None => {
                             let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
                             json!({"decision":"ask"})
@@ -89,10 +92,12 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             Runtime::Antigravity,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
-        .map_or_else(|| json!({"decision":"ask"}), |reason| deny(&reason)),
+        .map_or_else(
+            || json!({"decision":"ask"}),
+            |reason| antigravity_deny_reply(&reason),
+        ),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
 }
 
@@ -103,7 +108,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize(AntigravityHookInput {
+    normalize_antigravity_hook_input(AntigravityHookInput {
         tool_call: AntigravityToolCall {
             name: tool_name.into(),
             args: tool_input,
@@ -113,7 +118,7 @@ pub(crate) fn normalize_call(
     })
 }
 
-fn normalize(input: AntigravityHookInput) -> Result<ToolCallInput, String> {
+fn normalize_antigravity_hook_input(input: AntigravityHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_call.args.clone();
     let platform = live_state::host_platform();
     let workspaces = validate_workspaces(input.workspace_paths, platform)?;
@@ -259,7 +264,7 @@ fn workspace_for(path: Option<&str>, workspaces: &[String], platform: Platform) 
     path.and_then(|path| {
         workspaces
             .iter()
-            .filter(|workspace| nah_proto::labels::contains(workspace, path, platform))
+            .filter(|workspace| nah_proto::labels::lexically_contains(workspace, path, platform))
             .max_by_key(|workspace| workspace.len())
     })
     .unwrap_or(&workspaces[0])
@@ -293,7 +298,7 @@ fn absolute(object: &Map<String, Value>, name: &str, platform: Platform) -> Resu
         .map_err(|_| INVALID_ANTIGRAVITY_TOOL_INPUT.into())
 }
 
-fn deny(reason: &str) -> Value {
+fn antigravity_deny_reply(reason: &str) -> Value {
     json!({"decision":"deny","reason":format!("nah - {reason}")})
 }
 
@@ -320,7 +325,7 @@ mod tests {
 
     fn normalized(name: &str, mut args: Value) -> ToolCallInput {
         native_paths(&mut args);
-        normalize(AntigravityHookInput {
+        normalize_antigravity_hook_input(AntigravityHookInput {
             tool_call: AntigravityToolCall {
                 name: name.into(),
                 args,

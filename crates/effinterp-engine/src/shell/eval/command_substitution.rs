@@ -5,14 +5,14 @@ use effinterp_proto::{ExecutionNodeRef, Port, ResourceExpr};
 
 use crate::builder::PlanBuilder;
 use crate::flow::{BindEnd, FlowStage, PortBinding};
-use crate::shell::lex::{RedirKind, Seg, Span, WordTok};
+use crate::shell::lex::{RedirKind, Seg, ShellSpan, WordTok};
 use crate::shell::parse::{ShellItem, Simple};
 use crate::shell::{FnEntry, MAX_BRACE_EXPANSIONS, Shell, ShellEnv, brace, lex, parse};
 use crate::word::{Word, WordPart};
 
 use super::literal_output;
 
-fn substitution_stdout_redirect_spans(items: &[ShellItem]) -> Vec<Span> {
+fn substitution_stdout_redirect_spans(items: &[ShellItem]) -> Vec<ShellSpan> {
     let mut spans = Vec::new();
     for item in items {
         match item {
@@ -474,7 +474,7 @@ impl Shell<'_> {
         &self,
         builder: &mut PlanBuilder,
         source: &str,
-        span: Span,
+        span: ShellSpan,
         execution: ExecutionNodeRef,
         start: u32,
         end: u32,

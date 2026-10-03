@@ -38,7 +38,7 @@ use effinterp_proto::{
 use crate::builder::PlanBuilder;
 use crate::nest::Nest;
 use crate::value::unresolved_resource;
-use lex::{Lexeme, Span, Statement, StatementKind, Tok};
+use lex::{Lexeme, SqlSpan, SqlStatement, SqlTok, StatementKind};
 
 const DB_DOMAIN: &str = "database";
 
@@ -69,7 +69,7 @@ pub(crate) fn analyze_sql(
     // Coverage starts full and is degraded by any unsupported statement.
     builder.declare_coverage(Domain::new(DB_DOMAIN), CoverageLevel::Full);
 
-    let readings: Vec<Vec<Statement>> = lex::readings(dialect)
+    let readings: Vec<Vec<SqlStatement>> = lex::readings(dialect)
         .iter()
         .map(|lexing| lex::lex(source, lexing))
         .collect();
@@ -77,7 +77,7 @@ pub(crate) fn analyze_sql(
     // what runs. Readings that only tokenize a statement differently (MySQL
     // `"a"` as a string or, under ANSI_QUOTES, an identifier) contribute
     // their effects to the union without making the split ambiguous.
-    let split = |reading: &Vec<Statement>| {
+    let split = |reading: &Vec<SqlStatement>| {
         reading
             .iter()
             .map(|stmt| (stmt.kind.clone(), stmt.span))
@@ -91,7 +91,7 @@ pub(crate) fn analyze_sql(
     // boundary two readings both produce is recorded once.
     let mut analyzed = HashSet::new();
     'readings: for statements in &readings {
-        let mut scopes = vec![State {
+        let mut scopes = vec![ConnectionScope {
             server: connection.server.clone(),
             database: connection.database.clone(),
         }];
@@ -109,7 +109,7 @@ pub(crate) fn analyze_sql(
         }
     }
     if ambiguous {
-        let span = Span {
+        let span = SqlSpan {
             start: 0,
             end: source.len() as u32,
         };
@@ -129,7 +129,7 @@ pub(crate) fn analyze_sql(
 /// unknown database) while the client keeps executing, so later statements
 /// run in either.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct State {
+struct ConnectionScope {
     server: Option<String>,
     database: Option<String>,
 }
@@ -146,10 +146,10 @@ struct SqlCtx<'a> {
 /// Per-statement emission context: the statement span plus its provenance
 /// nodes, so handlers share attribution without long argument lists.
 struct Emit<'a> {
-    span: Span,
+    span: SqlSpan,
     span_node: ProvenanceRef,
     model_node: ProvenanceRef,
-    state: &'a State,
+    state: &'a ConnectionScope,
 }
 
 /// A statement's object name: dotted parts, or unresolved when any part is
@@ -160,14 +160,14 @@ enum Name {
     Unresolved,
 }
 
-type Attrs = Vec<(&'static str, AttrValue)>;
+type SqlEffectAttrs = Vec<(&'static str, AttrValue)>;
 
-fn text(value: &str) -> AttrValue {
+fn text_attr_value(value: &str) -> AttrValue {
     AttrValue::String(value.to_string())
 }
 
 impl SqlCtx<'_> {
-    fn span_node(&self, builder: &mut PlanBuilder, span: Span) -> ProvenanceRef {
+    fn span_node(&self, builder: &mut PlanBuilder, span: SqlSpan) -> ProvenanceRef {
         builder.node(
             ProvenanceKind::SourceSpan {
                 start: span.start,
@@ -177,7 +177,7 @@ impl SqlCtx<'_> {
         )
     }
 
-    fn unsupported(&self, builder: &mut PlanBuilder, span: Span, detail: &str) {
+    fn unsupported(&self, builder: &mut PlanBuilder, span: SqlSpan, detail: &str) {
         let key = format!("boundary|{}|{}|{detail}", span.start, span.end);
         if !self.emitted.borrow_mut().insert(key) {
             return;
@@ -203,7 +203,7 @@ impl SqlCtx<'_> {
         e: &Emit,
         operation: &str,
         resource: ResourceExpr,
-        attrs: Attrs,
+        attrs: SqlEffectAttrs,
     ) {
         let attributes = attrs
             .into_iter()
@@ -227,7 +227,7 @@ impl SqlCtx<'_> {
         });
     }
 
-    fn statement(&self, builder: &mut PlanBuilder, stmt: &Statement, state: &State) {
+    fn statement(&self, builder: &mut PlanBuilder, stmt: &SqlStatement, state: &ConnectionScope) {
         if let StatementKind::Client(command) = &stmt.kind {
             if client_connection(self.dialect, command).is_none() {
                 self.unsupported(builder, stmt.span, &format!("client command `{command}`"));
@@ -274,9 +274,9 @@ impl SqlCtx<'_> {
             );
             let body = skip_body_begin(&toks[body..]);
             if let (Some(first), Some(last)) = (body.first(), body.last()) {
-                let inner = Statement {
+                let inner = SqlStatement {
                     kind: StatementKind::Sql,
-                    span: Span {
+                    span: SqlSpan {
                         start: first.span.start,
                         end: last.span.end,
                     },
@@ -330,7 +330,7 @@ impl SqlCtx<'_> {
     }
 
     /// Add the scope a statement switches to for the statements after it.
-    fn advance(&self, stmt: &Statement, scopes: &mut Vec<State>) {
+    fn advance(&self, stmt: &SqlStatement, scopes: &mut Vec<ConnectionScope>) {
         let (database, server) = match &stmt.kind {
             StatementKind::Client(command) => match client_connection(self.dialect, command) {
                 Some(switch) => switch,
@@ -347,7 +347,7 @@ impl SqlCtx<'_> {
             }
         };
         for state in scopes.clone() {
-            let mut next = State {
+            let mut next = ConnectionScope {
                 server: server.clone().or(state.server),
                 database: database.clone(),
             };
@@ -417,7 +417,7 @@ impl SqlCtx<'_> {
                 emitted = true;
                 // A FROM list may continue with `, table`.
                 i = next;
-                while matches!(tok(toks, i), Some(Tok::Punct(','))) {
+                while matches!(tok(toks, i), Some(SqlTok::Punct(','))) {
                     let Some((name, next)) = read_name(self.dialect, toks, i + 1) else {
                         break;
                     };
@@ -460,7 +460,7 @@ impl SqlCtx<'_> {
                 e,
                 "database.write",
                 self.table(&name, e),
-                vec![("action", text(action))],
+                vec![("action", text_attr_value(action))],
             );
         }
     }
@@ -503,7 +503,7 @@ impl SqlCtx<'_> {
                         e,
                         "database.write",
                         self.table(&name, e),
-                        vec![("action", text(action))],
+                        vec![("action", text_attr_value(action))],
                     );
                 }
             }
@@ -519,7 +519,7 @@ impl SqlCtx<'_> {
                 e,
                 "database.write",
                 self.table(&name, e),
-                vec![("action", text(action))],
+                vec![("action", text_attr_value(action))],
             ),
             None => self.unsupported(builder, e.span, "statement target could not be resolved"),
         }
@@ -577,7 +577,7 @@ impl SqlCtx<'_> {
         let aliases = self.aliases(toks);
         for name in names {
             let name = resolve_alias(name, &aliases);
-            let mut attrs = vec![("action", text("update"))];
+            let mut attrs = vec![("action", text_attr_value("update"))];
             if let Some(filtered) = filtered {
                 attrs.push(("filtered", AttrValue::Bool(filtered)));
             }
@@ -640,7 +640,7 @@ impl SqlCtx<'_> {
         let aliases = self.aliases(toks);
         for name in names {
             let name = resolve_alias(name, &aliases);
-            let mut attrs = vec![("action", text("delete"))];
+            let mut attrs = vec![("action", text_attr_value("delete"))];
             if let Some(filtered) = filtered {
                 attrs.push(("filtered", AttrValue::Bool(filtered)));
             }
@@ -670,7 +670,7 @@ impl SqlCtx<'_> {
                 .get(pair[0].span.end as usize..pair[1].span.start as usize)
                 .is_some_and(|gap| gap.bytes().all(|b| b.is_ascii_whitespace()))
         });
-        if !spaced || constant_truth(&toks[at + 1..end]) != Some(true) {
+        if !spaced || sql_constant_truth(&toks[at + 1..end]) != Some(true) {
             return None;
         }
         Some([&toks[..at], &toks[end..]].concat())
@@ -729,7 +729,7 @@ impl SqlCtx<'_> {
         let partition = top_level_any(toks, &["PARTITION"])
             || toks
                 .iter()
-                .any(|t| matches!(&t.tok, Tok::Word(w) if w.eq_ignore_ascii_case("PARTITIONS")));
+                .any(|t| matches!(&t.tok, SqlTok::Word(w) if w.eq_ignore_ascii_case("PARTITIONS")));
         if top_level_any(toks, &["CASCADE"]) {
             self.unsupported(
                 builder,
@@ -760,7 +760,7 @@ impl SqlCtx<'_> {
             self.unsupported(builder, e.span, "unsupported CREATE target");
             return;
         };
-        let mut attrs = vec![("object_kind", text(kind))];
+        let mut attrs = vec![("object_kind", text_attr_value(kind))];
         if replaces {
             attrs.push(("replaces_existing", AttrValue::Bool(true)));
         }
@@ -810,7 +810,7 @@ impl SqlCtx<'_> {
                 e,
                 "database.schema_drop",
                 resource,
-                vec![("object_kind", text("owned_objects"))],
+                vec![("object_kind", text_attr_value("owned_objects"))],
             );
             return;
         }
@@ -843,7 +843,7 @@ impl SqlCtx<'_> {
             self.dialect == SqlDialect::Mysql && keyword(toks, 1).as_deref() == Some("TEMPORARY");
         for name in names {
             let resource = self.object(kind, &name, e);
-            let mut attrs = vec![("object_kind", text(kind))];
+            let mut attrs = vec![("object_kind", text_attr_value(kind))];
             if temporary {
                 attrs.push(("temporary", AttrValue::Bool(true)));
             }
@@ -868,7 +868,7 @@ impl SqlCtx<'_> {
                     e,
                     "database.schema_write",
                     resource,
-                    vec![("object_kind", text(kind))],
+                    vec![("object_kind", text_attr_value(kind))],
                 )
             }
             None => self.unsupported(builder, e.span, "unsupported UNDROP target"),
@@ -902,7 +902,7 @@ impl SqlCtx<'_> {
                 };
                 let mut attrs = Vec::new();
                 if let Some(kind) = object_kind {
-                    attrs.push(("object_kind", text(kind)));
+                    attrs.push(("object_kind", text_attr_value(kind)));
                 }
                 self.retention_attrs(builder, e, &retention, kind == "ACCOUNT", &mut attrs);
                 self.effect(builder, e, "database.schema_write", resource, attrs);
@@ -921,14 +921,14 @@ impl SqlCtx<'_> {
             return;
         };
         let table = self.table(&name, e);
-        let mut attrs = vec![("object_kind", text("table"))];
+        let mut attrs = vec![("object_kind", text_attr_value("table"))];
         let mut drops_column = false;
         let actions = top_level_split(toks, next);
         let mut prev_verb: Option<String> = None;
         let mut prev_object: Option<String> = None;
         for (k, action) in actions.iter().enumerate() {
             let verb = keyword(action, 0);
-            let option = matches!(tok(action, 1), Some(Tok::Punct('=')));
+            let option = matches!(tok(action, 1), Some(SqlTok::Punct('=')));
             let known = verb.as_deref().is_some_and(|v| ALTER_VERBS.contains(&v));
             if !known {
                 let tsql = self.dialect == SqlDialect::TSql;
@@ -1011,7 +1011,7 @@ impl SqlCtx<'_> {
                         "database.write",
                         table.clone(),
                         vec![
-                            ("action", text(&verb.to_ascii_lowercase())),
+                            ("action", text_attr_value(&verb.to_ascii_lowercase())),
                             ("filtered", AttrValue::Bool(filtered)),
                         ],
                     );
@@ -1045,14 +1045,14 @@ impl SqlCtx<'_> {
         e: &Emit,
         retention: &Retention,
         account: bool,
-        attrs: &mut Attrs,
+        attrs: &mut SqlEffectAttrs,
     ) {
         let scope = if account || retention.minimum {
             "account"
         } else {
             "object"
         };
-        attrs.push(("retention_scope", text(scope)));
+        attrs.push(("retention_scope", text_attr_value(scope)));
         match retention.days {
             Some(days) => attrs.push(("retention_days", AttrValue::Int(days))),
             None => self.unsupported(
@@ -1079,7 +1079,7 @@ impl SqlCtx<'_> {
             _ => None,
         });
         let file = toks.iter().find_map(|t| match &t.tok {
-            Tok::Str(s) => Some(s.clone()),
+            SqlTok::Str(s) => Some(s.clone()),
             _ => None,
         });
         match dir {
@@ -1089,7 +1089,7 @@ impl SqlCtx<'_> {
                     e,
                     "database.write",
                     table,
-                    vec![("action", text("insert"))],
+                    vec![("action", text_attr_value("insert"))],
                 );
                 self.file_effect(builder, e, "filesystem.read", file);
             }
@@ -1126,7 +1126,7 @@ impl SqlCtx<'_> {
         while let Some((name, next)) = read_name(self.dialect, toks, j) {
             names.push(name);
             j = skip_alias(toks, next);
-            if matches!(tok(toks, j), Some(Tok::Punct(','))) {
+            if matches!(tok(toks, j), Some(SqlTok::Punct(','))) {
                 j += 1;
             } else {
                 break;
@@ -1143,13 +1143,13 @@ impl SqlCtx<'_> {
             let mut j = at + 1;
             while let Some((name, next)) = read_name(self.dialect, toks, j) {
                 let alias_at = skip_word(toks, next, "AS");
-                if let Some(Tok::Word(alias) | Tok::Ident(alias)) = tok(toks, alias_at)
+                if let Some(SqlTok::Word(alias) | SqlTok::Ident(alias)) = tok(toks, alias_at)
                     && !is_clause_word(alias)
                 {
                     aliases.push((alias.clone(), name.clone()));
                 }
                 j = skip_alias(toks, next);
-                if matches!(tok(toks, j), Some(Tok::Punct(','))) {
+                if matches!(tok(toks, j), Some(SqlTok::Punct(','))) {
                     j += 1;
                 } else {
                     break;
@@ -1207,7 +1207,7 @@ impl SqlCtx<'_> {
     }
 
     /// Build a table identity from dotted name parts plus connection scope.
-    fn qualify(&self, parts: &[String], state: &State) -> ResourceIdentity {
+    fn qualify(&self, parts: &[String], state: &ConnectionScope) -> ResourceIdentity {
         let mut server = state.server.clone();
         let conn_db = state.database.clone();
         let (database, schema, table) = match parts {
@@ -1326,9 +1326,9 @@ fn retention(toks: &[Lexeme]) -> Retention {
             Some(word @ ("DATA_RETENTION_TIME_IN_DAYS" | "MIN_DATA_RETENTION_TIME_IN_DAYS")) => {
                 out.present = true;
                 out.minimum |= word.starts_with("MIN_");
-                if !unset && matches!(tok(toks, i + 1), Some(Tok::Punct('='))) {
+                if !unset && matches!(tok(toks, i + 1), Some(SqlTok::Punct('='))) {
                     out.days = match tok(toks, i + 2) {
-                        Some(Tok::Word(n)) => n.parse().ok(),
+                        Some(SqlTok::Word(n)) => n.parse().ok(),
                         _ => None,
                     };
                 }
@@ -1454,8 +1454,8 @@ fn drop_action(action: &[Lexeme]) -> DropAction {
         "TRIGGER",
     ];
     match tok(action, 1) {
-        Some(Tok::Ident(_)) => DropAction::Column,
-        Some(Tok::Word(word)) => {
+        Some(SqlTok::Ident(_)) => DropAction::Column,
+        Some(SqlTok::Word(word)) => {
             let word = word.to_ascii_uppercase();
             match word.as_str() {
                 "COLUMN" | "IF" => DropAction::Column,
@@ -1545,7 +1545,7 @@ fn plain_delete_tail(dialect: SqlDialect, toks: &[Lexeme], mut i: usize) -> bool
             Some("USING" | "FROM") => {
                 let mut j = i + 1;
                 loop {
-                    let next = if matches!(tok(toks, j), Some(Tok::Punct('('))) {
+                    let next = if matches!(tok(toks, j), Some(SqlTok::Punct('('))) {
                         skip_group(toks, j)
                     } else {
                         match read_name(dialect, toks, j) {
@@ -1554,7 +1554,7 @@ fn plain_delete_tail(dialect: SqlDialect, toks: &[Lexeme], mut i: usize) -> bool
                         }
                     };
                     j = skip_alias(toks, next);
-                    if matches!(tok(toks, j), Some(Tok::Punct(','))) {
+                    if matches!(tok(toks, j), Some(SqlTok::Punct(','))) {
                         j += 1;
                     } else {
                         break;
@@ -1577,27 +1577,28 @@ fn read_name(dialect: SqlDialect, toks: &[Lexeme], i: usize) -> Option<(Name, us
     let mut j = i;
     loop {
         match tok(toks, j) {
-            Some(Tok::Word(w))
+            Some(SqlTok::Word(w))
                 if w.eq_ignore_ascii_case("IDENTIFIER")
-                    && matches!(tok(toks, j + 1), Some(Tok::Punct('('))) =>
+                    && matches!(tok(toks, j + 1), Some(SqlTok::Punct('('))) =>
             {
                 let end = skip_group(toks, j + 1);
                 match &toks[j + 2..end.saturating_sub(1).max(j + 2)] {
                     // Quoted parts (`'"a.b"'`) may contain dots; not split.
                     [
                         Lexeme {
-                            tok: Tok::Str(s), ..
+                            tok: SqlTok::Str(s),
+                            ..
                         },
                     ] if !s.contains('"') => parts.extend(s.split('.').map(str::to_string)),
                     _ => unresolved = true,
                 }
                 j = end;
             }
-            Some(Tok::Word(w)) if !is_keyword(w) => {
+            Some(SqlTok::Word(w)) if !is_keyword(w) => {
                 parts.push(w.clone());
                 j += 1;
             }
-            Some(Tok::Ident(s)) => {
+            Some(SqlTok::Ident(s)) => {
                 // A BigQuery backtick path quotes every part at once.
                 if dialect == SqlDialect::BigQuery {
                     parts.extend(s.split('.').map(str::to_string));
@@ -1606,7 +1607,7 @@ fn read_name(dialect: SqlDialect, toks: &[Lexeme], i: usize) -> Option<(Name, us
                 }
                 j += 1;
             }
-            Some(Tok::Param) => {
+            Some(SqlTok::Param) => {
                 unresolved = true;
                 j += 1;
             }
@@ -1615,23 +1616,26 @@ fn read_name(dialect: SqlDialect, toks: &[Lexeme], i: usize) -> Option<(Name, us
         // `prefix_:var` or `&{db}_raw` glue a placeholder into one name.
         while j < toks.len()
             && toks[j].span.start == toks[j - 1].span.end
-            && matches!(toks[j].tok, Tok::Word(_) | Tok::Ident(_) | Tok::Param)
+            && matches!(
+                toks[j].tok,
+                SqlTok::Word(_) | SqlTok::Ident(_) | SqlTok::Param
+            )
         {
             unresolved = true;
             j += 1;
         }
-        if !matches!(tok(toks, j), Some(Tok::Punct('.'))) {
+        if !matches!(tok(toks, j), Some(SqlTok::Punct('.'))) {
             break;
         }
         j += 1;
         // T-SQL `db..table` leaves the schema unnamed.
-        while matches!(tok(toks, j), Some(Tok::Punct('.'))) {
+        while matches!(tok(toks, j), Some(SqlTok::Punct('.'))) {
             parts.push(String::new());
             j += 1;
         }
     }
     // Postgres `t *` includes descendant tables; MySQL `t.*` in a delete list.
-    if matches!(tok(toks, j), Some(Tok::Punct('*'))) {
+    if matches!(tok(toks, j), Some(SqlTok::Punct('*'))) {
         j += 1;
     }
     let name = if unresolved || parts.is_empty() {
@@ -1659,7 +1663,7 @@ fn program_body(dialect: SqlDialect, toks: &[Lexeme]) -> Option<usize> {
     }
     if keyword(toks, i).as_deref() == Some("DEFINER") {
         i += 1;
-        if matches!(tok(toks, i), Some(Tok::Punct('='))) {
+        if matches!(tok(toks, i), Some(SqlTok::Punct('='))) {
             i += 1;
         }
         // `user`, `'user'@'host'`, `CURRENT_USER[()]`.
@@ -1721,14 +1725,14 @@ fn resolve_alias(name: Name, aliases: &[(String, Name)]) -> Name {
     }
 }
 
-fn tok(toks: &[Lexeme], i: usize) -> Option<&Tok> {
+fn tok(toks: &[Lexeme], i: usize) -> Option<&SqlTok> {
     toks.get(i).map(|lexeme| &lexeme.tok)
 }
 
 /// The uppercased bare word at position `i`.
 fn keyword(toks: &[Lexeme], i: usize) -> Option<String> {
     match tok(toks, i) {
-        Some(Tok::Word(w)) => Some(w.to_ascii_uppercase()),
+        Some(SqlTok::Word(w)) => Some(w.to_ascii_uppercase()),
         _ => None,
     }
 }
@@ -1750,14 +1754,14 @@ fn skip_words(toks: &[Lexeme], mut i: usize, words: &[&str]) -> usize {
 
 /// Skip a parenthesized group opening at `i`; no-op when none opens there.
 fn skip_group(toks: &[Lexeme], i: usize) -> usize {
-    if !matches!(tok(toks, i), Some(Tok::Punct('('))) {
+    if !matches!(tok(toks, i), Some(SqlTok::Punct('('))) {
         return i;
     }
     let mut depth = 0usize;
     for (j, lexeme) in toks.iter().enumerate().skip(i) {
         match lexeme.tok {
-            Tok::Punct('(') => depth += 1,
-            Tok::Punct(')') => {
+            SqlTok::Punct('(') => depth += 1,
+            SqlTok::Punct(')') => {
                 depth -= 1;
                 if depth == 0 {
                     return j + 1;
@@ -1775,8 +1779,8 @@ fn skip_alias(toks: &[Lexeme], i: usize) -> usize {
         return i + 2;
     }
     match tok(toks, i) {
-        Some(Tok::Word(w)) if !is_clause_word(w) => i + 1,
-        Some(Tok::Ident(_)) => i + 1,
+        Some(SqlTok::Word(w)) if !is_clause_word(w) => i + 1,
+        Some(SqlTok::Ident(_)) => i + 1,
         _ => i,
     }
 }
@@ -1785,7 +1789,7 @@ fn skip_alias(toks: &[Lexeme], i: usize) -> usize {
 /// FALSE, a literal compared equal to another with `=`, and AND, OR, NOT and
 /// parentheses over those. None for anything that reads data or that this
 /// evaluation does not establish, so such a predicate stays a filter.
-fn constant_truth(toks: &[Lexeme]) -> Option<bool> {
+fn sql_constant_truth(toks: &[Lexeme]) -> Option<bool> {
     // These carry AND or arbitrary expressions inside one operand, so
     // splitting at AND or OR would not follow the server's precedence.
     if top_level_any(toks, &["BETWEEN", "CASE", "XOR"]) {
@@ -1803,7 +1807,7 @@ fn constant_truth(toks: &[Lexeme]) -> Option<bool> {
     };
     let ors = operands("OR");
     if ors.len() > 1 {
-        let values = ors.into_iter().map(constant_truth).collect::<Vec<_>>();
+        let values = ors.into_iter().map(sql_constant_truth).collect::<Vec<_>>();
         return if values.contains(&Some(true)) {
             Some(true)
         } else if values.iter().all(|value| *value == Some(false)) {
@@ -1814,7 +1818,7 @@ fn constant_truth(toks: &[Lexeme]) -> Option<bool> {
     }
     let ands = operands("AND");
     if ands.len() > 1 {
-        let values = ands.into_iter().map(constant_truth).collect::<Vec<_>>();
+        let values = ands.into_iter().map(sql_constant_truth).collect::<Vec<_>>();
         return if values.contains(&Some(false)) {
             Some(false)
         } else if values.iter().all(|value| *value == Some(true)) {
@@ -1830,22 +1834,22 @@ fn constant_truth(toks: &[Lexeme]) -> Option<bool> {
         let single =
             rest.len() == 1 || is_group(rest) || keyword(rest, 0).as_deref() == Some("NOT");
         return if single {
-            constant_truth(rest).map(|value| !value)
+            sql_constant_truth(rest).map(|value| !value)
         } else {
             None
         };
     }
     if is_group(toks) {
-        return constant_truth(&toks[1..toks.len() - 1]);
+        return sql_constant_truth(&toks[1..toks.len() - 1]);
     }
     match toks {
-        [value] => match literal(&value.tok)? {
+        [value] => match sql_tok_literal(&value.tok)? {
             Literal::Number(n) => Some(n != 0),
             Literal::Bool(b) => Some(b),
             Literal::Text(_) => None,
         },
-        [left, equals, right] if equals.tok == Tok::Punct('=') => {
-            match (literal(&left.tok)?, literal(&right.tok)?) {
+        [left, equals, right] if equals.tok == SqlTok::Punct('=') => {
+            match (sql_tok_literal(&left.tok)?, sql_tok_literal(&right.tok)?) {
                 (Literal::Number(a), Literal::Number(b)) => Some(a == b),
                 (Literal::Bool(a), Literal::Bool(b)) => Some(a == b),
                 // Collations can make different text compare equal, and
@@ -1860,8 +1864,11 @@ fn constant_truth(toks: &[Lexeme]) -> Option<bool> {
 
 /// Whether the tokens are one balanced parenthesized group.
 fn is_group(toks: &[Lexeme]) -> bool {
-    matches!(tok(toks, 0), Some(Tok::Punct('(')))
-        && matches!(toks.last().map(|lexeme| &lexeme.tok), Some(Tok::Punct(')')))
+    matches!(tok(toks, 0), Some(SqlTok::Punct('(')))
+        && matches!(
+            toks.last().map(|lexeme| &lexeme.tok),
+            Some(SqlTok::Punct(')'))
+        )
         && skip_group(toks, 0) == toks.len()
 }
 
@@ -1871,14 +1878,14 @@ enum Literal<'a> {
     Text(&'a str),
 }
 
-fn literal(tok: &Tok) -> Option<Literal<'_>> {
+fn sql_tok_literal(tok: &SqlTok) -> Option<Literal<'_>> {
     match tok {
-        Tok::Word(w) if w.bytes().all(|b| b.is_ascii_digit()) => {
+        SqlTok::Word(w) if w.bytes().all(|b| b.is_ascii_digit()) => {
             w.parse().ok().map(Literal::Number)
         }
-        Tok::Word(w) if w.eq_ignore_ascii_case("TRUE") => Some(Literal::Bool(true)),
-        Tok::Word(w) if w.eq_ignore_ascii_case("FALSE") => Some(Literal::Bool(false)),
-        Tok::Str(s) => Some(Literal::Text(s)),
+        SqlTok::Word(w) if w.eq_ignore_ascii_case("TRUE") => Some(Literal::Bool(true)),
+        SqlTok::Word(w) if w.eq_ignore_ascii_case("FALSE") => Some(Literal::Bool(false)),
+        SqlTok::Str(s) => Some(Literal::Text(s)),
         _ => None,
     }
 }
@@ -1888,8 +1895,8 @@ fn top_level(toks: &[Lexeme]) -> impl Iterator<Item = usize> + '_ {
     let mut depth = 0usize;
     toks.iter().enumerate().filter_map(move |(i, lexeme)| {
         match lexeme.tok {
-            Tok::Punct('(') => depth += 1,
-            Tok::Punct(')') => depth = depth.saturating_sub(1),
+            SqlTok::Punct('(') => depth += 1,
+            SqlTok::Punct(')') => depth = depth.saturating_sub(1),
             _ if depth == 0 => return Some(i),
             _ => {}
         }
@@ -1910,7 +1917,7 @@ fn top_level_positions_of<'a>(
     words: &'a [&'a str],
 ) -> impl Iterator<Item = usize> + 'a {
     top_level(toks).filter(move |&i| {
-        matches!(&toks[i].tok, Tok::Word(w) if words.iter().any(|k| w.eq_ignore_ascii_case(k)))
+        matches!(&toks[i].tok, SqlTok::Word(w) if words.iter().any(|k| w.eq_ignore_ascii_case(k)))
     })
 }
 
@@ -1930,9 +1937,9 @@ fn top_level_split(toks: &[Lexeme], i: usize) -> Vec<&[Lexeme]> {
     let mut start = i;
     for (j, lexeme) in toks.iter().enumerate().skip(i) {
         match lexeme.tok {
-            Tok::Punct('(') => depth += 1,
-            Tok::Punct(')') => depth = depth.saturating_sub(1),
-            Tok::Punct(',') if depth == 0 => {
+            SqlTok::Punct('(') => depth += 1,
+            SqlTok::Punct(')') => depth = depth.saturating_sub(1),
+            SqlTok::Punct(',') if depth == 0 => {
                 items.push(&toks[start..j]);
                 start = j + 1;
             }
@@ -1958,7 +1965,7 @@ fn skip_if_exists(toks: &[Lexeme], i: usize) -> usize {
 fn matches_seq(toks: &[Lexeme], i: usize, seq: &[&str]) -> Option<usize> {
     for (k, kw) in seq.iter().enumerate() {
         match tok(toks, i + k) {
-            Some(Tok::Word(w)) if w.eq_ignore_ascii_case(kw) => {}
+            Some(SqlTok::Word(w)) if w.eq_ignore_ascii_case(kw) => {}
             _ => return None,
         }
     }
@@ -2062,7 +2069,7 @@ mod tests {
         let Name::Parts(parts) = name else { panic!() };
         ctx.qualify(
             &parts,
-            &State {
+            &ConnectionScope {
                 server: None,
                 database: None,
             },

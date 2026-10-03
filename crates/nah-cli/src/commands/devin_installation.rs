@@ -45,22 +45,22 @@ pub(crate) fn devin_hook_status() -> Result<RuntimeHookStatus, String> {
     let paths = DevinHookPaths::new(&home);
     reject_devin_hook_symlinks(&paths)?;
     let mut config = load_devin_config(&paths.config)?;
-    validate_version(&mut config)?;
+    validate_devin_config_version(&mut config)?;
     let mut base = config.clone();
-    if !remove_owned(&mut base)? {
+    if !remove_owned_devin_handlers(&mut base)? {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     let mut delegate = base.clone();
-    pre_tool_hooks(&mut delegate)?.push(json!({
+    devin_pre_tool_hooks(&mut delegate)?.push(json!({
         "matcher": "",
-        "hooks": [desired_handler(&executable, FailurePolicy::Delegate)?]
+        "hooks": [desired_devin_handler(&executable, FailurePolicy::Delegate)?]
     }));
     let mut strict = base;
-    pre_tool_hooks(&mut strict)?.push(json!({
+    devin_pre_tool_hooks(&mut strict)?.push(json!({
         "matcher": "",
-        "hooks": [desired_handler(&executable, FailurePolicy::Block)?]
+        "hooks": [desired_devin_handler(&executable, FailurePolicy::Block)?]
     }));
     Ok(if delegate == config {
         RuntimeHookStatus::WiringCurrent
@@ -72,7 +72,7 @@ pub(crate) fn devin_hook_status() -> Result<RuntimeHookStatus, String> {
             .into_iter()
             .flatten()
             .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
-            .filter(|handler| is_owned_handler(handler));
+            .filter(|handler| is_owned_devin_handler(handler));
         let strict = handlers.next().is_some_and(|handler| {
             handler["command"]
                 .as_str()
@@ -105,12 +105,12 @@ fn install_devin_hook(
     let lock = acquire_hook_lock(&paths.lock, &DEVIN_HOOK_LOCK_ERRORS)?;
     reject_devin_hook_symlinks(&paths)?;
     let mut config = load_devin_config(&paths.config)?;
-    validate_version(&mut config)?;
+    validate_devin_config_version(&mut config)?;
     let original = config.clone();
-    remove_owned(&mut config)?;
-    pre_tool_hooks(&mut config)?.push(json!({
+    remove_owned_devin_handlers(&mut config)?;
+    devin_pre_tool_hooks(&mut config)?.push(json!({
         "matcher": "",
-        "hooks": [desired_handler(executable, policy)?]
+        "hooks": [desired_devin_handler(executable, policy)?]
     }));
     if config != original {
         save_devin_config(&paths.config, &config)?;
@@ -125,8 +125,8 @@ fn uninstall_devin_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     reject_devin_hook_symlinks(&paths)?;
     if paths.config.exists() {
         let mut config = load_devin_config(&paths.config)?;
-        validate_version(&mut config)?;
-        if remove_owned(&mut config)? {
+        validate_devin_config_version(&mut config)?;
+        if remove_owned_devin_handlers(&mut config)? {
             save_devin_config(&paths.config, &config)?;
         }
     }
@@ -177,7 +177,7 @@ fn load_devin_config(path: &Path) -> Result<Value, String> {
     read_hook_json_object(path, &DEVIN_CONFIG_READ_ERRORS)
 }
 
-fn validate_version(config: &mut Value) -> Result<(), String> {
+fn validate_devin_config_version(config: &mut Value) -> Result<(), String> {
     let root = config
         .as_object_mut()
         .ok_or_else(|| "invalid-devin-config".to_owned())?;
@@ -191,7 +191,7 @@ fn validate_version(config: &mut Value) -> Result<(), String> {
     }
 }
 
-fn remove_owned(config: &mut Value) -> Result<bool, String> {
+fn remove_owned_devin_handlers(config: &mut Value) -> Result<bool, String> {
     let root = config
         .as_object_mut()
         .ok_or_else(|| "invalid-devin-config".to_owned())?;
@@ -227,7 +227,7 @@ fn remove_owned(config: &mut Value) -> Result<bool, String> {
                 return true;
             };
             let before = handlers.len();
-            handlers.retain(|handler| !is_owned_handler(handler));
+            handlers.retain(|handler| !is_owned_devin_handler(handler));
             let removed = handlers.len() != before;
             changed |= removed;
             !removed || !handlers.is_empty()
@@ -245,7 +245,7 @@ fn remove_owned(config: &mut Value) -> Result<bool, String> {
     Ok(changed)
 }
 
-fn pre_tool_hooks(config: &mut Value) -> Result<&mut Vec<Value>, String> {
+fn devin_pre_tool_hooks(config: &mut Value) -> Result<&mut Vec<Value>, String> {
     let root = config
         .as_object_mut()
         .ok_or_else(|| "invalid-devin-config".to_owned())?;
@@ -261,7 +261,7 @@ fn pre_tool_hooks(config: &mut Value) -> Result<&mut Vec<Value>, String> {
         .ok_or_else(|| "invalid-devin-config".to_owned())
 }
 
-fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
+fn desired_devin_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -277,7 +277,7 @@ fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, St
     Ok(json!({"type":"command","command":command,"timeout":5}))
 }
 
-fn is_owned_handler(handler: &Value) -> bool {
+fn is_owned_devin_handler(handler: &Value) -> bool {
     let Some(command) = handler
         .as_object()
         .filter(|handler| handler.get("type").and_then(Value::as_str) == Some("command"))

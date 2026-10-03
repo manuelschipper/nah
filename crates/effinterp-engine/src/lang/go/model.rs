@@ -12,7 +12,7 @@ use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 use crate::{SemanticValue, SemanticValueKind};
 
-use super::summary::{is_str_lit, unquote};
+use super::summary::{is_str_lit, unquote_go_string};
 use super::{GoWalker, Out};
 use crate::nest::{Transition, word_resource};
 
@@ -444,7 +444,7 @@ pub(crate) fn go_callback_positions(path: &str, method: &str) -> &'static [usize
 /// The literal string value of an expression, if it is a string literal.
 pub(super) fn string_of(expr: &Expression) -> Option<String> {
     match expr {
-        Expression::BasicLit(lit) if is_str_lit(lit) => Some(unquote(&lit.value)),
+        Expression::BasicLit(lit) if is_str_lit(lit) => Some(unquote_go_string(&lit.value)),
         Expression::Paren(p) => string_of(&p.expr),
         _ => None,
     }

@@ -20,7 +20,7 @@ use effinterp_proto::{BoundaryClass, validate_plan, validate_subject};
 
 use crate::nah::goldens::{Req, ResourceMatch};
 use crate::nah::mutate::measure_symbolic_mutations;
-use corpus::BenchRow;
+use corpus::InvocationRow;
 use judge::Verdict;
 use score::{AdversarialScore, HostStats, Scoreboard, SourceScore};
 use tiers::{Bucket, bucket_plan};
@@ -96,7 +96,7 @@ pub enum Mutation {
     All,
 }
 
-fn analyze_one(engine: &Engine, row: &BenchRow, mutation: Mutation) -> SubjectOutcome {
+fn analyze_one(engine: &Engine, row: &InvocationRow, mutation: Mutation) -> SubjectOutcome {
     let subject = &row.subject;
     if validate_subject(subject).is_err() {
         return SubjectOutcome::failed(FailureKind::InvalidSubject, Duration::ZERO);
@@ -160,7 +160,7 @@ enum Message {
 /// process exits without joining it.
 pub fn analyze_rows(
     engine: &Arc<Engine>,
-    rows: &Arc<Vec<BenchRow>>,
+    rows: &Arc<Vec<InvocationRow>>,
     mutation: Mutation,
 ) -> Vec<SubjectOutcome> {
     let n = rows.len();
@@ -252,8 +252,8 @@ pub fn max_rss_kb() -> u64 {
 /// each RSS reading is that source's high-water mark within the process.
 /// The caller owns the digest: it names the scope of the plane being scored,
 /// and each plane writes it into its own section.
-pub fn score_corpus(engine: Arc<Engine>, rows: Vec<BenchRow>) -> Scoreboard {
-    let mut by_source: BTreeMap<String, Vec<BenchRow>> = BTreeMap::new();
+pub fn score_corpus(engine: Arc<Engine>, rows: Vec<InvocationRow>) -> Scoreboard {
+    let mut by_source: BTreeMap<String, Vec<InvocationRow>> = BTreeMap::new();
     for row in rows {
         by_source.entry(row.source.clone()).or_default().push(row);
     }

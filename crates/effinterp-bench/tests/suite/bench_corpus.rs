@@ -7,7 +7,9 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use effinterp_bench::invocation::corpus::{BENCH_MANIFEST_SCHEMA, load_bench, read_bench_manifest};
+use effinterp_bench::invocation::corpus::{
+    INVOCATION_MANIFEST_SCHEMA, load_invocation_rows, read_invocation_manifest,
+};
 use effinterp_bench::nah::corpus::fixture_corpus_digest;
 
 const MAX_BYTES: u64 = 30 * 1024 * 1024;
@@ -37,8 +39,8 @@ fn corpus_matches_manifest_and_leaks_nothing() {
         eprintln!("skipped: {} has no MANIFEST.json yet", dir.display());
         return;
     }
-    let manifest = read_bench_manifest(&dir).unwrap();
-    assert_eq!(manifest.schema, BENCH_MANIFEST_SCHEMA);
+    let manifest = read_invocation_manifest(&dir).unwrap();
+    assert_eq!(manifest.schema, INVOCATION_MANIFEST_SCHEMA);
     assert_eq!(manifest.corpus_digest, fixture_corpus_digest(&dir).unwrap());
 
     let mut bytes = 0;
@@ -84,7 +86,7 @@ fn corpus_matches_manifest_and_leaks_nothing() {
         }
     }
 
-    let rows = load_bench(&dir).unwrap();
+    let rows = load_invocation_rows(&dir).unwrap();
     let mut ids = BTreeSet::new();
     for row in &rows {
         assert!(ids.insert(row.id.clone()), "duplicate id {}", row.id);

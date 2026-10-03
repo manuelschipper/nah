@@ -1,23 +1,9 @@
 #![allow(clippy::disallowed_methods)]
 
-use effinterp_repo::{IndexLimits, ResourceSelector, build_index, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 use std::path::Path;
 
-fn deletes_important(root: &Path) -> bool {
-    let idx = build_index(root, IndexLimits::default());
-    reach(
-        &idx,
-        &ResourceSelector::parse("fs:/important").unwrap(),
-        None,
-    )
-    .payload
-    .as_reach()
-    .unwrap()
-    .matches
-    .iter()
-    .any(|h| h.fact.operation.as_str() == "filesystem.delete")
-}
+use crate::support::deletes_important;
 
 #[test]
 fn uncalled_import_not_attributed_but_called_is() {

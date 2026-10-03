@@ -224,7 +224,7 @@ pub(super) fn observed_git_root(
         .iter()
         .filter(|root| {
             root.kind() == nah_proto::observation::RootKind::Project
-                && nah_proto::labels::contains(
+                && nah_proto::labels::lexically_contains(
                     root.path().as_str(),
                     observed_cwd,
                     view.authority().platform(),

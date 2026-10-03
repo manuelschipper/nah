@@ -10,7 +10,7 @@ use effinterp_proto::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::corpus::BenchRow;
+use super::corpus::InvocationRow;
 use super::judge::{Verdict, judge_plan};
 use super::tiers::{Bucket, Tier, bucket_of, bucket_reasons};
 use super::{Analyzed, FailureKind, MutationSummary, SubjectOutcome};
@@ -415,7 +415,7 @@ fn subject_text(subject: &Subject) -> &str {
 /// Reduce one analyzed plan to what scoring reads. Runs in the worker so the
 /// plan can be dropped before the next row is analyzed.
 pub(super) fn summarize(
-    row: &BenchRow,
+    row: &InvocationRow,
     plan: &Plan,
     mutation: Option<MutationMeasurement>,
 ) -> Analyzed {
@@ -505,7 +505,7 @@ pub fn host_stats(outcomes: &[SubjectOutcome], max_rss_kb: u64) -> HostStats {
 }
 
 /// Aggregate one source's outcomes. `rows` and `outcomes` are index-aligned.
-pub fn score_source(rows: &[BenchRow], outcomes: &[SubjectOutcome]) -> SourceScore {
+pub fn score_source(rows: &[InvocationRow], outcomes: &[SubjectOutcome]) -> SourceScore {
     let total: u64 = rows.iter().map(|row| row.weight).sum();
     let mut score = SourceScore {
         rows: rows.len(),
@@ -688,7 +688,7 @@ fn top_shares(
         .collect()
 }
 
-pub fn score_adversarial(rows: &[BenchRow], outcomes: &[SubjectOutcome]) -> AdversarialScore {
+pub fn score_adversarial(rows: &[InvocationRow], outcomes: &[SubjectOutcome]) -> AdversarialScore {
     let mut score = AdversarialScore {
         silent_drops: silent_drops(outcomes),
         ..Default::default()

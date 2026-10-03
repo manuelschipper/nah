@@ -12,7 +12,7 @@ use effinterp_proto::{
 use crate::builder::{PlanBuilder, ScriptInterpreter};
 use crate::flow::{Descriptor, FlowRef};
 use crate::models::StdinValue;
-use crate::shell::lex::{DupTarget, RedirKind, Seg, Span, WordTok};
+use crate::shell::lex::{RedirKind, Seg, ShellDupTarget, ShellSpan, WordTok};
 use crate::shell::parse::Simple;
 use crate::shell::{
     Converted, Redirects, Shell, ShellEnv, VarEntry, build_redirections, parse,
@@ -164,7 +164,7 @@ pub(super) fn redirected_descriptors(redirs: &[parse::Redir]) -> Vec<Option<u32>
             descriptors.push(Some(2));
         }
         // `N<&M-` moves M, closing it.
-        if let Some(DupTarget::Move(moved)) = redir.dup {
+        if let Some(ShellDupTarget::Move(moved)) = redir.dup {
             descriptors.push(Some(moved));
         }
     }
@@ -577,7 +577,7 @@ impl Shell<'_> {
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
         name: &str,
-        span: Span,
+        span: ShellSpan,
         persist: bool,
         conditional: bool,
         guarded: bool,
@@ -680,7 +680,7 @@ impl Shell<'_> {
                         BoundaryReason::PARSE_ERROR,
                         BoundaryClass::ParseFailure,
                         "unterminated heredoc",
-                        Span {
+                        ShellSpan {
                             start: redir.span.start,
                             end: heredoc.body_span.end,
                         },
@@ -737,7 +737,7 @@ impl Shell<'_> {
                 _ => 0,
             };
             let fd = if let Some(name) = &redir.named_fd {
-                if redir.dup == Some(DupTarget::Close) {
+                if redir.dup == Some(ShellDupTarget::Close) {
                     let descriptor = env.vars.get(name).and_then(|entry| {
                         entry
                             .word_in_condition(builder)
@@ -833,11 +833,11 @@ impl Shell<'_> {
                     Some(crate::flow::DupTarget::Fd(descriptor))
                 } else {
                     match redir.dup {
-                    Some(DupTarget::Fd(source)) => {
+                    Some(ShellDupTarget::Fd(source)) => {
                         Some(crate::flow::DupTarget::Fd(Descriptor::Number(source)))
                     }
-                    Some(DupTarget::Move(source)) => Some(crate::flow::DupTarget::Move(Descriptor::Number(source))),
-                    Some(DupTarget::Close) => Some(crate::flow::DupTarget::Close),
+                    Some(ShellDupTarget::Move(source)) => Some(crate::flow::DupTarget::Move(Descriptor::Number(source))),
+                    Some(ShellDupTarget::Close) => Some(crate::flow::DupTarget::Close),
                     None => converted_target.as_ref().and_then(|converted| {
                         if converted.word.as_literal() == Some("-") {
                             Some(crate::flow::DupTarget::Close)

@@ -38,8 +38,8 @@ pub(crate) fn cursor_hook_status() -> Result<RuntimeHookStatus, String> {
     let paths = CursorHookPaths::new(&home);
     reject_cursor_hook_symlinks(&paths)?;
     let mut config = load_cursor_hooks(&paths.hooks)?;
-    validate_version(&mut config)?;
-    if !remove(&mut config.clone())? {
+    validate_cursor_hooks_version(&mut config)?;
+    if !remove_cursor_hook(&mut config.clone())? {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
     let executable =
@@ -47,14 +47,14 @@ pub(crate) fn cursor_hook_status() -> Result<RuntimeHookStatus, String> {
     // Wiring is current exactly when install would leave the file alone, so
     // Nah's entry may sit anywhere among the user's other preToolUse hooks
     Ok(
-        if !add(
+        if !add_cursor_hook(
             &mut config.clone(),
-            desired_hook(&executable, FailurePolicy::Delegate)?,
+            desired_cursor_hook(&executable, FailurePolicy::Delegate)?,
         )? {
             RuntimeHookStatus::WiringCurrent
-        } else if !add(
+        } else if !add_cursor_hook(
             &mut config.clone(),
-            desired_hook(&executable, FailurePolicy::Block)?,
+            desired_cursor_hook(&executable, FailurePolicy::Block)?,
         )? {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
@@ -96,9 +96,9 @@ fn install_cursor_hook(
     let lock = acquire_hook_lock(&paths.lock, &CURSOR_HOOK_LOCK_ERRORS)?;
     reject_cursor_hook_symlinks(&paths)?;
     let mut config = load_cursor_hooks(&paths.hooks)?;
-    validate_version(&mut config)?;
-    let desired = desired_hook(executable, policy)?;
-    if add(&mut config, desired)? {
+    validate_cursor_hooks_version(&mut config)?;
+    let desired = desired_cursor_hook(executable, policy)?;
+    if add_cursor_hook(&mut config, desired)? {
         save_cursor_hooks(&paths.hooks, &config)?;
     }
     drop(lock);
@@ -111,8 +111,8 @@ fn uninstall_cursor_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     reject_cursor_hook_symlinks(&paths)?;
     if paths.hooks.exists() {
         let mut config = load_cursor_hooks(&paths.hooks)?;
-        validate_version(&mut config)?;
-        if remove(&mut config)? {
+        validate_cursor_hooks_version(&mut config)?;
+        if remove_cursor_hook(&mut config)? {
             save_cursor_hooks(&paths.hooks, &config)?;
         }
     }
@@ -154,7 +154,7 @@ fn load_cursor_hooks(path: &Path) -> Result<Value, String> {
     read_hook_json_object(path, &CURSOR_HOOKS_READ_ERRORS)
 }
 
-fn validate_version(config: &mut Value) -> Result<(), String> {
+fn validate_cursor_hooks_version(config: &mut Value) -> Result<(), String> {
     let root = config
         .as_object_mut()
         .ok_or_else(|| "invalid-cursor-hooks".to_owned())?;
@@ -168,8 +168,8 @@ fn validate_version(config: &mut Value) -> Result<(), String> {
     }
 }
 
-fn add(config: &mut Value, desired: Value) -> Result<bool, String> {
-    let hooks = pre_tool_hooks(config)?;
+fn add_cursor_hook(config: &mut Value, desired: Value) -> Result<bool, String> {
+    let hooks = cursor_pre_tool_hooks(config)?;
     if hooks.iter().filter(|hook| is_nah_hook(hook)).count() == 1
         && hooks.iter().any(|hook| hook == &desired)
     {
@@ -180,7 +180,7 @@ fn add(config: &mut Value, desired: Value) -> Result<bool, String> {
     Ok(true)
 }
 
-fn remove(config: &mut Value) -> Result<bool, String> {
+fn remove_cursor_hook(config: &mut Value) -> Result<bool, String> {
     let root = config
         .as_object_mut()
         .ok_or_else(|| "invalid-cursor-hooks".to_owned())?;
@@ -211,7 +211,7 @@ fn remove(config: &mut Value) -> Result<bool, String> {
     Ok(changed)
 }
 
-fn pre_tool_hooks(config: &mut Value) -> Result<&mut Vec<Value>, String> {
+fn cursor_pre_tool_hooks(config: &mut Value) -> Result<&mut Vec<Value>, String> {
     let root = config
         .as_object_mut()
         .ok_or_else(|| "invalid-cursor-hooks".to_owned())?;
@@ -231,7 +231,7 @@ fn pre_tool_hooks(config: &mut Value) -> Result<&mut Vec<Value>, String> {
     Ok(pre_tool_use)
 }
 
-fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
+fn desired_cursor_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;

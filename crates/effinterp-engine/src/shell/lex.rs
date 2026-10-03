@@ -3,7 +3,7 @@
 //! byte spans so the interpreter can build symbolic values and provenance.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Span {
+pub(crate) struct ShellSpan {
     pub start: u32,
     pub end: u32,
 }
@@ -103,7 +103,7 @@ pub(crate) enum Seg {
     /// `span` locates that text in the outer source.
     ArrayLit {
         source: String,
-        span: Span,
+        span: ShellSpan,
     },
     /// $?, ${x@Q}, ... — statically unresolvable value.
     Special,
@@ -115,16 +115,16 @@ pub(crate) enum Seg {
     /// $(...) or `...`.
     CommandSub {
         source: String,
-        span: Span,
+        span: ShellSpan,
         quoted: bool,
     },
     /// $((...)).
     Arith {
-        span: Span,
+        span: ShellSpan,
     },
     /// <(...) or >(...).
     ProcSub {
-        span: Span,
+        span: ShellSpan,
     },
 }
 
@@ -139,7 +139,7 @@ fn literal_index(modifier: &str) -> Option<u32> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WordTok {
     pub segs: Vec<Seg>,
-    pub span: Span,
+    pub span: ShellSpan,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,9 +186,9 @@ pub(crate) struct HereDoc {
     /// The bytes delivered on stdin, with leading tabs already stripped for `<<-`.
     pub body: String,
     /// Raw source bytes of the body before tab stripping.
-    pub body_span: Span,
+    pub body_span: ShellSpan,
     /// The terminator line without its newline, or `None` at end of input.
-    pub terminator_span: Option<Span>,
+    pub terminator_span: Option<ShellSpan>,
 }
 
 pub(crate) struct ExpansionBudget {
@@ -197,7 +197,7 @@ pub(crate) struct ExpansionBudget {
 
 /// The target of an fd duplication: another fd, or a close (`n>&-`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DupTarget {
+pub(crate) enum ShellDupTarget {
     Fd(u32),
     Move(u32),
     Close,
@@ -206,7 +206,7 @@ pub(crate) enum DupTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Tok {
     Word(WordTok),
-    Op(Op, Span),
+    Op(Op, ShellSpan),
     /// A redirection with its ordered fd semantics preserved. `fd` is the source
     /// descriptor (defaulted: 0 for input forms, 1 for output forms); `dup` is
     /// the duplication target for `Dup`; `both` marks `&>`/`>&file` which affect
@@ -214,10 +214,10 @@ pub(crate) enum Tok {
     Redir {
         kind: RedirKind,
         fd: Option<u32>,
-        dup: Option<DupTarget>,
+        dup: Option<ShellDupTarget>,
         both: bool,
         heredoc: Option<HereDoc>,
-        span: Span,
+        span: ShellSpan,
     },
 }
 
@@ -256,8 +256,8 @@ impl<'a> Cursor<'a> {
         self.src[self.pos..].starts_with(prefix)
     }
 
-    fn span_from(&self, start: usize) -> Span {
-        Span {
+    fn span_from(&self, start: usize) -> ShellSpan {
+        ShellSpan {
             start: start as u32,
             end: self.pos as u32,
         }
@@ -442,7 +442,7 @@ fn lex_redirect(c: &mut Cursor, start: usize, fd: Option<u32>) -> Result<Tok, (S
             quoted,
             strip_tabs,
             body: String::new(),
-            body_span: Span {
+            body_span: ShellSpan {
                 start: c.pos as u32,
                 end: c.pos as u32,
             },
@@ -596,7 +596,7 @@ fn drain_heredocs(c: &mut Cursor<'_>, toks: &mut [Tok], pending: &mut Vec<usize>
                 cmp
             };
             if delimiter_cmp == delimiter {
-                terminator_span = Some(Span {
+                terminator_span = Some(ShellSpan {
                     start: line_start as u32,
                     end: line_end as u32,
                 });
@@ -613,7 +613,7 @@ fn drain_heredocs(c: &mut Cursor<'_>, toks: &mut [Tok], pending: &mut Vec<usize>
         } = &mut toks[idx]
         {
             heredoc.body = body;
-            heredoc.body_span = Span {
+            heredoc.body_span = ShellSpan {
                 start: body_start as u32,
                 end: terminator_span
                     .map(|span| span.start)
@@ -747,14 +747,14 @@ pub(crate) fn lex_heredoc_body(
 /// Read the target of an fd duplication after `>&`/`<&`: a fd number (an
 /// optional trailing `-` marks a move), a bare `-` for close, or nothing
 /// (the following word must be expanded before selecting a target).
-fn eat_dup_target(c: &mut Cursor) -> Option<DupTarget> {
+fn eat_dup_target(c: &mut Cursor) -> Option<ShellDupTarget> {
     let digits_start = c.pos;
     while c.peek().is_some_and(|ch| ch.is_ascii_digit()) {
         c.bump();
     }
     if c.pos == digits_start {
         return if c.eat("-") {
-            Some(DupTarget::Close)
+            Some(ShellDupTarget::Close)
         } else {
             None
         };
@@ -763,9 +763,9 @@ fn eat_dup_target(c: &mut Cursor) -> Option<DupTarget> {
     let moving = c.eat("-");
     n.map(|fd| {
         if moving {
-            DupTarget::Move(fd)
+            ShellDupTarget::Move(fd)
         } else {
-            DupTarget::Fd(fd)
+            ShellDupTarget::Fd(fd)
         }
     })
 }
@@ -1094,7 +1094,7 @@ fn lex_array_literal(c: &mut Cursor, w: &mut WordBuilder) -> Result<(), (String,
     let inner_end = c.pos - 1;
     w.seg(Seg::ArrayLit {
         source: c.src[inner_start..inner_end].to_string(),
-        span: Span {
+        span: ShellSpan {
             start: inner_start as u32,
             end: inner_end as u32,
         },
@@ -1859,7 +1859,7 @@ mod tests {
     #[test]
     fn fd_numbers_and_dup_targets_are_preserved() {
         let out = lex("cat 2>&1 >&2 |& wc");
-        let redirs: Vec<(RedirKind, Option<u32>, Option<DupTarget>, bool)> = out
+        let redirs: Vec<(RedirKind, Option<u32>, Option<ShellDupTarget>, bool)> = out
             .toks
             .iter()
             .filter_map(|t| match t {
@@ -1877,9 +1877,9 @@ mod tests {
             redirs,
             vec![
                 // 2>&1 : source fd 2 duplicates fd 1.
-                (RedirKind::Dup, Some(2), Some(DupTarget::Fd(1)), false),
+                (RedirKind::Dup, Some(2), Some(ShellDupTarget::Fd(1)), false),
                 // >&2 : source fd defaults to 1, duplicates fd 2.
-                (RedirKind::Dup, Some(1), Some(DupTarget::Fd(2)), false),
+                (RedirKind::Dup, Some(1), Some(ShellDupTarget::Fd(2)), false),
             ]
         );
         // `|&` is a distinct operator, not a plain pipe.

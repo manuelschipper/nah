@@ -586,6 +586,16 @@ pub(crate) fn unresolved_resource(family: &str) -> ResourceExpr {
     }
 }
 
+/// The concrete filesystem path resource for `path`, taken exactly as written:
+/// no cwd is applied and nothing is normalized.
+pub(crate) fn fs_path_resource(path: &str) -> ResourceExpr {
+    ResourceExpr::Concrete {
+        identity: ResourceIdentity::FsPath {
+            path: path.to_string(),
+        },
+    }
+}
+
 /// Build a symbolic string join whose typed parts belong to its consuming
 /// effect domain. A literal segment establishes a filesystem join; a leading
 /// URL or bounded environment reference establishes a network join.

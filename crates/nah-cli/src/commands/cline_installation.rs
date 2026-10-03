@@ -48,8 +48,8 @@ pub(crate) fn cline_hook_status() -> Result<RuntimeHookStatus, String> {
     reject_cline_hook_symlinks(&paths)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    let delegate = desired_hook(&executable, platform, FailurePolicy::Delegate)?;
-    let strict = desired_hook(&executable, platform, FailurePolicy::Block)?;
+    let delegate = desired_cline_hook(&executable, platform, FailurePolicy::Delegate)?;
+    let strict = desired_cline_hook(&executable, platform, FailurePolicy::Block)?;
     let redundant = redundant_hook(&paths)?.is_some();
     let states = hook_states(&paths, &delegate)?;
     if !redundant && states.iter().all(Option::is_none) {
@@ -107,7 +107,7 @@ fn install_cline_hook(
     let paths = ClineHookPaths::new(home, platform);
     let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &CLINE_HOOK_LOCK_ERRORS)?;
     reject_cline_hook_symlinks(&paths)?;
-    let desired = desired_hook(executable, platform, policy)?;
+    let desired = desired_cline_hook(executable, platform, policy)?;
     let states = hook_states(&paths, &desired)?;
     for (path, state) in paths.hooks().into_iter().zip(states) {
         if state != Some(true) {
@@ -129,7 +129,7 @@ fn uninstall_cline_hook(home: &AbsolutePath, platform: Platform) -> Result<PathB
         if path.exists() {
             let configured =
                 std::fs::read_to_string(path).map_err(|_| "cline-hook-read-failed".to_owned())?;
-            if !is_owned(&configured) {
+            if !is_owned_cline_hook(&configured) {
                 return Err("cline-hook-file-conflict".into());
             }
         }
@@ -217,7 +217,7 @@ fn redundant_hook(paths: &ClineHookPaths) -> Result<Option<String>, String> {
     }
     let configured =
         std::fs::read_to_string(&paths.cli_hook).map_err(|_| "cline-hook-read-failed")?;
-    Ok(is_owned(&configured).then_some(configured))
+    Ok(is_owned_cline_hook(&configured).then_some(configured))
 }
 
 fn hook_state(path: &Path, desired: &str) -> Result<Option<bool>, String> {
@@ -226,7 +226,7 @@ fn hook_state(path: &Path, desired: &str) -> Result<Option<bool>, String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("cline-hook-read-failed".into()),
     };
-    if !is_owned(&configured) {
+    if !is_owned_cline_hook(&configured) {
         return Err("cline-hook-file-conflict".into());
     }
     let current = configured == desired;
@@ -259,7 +259,7 @@ fn documents_path(home: &Path, platform: Platform) -> PathBuf {
         .unwrap_or_else(|| home.join("Documents"))
 }
 
-fn desired_hook(
+fn desired_cline_hook(
     executable: &Path,
     platform: Platform,
     policy: FailurePolicy,
@@ -285,14 +285,14 @@ fn desired_hook(
 /// Whether `contents` is exactly a hook `desired_hook` generates for some nah
 /// executable and failure policy. Any other content makes the script the
 /// user's, even with nah's marker.
-fn is_owned(contents: &str) -> bool {
+fn is_owned_cline_hook(contents: &str) -> bool {
     let Some((executable, platform)) = generated_executable(contents) else {
         return false;
     };
     [FailurePolicy::Delegate, FailurePolicy::Block]
         .into_iter()
         .any(|policy| {
-            desired_hook(Path::new(&executable), platform, policy)
+            desired_cline_hook(Path::new(&executable), platform, policy)
                 .is_ok_and(|hook| hook == contents)
         })
 }
@@ -380,22 +380,22 @@ mod tests {
 
     #[test]
     fn generated_posix_and_powershell_hooks_are_owned() {
-        let posix = desired_hook(
+        let posix = desired_cline_hook(
             Path::new("/opt/nah"),
             Platform::Linux,
             FailurePolicy::Delegate,
         )
         .unwrap();
-        let windows = desired_hook(
+        let windows = desired_cline_hook(
             Path::new(r"C:\Program Files\nah.exe"),
             Platform::Windows,
             FailurePolicy::Delegate,
         )
         .unwrap();
-        assert!(is_owned(&posix));
-        assert!(is_owned(&windows));
+        assert!(is_owned_cline_hook(&posix));
+        assert!(is_owned_cline_hook(&windows));
         assert!(windows.contains("[Console]::In.ReadToEnd()"));
-        assert!(!is_owned(&format!("{posix}echo unsafe\n")));
+        assert!(!is_owned_cline_hook(&format!("{posix}echo unsafe\n")));
     }
 
     #[test]
@@ -410,12 +410,13 @@ mod tests {
         };
         std::fs::write(
             &paths.ide_hook,
-            desired_hook(Path::new("/old/nah"), Platform::Linux, FailurePolicy::Block).unwrap(),
+            desired_cline_hook(Path::new("/old/nah"), Platform::Linux, FailurePolicy::Block)
+                .unwrap(),
         )
         .unwrap();
         std::fs::write(
             &paths.cli_hook,
-            desired_hook(
+            desired_cline_hook(
                 Path::new("/old/nah"),
                 Platform::Linux,
                 FailurePolicy::Delegate,

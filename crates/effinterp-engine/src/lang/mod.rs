@@ -19,6 +19,7 @@ pub(crate) mod ruby;
 pub(crate) mod rust;
 mod source_text;
 mod swift;
+mod tree_sitter_nodes;
 
 /// See [`rust::is_entry_macro_line`].
 pub fn rust_is_entry_macro_line(trimmed: &str) -> bool {

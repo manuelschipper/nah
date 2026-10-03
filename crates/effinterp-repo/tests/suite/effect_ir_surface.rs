@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
+use crate::support::display;
+
 fn surface_repo(tag: &str) -> PathBuf {
     repo_test_fixture(
         std::path::Path::new(env!("CARGO_TARGET_TMPDIR")),
@@ -72,10 +74,6 @@ fn assert_no_metadata(value: &serde_json::Value) {
     let object = value.as_object().unwrap();
     assert!(!object.contains_key("assurance"));
     assert!(!object.contains_key("dispatch"));
-}
-
-fn display(fact: &effinterp_proto::EffectFact) -> String {
-    effinterp_proto::display_resource(&fact.resource)
 }
 
 #[test]

@@ -54,15 +54,15 @@ pub(crate) fn amp_hook_status() -> Result<RuntimeHookStatus, String> {
         }
         Err(_) => return Err("amp-plugin-read-failed".into()),
     };
-    if !owned(&bytes) {
+    if !is_owned_amp_plugin(&bytes) {
         return Err("amp-plugin-not-owned".into());
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     Ok(
-        if bytes == plugin(&executable, FailurePolicy::Delegate)?.as_bytes() {
+        if bytes == amp_plugin_source(&executable, FailurePolicy::Delegate)?.as_bytes() {
             RuntimeHookStatus::WiringCurrent
-        } else if bytes == plugin(&executable, FailurePolicy::Block)?.as_bytes() {
+        } else if bytes == amp_plugin_source(&executable, FailurePolicy::Block)?.as_bytes() {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
             let strict = bytes
@@ -100,10 +100,12 @@ fn install_amp_plugin(
         .ok_or_else(|| "invalid-amp-plugin-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "amp-plugin-write-failed")?;
     reject_amp_hook_symlinks(&paths)?;
-    let desired = plugin(executable, policy)?;
+    let desired = amp_plugin_source(executable, policy)?;
     match std::fs::read(&paths.plugin) {
         Ok(bytes) if bytes == desired.as_bytes() => {}
-        Ok(bytes) if owned(&bytes) => save_amp_plugin(&paths.plugin, desired.as_bytes())?,
+        Ok(bytes) if is_owned_amp_plugin(&bytes) => {
+            save_amp_plugin(&paths.plugin, desired.as_bytes())?
+        }
         Ok(_) => return Err("amp-plugin-not-owned".into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             save_amp_plugin(&paths.plugin, desired.as_bytes())?;
@@ -119,7 +121,7 @@ fn uninstall_amp_plugin(home: &AbsolutePath) -> Result<PathBuf, String> {
     let lock = acquire_hook_lock(&paths.lock, &AMP_HOOK_LOCK_ERRORS)?;
     reject_amp_hook_symlinks(&paths)?;
     match std::fs::read(&paths.plugin) {
-        Ok(bytes) if owned(&bytes) => {
+        Ok(bytes) if is_owned_amp_plugin(&bytes) => {
             std::fs::remove_file(&paths.plugin).map_err(|_| "amp-plugin-remove-failed")?;
             if let Some(parent) = paths.plugin.parent() {
                 sync_parent_directory(parent).map_err(|_| "amp-plugin-sync-failed".to_owned())?;
@@ -191,7 +193,7 @@ fn save_amp_plugin(path: &Path, bytes: &[u8]) -> Result<(), String> {
     write_hook_file_atomically(path, bytes, &AMP_PLUGIN_WRITE_ERRORS)
 }
 
-fn plugin(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
+fn amp_plugin_source(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -318,7 +320,7 @@ export default function nahAmpPlugin(amp: PluginAPI) {{
     ))
 }
 
-fn owned(bytes: &[u8]) -> bool {
+fn is_owned_amp_plugin(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bytes);
     text.starts_with(MARKER) && text.contains(r#"["hook", "amp", "run""#)
 }

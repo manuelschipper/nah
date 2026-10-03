@@ -18,7 +18,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
-    run_for_platform(
+    run_codex_for_platform(
         stdin,
         stdout,
         stderr,
@@ -27,7 +27,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     )
 }
 
-fn run_for_platform<R: Read, W: Write, E: Write>(
+fn run_codex_for_platform<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
@@ -42,7 +42,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
                 Runtime::Codex,
                 hook_adapter::IntegrationUnavailable::MalformedInput,
             ) {
-                emit(stdout, deny(&reason, false));
+                hook_adapter::write_hook_reply_line(stdout, codex_deny_reply(&reason, false));
             }
             return 0;
         }
@@ -50,7 +50,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
     if hook_adapter::irrelevant_event(&input, "hook_event_name", "PreToolUse") {
         return 0;
     }
-    if unsupported_shell(&input, platform) {
+    if codex_unsupported_shell(&input, platform) {
         input["tool_name"] = json!("CodexWindowsShell");
     }
     let encoded = serde_json::to_vec(&input).expect("JSON value serializes");
@@ -61,16 +61,19 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
         failure_policy,
     ) {
         hook_adapter::HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
-            emit(
+            hook_adapter::write_hook_reply_line(
                 stdout,
-                deny(
+                codex_deny_reply(
                     &hook_adapter::feedback(&decision),
                     decision.guard_block_incomplete(),
                 ),
             );
         }
         hook_adapter::HookOutcome::Decision(decision) if decision.evaluation_failed() => {
-            emit(stdout, diagnostic(hook_adapter::DELEGATED_FAILURE_MESSAGE));
+            hook_adapter::write_hook_reply_line(
+                stdout,
+                diagnostic(hook_adapter::DELEGATED_FAILURE_MESSAGE),
+            );
         }
         hook_adapter::HookOutcome::Decision(_) | hook_adapter::HookOutcome::IrrelevantEvent => {}
         hook_adapter::HookOutcome::MalformedInput => {
@@ -79,13 +82,18 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
                 Runtime::Codex,
                 hook_adapter::IntegrationUnavailable::MalformedInput,
             ) {
-                emit(stdout, deny(&reason, false));
+                hook_adapter::write_hook_reply_line(stdout, codex_deny_reply(&reason, false));
             }
         }
         hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
             match hook_adapter::unavailable_feedback(failure_policy, Runtime::Codex, kind) {
-                Some(reason) => emit(stdout, deny(&reason, false)),
-                None => emit(stdout, diagnostic(hook_adapter::DELEGATED_FAILURE_MESSAGE)),
+                Some(reason) => {
+                    hook_adapter::write_hook_reply_line(stdout, codex_deny_reply(&reason, false))
+                }
+                None => hook_adapter::write_hook_reply_line(
+                    stdout,
+                    diagnostic(hook_adapter::DELEGATED_FAILURE_MESSAGE),
+                ),
             }
         }
     }
@@ -98,7 +106,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    let tool_name = if unsupported_shell(
+    let tool_name = if codex_unsupported_shell(
         &json!({"tool_name": tool_name}),
         live_state::host_platform(),
     ) {
@@ -115,20 +123,15 @@ pub(crate) fn normalize_call(
     )
 }
 
-fn unsupported_shell(input: &Value, platform: Platform) -> bool {
+fn codex_unsupported_shell(input: &Value, platform: Platform) -> bool {
     platform == Platform::Windows && input.get("tool_name").and_then(Value::as_str) == Some("Bash")
-}
-
-fn emit<W: Write>(stdout: &mut W, value: Value) {
-    let _ = serde_json::to_writer(&mut *stdout, &value);
-    let _ = writeln!(stdout);
 }
 
 fn diagnostic(message: &str) -> Value {
     json!({"systemMessage":message})
 }
 
-fn deny(reason: &str, incomplete: bool) -> Value {
+fn codex_deny_reply(reason: &str, incomplete: bool) -> Value {
     let mut output = json!({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -175,7 +178,7 @@ mod tests {
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
             assert_eq!(
-                run_for_platform(
+                run_codex_for_platform(
                     &mut input,
                     &mut stdout,
                     &mut stderr,
@@ -199,7 +202,7 @@ mod tests {
         let mut stderr = Vec::new();
 
         assert_eq!(
-            run_for_platform(
+            run_codex_for_platform(
                 &mut input,
                 &mut stdout,
                 &mut stderr,
@@ -216,11 +219,11 @@ mod tests {
     fn dialect_boundary_preserves_unix_shell_and_native_tools() {
         let shell = payload("Bash", json!({"command":"git status"}));
         for platform in [Platform::Linux, Platform::Macos] {
-            assert!(!unsupported_shell(&shell, platform));
+            assert!(!codex_unsupported_shell(&shell, platform));
         }
         for tool in ["Read", "Write", "apply_patch"] {
             assert!(
-                !unsupported_shell(&payload(tool, json!({})), Platform::Windows),
+                !codex_unsupported_shell(&payload(tool, json!({})), Platform::Windows),
                 "{tool}"
             );
         }

@@ -12,7 +12,7 @@ use effinterp_proto::{
 use crate::builder::PlanBuilder;
 use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
 use crate::models::StdinValue;
-use crate::shell::lex::{Seg, Span, Tok, WordTok};
+use crate::shell::lex::{Seg, ShellSpan, Tok, WordTok};
 use crate::shell::{
     ArrayValue, BranchValue, Converted, Shell, ShellEnv, VarEntry, WordExpansion, lex, parse,
     variable_saturation_key,
@@ -367,7 +367,7 @@ impl Shell<'_> {
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
         source: &str,
-        span: Span,
+        span: ShellSpan,
     ) -> WordExpansion {
         let lexed = lex::lex(source);
         if lexed.error.is_some() {
@@ -980,7 +980,7 @@ impl Shell<'_> {
         builder: &mut PlanBuilder,
         env: &ShellEnv,
         descriptor: Descriptor,
-        span: Span,
+        span: ShellSpan,
     ) -> Option<FlowRef> {
         if let Some(producer) = descriptor_read_producer(env.redirections.iter(), descriptor) {
             return Some(producer);
@@ -1358,7 +1358,7 @@ pub(super) fn bind_var(
     literal: Option<String>,
     conditional: bool,
     guarded: bool,
-    span: Span,
+    span: ShellSpan,
     antecedents: Vec<ProvenanceRef>,
     producers: Vec<FlowRef>,
 ) {
@@ -1491,7 +1491,7 @@ pub(in crate::shell) fn bind_for_var(
     env: &mut ShellEnv,
     name: String,
     word: Option<Word>,
-    span: Span,
+    span: ShellSpan,
 ) {
     let nameref = env.vars.get(&name).is_some_and(|entry| entry.nameref);
     if nameref && let Some(entry) = env.vars.get_mut(&name) {
@@ -1603,7 +1603,7 @@ fn bind_array(
 
 /// Offset a re-lexed array-element word and its nested segments into the
 /// array literal's position in the outer source.
-fn respan(w: &mut WordTok, outer_span: Span) {
+fn respan(w: &mut WordTok, outer_span: ShellSpan) {
     let offset = outer_span.start;
     w.span.start += offset;
     w.span.end += offset;

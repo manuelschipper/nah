@@ -3,9 +3,9 @@
 use std::fmt::Write;
 
 use crate::catalog::{shipped_defaults, shipped_guard_docs, shipped_names};
-use crate::guard_knowledge::{knowledge, tui_examples};
-use crate::live_state::{home, host_platform};
-use crate::shipped_state::{ShippedState, reset, set_enabled, state_path};
+use crate::guard_knowledge::{knowledge_for_guard, tui_examples};
+use crate::live_state::{self, host_platform};
+use crate::shipped_state::{ShippedState, reset_shipped_guard_state, set_enabled, state_path};
 
 use super::{GuardEntry, GuardStatus, GuardTarget};
 
@@ -14,7 +14,7 @@ pub(crate) fn set_shipped_guard(name: &str, enabled: bool) -> Result<Vec<String>
         return Err(format!("guard `{name}` was not found"));
     }
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     set_enabled(
         &state_path(&home, platform),
         &shipped_defaults(),
@@ -29,8 +29,8 @@ pub(crate) fn reset_shipped_guard(name: &str) -> Result<Vec<String>, String> {
         return Err(format!("guard `{name}` was not found"));
     }
     let platform = host_platform();
-    let home = home(platform)?;
-    reset(&state_path(&home, platform), &shipped_defaults(), name)
+    let home = live_state::home(platform)?;
+    reset_shipped_guard_state(&state_path(&home, platform), &shipped_defaults(), name)
         .map_err(|error| error.to_string())
 }
 
@@ -82,7 +82,7 @@ pub(crate) fn list_shipped_guards(docs: bool) -> Result<(String, Vec<String>), S
 
 pub(crate) fn shipped_guard_entries() -> Result<(Vec<GuardEntry>, Vec<String>), String> {
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     let (state, diagnostics) =
         ShippedState::load(&state_path(&home, platform), &shipped_defaults())
             .map_err(|error| error.to_string())?;
@@ -101,8 +101,8 @@ pub(crate) fn shipped_guard_entries() -> Result<(Vec<GuardEntry>, Vec<String>), 
             } else {
                 GuardStatus::Disabled
             },
-            behavior: Some(knowledge(guard.name).summary.clone()),
-            examples: tui_examples(knowledge(guard.name), platform)
+            behavior: Some(knowledge_for_guard(guard.name).summary.clone()),
+            examples: tui_examples(knowledge_for_guard(guard.name), platform)
                 .into_iter()
                 .map(Into::into)
                 .collect(),

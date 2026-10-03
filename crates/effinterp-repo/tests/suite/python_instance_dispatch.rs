@@ -13,31 +13,9 @@ use effinterp_repo::{IndexLimits, build_index, effects_of};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 use super::origin_effects;
+use crate::support::deletes;
 
 /// The deletes on the entry's merged surface, as (resource, origin) pairs.
-fn deletes(root: &Path, entry: &str) -> Vec<(String, String)> {
-    let idx = build_index(root, IndexLimits::default());
-    let report = effects_of(&idx, entry).expect("entry analyzed");
-    report
-        .payload
-        .as_effects()
-        .unwrap()
-        .effects
-        .iter()
-        .filter(|e| e.operation.as_str() == "filesystem.delete")
-        .map(|e| {
-            (
-                effinterp_proto::display_resource_with_scope(&e.resource),
-                e.origin
-                    .as_ref()
-                    .expect("effect origin")
-                    .source_file
-                    .clone(),
-            )
-        })
-        .collect()
-}
-
 const LOADER: &str =
     "import shutil\nclass Loader:\n    def load(self, p):\n        shutil.rmtree(p)\n";
 

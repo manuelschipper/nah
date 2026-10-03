@@ -52,7 +52,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
-    run_for_platform(
+    run_copilot_for_platform(
         stdin,
         stdout,
         stderr,
@@ -61,7 +61,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     )
 }
 
-fn run_for_platform<R: Read, W: Write, E: Write>(
+fn run_copilot_for_platform<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
@@ -84,7 +84,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
     let request = parsed
         .map_err(|error| error.to_string())
         .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
-        .and_then(|input| normalize(input, platform));
+        .and_then(|input| normalize_copilot_hook_input(input, platform));
     let (surface, decision) = match request {
         Ok((surface, request, code)) => {
             let decision = hook_adapter::decide_input(
@@ -146,8 +146,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
         }
     };
     if let Some(output) = output {
-        let _ = serde_json::to_writer(&mut *stdout, &output);
-        let _ = writeln!(stdout);
+        hook_adapter::write_hook_reply_line(stdout, output);
     }
     0
 }
@@ -159,7 +158,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<(ToolCallInput, Option<CodeInput>), String> {
-    normalize(
+    normalize_copilot_hook_input(
         CopilotHookInput::VsCode {
             hook_event_name: "PreToolUse".into(),
             session_id: None,
@@ -172,7 +171,7 @@ pub(crate) fn normalize_call(
     .map(|(_, request, code)| (request, code))
 }
 
-fn normalize(
+fn normalize_copilot_hook_input(
     input: CopilotHookInput,
     platform: nah_proto::ctx::Platform,
 ) -> Result<(Surface, ToolCallInput, Option<CodeInput>), String> {
@@ -386,8 +385,7 @@ fn tool_input_optional_aliased_string(
 }
 
 fn emit_progress<W: Write>(stdout: &mut W, message: &str) {
-    let _ = serde_json::to_writer(&mut *stdout, &json!({"type":"progress","message":message}));
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, json!({"type":"progress","message":message}));
 }
 
 fn response(surface: Surface, reason: &str, incomplete: bool) -> Value {
@@ -502,23 +500,27 @@ mod tests {
             tool_input: json!({"command":"echo ok"}),
         };
 
-        let (_, bash, code) = normalize(cli("bash"), nah_proto::ctx::Platform::Windows).unwrap();
+        let (_, bash, code) =
+            normalize_copilot_hook_input(cli("bash"), nah_proto::ctx::Platform::Windows).unwrap();
         assert_eq!(bash.tool(), "Bash");
         assert!(code.is_none());
 
         let (_, powershell, code) =
-            normalize(cli("powershell"), nah_proto::ctx::Platform::Windows).unwrap();
+            normalize_copilot_hook_input(cli("powershell"), nah_proto::ctx::Platform::Windows)
+                .unwrap();
         assert_eq!(powershell.tool(), "powershell");
         assert!(powershell.normalization_complete());
         assert!(matches!(code, Some(CodeInput::PowerShell { .. })));
 
         let (_, powershell, code) =
-            normalize(cli("powershell"), nah_proto::ctx::Platform::Linux).unwrap();
+            normalize_copilot_hook_input(cli("powershell"), nah_proto::ctx::Platform::Linux)
+                .unwrap();
         assert_eq!(powershell.tool(), "powershell");
         assert!(code.is_none());
 
         for tool in ["Bash", "runTerminalCommand", "run_in_terminal"] {
-            let (_, call, code) = normalize(cli(tool), nah_proto::ctx::Platform::Windows).unwrap();
+            let (_, call, code) =
+                normalize_copilot_hook_input(cli(tool), nah_proto::ctx::Platform::Windows).unwrap();
             assert_eq!(call.tool(), "CopilotWindowsShell", "{tool}");
             assert!(!call.normalization_complete(), "{tool}");
             assert!(code.is_none(), "{tool}");

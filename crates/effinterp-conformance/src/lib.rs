@@ -261,6 +261,7 @@ mod tests {
         FileReadArgs, HostContext, RepoQueryEnvelope, Subject, ToolCall, from_repo_query_json,
         stable_hash, validate_repo_query,
     };
+    use serde_json::Value;
 
     use super::validate_conformance_bytes;
 
@@ -287,11 +288,7 @@ mod tests {
         validate_repo_query(&envelope).unwrap();
         validate_conformance_bytes(envelope.to_canonical_json().as_bytes()).unwrap();
     }
-}
 
-#[cfg(test)]
-mod redacted_tests {
-    use super::validate_conformance_bytes;
     #[test]
     fn redacted_vectors_and_unknown_schema() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -318,29 +315,25 @@ mod redacted_tests {
             "schema"
         );
     }
-}
 
-#[cfg(test)]
-#[test]
-fn satisfies_schema_dispatch_replays_cases() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../effinterp-proto/fixtures/satisfies-v1");
-    for directory in ["valid", "invalid"] {
-        for entry in std::fs::read_dir(root.join(directory)).unwrap() {
-            let path = entry.unwrap().path();
-            let result = validate_conformance_bytes(&std::fs::read(&path).unwrap());
-            assert_eq!(
-                result.is_ok(),
-                directory == "valid",
-                "{}: {result:?}",
-                path.display()
-            );
+    #[test]
+    fn satisfies_schema_dispatch_replays_cases() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../effinterp-proto/fixtures/satisfies-v1");
+        for directory in ["valid", "invalid"] {
+            for entry in std::fs::read_dir(root.join(directory)).unwrap() {
+                let path = entry.unwrap().path();
+                let result = validate_conformance_bytes(&std::fs::read(&path).unwrap());
+                assert_eq!(
+                    result.is_ok(),
+                    directory == "valid",
+                    "{}: {result:?}",
+                    path.display()
+                );
+            }
         }
     }
-}
 
-#[cfg(test)]
-mod condition_tests {
     #[test]
     fn independent_guard_validation_rejects_malformed_and_over_bound_formulas() {
         use effinterp_proto::{ByteSpan, Condition, ConditionKind};
@@ -378,21 +371,21 @@ mod condition_tests {
             assert!(serde_json::from_value::<Condition>(value).is_err());
         }
     }
-}
 
-#[test]
-fn plan_detail_modes_preserve_validation() {
-    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../effinterp-proto/fixtures/exec-rm-recursive.json");
-    let detailed = std::fs::read(fixture).unwrap();
-    validate_conformance_bytes(&detailed).unwrap();
-    let mut value: Value = serde_json::from_slice(&detailed).unwrap();
-    value["causality"]["graph"]["edges"][0]["to"] = Value::String("missing".into());
-    assert!(validate_conformance_bytes(&serde_json::to_vec(&value).unwrap()).is_err());
-    value["causality"]["graph"] = serde_json::json!({"nodes": [], "edges": []});
-    validate_conformance_bytes(&serde_json::to_vec(&value).unwrap()).unwrap();
-    value["causality"].as_object_mut().unwrap().remove("graph");
-    validate_conformance_bytes(&serde_json::to_vec(&value).unwrap()).unwrap();
-    value["causality"]["coverage"]["gaps"] = serde_json::json!([999]);
-    assert!(validate_conformance_bytes(&serde_json::to_vec(&value).unwrap()).is_err());
+    #[test]
+    fn plan_detail_modes_preserve_validation() {
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../effinterp-proto/fixtures/exec-rm-recursive.json");
+        let detailed = std::fs::read(fixture).unwrap();
+        validate_conformance_bytes(&detailed).unwrap();
+        let mut value: Value = serde_json::from_slice(&detailed).unwrap();
+        value["causality"]["graph"]["edges"][0]["to"] = Value::String("missing".into());
+        assert!(validate_conformance_bytes(&serde_json::to_vec(&value).unwrap()).is_err());
+        value["causality"]["graph"] = serde_json::json!({"nodes": [], "edges": []});
+        validate_conformance_bytes(&serde_json::to_vec(&value).unwrap()).unwrap();
+        value["causality"].as_object_mut().unwrap().remove("graph");
+        validate_conformance_bytes(&serde_json::to_vec(&value).unwrap()).unwrap();
+        value["causality"]["coverage"]["gaps"] = serde_json::json!([999]);
+        assert!(validate_conformance_bytes(&serde_json::to_vec(&value).unwrap()).is_err());
+    }
 }

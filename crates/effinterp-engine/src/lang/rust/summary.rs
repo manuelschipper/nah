@@ -29,7 +29,7 @@ use crate::{
 };
 
 use super::{
-    ClosureDef, FnDef, Fns, MAX_CALL_DEPTH, PEEL_METHODS, RUST_DOMAINS, Resolver, ValueFacts,
+    ClosureDef, FnDef, Fns, MAX_CALL_DEPTH, PEEL_METHODS, RUST_DOMAINS, Resolver, RustValueFacts,
     block_exprs, bound_future, call_arg_exprs, chain_base_ident, child_exprs, closure_def,
     closure_expr, collect_fns, control, cross_file_value_call_key, entry_handoffs, expr_key,
     future_eager_arguments, future_name, handoff_call, has_drop_impl, is_effectless_call,
@@ -866,7 +866,7 @@ fn receiver_type_ref_from_path(
 fn summarize_all<'a>(
     fns: &Fns<'a>,
     uses: &Resolver,
-    value_facts: &HashMap<String, ValueFacts>,
+    value_facts: &HashMap<String, RustValueFacts>,
     value_limits: crate::ValueLimits,
 ) -> HashMap<String, Summary> {
     let mut out = HashMap::new();
@@ -894,7 +894,7 @@ fn summarize_fn(
     name: &str,
     fns: &Fns,
     _uses: &Resolver,
-    all_value_facts: &HashMap<String, ValueFacts>,
+    all_value_facts: &HashMap<String, RustValueFacts>,
     visiting: &mut HashSet<String>,
     nodes: &mut u64,
     depth: usize,
@@ -1007,8 +1007,8 @@ struct Summarizer<'a, 'b> {
     visiting: &'b mut HashSet<String>,
     nodes: &'b mut u64,
     depth: usize,
-    value_facts: &'a ValueFacts,
-    all_value_facts: &'a HashMap<String, ValueFacts>,
+    value_facts: &'a RustValueFacts,
+    all_value_facts: &'a HashMap<String, RustValueFacts>,
 }
 
 impl Summarizer<'_, '_> {
@@ -1654,8 +1654,8 @@ struct EdgeCollector<'a, 'b> {
     synth: &'b mut Vec<ImportBinding>,
     nodes: &'b mut u64,
     visited: HashSet<String>,
-    value_facts: &'a ValueFacts,
-    all_value_facts: &'a HashMap<String, ValueFacts>,
+    value_facts: &'a RustValueFacts,
+    all_value_facts: &'a HashMap<String, RustValueFacts>,
 }
 
 impl EdgeCollector<'_, '_> {

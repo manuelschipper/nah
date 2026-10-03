@@ -18,7 +18,7 @@ pub(super) fn fastapi_registrations(
         body,
         file,
         None,
-        &mut Bindings::default(),
+        &mut RegistrationBindings::default(),
         &mut out,
         &mut bytes_left,
     )?;
@@ -26,29 +26,29 @@ pub(super) fn fastapi_registrations(
 }
 
 #[derive(Clone, Default)]
-struct Bindings {
-    imports: HashMap<String, ImportBinding>,
-    receivers: HashMap<String, Receiver>,
+struct RegistrationBindings {
+    imports: HashMap<String, RegistrationImport>,
+    receivers: HashMap<String, RegistrationReceiver>,
     handlers: HashMap<String, String>,
 }
 
 #[derive(Clone)]
-struct Receiver {
+struct RegistrationReceiver {
     prefix: Option<String>,
     shadowed_members: HashSet<String>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
-enum ImportBinding {
+enum RegistrationImport {
     Imported(String),
     Unavailable,
     Shadowed,
 }
 
-impl Bindings {
+impl RegistrationBindings {
     fn invalidate(&mut self, name: &str) {
         self.imports
-            .insert(name.to_string(), ImportBinding::Shadowed);
+            .insert(name.to_string(), RegistrationImport::Shadowed);
         self.receivers.remove(name);
         self.handlers.remove(name);
     }
@@ -90,7 +90,7 @@ impl Bindings {
         match value {
             Expr::Name(name) if self.imports.contains_key(name.id.as_str()) => {
                 self.imports
-                    .insert(name.id.to_string(), ImportBinding::Shadowed);
+                    .insert(name.id.to_string(), RegistrationImport::Shadowed);
             }
             Expr::Attribute(attribute) => self.invalidate_import_member(&attribute.value),
             Expr::Subscript(subscript) => self.invalidate_import_member(&subscript.value),
@@ -112,7 +112,7 @@ impl Bindings {
     }
 }
 
-fn invalidate_expression(bindings: &mut Bindings, expression: &Expr) {
+fn invalidate_expression(bindings: &mut RegistrationBindings, expression: &Expr) {
     let mut expressions = vec![expression];
     while let Some(expression) = expressions.pop() {
         if let Expr::NamedExpr(named) = expression {
@@ -123,18 +123,18 @@ fn invalidate_expression(bindings: &mut Bindings, expression: &Expr) {
 }
 
 fn merge_imports(
-    mut left: HashMap<String, ImportBinding>,
-    right: HashMap<String, ImportBinding>,
-) -> HashMap<String, ImportBinding> {
+    mut left: HashMap<String, RegistrationImport>,
+    right: HashMap<String, RegistrationImport>,
+) -> HashMap<String, RegistrationImport> {
     // Unbound/None alternatives cannot construct an app. Keep the imported
     // alternative, but reject competing callable bindings or different imports.
     for (name, binding) in right {
         left.entry(name)
             .and_modify(|existing| {
-                if *existing == ImportBinding::Unavailable {
+                if *existing == RegistrationImport::Unavailable {
                     *existing = binding.clone();
-                } else if binding != ImportBinding::Unavailable && *existing != binding {
-                    *existing = ImportBinding::Shadowed;
+                } else if binding != RegistrationImport::Unavailable && *existing != binding {
+                    *existing = RegistrationImport::Shadowed;
                 }
             })
             .or_insert(binding);
@@ -146,7 +146,7 @@ fn scan_body(
     body: &[Stmt],
     file: &str,
     owner: Option<&str>,
-    bindings: &mut Bindings,
+    bindings: &mut RegistrationBindings,
     out: &mut Vec<Registration>,
     bytes_left: &mut u64,
 ) -> Result<(), &'static str> {
@@ -245,7 +245,7 @@ fn scan_body(
                     let name = alias.asname.as_ref().unwrap_or(&alias.name).to_string();
                     bindings.imports.insert(
                         name.clone(),
-                        ImportBinding::Imported(alias.name.to_string()),
+                        RegistrationImport::Imported(alias.name.to_string()),
                     );
                     bindings.receivers.remove(&name);
                 }
@@ -255,7 +255,7 @@ fn scan_body(
                     let name = alias.asname.as_ref().unwrap_or(&alias.name).to_string();
                     bindings.imports.insert(
                         name.clone(),
-                        ImportBinding::Imported(format!(
+                        RegistrationImport::Imported(format!(
                             "{}.{}",
                             import.module.as_ref().map(|s| s.as_str()).unwrap_or(""),
                             alias.name
@@ -273,14 +273,14 @@ fn scan_body(
                     {
                         bindings
                             .imports
-                            .insert(name.id.to_string(), ImportBinding::Unavailable);
+                            .insert(name.id.to_string(), RegistrationImport::Unavailable);
                     }
                     if let Expr::Name(name) = target
                         && let Some(prefix) = &receiver
                     {
                         bindings.receivers.insert(
                             name.id.to_string(),
-                            Receiver {
+                            RegistrationReceiver {
                                 prefix: prefix.clone(),
                                 shadowed_members: HashSet::new(),
                             },
@@ -297,14 +297,14 @@ fn scan_body(
                     {
                         bindings
                             .imports
-                            .insert(name.id.to_string(), ImportBinding::Unavailable);
+                            .insert(name.id.to_string(), RegistrationImport::Unavailable);
                     }
                     if let Expr::Name(name) = assign.target.as_ref()
                         && let Some(prefix) = receiver
                     {
                         bindings.receivers.insert(
                             name.id.to_string(),
-                            Receiver {
+                            RegistrationReceiver {
                                 prefix,
                                 shadowed_members: HashSet::new(),
                             },
@@ -418,7 +418,7 @@ fn scan_body(
 fn add_decorators(
     handler: &str,
     decorators: &[Expr],
-    receivers: &HashMap<String, Receiver>,
+    receivers: &HashMap<String, RegistrationReceiver>,
     file: &str,
     out: &mut Vec<Registration>,
     bytes_left: &mut u64,
@@ -434,7 +434,7 @@ fn add_decorators(
 fn add_call(
     call: &ast::ExprCall,
     handler: &str,
-    receivers: &HashMap<String, Receiver>,
+    receivers: &HashMap<String, RegistrationReceiver>,
     file: &str,
     direct: bool,
     out: &mut Vec<Registration>,
@@ -526,12 +526,12 @@ fn add_call(
 
 fn receiver_prefix(
     value: &Expr,
-    imports: &HashMap<String, ImportBinding>,
+    imports: &HashMap<String, RegistrationImport>,
 ) -> Option<Option<String>> {
     let Expr::Call(call) = value else { return None };
     let written = callee_written(&call.func)?;
     let (root, suffix) = written.split_once('.').unwrap_or((&written, ""));
-    let ImportBinding::Imported(module) = imports.get(root)? else {
+    let RegistrationImport::Imported(module) = imports.get(root)? else {
         return None;
     };
     let resolved = if suffix.is_empty() {

@@ -12,6 +12,8 @@ use effinterp_repo::{
 };
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
+use crate::support::write_file;
+
 const APP_PY: &str = "#!/usr/bin/env python\nfrom util import wipe\ndef run():\n    wipe(\"/var/cache/app\", name)\nrun()\n";
 const UTIL_PY: &str =
     "import os, shutil\ndef wipe(root, t):\n    shutil.rmtree(os.path.join(root, t))\n";
@@ -734,12 +736,6 @@ fn filesystem_concatenation_preserves_environment_after_cross_file_substitution(
                 }
             ] if name == "HOME" && path.starts_with("/.cache/"))
     )));
-}
-
-fn write_file(root: &Path, rel: &str, content: &str) {
-    let path = root.join(rel);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, content).unwrap();
 }
 
 /// A canonical dump of every entrypoint's effective surface (direct + composed

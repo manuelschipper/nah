@@ -236,13 +236,13 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
             domain: Domain::Filesystem,
             gap_code: None,
             clauses: vec![
-                clause(
+                filesystem_guard_clause(
                     destructive(),
                     ReachEndpoint::Selected,
                     true,
                     PathRule::SystemTree,
                 ),
-                clause(
+                filesystem_guard_clause(
                     filesystem("filesystem.move", vec![]),
                     ReachEndpoint::Selected,
                     false,
@@ -257,7 +257,7 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
             default_enabled: true,
             domain: Domain::Filesystem,
             gap_code: None,
-            clauses: vec![clause(
+            clauses: vec![filesystem_guard_clause(
                 destructive(),
                 ReachEndpoint::Selected,
                 true,
@@ -271,7 +271,7 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
             default_enabled: false,
             domain: Domain::Filesystem,
             gap_code: None,
-            clauses: vec![clause(
+            clauses: vec![filesystem_guard_clause(
                 filesystem("filesystem.delete", vec![]),
                 ReachEndpoint::Selected,
                 true,
@@ -312,7 +312,7 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
             default_enabled: true,
             domain: Domain::Filesystem,
             gap_code: None,
-            clauses: vec![clause(
+            clauses: vec![filesystem_guard_clause(
                 destructive(),
                 ReachEndpoint::Selected,
                 true,
@@ -327,7 +327,7 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
             domain: Domain::Filesystem,
             gap_code: None,
             clauses: vec![
-                clause(
+                filesystem_guard_clause(
                     Assertion::Any {
                         assertions: [
                             "filesystem.write",
@@ -342,7 +342,7 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
                     false,
                     PathRule::RawStorageSpelling,
                 ),
-                clause(
+                filesystem_guard_clause(
                     filesystem("filesystem.move", vec![]),
                     ReachEndpoint::MoveDestination,
                     false,
@@ -350,7 +350,7 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
                 ),
                 // A whole-device destruction names a typed block device; the
                 // device path it reaches is its identity.
-                clause(
+                filesystem_guard_clause(
                     Assertion::Any {
                         assertions: established(|request, execution| Assertion::All {
                             assertions: vec![
@@ -451,7 +451,7 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
                 // this host or, with `-M`, in a local container the user
                 // administers. The runtime unit directory under /run is left
                 // out for the same reason `--runtime` is.
-                clause(
+                filesystem_guard_clause(
                     Assertion::Any {
                         assertions: [RealmPredicate::Host, RealmPredicate::Container]
                             .into_iter()
@@ -571,7 +571,7 @@ fn host_integrity(
         domain: Domain::Filesystem,
         gap_code: None,
         clauses: vec![
-            clause(
+            filesystem_guard_clause(
                 Assertion::Any {
                     assertions: MUTATIONS
                         .into_iter()
@@ -582,7 +582,7 @@ fn host_integrity(
                 false,
                 path,
             ),
-            clause(
+            filesystem_guard_clause(
                 filesystem("filesystem.move", vec![]),
                 ReachEndpoint::MoveDestination,
                 false,
@@ -593,7 +593,7 @@ fn host_integrity(
     }
 }
 
-fn clause(
+fn filesystem_guard_clause(
     assertion: Assertion,
     endpoint: ReachEndpoint,
     recursive: bool,

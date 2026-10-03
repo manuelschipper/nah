@@ -52,11 +52,11 @@ pub(crate) fn antigravity_hook_status() -> Result<RuntimeHookStatus, String> {
     };
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    if configured == &desired_hook(&executable, FailurePolicy::Delegate)? {
+    if configured == &desired_antigravity_hook(&executable, FailurePolicy::Delegate)? {
         Ok(RuntimeHookStatus::WiringCurrent)
-    } else if configured == &desired_hook(&executable, FailurePolicy::Block)? {
+    } else if configured == &desired_antigravity_hook(&executable, FailurePolicy::Block)? {
         Ok(RuntimeHookStatus::WiringCurrentFailClosed)
-    } else if is_owned(configured) {
+    } else if is_owned_antigravity_hook(configured) {
         Ok(RuntimeHookStatus::stale(if is_fail_closed(configured) {
             FailurePolicy::Block
         } else {
@@ -82,13 +82,13 @@ fn install_antigravity_hook(
     let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &ANTIGRAVITY_HOOK_LOCK_ERRORS)?;
     reject_hook_symlinks(&paths)?;
     let mut config = load_antigravity_hooks(&paths.hooks)?;
-    let desired = desired_hook(executable, policy)?;
+    let desired = desired_antigravity_hook(executable, policy)?;
     let root = config
         .as_object_mut()
         .ok_or_else(|| "invalid-antigravity-hooks".to_owned())?;
     match root.get(HOOK_NAME) {
         Some(configured) if configured == &desired => {}
-        Some(configured) if !is_owned(configured) => {
+        Some(configured) if !is_owned_antigravity_hook(configured) => {
             return Err("antigravity-hook-name-conflict".into());
         }
         _ => {
@@ -110,7 +110,7 @@ fn uninstall_antigravity_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
             .as_object_mut()
             .ok_or_else(|| "invalid-antigravity-hooks".to_owned())?;
         match root.get(HOOK_NAME) {
-            Some(configured) if is_owned(configured) => {
+            Some(configured) if is_owned_antigravity_hook(configured) => {
                 root.remove(HOOK_NAME);
                 save_antigravity_hooks(&paths.hooks, &config)?;
             }
@@ -164,7 +164,7 @@ fn load_antigravity_hooks(path: &Path) -> Result<Value, String> {
     read_hook_json_object(path, &ANTIGRAVITY_HOOKS_READ_ERRORS)
 }
 
-fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
+fn desired_antigravity_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -193,14 +193,14 @@ fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, Strin
     }))
 }
 
-fn is_owned(definition: &Value) -> bool {
+fn is_owned_antigravity_hook(definition: &Value) -> bool {
     definition["PreToolUse"]
         .as_array()
         .into_iter()
         .flatten()
         .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
         .filter_map(|handler| handler["command"].as_str())
-        .any(is_owned_command)
+        .any(is_owned_antigravity_command)
 }
 
 fn is_fail_closed(definition: &Value) -> bool {
@@ -210,14 +210,14 @@ fn is_fail_closed(definition: &Value) -> bool {
         .flatten()
         .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
         .filter_map(|handler| handler["command"].as_str())
-        .filter(|command| is_owned_command(command));
+        .filter(|command| is_owned_antigravity_command(command));
     commands
         .next()
         .is_some_and(|command| command.ends_with(" hook antigravity run --fail-closed"))
         && commands.all(|command| command.ends_with(" hook antigravity run --fail-closed"))
 }
 
-fn is_owned_command(command: &str) -> bool {
+fn is_owned_antigravity_command(command: &str) -> bool {
     let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
     let Some(executable) = command.strip_suffix(" hook antigravity run") else {
         return false;

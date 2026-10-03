@@ -9,7 +9,7 @@ use crate::models::InvocationCtx;
 use crate::paths::resolve_fs_word_with_cwd;
 use crate::word::Word;
 
-use super::{Globals, ScopedRepo, environment_path, superproject_and_submodule, worktree_base};
+use super::{Globals, ScopedRepo, git_environment_path, superproject_and_submodule, worktree_base};
 
 /// One setting the invocation may read.
 pub(super) struct ConfigEntry {
@@ -145,7 +145,7 @@ pub(super) fn repository_aliases(
         .git_dir
         .as_ref()
         .map(|dir| resolve_fs_word_with_cwd(&dir.word, Some(base.clone())))
-        .or_else(|| environment_path(ctx, "GIT_DIR", Some(base.clone())));
+        .or_else(|| git_environment_path(ctx, "GIT_DIR", Some(base.clone())));
     let mut candidates = Vec::new();
     if let Some(dir) = explicit_dir {
         let ResourceExpr::Concrete {

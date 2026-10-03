@@ -27,7 +27,7 @@ pub(super) fn credential_models() -> Vec<Box<dyn CommandModel>> {
         Box::new(Vault),
         Box::new(Doppler),
         Box::new(Infisical),
-        Box::new(Op),
+        Box::new(OnePassword),
         Box::new(Security),
         Box::new(Bitwarden),
         Box::new(Bws),
@@ -321,7 +321,7 @@ impl CommandModel for Security {
                     continue;
                 }
             }
-            let target = resource(
+            let target = credential_resource(
                 "macos-keychain",
                 Some(path.as_ref().unwrap_or(&Word::literal("search-list"))),
                 None,
@@ -739,7 +739,7 @@ fn strict_repeated_args(
     }
     true
 }
-fn resource(provider: &str, store: Option<&Word>, path: Option<&Word>) -> ResourceExpr {
+fn credential_resource(provider: &str, store: Option<&Word>, path: Option<&Word>) -> ResourceExpr {
     if store
         .into_iter()
         .chain(path)
@@ -758,13 +758,13 @@ fn resource(provider: &str, store: Option<&Word>, path: Option<&Word>) -> Resour
 fn named(provider: &str, store: Option<&Word>, path: Option<&Word>) -> ResourceExpr {
     path.map_or_else(
         || unresolved_resource("credential"),
-        |path| resource(provider, store, Some(path)),
+        |path| credential_resource(provider, store, Some(path)),
     )
 }
 fn store_resource(provider: &str, store: Option<&Word>) -> ResourceExpr {
     store.map_or_else(
         || unresolved_resource("credential"),
-        |store| resource(provider, Some(store), None),
+        |store| credential_resource(provider, Some(store), None),
     )
 }
 fn join_store(first: Option<&Word>, second: Option<&Word>) -> Option<Word> {
@@ -781,7 +781,7 @@ fn join_store(first: Option<&Word>, second: Option<&Word>) -> Option<Word> {
     }
     Some(Word::new(parts))
 }
-fn flag(attrs: &mut Attrs, name: &str) {
+fn credential_flag_attr(attrs: &mut Attrs, name: &str) {
     attrs.insert(name.into(), AttrValue::Bool(true));
     if name == "destroy" {
         attrs.insert("deletion".into(), AttrValue::String("permanent".into()));
@@ -883,7 +883,7 @@ fn emit_store_effects(
     request_exact
 }
 
-fn unmodeled(builder: &mut PlanBuilder, node: ProvenanceRef) {
+fn credential_unmodeled_subcommand(builder: &mut PlanBuilder, node: ProvenanceRef) {
     builder.boundary(Boundary {
         reason: BoundaryReason::UNMODELED_SUBCOMMAND,
         class: BoundaryClass::Unmodeled,
@@ -988,7 +988,7 @@ impl CommandModel for Vault {
             (Some("kv"), Some("get"), _) => (CREDENTIAL_READ, 2),
             (Some("kv"), Some("put"), _) => (CREDENTIAL_WRITE, 2),
             (Some("kv"), Some("undelete"), _) => {
-                flag(&mut attrs, "undelete");
+                credential_flag_attr(&mut attrs, "undelete");
                 (CREDENTIAL_WRITE, 2)
             }
             (Some("kv"), Some("delete"), _) => {
@@ -998,11 +998,11 @@ impl CommandModel for Vault {
                 (CREDENTIAL_DELETE, 2)
             }
             (Some("kv"), Some("destroy"), _) => {
-                flag(&mut attrs, "destroy");
+                credential_flag_attr(&mut attrs, "destroy");
                 (CREDENTIAL_DELETE, 2)
             }
             (Some("kv"), Some("metadata"), Some("delete")) => {
-                flag(&mut attrs, "destroy");
+                credential_flag_attr(&mut attrs, "destroy");
                 attrs.insert("mode".into(), AttrValue::String("metadata".into()));
                 (CREDENTIAL_DELETE, 3)
             }
@@ -1019,7 +1019,7 @@ impl CommandModel for Vault {
             (Some("write"), _, _) => (CREDENTIAL_WRITE, 1),
             (Some("delete"), _, _) => (CREDENTIAL_DELETE, 1),
             (Some("secrets"), Some("disable"), _) => {
-                flag(&mut attrs, "destroy");
+                credential_flag_attr(&mut attrs, "destroy");
                 let mount = args.operands.get(2).map(|word| {
                     word.as_literal()
                         .map(|s| Word::literal(s.trim_end_matches('/')))
@@ -1044,7 +1044,7 @@ impl CommandModel for Vault {
                 return;
             }
             _ => {
-                unmodeled(builder, node);
+                credential_unmodeled_subcommand(builder, node);
                 return;
             }
         };
@@ -1065,7 +1065,7 @@ impl CommandModel for Vault {
             let (mount, path) = path
                 .split_once('/')
                 .map_or((path, None), |(m, p)| (m, Some(Word::literal(p))));
-            resource("vault", Some(&Word::literal(mount)), path.as_ref())
+            credential_resource("vault", Some(&Word::literal(mount)), path.as_ref())
         } else {
             unresolved_resource("credential")
         };
@@ -1237,7 +1237,7 @@ pub(crate) fn vault_kv_destroy_target(path: &str, delete: bool) -> Option<Resour
             .chain(secret)
             .all(|segment| !matches!(*segment, "" | "." | "..")))
     .then(|| {
-        resource(
+        credential_resource(
             "vault",
             Some(&Word::literal(mount.join("/"))),
             Some(&Word::literal(secret.join("/"))),
@@ -1249,7 +1249,7 @@ pub(crate) fn vault_kv_destroy_target(path: &str, delete: bool) -> Option<Resour
 /// same destruction.
 fn vault_kv_destroy_attrs(delete: bool) -> Attrs {
     let mut attrs = Attrs::new();
-    flag(&mut attrs, "destroy");
+    credential_flag_attr(&mut attrs, "destroy");
     if delete {
         attrs.insert("mode".into(), AttrValue::String("metadata".into()));
     }
@@ -1434,7 +1434,7 @@ pub(crate) fn aws_secretsmanager(
         }
         Some("put-secret-value" | "create-secret") => CREDENTIAL_WRITE,
         Some("restore-secret") => {
-            flag(&mut attrs, "restore");
+            credential_flag_attr(&mut attrs, "restore");
             CREDENTIAL_WRITE
         }
         Some("delete-secret") => {
@@ -1502,7 +1502,7 @@ pub(crate) fn aws_secretsmanager(
                 }
             }
             if destroy {
-                flag(&mut attrs, "destroy");
+                credential_flag_attr(&mut attrs, "destroy");
             } else if controls_known {
                 // Without the force flag the secret sits in its recovery window
                 // and `restore-secret` brings it back.
@@ -1528,7 +1528,7 @@ pub(crate) fn aws_secretsmanager(
             CREDENTIAL_DELETE
         }
         _ => {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
             return false;
         }
     };
@@ -1574,17 +1574,17 @@ pub(crate) fn aws_ssm_parameters(
         // --recursive every parameter below it.
         Some("get-parameters-by-path") => {
             if args.flag("--recursive").is_some() && args.flag("--no-recursive").is_none() {
-                flag(&mut attrs, "recursive");
+                credential_flag_attr(&mut attrs, "recursive");
             }
             CREDENTIAL_READ
         }
         Some("put-parameter") => CREDENTIAL_WRITE,
         Some("delete-parameter" | "delete-parameters") => {
-            flag(&mut attrs, "destroy");
+            credential_flag_attr(&mut attrs, "destroy");
             CREDENTIAL_DELETE
         }
         _ => {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
             return false;
         }
     };
@@ -1671,7 +1671,7 @@ pub(crate) fn aws_ssm_parameters(
                 attrs.insert("purpose".into(), AttrValue::String("explicit".into()));
             }
         } else {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
         }
     }
     let targets = if names.is_empty() {
@@ -1740,7 +1740,7 @@ pub(crate) fn az_keyvault(
     let (operation, target) = match (args.verb(1), args.verb(2)) {
         (Some(verb @ ("purge" | "delete")), None) => {
             if verb == "purge" {
-                flag(&mut attrs, "destroy");
+                credential_flag_attr(&mut attrs, "destroy");
             } else {
                 // A deleted vault stays recoverable until it is purged or its
                 // retention period ends.
@@ -1758,7 +1758,7 @@ pub(crate) fn az_keyvault(
                 _ => CREDENTIAL_DELETE,
             };
             match verb {
-                "purge" => flag(&mut attrs, "destroy"),
+                "purge" => credential_flag_attr(&mut attrs, "destroy"),
                 // Key Vault soft delete is not optional: a deleted object stays
                 // recoverable until it is purged or the retention period ends.
                 "delete" => recoverable(&mut attrs),
@@ -1790,7 +1790,7 @@ pub(crate) fn az_keyvault(
             (operation, target)
         }
         _ => {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
             return false;
         }
     };
@@ -1876,7 +1876,7 @@ pub(crate) fn az_keyvault(
             attrs.insert("purpose".into(), AttrValue::String("explicit".into()));
         }
     } else if matches!(operation, CREDENTIAL_READ | CREDENTIAL_DELETE) {
-        unmodeled(builder, node);
+        credential_unmodeled_subcommand(builder, node);
     }
     args.attr(&mut attrs, "version", &["--version"]);
     emit_credential_effects(
@@ -1917,7 +1917,7 @@ pub(crate) fn gcloud_secrets(
     let (operation, name) = match (args.verb(1), args.verb(2)) {
         (Some("create"), _) => (CREDENTIAL_WRITE, args.operands.get(2)),
         (Some("delete"), _) => {
-            flag(&mut attrs, "destroy");
+            credential_flag_attr(&mut attrs, "destroy");
             (CREDENTIAL_DELETE, args.operands.get(2))
         }
         (Some("versions"), Some(verb @ ("access" | "add" | "destroy"))) => {
@@ -1944,7 +1944,7 @@ pub(crate) fn gcloud_secrets(
             (operation, args.flag("--secret"))
         }
         _ => {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
             return false;
         }
     };
@@ -1996,7 +1996,7 @@ pub(crate) fn gcloud_secrets(
     if exact {
         request_exact = true;
     } else if matches!(operation, CREDENTIAL_READ | CREDENTIAL_DELETE) {
-        unmodeled(builder, node);
+        credential_unmodeled_subcommand(builder, node);
     }
     emit_credential_effects(
         builder,
@@ -2047,7 +2047,7 @@ impl CommandModel for Doppler {
         let (operation, targets) = match (args.verb(0), args.verb(1)) {
             (Some("secrets"), None) if !names_only => (
                 CREDENTIAL_READ,
-                vec![resource("doppler", store.as_ref(), None)],
+                vec![credential_resource("doppler", store.as_ref(), None)],
             ),
             (Some("secrets"), Some(verb @ ("get" | "download" | "set" | "delete"))) => {
                 let operation = match verb {
@@ -2062,7 +2062,7 @@ impl CommandModel for Doppler {
                 (
                     operation,
                     if verb == "download" {
-                        vec![resource("doppler", store.as_ref(), None)]
+                        vec![credential_resource("doppler", store.as_ref(), None)]
                     } else {
                         secret_names(
                             "doppler",
@@ -2075,7 +2075,7 @@ impl CommandModel for Doppler {
                 )
             }
             (Some("projects"), Some("delete")) => {
-                flag(&mut attrs, "destroy");
+                credential_flag_attr(&mut attrs, "destroy");
                 (
                     CREDENTIAL_DELETE,
                     vec![store_resource("doppler", args.operands.get(2).or(project))],
@@ -2084,7 +2084,7 @@ impl CommandModel for Doppler {
             // A config, or an environment with every config in it, is deleted
             // with its secrets; neither has a restore command.
             (Some("configs" | "environments"), Some("delete")) => {
-                flag(&mut attrs, "destroy");
+                credential_flag_attr(&mut attrs, "destroy");
                 let name = if args.verb(0) == Some("configs") {
                     args.operands.get(2).or(config)
                 } else {
@@ -2101,7 +2101,7 @@ impl CommandModel for Doppler {
                 )
             }
             _ => {
-                unmodeled(builder, node);
+                credential_unmodeled_subcommand(builder, node);
                 return;
             }
         };
@@ -2249,7 +2249,7 @@ fn doppler_run(
         None => doppler_command(ctx.argv, &[VALUES, &["--command"]].concat()),
     };
     if words.is_empty() {
-        unmodeled(builder, node);
+        credential_unmodeled_subcommand(builder, node);
         return;
     }
     let mut attrs = Attrs::new();
@@ -2264,7 +2264,7 @@ fn doppler_run(
         ctx,
         node,
         CREDENTIAL_READ,
-        vec![resource("doppler", store, None)],
+        vec![credential_resource("doppler", store, None)],
         attrs,
         request_exact,
     );
@@ -2382,7 +2382,7 @@ fn secret_names(
 ) -> Vec<ResourceExpr> {
     if names.is_empty() {
         return vec![if store_read {
-            resource(provider, store, None)
+            credential_resource(provider, store, None)
         } else {
             unresolved_resource("credential")
         }];
@@ -2467,7 +2467,11 @@ impl CommandModel for Infisical {
             // Listing a folder's secrets prints their values.
             (Some("export"), _, _) | (Some("secrets"), None, _) => (
                 CREDENTIAL_READ,
-                vec![resource("infisical", store.as_ref(), folder.as_ref())],
+                vec![credential_resource(
+                    "infisical",
+                    store.as_ref(),
+                    folder.as_ref(),
+                )],
             ),
             (Some("secrets"), Some("folders"), Some("delete")) => {
                 // Commit history retains deleted folders and secrets for restoration.
@@ -2502,7 +2506,7 @@ impl CommandModel for Infisical {
                 )
             }
             _ => {
-                unmodeled(builder, node);
+                credential_unmodeled_subcommand(builder, node);
                 return;
             }
         };
@@ -2590,8 +2594,8 @@ impl CommandModel for Infisical {
 }
 const OP_VALUE_FLAGS: &[&str] = &["--vault", "--account", "--format", "--out-file", "--fields"];
 
-struct Op;
-impl CommandModel for Op {
+struct OnePassword;
+impl CommandModel for OnePassword {
     fn domains(&self) -> &'static [&'static str] {
         &["credential", "network", "process"]
     }
@@ -2623,7 +2627,7 @@ impl CommandModel for Op {
                     .and_then(|s| s.strip_prefix("op://"))
                     .and_then(|s| s.split_once('/'))
                     .map(|(vault, path)| {
-                        resource(
+                        credential_resource(
                             "1password",
                             Some(&Word::literal(vault)),
                             Some(&Word::literal(path)),
@@ -2641,7 +2645,7 @@ impl CommandModel for Op {
                 let archive = verb == "delete"
                     && op_archive(ctx.argv).is_some_and(|archive| archive == Some(true));
                 if archive {
-                    flag(&mut attrs, "archive");
+                    credential_flag_attr(&mut attrs, "archive");
                 } else if verb == "delete" {
                     recoverable(&mut attrs);
                 }
@@ -2657,19 +2661,19 @@ impl CommandModel for Op {
                 )
             }
             (Some("vault"), Some("delete")) => {
-                flag(&mut attrs, "destroy");
+                credential_flag_attr(&mut attrs, "destroy");
                 (
                     CREDENTIAL_DELETE,
                     store_resource("1password", args.operands.get(2)),
                 )
             }
             _ => {
-                unmodeled(builder, node);
+                credential_unmodeled_subcommand(builder, node);
                 return;
             }
         };
         if matches!(args.verb(0), Some("item" | "document")) && args.operands.len() != 3 {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
             return;
         }
         let writes_file = matches!(
@@ -2844,7 +2848,7 @@ impl CommandModel for Bitwarden {
         if !(args.verb(0) == Some("get")
             && matches!(args.verb(1), Some("password" | "notes" | "item")))
         {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
             return;
         }
         let mut attrs = Attrs::new();
@@ -2854,7 +2858,7 @@ impl CommandModel for Bitwarden {
             && strict_args(ctx.argv, BW_VALUES, BW_SWITCHES)
             && !matches!(target, ResourceExpr::Unresolved { .. });
         if !exact {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
         }
         emit_credential_effects(
             builder,
@@ -2898,7 +2902,7 @@ impl CommandModel for Bws {
         fs_full_no_spawn(builder);
         let args = Args::parse(ctx.argv, BWS_VALUES);
         if (args.verb(0), args.verb(1)) != (Some("secret"), Some("get")) {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
             return;
         }
         let mut attrs = Attrs::new();
@@ -2911,7 +2915,7 @@ impl CommandModel for Bws {
             })
             && !matches!(target, ResourceExpr::Unresolved { .. });
         if !exact {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
         }
         emit_credential_effects(
             builder,
@@ -2972,7 +2976,7 @@ impl CommandModel for Pass {
         } else if first == Some(Some("show")) {
             &ctx.argv[2..]
         } else {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
             return;
         };
         // Options (`--clip`, `--qrcode`) send the entry elsewhere, and no name
@@ -2980,7 +2984,7 @@ impl CommandModel for Pass {
         let name = match shown {
             [name] if name.as_literal().is_none_or(|text| !text.starts_with('-')) => name,
             _ => {
-                unmodeled(builder, node);
+                credential_unmodeled_subcommand(builder, node);
                 return;
             }
         };
@@ -3098,7 +3102,7 @@ impl CommandModel for Gopass {
             _ => None,
         };
         let Some(name) = name else {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
             return;
         };
         // Like pass, gopass lists a folder given its name. Its store root and
@@ -3175,7 +3179,7 @@ impl CommandModel for Sops {
         fs_full_no_spawn(builder);
         let (decrypt, output) = sops_decrypt(ctx.argv);
         if !decrypt {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
             return;
         }
         let args = Args::parse(ctx.argv, SOPS_VALUES);
@@ -3186,7 +3190,7 @@ impl CommandModel for Sops {
             && files[0].as_literal().is_some_and(|file| !file.is_empty())
             && strict_args(ctx.argv, SOPS_VALUES, SOPS_SWITCHES);
         if !exact {
-            unmodeled(builder, node);
+            credential_unmodeled_subcommand(builder, node);
         }
         if let [file] = files {
             arg_effect(

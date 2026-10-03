@@ -29,7 +29,7 @@ pub(super) fn messaging_models() -> Vec<Box<dyn CommandModel>> {
     ]
 }
 
-fn declare_common(builder: &mut PlanBuilder, model_node: ProvenanceRef) {
+fn declare_messaging_common(builder: &mut PlanBuilder, model_node: ProvenanceRef) {
     builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
     builder.declare_coverage(Domain::new("network"), CoverageLevel::Full);
     builder.boundary(Boundary {
@@ -144,7 +144,7 @@ impl CommandModel for Kafka {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         let scanned = scan_literal_flags(ctx.argv, &FLAGS);
-        declare_common(builder, model_node);
+        declare_messaging_common(builder, model_node);
         if matches!(
             ctx.argv.get(1).and_then(Word::as_literal),
             Some("--help" | "--version")
@@ -234,7 +234,7 @@ impl CommandModel for RabbitmqCtl {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        declare_common(builder, model_node);
+        declare_messaging_common(builder, model_node);
         if matches!(
             ctx.argv.get(1).and_then(Word::as_literal),
             Some("--help" | "--version")
@@ -303,7 +303,7 @@ impl CommandModel for RabbitmqAdmin {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        declare_common(builder, model_node);
+        declare_messaging_common(builder, model_node);
         if matches!(
             ctx.argv.get(1).and_then(Word::as_literal),
             Some("--help" | "--version")
@@ -393,7 +393,7 @@ impl CommandModel for Mosquitto {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         let scanned = scan_literal_flags(ctx.argv, &FLAGS);
-        declare_common(builder, model_node);
+        declare_messaging_common(builder, model_node);
         if matches!(
             ctx.argv.get(1).and_then(Word::as_literal),
             Some("--help" | "--version")
@@ -440,7 +440,7 @@ impl CommandModel for Nats {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        declare_common(builder, model_node);
+        declare_messaging_common(builder, model_node);
         if matches!(
             ctx.argv.get(1).and_then(Word::as_literal),
             Some("--help" | "--version")
@@ -507,7 +507,7 @@ impl CommandModel for RedisCli {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        declare_common(builder, model_node);
+        declare_messaging_common(builder, model_node);
         // redis-cli [-h host -p port ...] COMMAND args
         let plan =
             super::datastore::redis_plan(ctx.argv, ctx.stdin.map(|stdin| stdin.word.as_literal()));

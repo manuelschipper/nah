@@ -52,7 +52,7 @@ enum TerminalText {
 
 /// The command name a model dispatches on: an established program's basename,
 /// or else the literal path, which names no modeled tool.
-pub(crate) fn program_name(argv0: &Word) -> Option<&str> {
+pub(crate) fn dispatch_program_name(argv0: &Word) -> Option<&str> {
     let text = argv0.as_literal()?;
     if !established_program(argv0) {
         return Some(text);
@@ -516,7 +516,7 @@ pub(crate) fn analyze_exec(
                 builder.pop_condition();
                 return false;
             }
-            unresolved(
+            unresolved_command(
                 builder,
                 arg0,
                 "executable name is not statically resolvable",
@@ -1425,7 +1425,7 @@ pub(crate) fn unmodeled(builder: &mut PlanBuilder, arg0: ProvenanceRef, detail: 
     );
 }
 
-fn unresolved(builder: &mut PlanBuilder, arg0: ProvenanceRef, detail: &str) {
+fn unresolved_command(builder: &mut PlanBuilder, arg0: ProvenanceRef, detail: &str) {
     command_boundary(
         builder,
         arg0,

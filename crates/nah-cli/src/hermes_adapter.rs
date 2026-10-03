@@ -41,7 +41,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         "hook_event_name",
         "pre_tool_call",
     ) {
-        Ok(Some(input)) => normalize(input),
+        Ok(Some(input)) => normalize_hermes_hook_input(input),
         Ok(None) => return 0,
         Err(error) => Err(error.to_string()),
     };
@@ -68,31 +68,30 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     json!({})
                 }
                 hook_adapter::HookOutcome::IrrelevantEvent => return 0,
-                hook_adapter::HookOutcome::MalformedInput => unavailable(
+                hook_adapter::HookOutcome::MalformedInput => hermes_unavailable_reply(
                     failure_policy,
                     hook_adapter::IntegrationUnavailable::MalformedInput,
                 )
                 .unwrap_or_else(|| json!({})),
                 hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
-                    { unavailable(failure_policy, kind) }.unwrap_or_else(|| {
+                    { hermes_unavailable_reply(failure_policy, kind) }.unwrap_or_else(|| {
                         let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
                         json!({})
                     })
                 }
             }
         }
-        Err(_) => unavailable(
+        Err(_) => hermes_unavailable_reply(
             failure_policy,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
         .unwrap_or_else(|| json!({})),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
 }
 
-fn unavailable(
+fn hermes_unavailable_reply(
     failure_policy: FailurePolicy,
     unavailable: hook_adapter::IntegrationUnavailable,
 ) -> Option<Value> {
@@ -106,7 +105,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<(ToolCallInput, Option<CodeInput>), String> {
-    normalize(HermesHookInput {
+    normalize_hermes_hook_input(HermesHookInput {
         hook_event_name: "pre_tool_call".into(),
         tool_name: tool_name.into(),
         tool_input,
@@ -115,7 +114,9 @@ pub(crate) fn normalize_call(
     })
 }
 
-fn normalize(input: HermesHookInput) -> Result<(ToolCallInput, Option<CodeInput>), String> {
+fn normalize_hermes_hook_input(
+    input: HermesHookInput,
+) -> Result<(ToolCallInput, Option<CodeInput>), String> {
     let original_input = input.tool_input.clone();
     if input.hook_event_name != "pre_tool_call" {
         return Err("invalid-hermes-hook-event".into());
@@ -189,7 +190,7 @@ fn lower_hermes_tool<'a>(
             }),
         ),
         "patch" => patch_input(object)?,
-        "search_files" => search_input(object)?,
+        "search_files" => hermes_search_input(object)?,
         _ => (tool_name, tool_input.clone()),
     };
     Ok((tool, input, cwd))
@@ -221,7 +222,7 @@ fn patch_input(object: &Map<String, Value>) -> Result<(&'static str, Value), Str
     }
 }
 
-fn search_input(object: &Map<String, Value>) -> Result<(&'static str, Value), String> {
+fn hermes_search_input(object: &Map<String, Value>) -> Result<(&'static str, Value), String> {
     let pattern = tool_input_string(object, "pattern", INVALID_HERMES_TOOL_INPUT)?;
     let path = tool_input_nullable_non_empty_string(object, "path")?.unwrap_or_else(|| ".".into());
     // Hermes applies `file_glob` as a filter inside `path` (`rg --glob`,
@@ -271,7 +272,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(HermesHookInput {
+        normalize_hermes_hook_input(HermesHookInput {
             hook_event_name: "pre_tool_call".into(),
             tool_name: tool_name.into(),
             tool_input,
@@ -391,7 +392,7 @@ mod tests {
     fn normalizes_verified_execute_code_for_later_analysis() {
         let source = "open('.env').read()";
         let original = json!({"code":source});
-        let code = normalize(HermesHookInput {
+        let code = normalize_hermes_hook_input(HermesHookInput {
             hook_event_name: "pre_tool_call".into(),
             tool_name: "execute_code".into(),
             tool_input: original.clone(),
@@ -419,7 +420,7 @@ mod tests {
             json!({"code":" \n"}),
             json!({"code":"print('ok')","futureBehavior":"execute"}),
         ] {
-            let code = normalize(HermesHookInput {
+            let code = normalize_hermes_hook_input(HermesHookInput {
                 hook_event_name: "pre_tool_call".into(),
                 tool_name: "execute_code".into(),
                 tool_input: input.clone(),
@@ -451,7 +452,7 @@ mod tests {
                 json!({"pattern":"needle","target":"content","file_glob":7}),
             ),
         ] {
-            let call = normalize(HermesHookInput {
+            let call = normalize_hermes_hook_input(HermesHookInput {
                 hook_event_name: "pre_tool_call".into(),
                 tool_name: name.into(),
                 tool_input: input.clone(),

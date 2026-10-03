@@ -157,7 +157,7 @@ pub(crate) fn parse(grammar: &LauncherGrammarDeclaration, argv: &[Word]) -> Laun
     }
 
     if let Some(start) = program_arguments {
-        invocation.program_arguments = arguments(argv, start);
+        invocation.program_arguments = launcher_arguments(argv, start);
     }
     invocation
 }
@@ -206,7 +206,7 @@ fn assign_operand(
             index: index as u32,
             word: argv[index].clone(),
         });
-        invocation.program_arguments = arguments(argv, index + 1);
+        invocation.program_arguments = launcher_arguments(argv, index + 1);
     } else {
         invocation
             .boundaries
@@ -218,12 +218,12 @@ fn assign_operand(
             .operands
             .contains(&LauncherOperandRoleDeclaration::ProgramArguments)
         {
-            invocation.program_arguments = arguments(argv, index);
+            invocation.program_arguments = launcher_arguments(argv, index);
         }
     }
 }
 
-fn arguments(argv: &[Word], start: usize) -> Vec<LauncherArgument> {
+fn launcher_arguments(argv: &[Word], start: usize) -> Vec<LauncherArgument> {
     argv.iter()
         .enumerate()
         .skip(start)

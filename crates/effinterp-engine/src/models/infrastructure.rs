@@ -541,14 +541,14 @@ pub(super) fn parse_data(
 ) -> Result<Vec<serde_json::Value>, ()> {
     use serde_json::{Map, Value};
     use yaml_rust2::parser::{Event, Parser};
-    enum Frame {
+    enum YamlFrame {
         Array(Vec<Value>),
         Object(Map<String, Value>, Option<String>),
     }
-    fn insert(stack: &mut [Frame], docs: &mut Vec<Value>, value: Value) -> Result<(), ()> {
+    fn insert(stack: &mut [YamlFrame], docs: &mut Vec<Value>, value: Value) -> Result<(), ()> {
         match stack.last_mut() {
-            Some(Frame::Array(items)) => items.push(value),
-            Some(Frame::Object(map, key)) => {
+            Some(YamlFrame::Array(items)) => items.push(value),
+            Some(YamlFrame::Object(map, key)) => {
                 if let Some(key) = key.take() {
                     if map.insert(key, value).is_some() {
                         return Err(());
@@ -594,12 +594,12 @@ pub(super) fn parse_data(
                 };
                 insert(&mut stack, &mut docs, scalar)?
             }
-            Event::SequenceStart(_, None) => stack.push(Frame::Array(Vec::new())),
-            Event::MappingStart(_, None) => stack.push(Frame::Object(Map::new(), None)),
+            Event::SequenceStart(_, None) => stack.push(YamlFrame::Array(Vec::new())),
+            Event::MappingStart(_, None) => stack.push(YamlFrame::Object(Map::new(), None)),
             Event::SequenceEnd | Event::MappingEnd => {
                 let value = match stack.pop().ok_or(())? {
-                    Frame::Array(items) => Value::Array(items),
-                    Frame::Object(map, None) => Value::Object(map),
+                    YamlFrame::Array(items) => Value::Array(items),
+                    YamlFrame::Object(map, None) => Value::Object(map),
                     _ => return Err(()),
                 };
                 insert(&mut stack, &mut docs, value)?;

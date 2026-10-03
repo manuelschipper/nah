@@ -410,7 +410,7 @@ pub(super) fn fs_resource(
             _ => ResourceExpr::Join { parts },
         };
     }
-    symbolic(expr, "filesystem")
+    symbolic_resource(expr, "filesystem")
 }
 
 fn path_resource(
@@ -826,7 +826,7 @@ fn concatenated_part(
 
 /// A symbolic resource for a non-literal expression: a bare variable keeps its
 /// name (a `Parameter`); anything more complex widens to an unresolved family.
-pub(super) fn symbolic(expr: &Expr, family: &str) -> ResourceExpr {
+pub(super) fn symbolic_resource(expr: &Expr, family: &str) -> ResourceExpr {
     match expr {
         Expr::Name(n) => ResourceExpr::Parameter {
             name: n.id.as_str().to_string(),
@@ -842,7 +842,7 @@ pub(super) fn net_resource(expr: &Expr) -> ResourceExpr {
         Some(url) => parse_url_endpoint(&url)
             .map(|identity| ResourceExpr::Concrete { identity })
             .unwrap_or(unresolved_resource("network")),
-        None => symbolic(expr, "network"),
+        None => symbolic_resource(expr, "network"),
     }
 }
 

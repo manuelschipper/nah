@@ -466,7 +466,10 @@ fn purposes(operation: &str) -> Vec<(Vec<AttributePredicate>, Option<Assertion>)
                 string_attr("access_purpose", "program_input"),
             ],
             Some(Assertion::Not {
-                assertion: Box::new(same_path(SECRET, selector("filesystem.move", vec![]))),
+                assertion: Box::new(same_path_assertion(
+                    SECRET,
+                    selector("filesystem.move", vec![]),
+                )),
             }),
         ),
         (
@@ -612,7 +615,7 @@ fn read_by_complete_move() -> Assertion {
                                 domain: "filesystem".into(),
                             },
                             one_destination(destination),
-                            same_path(MOVED, deletion.clone()),
+                            same_path_assertion(MOVED, deletion.clone()),
                         ],
                     },
                 )
@@ -624,7 +627,7 @@ fn read_by_complete_move() -> Assertion {
 const MOVED: &str = "moved";
 
 /// An effect of the same call on the bound effect's own path.
-fn same_path(binding: &str, selector: Selector) -> Assertion {
+fn same_path_assertion(binding: &str, selector: Selector) -> Assertion {
     Assertion::RelatedEffect {
         binding: binding.into(),
         relationship: EffectRelationship {
@@ -708,7 +711,7 @@ fn consumed(operation: &str) -> Assertion {
                 selector(carrier, vec![]),
                 Assertion::All {
                     assertions: vec![
-                        same_path(CARRIER, selector("filesystem.move", vec![])),
+                        same_path_assertion(CARRIER, selector("filesystem.move", vec![])),
                         Assertion::Any {
                             assertions: others(carrier)
                                 .into_iter()
@@ -847,7 +850,7 @@ pub(crate) fn credential_variables() -> ResourcePredicate {
 }
 
 /// Every variable of the environment: the `*` pattern.
-fn whole_environment() -> ResourcePredicate {
+fn whole_environment_predicate() -> ResourcePredicate {
     ResourcePredicate::Rendered {
         projection: effinterp_matcher::Projection::Resource,
         text: TextPredicate::Equals("environment:*".into()),
@@ -1006,7 +1009,7 @@ pub(crate) fn secrets_exfil() -> GuardDefinition {
     );
     store.request_assurance = Some(RequestAssurance::Exact);
     assertions.push(bind(SECRET, store, sent(false)));
-    for resource in [credential_variables(), whole_environment()] {
+    for resource in [credential_variables(), whole_environment_predicate()] {
         assertions.push(bind(SECRET, printed_environment(resource), sent(true)));
     }
     // The secret may sit on any feasible arm, not only the success path: the

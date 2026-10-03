@@ -9,7 +9,7 @@ use effinterp_proto::{
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
 use crate::paths::join_cwd;
-use crate::shell::lex::{ParamTransform, Seg, Span, Tok, WordTok};
+use crate::shell::lex::{ParamTransform, Seg, ShellSpan, Tok, WordTok};
 use crate::shell::{
     ArrayValue, Converted, MAX_ARGV_VARIANTS, MAX_BRACE_EXPANSIONS, OPAQUE_DOMAINS, PendingAssign,
     SHELL_INTERNAL_VARS, Shell, ShellEnv, VarEntry, VariableExpansion, WordExpansion, brace,
@@ -506,7 +506,7 @@ impl Shell<'_> {
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
         name: &str,
-        span: Span,
+        span: ShellSpan,
     ) -> Option<FlowRef> {
         if SHELL_INTERNAL_VARS.contains(&name) || env.vars.get(name).is_some_and(|e| e.script_set) {
             return None;
@@ -584,7 +584,7 @@ impl Shell<'_> {
     pub(in crate::shell) fn unwalked_expansion_boundary(
         &self,
         builder: &mut PlanBuilder,
-        span: Span,
+        span: ShellSpan,
         detail: &str,
     ) {
         let node = self.span_node(builder, span);
@@ -1478,7 +1478,7 @@ impl Shell<'_> {
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
         name: &str,
-        span: Span,
+        span: ShellSpan,
         lone_env: bool,
     ) -> VariableExpansion {
         let mut expansion = VariableExpansion {

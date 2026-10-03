@@ -64,12 +64,12 @@ pub(crate) fn openclaw_hook_status() -> Result<RuntimeHookStatus, String> {
     Ok(
         if read_json(&paths.package)? == package()
             && read_json(&paths.manifest)? == manifest()
-            && current_module == plugin(&executable, FailurePolicy::Delegate)
+            && current_module == openclaw_plugin_source(&executable, FailurePolicy::Delegate)
         {
             RuntimeHookStatus::WiringCurrent
         } else if read_json(&paths.package)? == package()
             && read_json(&paths.manifest)? == manifest()
-            && current_module == plugin(&executable, FailurePolicy::Block)
+            && current_module == openclaw_plugin_source(&executable, FailurePolicy::Block)
         {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
@@ -270,8 +270,11 @@ fn save_source(directory: &Path, executable: &Path, policy: FailurePolicy) -> Re
         serde_json::to_vec_pretty(&manifest()).map_err(|_| "openclaw-plugin-write-failed")?,
     )
     .map_err(|_| "openclaw-plugin-write-failed")?;
-    std::fs::write(directory.join("index.js"), plugin(&executable, policy))
-        .map_err(|_| "openclaw-plugin-write-failed".to_owned())
+    std::fs::write(
+        directory.join("index.js"),
+        openclaw_plugin_source(&executable, policy),
+    )
+    .map_err(|_| "openclaw-plugin-write-failed".to_owned())
 }
 
 fn package() -> Value {
@@ -294,7 +297,7 @@ fn manifest() -> Value {
     })
 }
 
-fn plugin(executable: &str, policy: FailurePolicy) -> String {
+fn openclaw_plugin_source(executable: &str, policy: FailurePolicy) -> String {
     let bridge = javascript_decision_bridge(executable, "openclaw", policy);
     format!(
         r#"{MARKER}

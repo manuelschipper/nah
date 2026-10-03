@@ -1556,7 +1556,7 @@ fn semver_range_lower_bound(spec: &str) -> Option<Version> {
 }
 
 /// One version bound: the version and whether it is itself included.
-type Bound = (Version, bool);
+type VersionBound = (Version, bool);
 
 /// A space-separated comparator set, or a hyphen range `A - B`.
 fn comparator_set_lower_bound(set: &str) -> Option<Version> {
@@ -1576,14 +1576,14 @@ fn comparator_set_lower_bound(set: &str) -> Option<Version> {
         return None;
     }
     let words = words.iter().map(String::as_str).collect::<Vec<_>>();
-    let mut lower: Bound = ((0, 0, 0), true);
-    let mut upper: Option<Bound> = None;
-    let mut raise = |bound: Bound| {
+    let mut lower: VersionBound = ((0, 0, 0), true);
+    let mut upper: Option<VersionBound> = None;
+    let mut raise = |bound: VersionBound| {
         if bound.0 > lower.0 || bound.0 == lower.0 && !bound.1 {
             lower = bound;
         }
     };
-    let cap = |bound: Bound, upper: &mut Option<Bound>| {
+    let cap = |bound: VersionBound, upper: &mut Option<VersionBound>| {
         if upper.is_none_or(|upper| bound.0 < upper.0 || bound.0 == upper.0 && !bound.1) {
             *upper = Some(bound);
         }
@@ -1710,7 +1710,7 @@ fn fill(version: &[Option<u64>; 3]) -> Version {
 }
 
 /// The upper bound a bare partial (`X`, `X.Y`, `X.Y.Z`) sets as `=` or `<=`.
-fn partial_upper(version: &[Option<u64>; 3]) -> Option<Bound> {
+fn partial_upper(version: &[Option<u64>; 3]) -> Option<VersionBound> {
     match *version {
         [None, ..] => None,
         [Some(major), None, _] => Some(((major + 1, 0, 0), false)),
@@ -2229,7 +2229,7 @@ impl CommandModel for PkgMgr {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        let mgr = crate::exec::program_name(&ctx.argv[0]).unwrap_or("");
+        let mgr = crate::exec::dispatch_program_name(&ctx.argv[0]).unwrap_or("");
         // A case-folded or `.exe` spelling (`BUN`, `bun.exe`) reads the manifest
         // and keeps the script effects the same as `bun`; only a recognized
         // manager name folds, the launcher identity stays the original argv.

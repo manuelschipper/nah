@@ -6,6 +6,7 @@ use effinterp_proto::{
     CausalAssurance, CausalReason, OccurrenceKind, ResourceExpr, ResourceIdentity,
 };
 use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
+use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 use crate::{causal_path, plan_causality, typed_selector};
 
@@ -14,15 +15,7 @@ fn repo(tag: &str, source: &str) -> PathBuf {
 }
 
 fn repo_files(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(tag);
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    for (name, source) in files {
-        let path = root.join(name);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, source).unwrap();
-    }
-    root
+    repo_test_fixture(Path::new(env!("CARGO_TARGET_TMPDIR")), tag, files)
 }
 
 fn index(tag: &str, source: &str) -> effinterp_repo::RepoIndex {

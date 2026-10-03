@@ -14,6 +14,8 @@ use oxc_ast::ast::{
 };
 use oxc_span::{GetSpan, Span};
 
+use super::unparen;
+
 /// A locally defined function: its simple positional parameter names (in order;
 /// a destructuring parameter contributes an empty name that never binds, so it
 /// stays symbolic) and its body. Rest parameter names bind remaining call
@@ -44,10 +46,10 @@ struct ReceiverBinding {
     binding_scope: Span,
     initializer_span: Span,
     initialized_at: u32,
-    kind: ReceiverKind,
+    kind: JsReceiverKind,
 }
 
-enum ReceiverKind {
+enum JsReceiverKind {
     Class,
     Instance(String),
     Object,
@@ -105,15 +107,15 @@ impl<'a> FnTable<'a> {
         initialized_at: u32,
     ) {
         let kind = match unparen(value) {
-            Expression::ClassExpression(_) => ReceiverKind::Class,
+            Expression::ClassExpression(_) => JsReceiverKind::Class,
             Expression::NewExpression(new) => match unparen(&new.callee) {
                 Expression::Identifier(class) => {
-                    ReceiverKind::Instance(class.name.as_str().to_string())
+                    JsReceiverKind::Instance(class.name.as_str().to_string())
                 }
-                _ => ReceiverKind::Unknown,
+                _ => JsReceiverKind::Unknown,
             },
-            Expression::ObjectExpression(_) => ReceiverKind::Object,
-            _ => ReceiverKind::Unknown,
+            Expression::ObjectExpression(_) => JsReceiverKind::Object,
+            _ => JsReceiverKind::Unknown,
         };
         self.receiver_bindings
             .entry(owner.to_string())
@@ -134,7 +136,7 @@ impl<'a> FnTable<'a> {
                 binding_scope,
                 initializer_span,
                 initialized_at: initializer_span.end,
-                kind: ReceiverKind::Class,
+                kind: JsReceiverKind::Class,
             });
     }
 
@@ -192,7 +194,7 @@ impl<'a> FnTable<'a> {
     ) -> Option<(&'t FnInfo<'a>, Span)> {
         let binding = self.receiver_binding(owner, use_span)?;
         if self.member_was_reassigned(binding, method)
-            || !matches!(binding.kind, ReceiverKind::Object)
+            || !matches!(binding.kind, JsReceiverKind::Object)
         {
             return None;
         }
@@ -210,7 +212,7 @@ impl<'a> FnTable<'a> {
         if self.member_was_reassigned(receiver, method) {
             return None;
         }
-        let ReceiverKind::Instance(class) = &receiver.kind else {
+        let JsReceiverKind::Instance(class) = &receiver.kind else {
             return None;
         };
         let (function, class_scope) = self.class_member(class, method, use_span)?;
@@ -224,7 +226,7 @@ impl<'a> FnTable<'a> {
         use_span: Span,
     ) -> Option<(&'t FnInfo<'a>, Span)> {
         let binding = self.receiver_binding(class, use_span)?;
-        if !matches!(binding.kind, ReceiverKind::Class) {
+        if !matches!(binding.kind, JsReceiverKind::Class) {
             return None;
         }
         resolve_member(self, &format!("{class}.{method}"), binding.initialized_at)
@@ -457,7 +459,9 @@ fn stmt_one<'a>(
                 stmts(&case.consequent, table, depth + 1, s.span, function_scope);
             }
         }
-        Statement::ExpressionStatement(s) => assignment(&s.expression, table, depth, lexical_scope),
+        Statement::ExpressionStatement(s) => {
+            collect_assignment(&s.expression, table, depth, lexical_scope)
+        }
         _ => {}
     }
 }
@@ -611,7 +615,7 @@ fn declarator<'a>(
     }
 }
 
-fn assignment<'a>(
+fn collect_assignment<'a>(
     expression: &'a Expression<'a>,
     table: &mut FnTable<'a>,
     depth: u32,
@@ -623,7 +627,7 @@ fn assignment<'a>(
     if !assignment.operator.is_assign() {
         return;
     }
-    if super::plus_coercion_assignment_object(&assignment.left).is_some() {
+    if super::plus_coercion::plus_coercion_assignment_object(&assignment.left).is_some() {
         table
             .plus_coercion_callbacks
             .insert(assignment.span.start, vec![&assignment.right]);
@@ -914,7 +918,7 @@ fn plus_coercion_callbacks<'a>(expression: &'a Expression<'a>) -> Vec<&'a Expres
         let Some(property) = property.as_property() else {
             continue;
         };
-        if !super::is_plus_coercion_property(&property.key) {
+        if !super::plus_coercion::is_plus_coercion_property(&property.key) {
             continue;
         }
         callbacks.push(&property.value);
@@ -944,7 +948,7 @@ fn record_class_plus_coercion_callbacks<'a>(
             ClassElement::MethodDefinition(method)
                 if !method.r#static
                     && method.kind != MethodDefinitionKind::Set
-                    && super::is_plus_coercion_property(&method.key) =>
+                    && super::plus_coercion::is_plus_coercion_property(&method.key) =>
             {
                 Some(method.value.as_ref())
             }
@@ -967,7 +971,7 @@ fn record_class_plus_coercion_callbacks<'a>(
     for element in &class.body.body {
         if let ClassElement::PropertyDefinition(property) = element
             && !property.r#static
-            && super::is_plus_coercion_property(&property.key)
+            && super::plus_coercion::is_plus_coercion_property(&property.key)
             && let Some(value) = &property.value
         {
             returned_callbacks.push(value);
@@ -1183,16 +1187,4 @@ fn constructor_return_callbacks<'a>(
         .get(identifier.name.as_str())
         .cloned()
         .unwrap_or_default()
-}
-
-fn unparen<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
-    match expression {
-        Expression::ParenthesizedExpression(parenthesized) => unparen(&parenthesized.expression),
-        Expression::TSAsExpression(expression) => unparen(&expression.expression),
-        Expression::TSSatisfiesExpression(expression) => unparen(&expression.expression),
-        Expression::TSTypeAssertion(expression) => unparen(&expression.expression),
-        Expression::TSNonNullExpression(expression) => unparen(&expression.expression),
-        Expression::TSInstantiationExpression(expression) => unparen(&expression.expression),
-        expression => expression,
-    }
 }

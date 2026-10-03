@@ -436,7 +436,7 @@ impl CommandModel for Azcopy {
         &["azcopy"]
     }
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        declare_common(builder, ctx, model_node, false);
+        declare_cloud_common(builder, ctx, model_node, false);
         let argv = ctx.argv;
         match argv.get(1).and_then(Word::as_literal) {
             Some("rm" | "remove") => {
@@ -606,7 +606,7 @@ impl CommandModel for S3cmd {
 /// Process launches are known; individual branches establish network interactions.
 /// A reviewed storage or credential grammar closes cloud coverage for this invocation;
 /// unrelated subcommands do not make an otherwise complete request partial.
-fn declare_common(
+fn declare_cloud_common(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
@@ -1340,7 +1340,7 @@ impl CommandModel for Aws {
             ctx.argv.get(1).and_then(Word::as_literal),
             Some("--help" | "--version")
         ) {
-            declare_common(builder, ctx, model_node, false);
+            declare_cloud_common(builder, ctx, model_node, false);
             return;
         }
         let input = aws_request_input(builder, ctx);
@@ -1406,7 +1406,7 @@ impl CommandModel for Aws {
             }
             _ => None,
         };
-        declare_common(
+        declare_cloud_common(
             builder,
             ctx,
             model_node,
@@ -4823,10 +4823,10 @@ impl CommandModel for Gcloud {
         let scanned = scan_literal_flags(ctx.argv, &FLAGS);
         if gcloud_secrets_group(ctx.argv) {
             let covered = super::credential::gcloud_secrets(builder, ctx, model_node);
-            declare_common(builder, ctx, model_node, covered);
+            declare_cloud_common(builder, ctx, model_node, covered);
             return;
         }
-        declare_common(builder, ctx, model_node, false);
+        declare_cloud_common(builder, ctx, model_node, false);
         // `--help` or `-h` anywhere before `--` prints the command's help and
         // runs nothing else.
         let help = ctx
@@ -5203,7 +5203,7 @@ impl CommandModel for Gsutil {
         transfer_stdin_upload(argv)
     }
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        declare_common(builder, ctx, model_node, false);
+        declare_cloud_common(builder, ctx, model_node, false);
         if matches!(
             ctx.argv.get(1).and_then(Word::as_literal),
             Some("--help" | "--version")
@@ -5375,10 +5375,10 @@ impl CommandModel for Az {
         }
         if at(0) == Some("keyvault") {
             let covered = super::credential::az_keyvault(builder, ctx, model_node);
-            declare_common(builder, ctx, model_node, covered);
+            declare_cloud_common(builder, ctx, model_node, covered);
             return;
         }
-        declare_common(builder, ctx, model_node, false);
+        declare_cloud_common(builder, ctx, model_node, false);
         if matches!(
             ctx.argv.get(1).and_then(Word::as_literal),
             Some("--help" | "--version")

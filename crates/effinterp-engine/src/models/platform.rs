@@ -56,7 +56,7 @@ struct Delete {
     words: &'static [&'static [&'static str]],
     service: &'static str,
     kind: &'static str,
-    target: Target,
+    target: DeleteTarget,
     values: &'static [&'static str],
     switches: &'static [&'static str],
     /// Switches with which the CLI reports the delete and performs nothing.
@@ -64,7 +64,7 @@ struct Delete {
 }
 
 #[derive(Clone, Copy)]
-enum Target {
+enum DeleteTarget {
     /// The single operand names the resource.
     Operand,
     /// The operand or, instead, one of these options names it.
@@ -99,7 +99,7 @@ const RAILWAY: Tool = Tool {
             words: &[&["delete", "rm", "remove"]],
             service: "project",
             kind: "project",
-            target: Target::Named(&["--project", "-p"]),
+            target: DeleteTarget::Named(&["--project", "-p"]),
             values: &["--project", "-p", "--2fa-code"],
             switches: RAILWAY_DELETE_SWITCHES,
             dry_run: &[],
@@ -109,7 +109,7 @@ const RAILWAY: Tool = Tool {
             words: &[&["project", "projects"], &["delete", "rm", "remove"]],
             service: "project",
             kind: "project",
-            target: Target::Named(&["--project", "-p"]),
+            target: DeleteTarget::Named(&["--project", "-p"]),
             values: &["--project", "-p", "--2fa-code"],
             switches: RAILWAY_DELETE_SWITCHES,
             dry_run: &[],
@@ -120,7 +120,7 @@ const RAILWAY: Tool = Tool {
             words: &[&["service"], &["delete", "remove", "rm"]],
             service: "service",
             kind: "service",
-            target: Target::Named(&["--service", "-s"]),
+            target: DeleteTarget::Named(&["--service", "-s"]),
             values: &["--project", "-p", "--2fa-code"],
             switches: RAILWAY_DELETE_SWITCHES,
             dry_run: &[],
@@ -132,7 +132,7 @@ const RAILWAY: Tool = Tool {
             ],
             service: "function",
             kind: "function",
-            target: Target::Named(&["--function", "-f"]),
+            target: DeleteTarget::Named(&["--function", "-f"]),
             values: &["--function", "-f", "--2fa-code"],
             switches: &["--yes", "-y"],
             dry_run: &[],
@@ -141,7 +141,7 @@ const RAILWAY: Tool = Tool {
             words: &[&["environment"], &["delete", "rm", "remove"]],
             service: "environment",
             kind: "environment",
-            target: Target::Operand,
+            target: DeleteTarget::Operand,
             values: &["--2fa-code"],
             switches: RAILWAY_DELETE_SWITCHES,
             dry_run: &[],
@@ -150,7 +150,7 @@ const RAILWAY: Tool = Tool {
             words: &[&["volume", "volumes"], &["delete", "remove", "rm"]],
             service: "volume",
             kind: "volume",
-            target: Target::Named(&["--volume", "-v"]),
+            target: DeleteTarget::Named(&["--volume", "-v"]),
             values: &["--volume", "-v", "--project", "-p", "--2fa-code"],
             switches: RAILWAY_DELETE_SWITCHES,
             dry_run: &[],
@@ -173,7 +173,7 @@ const MODAL: Tool = Tool {
             words: &[&["app"], &["stop"]],
             service: "app",
             kind: "app",
-            target: Target::Operand,
+            target: DeleteTarget::Operand,
             values: &["--env", "-e"],
             switches: &["--yes", "-y"],
             dry_run: &[],
@@ -182,7 +182,7 @@ const MODAL: Tool = Tool {
             words: &[&["environment"], &["delete"]],
             service: "environment",
             kind: "environment",
-            target: Target::Operand,
+            target: DeleteTarget::Operand,
             values: &[],
             switches: &["--yes", "-y"],
             dry_run: &[],
@@ -191,7 +191,7 @@ const MODAL: Tool = Tool {
             words: &[&["volume"], &["delete"]],
             service: "volume",
             kind: "volume",
-            target: Target::Operand,
+            target: DeleteTarget::Operand,
             values: &["--env", "-e"],
             switches: MODAL_OBJECT_SWITCHES,
             dry_run: &[],
@@ -200,7 +200,7 @@ const MODAL: Tool = Tool {
             words: &[&["dict"], &["delete"]],
             service: "dict",
             kind: "dict",
-            target: Target::Operand,
+            target: DeleteTarget::Operand,
             values: &["--env", "-e"],
             switches: MODAL_OBJECT_SWITCHES,
             dry_run: &[],
@@ -209,7 +209,7 @@ const MODAL: Tool = Tool {
             words: &[&["queue"], &["delete"]],
             service: "queue",
             kind: "queue",
-            target: Target::Operand,
+            target: DeleteTarget::Operand,
             values: &["--env", "-e"],
             switches: MODAL_OBJECT_SWITCHES,
             dry_run: &[],
@@ -253,7 +253,7 @@ const KAMAL: Tool = Tool {
             words: &[&["remove"]],
             service: "deployment",
             kind: "deployment",
-            target: Target::Linked(&[]),
+            target: DeleteTarget::Linked(&[]),
             values: &[],
             switches: &["--confirmed", "-y"],
             dry_run: &[],
@@ -262,7 +262,7 @@ const KAMAL: Tool = Tool {
             words: &[&["app"], &["remove"]],
             service: "app",
             kind: "app",
-            target: Target::Linked(&[]),
+            target: DeleteTarget::Linked(&[]),
             values: &[],
             switches: &[],
             dry_run: &[],
@@ -271,7 +271,7 @@ const KAMAL: Tool = Tool {
             words: &[&["accessory"], &["remove"]],
             service: "accessory",
             kind: "accessory",
-            target: Target::Operand,
+            target: DeleteTarget::Operand,
             values: &[],
             switches: &["--confirmed", "-y"],
             dry_run: &[],
@@ -280,7 +280,7 @@ const KAMAL: Tool = Tool {
             words: &[&["proxy"], &["remove"]],
             service: "proxy",
             kind: "proxy",
-            target: Target::Linked(&[]),
+            target: DeleteTarget::Linked(&[]),
             values: &[],
             switches: &["--force"],
             dry_run: &[],
@@ -309,7 +309,7 @@ const FASTLY: Tool = Tool {
         words: &[&["service"], &["delete", "remove"]],
         service: "service",
         kind: "service",
-        target: Target::Linked(&["--service-id", "-s", "--service-name"]),
+        target: DeleteTarget::Linked(&["--service-id", "-s", "--service-name"]),
         values: &["--service-id", "-s", "--service-name"],
         switches: &["--force", "-f"],
         dry_run: &[],
@@ -339,7 +339,7 @@ const WRANGLER: Tool = Tool {
             words: &[&["delete"]],
             service: "workers",
             kind: "worker",
-            target: Target::OperandOrLinked(&["--name"]),
+            target: DeleteTarget::OperandOrLinked(&["--name"]),
             values: &["--name"],
             switches: &["--dry-run", "--force"],
             dry_run: &["--dry-run"],
@@ -348,7 +348,7 @@ const WRANGLER: Tool = Tool {
             words: &[&["kv"], &["namespace"], &["delete"]],
             service: "kv",
             kind: "namespace",
-            target: Target::OperandOr(&["--namespace-id"]),
+            target: DeleteTarget::OperandOr(&["--namespace-id"]),
             values: &["--namespace-id"],
             switches: &["--preview"],
             dry_run: &[],
@@ -357,7 +357,7 @@ const WRANGLER: Tool = Tool {
             words: &[&["queues"], &["delete"]],
             service: "queues",
             kind: "queue",
-            target: Target::Operand,
+            target: DeleteTarget::Operand,
             values: &[],
             switches: &[],
             dry_run: &[],
@@ -366,7 +366,7 @@ const WRANGLER: Tool = Tool {
             words: &[&["hyperdrive"], &["delete"]],
             service: "hyperdrive",
             kind: "config",
-            target: Target::Operand,
+            target: DeleteTarget::Operand,
             values: &[],
             switches: &[],
             dry_run: &[],
@@ -375,7 +375,7 @@ const WRANGLER: Tool = Tool {
             words: &[&["pages"], &["project"], &["delete"]],
             service: "pages",
             kind: "project",
-            target: Target::Operand,
+            target: DeleteTarget::Operand,
             values: &[],
             switches: &[],
             dry_run: &[],
@@ -404,7 +404,7 @@ const SUPABASE: Tool = Tool {
         words: &[&["functions"], &["delete"]],
         service: "functions",
         kind: "function",
-        target: Target::Operand,
+        target: DeleteTarget::Operand,
         values: &[],
         switches: &[],
         dry_run: &[],
@@ -510,17 +510,18 @@ impl Tool {
         };
         let command_word = positionals[delete.words.len() - 1];
         let (id, index) = match (delete.target, operands) {
-            (Target::Operand, [operand]) => (Some(literals[*operand].to_string()), *operand),
-            (Target::OperandOr(flags) | Target::OperandOrLinked(flags), [operand])
+            (DeleteTarget::Operand, [operand]) => (Some(literals[*operand].to_string()), *operand),
+            (DeleteTarget::OperandOr(flags) | DeleteTarget::OperandOrLinked(flags), [operand])
                 if named(flags).is_none() =>
             {
                 (Some(literals[*operand].to_string()), *operand)
             }
-            (Target::OperandOr(flags) | Target::Named(flags), []) => match named(flags) {
+            (DeleteTarget::OperandOr(flags) | DeleteTarget::Named(flags), []) => match named(flags)
+            {
                 Some(named) => named,
                 None => return Request::Unreviewed,
             },
-            (Target::Linked(flags) | Target::OperandOrLinked(flags), []) => {
+            (DeleteTarget::Linked(flags) | DeleteTarget::OperandOrLinked(flags), []) => {
                 named(flags).unwrap_or((None, command_word))
             }
             _ => return Request::Unreviewed,

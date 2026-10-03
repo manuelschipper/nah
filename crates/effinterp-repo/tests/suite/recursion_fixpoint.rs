@@ -1,22 +1,12 @@
 #![allow(clippy::disallowed_macros, clippy::disallowed_methods)]
 
-use std::path::{Path, PathBuf};
-
 use effinterp_proto::{BoundaryReason, Modality};
 use effinterp_repo::{
     IndexLimits, RepoChange, ResourceSelector, apply_changes, build_index, normalize_surface,
     reach, save_index,
 };
 
-fn temp_repo(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(tag);
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    for (name, source) in files {
-        std::fs::write(root.join(name), source).unwrap();
-    }
-    root
-}
+use crate::support::temp_repo;
 
 #[test]
 fn self_recursion_converges_and_preserves_recursive_occurrences() {

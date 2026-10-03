@@ -14,14 +14,14 @@ use effinterp_proto::SqlDialect;
 
 /// A byte span in the original SQL source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct Span {
+pub(super) struct SqlSpan {
     pub start: u32,
     pub end: u32,
 }
 
 /// A lexical token of a statement.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) enum Tok {
+pub(super) enum SqlTok {
     /// A bare word: keyword, identifier, or number (case kept).
     Word(String),
     /// A quoted identifier (quotes stripped). Never a keyword.
@@ -36,8 +36,8 @@ pub(super) enum Tok {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct Lexeme {
-    pub tok: Tok,
-    pub span: Span,
+    pub tok: SqlTok,
+    pub span: SqlSpan,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -50,9 +50,9 @@ pub(super) enum StatementKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct Statement {
+pub(super) struct SqlStatement {
     pub kind: StatementKind,
-    pub span: Span,
+    pub span: SqlSpan,
     pub toks: Vec<Lexeme>,
 }
 
@@ -291,7 +291,7 @@ pub(super) fn readings(dialect: SqlDialect) -> Vec<Lexing> {
 
 /// Split `source` into statements under `lexing` and tokenize each.
 /// Comment-only and empty statements are dropped.
-pub(super) fn lex(source: &str, lexing: &Lexing) -> Vec<Statement> {
+pub(super) fn lex(source: &str, lexing: &Lexing) -> Vec<SqlStatement> {
     let mut scanner = Scanner {
         src: source,
         b: source.as_bytes(),
@@ -323,7 +323,7 @@ struct Scanner<'a> {
     /// Inside a MySQL `/*! … */` body, whose `*/` is inert.
     in_exec_comment: bool,
     cur: Vec<Lexeme>,
-    out: Vec<Statement>,
+    out: Vec<SqlStatement>,
 }
 
 impl Scanner<'_> {
@@ -366,7 +366,7 @@ impl Scanner<'_> {
         self.flush();
     }
 
-    fn push(&mut self, tok: Tok, start: usize, end: usize) {
+    fn push(&mut self, tok: SqlTok, start: usize, end: usize) {
         self.cur.push(Lexeme {
             tok,
             span: span(start, end),
@@ -387,9 +387,9 @@ impl Scanner<'_> {
         for toks in parts {
             let start = toks[0].span.start;
             let end = toks[toks.len() - 1].span.end;
-            self.out.push(Statement {
+            self.out.push(SqlStatement {
                 kind: StatementKind::Sql,
-                span: Span { start, end },
+                span: SqlSpan { start, end },
                 toks,
             });
         }
@@ -416,7 +416,7 @@ impl Scanner<'_> {
     /// Record `from..end` as a client command and move past it.
     fn client_command_to(&mut self, from: usize, end: usize) {
         let text = self.src[from..end].trim_end().to_string();
-        self.out.push(Statement {
+        self.out.push(SqlStatement {
             kind: StatementKind::Client(text.clone()),
             span: span(from, from + text.len()),
             toks: Vec::new(),
@@ -671,7 +671,7 @@ impl Scanner<'_> {
 
         if self.lx.e_strings && matches!(c, b'e' | b'E') && at(i + 1) == Some(b'\'') && !prev_word {
             let end = quoted_end(full, i + 1, b'\'', true);
-            self.push(Tok::Str(inner(self.src, i + 1, end)), i, end);
+            self.push(SqlTok::Str(inner(self.src, i + 1, end)), i, end);
             self.i = end;
             return;
         }
@@ -686,14 +686,14 @@ impl Scanner<'_> {
             } else {
                 end
             };
-            self.push(Tok::Str(self.src[i + 3..body_end].to_string()), i, end);
+            self.push(SqlTok::Str(self.src[i + 3..body_end].to_string()), i, end);
             self.i = end;
             return;
         }
         match c {
             b'\'' => {
                 let end = quoted_end(full, i, c, self.lx.single_backslash);
-                self.push(Tok::Str(inner(self.src, i, end)), i, end);
+                self.push(SqlTok::Str(inner(self.src, i, end)), i, end);
                 self.i = end;
                 return;
             }
@@ -701,9 +701,9 @@ impl Scanner<'_> {
                 let end = quoted_end(full, i, c, self.lx.double_backslash);
                 let text = inner(self.src, i, end);
                 let tok = if self.lx.double_string {
-                    Tok::Str(text)
+                    SqlTok::Str(text)
                 } else {
-                    Tok::Ident(text)
+                    SqlTok::Ident(text)
                 };
                 self.push(tok, i, end);
                 self.i = end;
@@ -712,7 +712,7 @@ impl Scanner<'_> {
             b'`' => {
                 if let Some(backslash) = self.lx.backtick {
                     let end = quoted_end(full, i, c, backslash);
-                    self.push(Tok::Ident(inner(self.src, i, end)), i, end);
+                    self.push(SqlTok::Ident(inner(self.src, i, end)), i, end);
                     self.i = end;
                     return;
                 }
@@ -728,13 +728,13 @@ impl Scanner<'_> {
                 if self.lx.bracket_doubling {
                     text = text.replace("]]", "]");
                 }
-                self.push(Tok::Ident(text), i, end);
+                self.push(SqlTok::Ident(text), i, end);
                 self.i = end;
                 return;
             }
             b'$' => {
                 if let Some((end, text)) = self.dollar_quote(i, stop) {
-                    self.push(Tok::Str(text), i, end);
+                    self.push(SqlTok::Str(text), i, end);
                     self.i = end;
                     return;
                 }
@@ -788,7 +788,7 @@ impl Scanner<'_> {
             }
             b'?' => {
                 let end = word_end(b, i + 1, &self.lx);
-                self.push(Tok::Param, i, end);
+                self.push(SqlTok::Param, i, end);
                 self.i = end;
                 return;
             }
@@ -798,7 +798,7 @@ impl Scanner<'_> {
                     end += 1;
                 }
                 let end = word_end(b, end, &self.lx);
-                self.push(Tok::Param, i, end);
+                self.push(SqlTok::Param, i, end);
                 self.i = end;
                 return;
             }
@@ -806,12 +806,12 @@ impl Scanner<'_> {
         }
         if is_word_byte(c) && word_end(b, i, &self.lx) > i {
             let end = word_end(b, i, &self.lx);
-            self.push(Tok::Word(self.src[i..end].to_string()), i, end);
+            self.push(SqlTok::Word(self.src[i..end].to_string()), i, end);
             self.i = end;
             return;
         }
         if matches!(c, b'.' | b',' | b'(' | b')' | b'*' | b'=') {
-            self.push(Tok::Punct(c as char), i, i + 1);
+            self.push(SqlTok::Punct(c as char), i, i + 1);
         }
         // Any other operator byte is not structurally relevant.
         self.i = i + 1;
@@ -839,7 +839,7 @@ impl Scanner<'_> {
     fn param_or_inert(&mut self, i: usize, end: Option<usize>) {
         match end {
             Some(end) => {
-                self.push(Tok::Param, i, end);
+                self.push(SqlTok::Param, i, end);
                 self.i = end;
             }
             None => self.i = i + 1,
@@ -911,8 +911,8 @@ const MYSQL_LINE_COMMANDS: &[&str] = &[
     "warnings",
 ];
 
-fn span(start: usize, end: usize) -> Span {
-    Span {
+fn span(start: usize, end: usize) -> SqlSpan {
+    SqlSpan {
         start: start as u32,
         end: end as u32,
     }
@@ -1068,8 +1068,8 @@ fn tsql_split(toks: Vec<Lexeme>) -> Vec<Vec<Lexeme>> {
             cases = 0;
         }
         match (&lexeme.tok, kw.as_deref()) {
-            (Tok::Punct('('), _) => depth += 1,
-            (Tok::Punct(')'), _) => depth = depth.saturating_sub(1),
+            (SqlTok::Punct('('), _) => depth += 1,
+            (SqlTok::Punct(')'), _) => depth = depth.saturating_sub(1),
             (_, Some("CASE")) if depth == 0 => cases += 1,
             (_, Some("END")) if depth == 0 && cases > 0 => cases -= 1,
             _ => {}
@@ -1084,7 +1084,7 @@ fn tsql_split(toks: Vec<Lexeme>) -> Vec<Vec<Lexeme>> {
 
 fn upper_word(lexeme: &Lexeme) -> Option<String> {
     match &lexeme.tok {
-        Tok::Word(w) => Some(w.to_ascii_uppercase()),
+        SqlTok::Word(w) => Some(w.to_ascii_uppercase()),
         _ => None,
     }
 }
@@ -1203,12 +1203,17 @@ fn tsql_starts_statement(kw: &str, cur: &[Lexeme], cases: usize) -> bool {
 /// (dotted) object name and an optional `WITH CHECK|NOCHECK`.
 fn alter_action_index(cur: &[Lexeme]) -> usize {
     let mut j = 2;
-    while j < cur.len() && matches!(cur[j].tok, Tok::Word(_) | Tok::Ident(_) | Tok::Param) {
+    while j < cur.len()
+        && matches!(
+            cur[j].tok,
+            SqlTok::Word(_) | SqlTok::Ident(_) | SqlTok::Param
+        )
+    {
         j += 1;
-        while matches!(cur.get(j).map(|t| &t.tok), Some(Tok::Punct('.'))) {
+        while matches!(cur.get(j).map(|t| &t.tok), Some(SqlTok::Punct('.'))) {
             j += 1;
         }
-        if !matches!(cur.get(j - 1).map(|t| &t.tok), Some(Tok::Punct('.'))) {
+        if !matches!(cur.get(j - 1).map(|t| &t.tok), Some(SqlTok::Punct('.'))) {
             break;
         }
     }

@@ -443,7 +443,7 @@ impl ObservedLabels<'_> {
             .filter(|(ancestor, _)| {
                 (inclusive && ancestor.as_str() == path
                     || ancestor.as_str() != path
-                        && nah_proto::labels::contains(ancestor, path, platform))
+                        && nah_proto::labels::lexically_contains(ancestor, path, platform))
                     && self
                         .view
                         .observed_path(ancestor)
@@ -628,7 +628,11 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
                         .map(|worktree| {
                             let selected = nah_proto::ctx::AbsolutePath::new(
                                 platform,
-                                nah_proto::labels::join(worktree.as_str(), path, platform),
+                                nah_proto::labels::join_lexical_path(
+                                    worktree.as_str(),
+                                    path,
+                                    platform,
+                                ),
                             )
                             .expect("tree path joined to an absolute worktree");
                             Self::content(&[nah_proto::labels::sensitivity::sensitivity(

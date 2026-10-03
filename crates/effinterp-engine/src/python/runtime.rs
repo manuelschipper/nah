@@ -15,7 +15,7 @@ pub(crate) fn runtime_imports(
     max_nodes: u64,
 ) -> Result<BTreeMap<String, bool>, ExecutionInputReason> {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    enum Flow {
+    enum StatementFlow {
         Next,
         Return,
         Raise,
@@ -27,12 +27,12 @@ pub(crate) fn runtime_imports(
         mut definite: bool,
         imports: &mut BTreeMap<String, bool>,
         remaining: &mut u64,
-    ) -> Flow {
-        let mut flow = Flow::Next;
+    ) -> StatementFlow {
+        let mut flow = StatementFlow::Next;
         let mut functions = BTreeMap::new();
         for statement in statements {
             if *remaining == 0 {
-                return Flow::Uncertain;
+                return StatementFlow::Uncertain;
             }
             *remaining -= 1;
             if !matches!(
@@ -61,7 +61,7 @@ pub(crate) fn runtime_imports(
                         // Demand for this import does not prove that it finishes.
                         // Ordinary dependencies are not opened to establish continuation.
                         definite = false;
-                        flow = Flow::Uncertain;
+                        flow = StatementFlow::Uncertain;
                     }
                 }
                 Stmt::ImportFrom(import) => {
@@ -72,7 +72,7 @@ pub(crate) fn runtime_imports(
                         .or_insert(definite);
                     // Attribute resolution can fail even for a builtin module.
                     definite = false;
-                    flow = Flow::Uncertain;
+                    flow = StatementFlow::Uncertain;
                 }
                 Stmt::ClassDef(class) => {
                     if !class.bases.is_empty()
@@ -81,18 +81,22 @@ pub(crate) fn runtime_imports(
                         || !class.type_params.is_empty()
                     {
                         definite = false;
-                        flow = Flow::Uncertain;
+                        flow = StatementFlow::Uncertain;
                     }
                     let step = collect(&class.body, definite, imports, remaining);
                     match step {
-                        Flow::Return | Flow::Raise => {
-                            return if flow == Flow::Uncertain { flow } else { step };
+                        StatementFlow::Return | StatementFlow::Raise => {
+                            return if flow == StatementFlow::Uncertain {
+                                flow
+                            } else {
+                                step
+                            };
                         }
-                        Flow::Uncertain => {
+                        StatementFlow::Uncertain => {
                             definite = false;
                             flow = step;
                         }
-                        Flow::Next => {}
+                        StatementFlow::Next => {}
                     }
                 }
                 Stmt::If(statement) => {
@@ -103,18 +107,22 @@ pub(crate) fn runtime_imports(
                             collect(&statement.body, false, imports, remaining);
                             collect(&statement.orelse, false, imports, remaining);
                             // Evaluating the condition itself may prevent either branch.
-                            Flow::Uncertain
+                            StatementFlow::Uncertain
                         }
                     };
                     match step {
-                        Flow::Return | Flow::Raise => {
-                            return if flow == Flow::Uncertain { flow } else { step };
+                        StatementFlow::Return | StatementFlow::Raise => {
+                            return if flow == StatementFlow::Uncertain {
+                                flow
+                            } else {
+                                step
+                            };
                         }
-                        Flow::Uncertain => {
+                        StatementFlow::Uncertain => {
                             definite = false;
                             flow = step;
                         }
-                        Flow::Next => {}
+                        StatementFlow::Next => {}
                     }
                 }
                 Stmt::FunctionDef(function) => {
@@ -127,7 +135,7 @@ pub(crate) fn runtime_imports(
                         || argument_definition_expressions(&function.args)
                     {
                         definite = false;
-                        flow = Flow::Uncertain;
+                        flow = StatementFlow::Uncertain;
                     }
                     if function.decorator_list.is_empty()
                         && function.returns.is_none()
@@ -152,22 +160,22 @@ pub(crate) fn runtime_imports(
                         && let Some(body) = functions.get(name.id.as_str())
                     {
                         match collect(body, definite, imports, remaining) {
-                            Flow::Raise => {
-                                return if flow == Flow::Uncertain {
+                            StatementFlow::Raise => {
+                                return if flow == StatementFlow::Uncertain {
                                     flow
                                 } else {
-                                    Flow::Raise
+                                    StatementFlow::Raise
                                 };
                             }
-                            Flow::Uncertain => {
+                            StatementFlow::Uncertain => {
                                 definite = false;
-                                flow = Flow::Uncertain;
+                                flow = StatementFlow::Uncertain;
                             }
-                            Flow::Next | Flow::Return => {}
+                            StatementFlow::Next | StatementFlow::Return => {}
                         }
                     } else if !matches!(expression.value.as_ref(), Expr::Constant(_)) {
                         definite = false;
-                        flow = Flow::Uncertain;
+                        flow = StatementFlow::Uncertain;
                     }
                     functions.clear();
                 }
@@ -179,7 +187,7 @@ pub(crate) fn runtime_imports(
                         || argument_definition_expressions(&function.args)
                     {
                         definite = false;
-                        flow = Flow::Uncertain;
+                        flow = StatementFlow::Uncertain;
                     }
                 }
                 Stmt::For(statement) => {
@@ -215,12 +223,12 @@ pub(crate) fn runtime_imports(
                 Stmt::With(statement) => {
                     collect(&statement.body, false, imports, remaining);
                     definite = false;
-                    flow = Flow::Uncertain;
+                    flow = StatementFlow::Uncertain;
                 }
                 Stmt::AsyncWith(statement) => {
                     collect(&statement.body, false, imports, remaining);
                     definite = false;
-                    flow = Flow::Uncertain;
+                    flow = StatementFlow::Uncertain;
                 }
                 Stmt::Match(statement) => {
                     for case in &statement.cases {
@@ -228,25 +236,25 @@ pub(crate) fn runtime_imports(
                     }
                 }
                 Stmt::Return(statement) => {
-                    return if flow == Flow::Uncertain
+                    return if flow == StatementFlow::Uncertain
                         || statement
                             .value
                             .as_ref()
                             .is_some_and(|value| !matches!(value.as_ref(), Expr::Constant(_)))
                     {
-                        Flow::Uncertain
+                        StatementFlow::Uncertain
                     } else {
-                        Flow::Return
+                        StatementFlow::Return
                     };
                 }
                 Stmt::Raise(_) => {
-                    return if flow == Flow::Uncertain {
+                    return if flow == StatementFlow::Uncertain {
                         flow
                     } else {
-                        Flow::Raise
+                        StatementFlow::Raise
                     };
                 }
-                Stmt::Break(_) | Stmt::Continue(_) => return Flow::Uncertain,
+                Stmt::Break(_) | Stmt::Continue(_) => return StatementFlow::Uncertain,
                 Stmt::Pass(_) | Stmt::Global(_) | Stmt::Nonlocal(_) => {}
                 Stmt::Assign(statement)
                     if matches!(statement.value.as_ref(), Expr::Constant(_))
@@ -258,7 +266,7 @@ pub(crate) fn runtime_imports(
                     // Unsupported expressions and assignment targets may raise before
                     // subsequent imports, including inside a directly called function.
                     definite = false;
-                    flow = Flow::Uncertain;
+                    flow = StatementFlow::Uncertain;
                 }
             }
             if matches!(
@@ -271,7 +279,7 @@ pub(crate) fn runtime_imports(
                     | Stmt::Match(_)
             ) {
                 definite = false;
-                flow = Flow::Uncertain;
+                flow = StatementFlow::Uncertain;
             }
         }
         flow

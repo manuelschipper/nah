@@ -95,7 +95,7 @@ impl ObservationRequest {
         mut queries: Vec<ObservationQuery>,
     ) -> Result<Self, BindingError> {
         require_v1(v)?;
-        let request_id = non_empty(request_id)?;
+        let request_id = non_empty_binding_identifier(request_id)?;
         validate_queries(&queries)?;
         queries.sort_by(|left, right| left.key().cmp(right.key()));
         Ok(Self {
@@ -533,7 +533,7 @@ impl Observation {
         mut facts: Vec<ObservationFact>,
     ) -> Result<Self, BindingError> {
         require_v1(v)?;
-        let request_id = non_empty(request_id)?;
+        let request_id = non_empty_binding_identifier(request_id)?;
         validate_queries(
             &facts
                 .iter()
@@ -831,7 +831,7 @@ fn validate_queries(queries: &[ObservationQuery]) -> Result<(), BindingError> {
     Ok(())
 }
 
-fn non_empty(value: impl Into<String>) -> Result<String, BindingError> {
+fn non_empty_binding_identifier(value: impl Into<String>) -> Result<String, BindingError> {
     let value = value.into();
     if value.is_empty() {
         Err(BindingError::EmptyIdentifier)

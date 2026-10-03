@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use crate::shell::lex::Span;
+use crate::shell::lex::ShellSpan;
 use crate::shell::{Shell, ShellEnv};
 use crate::word::{Word, WordPart};
 
@@ -30,11 +30,9 @@ impl Shell<'_> {
         }
     }
 
-    /// Analyze a recovered shell source as a nested subject. `eval` persists
-    /// mutations in the current shell; command substitutions and traps do not.
     /// The value of an arithmetic expansion whose operands are literal
     /// integers or exact variables established by this shell.
-    pub(super) fn literal_arithmetic(&self, env: &ShellEnv, span: Span) -> Option<i64> {
+    pub(super) fn literal_arithmetic(&self, env: &ShellEnv, span: ShellSpan) -> Option<i64> {
         let text = self.source.get(span.start as usize..span.end as usize)?;
         let text = text
             .strip_prefix("$((")

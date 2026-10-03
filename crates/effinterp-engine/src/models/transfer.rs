@@ -29,7 +29,7 @@ pub(super) fn transfer_models() -> Vec<Box<dyn CommandModel>> {
 
 /// A transfer operand: a local path, remote endpoint, or ambiguous target.
 #[derive(Clone)]
-enum Target {
+enum TransferTarget {
     Local(ResourceExpr),
     Remote(ResourceExpr),
     /// `host:path` whose host a command substitution spells: its output may
@@ -41,27 +41,27 @@ enum Target {
 }
 
 /// Classify an operand by transfer syntax before resolving local paths.
-fn classify(word: &Word, cwd: Option<ResourceExpr>) -> Target {
+fn classify(word: &Word, cwd: Option<ResourceExpr>) -> TransferTarget {
     if let Some(text) = word.as_literal() {
         if let Some(rest) = text.strip_prefix("rsync://") {
             let host = rest.split('/').next().unwrap_or(rest);
-            return Target::Remote(endpoint(host, "rsync"));
+            return TransferTarget::Remote(remote_host_endpoint(host, "rsync"));
         }
         // `[user@]host:path` — a colon before any slash marks a remote host.
         if let Some((hostpart, _path)) = text.split_once(':')
             && !hostpart.contains('/')
             && !hostpart.is_empty()
         {
-            return Target::Remote(endpoint(hostpart, "ssh"));
+            return TransferTarget::Remote(remote_host_endpoint(hostpart, "ssh"));
         }
-        return Target::Local(resolve_fs_word_with_cwd(word, cwd));
+        return TransferTarget::Local(resolve_fs_word_with_cwd(word, cwd));
     }
     if word.parts.first().is_some_and(
         |part| matches!(part, WordPart::Literal(value) if value.starts_with("rsync://")),
     ) {
         let host = parts_before_separator(word, "rsync://", '/');
         if !host.is_empty() {
-            return Target::Remote(remote_endpoint(host, "rsync"));
+            return TransferTarget::Remote(remote_endpoint(host, "rsync"));
         }
     }
     if let Some(mut host) = parts_before_colon(word) {
@@ -72,9 +72,9 @@ fn classify(word: &Word, cwd: Option<ResourceExpr>) -> Target {
         if !host.is_empty() {
             let endpoint = remote_endpoint(host, "ssh");
             return if substituted {
-                Target::MaybeRemote(endpoint)
+                TransferTarget::MaybeRemote(endpoint)
             } else {
-                Target::Remote(endpoint)
+                TransferTarget::Remote(endpoint)
             };
         }
     }
@@ -85,12 +85,13 @@ fn classify(word: &Word, cwd: Option<ResourceExpr>) -> Target {
             if text.find('/').is_some_and(|slash| !text[..slash].contains(':')))
     });
     if !local_glob && leading_symbolic_without(word, &[':', '/']) {
-        return Target::Unknown(symbolic_expr(word, "network"));
+        return TransferTarget::Unknown(symbolic_expr(word, "network"));
     }
-    Target::Local(resolve_fs_word_with_cwd(word, cwd))
+    TransferTarget::Local(resolve_fs_word_with_cwd(word, cwd))
 }
 
-fn endpoint(hostpart: &str, scheme: &str) -> ResourceExpr {
+/// The network endpoint of a `[user@]host` transfer operand under `scheme`.
+fn remote_host_endpoint(hostpart: &str, scheme: &str) -> ResourceExpr {
     let host = hostpart.rsplit('@').next().unwrap_or(hostpart);
     ResourceExpr::Concrete {
         identity: ResourceIdentity::NetworkEndpoint {
@@ -284,27 +285,31 @@ struct EmitOptions<'a> {
     excluded_names: Option<&'a Attrs>,
 }
 
-fn emit(
+fn emit_transfer_target(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
     index: u32,
-    target: Target,
+    target: TransferTarget,
     options: EmitOptions<'_>,
 ) -> Endpoint {
     // A destination whose host a substitution spells stays the remote
     // endpoint it names; a source that may be local also sends a local file.
-    let unknown = matches!(target, Target::Unknown(_))
-        || options.source && matches!(target, Target::MaybeRemote(_));
+    let unknown = matches!(target, TransferTarget::Unknown(_))
+        || options.source && matches!(target, TransferTarget::MaybeRemote(_));
     let (operation, resource, local) = match (target, options.source) {
-        (Target::Local(resource), true) => ("filesystem.read", resource, true),
-        (Target::Local(resource), false) => ("filesystem.write", resource, true),
+        (TransferTarget::Local(resource), true) => ("filesystem.read", resource, true),
+        (TransferTarget::Local(resource), false) => ("filesystem.write", resource, true),
         (
-            Target::Remote(resource) | Target::MaybeRemote(resource) | Target::Unknown(resource),
+            TransferTarget::Remote(resource)
+            | TransferTarget::MaybeRemote(resource)
+            | TransferTarget::Unknown(resource),
             true,
         ) => ("network.download", resource, false),
         (
-            Target::Remote(resource) | Target::MaybeRemote(resource) | Target::Unknown(resource),
+            TransferTarget::Remote(resource)
+            | TransferTarget::MaybeRemote(resource)
+            | TransferTarget::Unknown(resource),
             false,
         ) => ("network.upload", resource, false),
     };
@@ -633,7 +638,7 @@ fn remove_source_files(
     }
     for (index, source) in sources {
         match classify(source, ctx.cwd_resource()) {
-            Target::Local(resource) => {
+            TransferTarget::Local(resource) => {
                 let mut attributes = std::collections::BTreeMap::from([(
                     "recursive".into(),
                     AttrValue::Bool(recursive),
@@ -929,10 +934,10 @@ impl CommandModel for Rsync {
         let remote_to_remote = operands.split_last().is_some_and(|((_, dest), sources)| {
             matches!(
                 classify(dest, None),
-                Target::Remote(_) | Target::MaybeRemote(_)
+                TransferTarget::Remote(_) | TransferTarget::MaybeRemote(_)
             ) && sources
                 .iter()
-                .any(|(_, source)| matches!(classify(source, None), Target::Remote(_)))
+                .any(|(_, source)| matches!(classify(source, None), TransferTarget::Remote(_)))
         });
         if remote_to_remote || scanned.has(&["--only-write-batch", "--read-batch"]) {
             builder.boundary(Boundary {
@@ -977,12 +982,15 @@ impl CommandModel for Rsync {
         let local_no_op = no_op
             && operands.len() >= 2
             && operands.iter().all(|(_, operand)| {
-                matches!(classify(operand, ctx.cwd_resource()), Target::Local(_))
+                matches!(
+                    classify(operand, ctx.cwd_resource()),
+                    TransferTarget::Local(_)
+                )
             });
         if local_no_op {
             let (_, sources) = operands.split_last().unwrap();
             for (index, source) in sources {
-                emit(
+                emit_transfer_target(
                     builder,
                     ctx,
                     model_node,
@@ -1117,7 +1125,7 @@ impl CommandModel for Rsync {
             let modes = scanned.values_of(&["--chmod"]);
             if !modes.is_empty()
                 && let Some((index, destination)) = operands.last()
-                && let Target::Local(resource) = classify(destination, ctx.cwd_resource())
+                && let TransferTarget::Local(resource) = classify(destination, ctx.cwd_resource())
             {
                 destination_chmod(builder, ctx, model_node, *index, resource, &modes);
             }
@@ -1170,7 +1178,7 @@ impl CommandModel for Rsync {
 
         let Some(remote_host) = operands.iter().find_map(|(_, operand)| {
             remote_host(operand).or_else(|| {
-                matches!(classify(operand, None), Target::Unknown(_))
+                matches!(classify(operand, None), TransferTarget::Unknown(_))
                     .then(|| Word::new(vec![WordPart::Unknown]))
             })
         }) else {
@@ -1265,9 +1273,9 @@ impl CommandModel for Scp {
             },
         );
         if operands.len() < 2
-            || operands
-                .iter()
-                .all(|(_, word)| matches!(classify(word, ctx.cwd_resource()), Target::Local(_)))
+            || operands.iter().all(|(_, word)| {
+                matches!(classify(word, ctx.cwd_resource()), TransferTarget::Local(_))
+            })
         {
             return;
         }
@@ -1477,14 +1485,14 @@ fn transfer(
             .map(|(_, source)| classify(source, ctx.cwd_resource()))
             .collect::<Vec<_>>();
         let certified = certified
-            && (matches!(destination, Target::Remote(_))
+            && (matches!(destination, TransferTarget::Remote(_))
                 && sources_classified
                     .iter()
-                    .all(|source| matches!(source, Target::Local(_)))
+                    .all(|source| matches!(source, TransferTarget::Local(_)))
                 || certified_download
                     && sources_classified.len() == 1
-                    && matches!(sources_classified[0], Target::Remote(_))
-                    && matches!(destination, Target::Local(_)));
+                    && matches!(sources_classified[0], TransferTarget::Remote(_))
+                    && matches!(destination, TransferTarget::Local(_)));
         // Each source keeps its own pairing to the single destination; a
         // symbolic operand still publishes the other side's known effect.
         let mut source_slots = additional_sources
@@ -1494,7 +1502,7 @@ fn transfer(
             .collect::<Vec<_>>();
         source_slots.extend(sources.iter().zip(&sources_classified).flat_map(
             |((index, _), source)| {
-                let endpoint = emit(
+                let endpoint = emit_transfer_target(
                     builder,
                     ctx,
                     model_node,
@@ -1512,7 +1520,7 @@ fn transfer(
                 [endpoint.slot, endpoint.local_read]
             },
         ));
-        let destination = emit(
+        let destination = emit_transfer_target(
             builder,
             ctx,
             model_node,

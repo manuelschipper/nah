@@ -73,7 +73,7 @@ impl CommandModel for GithubActions {
                 );
                 return;
             }
-            unresolved(builder, model_node);
+            unresolved_ci_step(builder, model_node);
             return;
         }
 
@@ -178,11 +178,11 @@ impl CommandModel for GithubActions {
             return;
         }
 
-        unresolved(builder, model_node);
+        unresolved_ci_step(builder, model_node);
     }
 }
 
-fn unresolved(builder: &mut PlanBuilder, model_node: ProvenanceRef) {
+fn unresolved_ci_step(builder: &mut PlanBuilder, model_node: ProvenanceRef) {
     builder.declare_coverage(Domain::new("process"), CoverageLevel::Partial);
     builder.boundary(Boundary {
         reason: BoundaryReason::UNRESOLVED_CI_STEP,

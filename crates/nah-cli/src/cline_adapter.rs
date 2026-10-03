@@ -40,7 +40,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
-    run_for_platform(
+    run_cline_for_platform(
         stdin,
         stdout,
         stderr,
@@ -49,7 +49,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     )
 }
 
-fn run_for_platform<R: Read, W: Write, E: Write>(
+fn run_cline_for_platform<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
@@ -69,7 +69,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
         }
         Err(error) => Err(error.to_string()),
     };
-    let request = input.and_then(|input| normalize_for_platform(input, platform));
+    let request = input.and_then(|input| normalize_cline_hook_input_for_platform(input, platform));
     let output = match request {
         Ok(request) => {
             match hook_adapter::decide_input(request, stderr, Runtime::Cline, failure_policy) {
@@ -82,7 +82,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
                     )
                 }
                 hook_adapter::HookOutcome::Decision(decision) => {
-                    delegated(decision.evaluation_failed())
+                    cline_delegated_reply(decision.evaluation_failed())
                 }
                 hook_adapter::HookOutcome::IrrelevantEvent => return 0,
                 hook_adapter::HookOutcome::MalformedInput => hook_adapter::unavailable_feedback(
@@ -90,10 +90,16 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
                     Runtime::Cline,
                     hook_adapter::IntegrationUnavailable::MalformedInput,
                 )
-                .map_or_else(|| delegated(false), |reason| cancel(&reason, false)),
+                .map_or_else(
+                    || cline_delegated_reply(false),
+                    |reason| cancel(&reason, false),
+                ),
                 hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
                     hook_adapter::unavailable_feedback(failure_policy, Runtime::Cline, kind)
-                        .map_or_else(|| delegated(true), |reason| cancel(&reason, false))
+                        .map_or_else(
+                            || cline_delegated_reply(true),
+                            |reason| cancel(&reason, false),
+                        )
                 }
             }
         }
@@ -102,10 +108,12 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
             Runtime::Cline,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
-        .map_or_else(|| delegated(false), |reason| cancel(&reason, false)),
+        .map_or_else(
+            || cline_delegated_reply(false),
+            |reason| cancel(&reason, false),
+        ),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
 }
 
@@ -117,7 +125,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize_for_platform(
+    normalize_cline_hook_input_for_platform(
         ClineHookInput {
             hook_name: "PreToolUse".into(),
             task_id: "nah-test".into(),
@@ -132,11 +140,11 @@ pub(crate) fn normalize_call(
 }
 
 #[cfg(test)]
-fn normalize(input: ClineHookInput) -> Result<ToolCallInput, String> {
-    normalize_for_platform(input, live_state::host_platform())
+fn normalize_cline_hook_input(input: ClineHookInput) -> Result<ToolCallInput, String> {
+    normalize_cline_hook_input_for_platform(input, live_state::host_platform())
 }
 
-fn normalize_for_platform(
+fn normalize_cline_hook_input_for_platform(
     input: ClineHookInput,
     platform: Platform,
 ) -> Result<ToolCallInput, String> {
@@ -157,7 +165,7 @@ fn normalize_for_platform(
         .and_then(|path| path.to_str().map(str::to_owned))
         .ok_or_else(|| "cline-hook-cwd-unavailable".to_owned())?;
     AbsolutePath::new(platform, cwd.clone()).map_err(|_| "invalid-cline-hook-cwd")?;
-    if unsupported_shell(&input.pre_tool_use.tool_name, platform) {
+    if cline_unsupported_shell(&input.pre_tool_use.tool_name, platform) {
         return ToolCallInput::new(
             SchemaVersion::V1,
             "ClineWindowsShell",
@@ -281,7 +289,7 @@ fn lower_cline_tool<'a>(
     })
 }
 
-fn unsupported_shell(tool: &str, platform: Platform) -> bool {
+fn cline_unsupported_shell(tool: &str, platform: Platform) -> bool {
     platform == Platform::Windows && matches!(tool, "execute_command" | "run_commands")
 }
 
@@ -356,7 +364,7 @@ fn commands(value: Option<&Value>) -> Result<String, String> {
     };
     values
         .iter()
-        .map(command)
+        .map(cline_command_text)
         .collect::<Result<Vec<_>, _>>()
         .map(|commands| commands.join("; "))
 }
@@ -375,10 +383,10 @@ fn command_parameters(object: &Map<String, Value>) -> Result<String, String> {
     let mut structured = Map::new();
     structured.insert("command".into(), decoded(program));
     structured.insert("args".into(), decoded(args));
-    command(&Value::Object(structured))
+    cline_command_text(&Value::Object(structured))
 }
 
-fn command(value: &Value) -> Result<String, String> {
+fn cline_command_text(value: &Value) -> Result<String, String> {
     match value {
         Value::String(value) if !value.is_empty() => Ok(value.clone()),
         Value::Object(object) => {
@@ -424,7 +432,7 @@ fn read_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
         .collect()
 }
 
-fn delegated(evaluation_failed: bool) -> Value {
+fn cline_delegated_reply(evaluation_failed: bool) -> Value {
     if evaluation_failed {
         json!({
             "cancel":false,
@@ -454,7 +462,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, parameters: Value) -> ToolCallInput {
-        normalize(ClineHookInput {
+        normalize_cline_hook_input(ClineHookInput {
             hook_name: "PreToolUse".into(),
             task_id: "task-1".into(),
             workspace_roots: vec![
@@ -574,7 +582,7 @@ mod tests {
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
             assert_eq!(
-                run_for_platform(
+                run_cline_for_platform(
                     &mut stdin,
                     &mut stdout,
                     &mut stderr,
@@ -592,8 +600,8 @@ mod tests {
     #[test]
     fn dialect_boundary_preserves_unix_shell_and_native_tools() {
         for platform in [Platform::Linux, Platform::Macos] {
-            assert!(!unsupported_shell("execute_command", platform));
-            assert!(!unsupported_shell("run_commands", platform));
+            assert!(!cline_unsupported_shell("execute_command", platform));
+            assert!(!cline_unsupported_shell("run_commands", platform));
         }
         for tool in [
             "read_file",
@@ -603,7 +611,7 @@ mod tests {
             "search_files",
             "list_files",
         ] {
-            assert!(!unsupported_shell(tool, Platform::Windows), "{tool}");
+            assert!(!cline_unsupported_shell(tool, Platform::Windows), "{tool}");
         }
     }
 
@@ -618,7 +626,7 @@ mod tests {
             ("apply_patch", json!({"input":""})),
         ] {
             let input = parameters.clone();
-            let call = normalize(ClineHookInput {
+            let call = normalize_cline_hook_input(ClineHookInput {
                 hook_name: "PreToolUse".into(),
                 task_id: "task-1".into(),
                 workspace_roots: vec![
@@ -633,7 +641,7 @@ mod tests {
                 },
             })
             .unwrap();
-            let expected = if cfg!(windows) && unsupported_shell(name, Platform::Windows) {
+            let expected = if cfg!(windows) && cline_unsupported_shell(name, Platform::Windows) {
                 "ClineWindowsShell"
             } else {
                 name

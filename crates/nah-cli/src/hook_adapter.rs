@@ -252,6 +252,13 @@ pub(crate) fn unavailable_feedback(
     })
 }
 
+/// Writes one hook reply as a single JSON line on stdout; a failed write is ignored because the
+/// runtime has no other channel to hear about it.
+pub(crate) fn write_hook_reply_line<W: Write>(stdout: &mut W, value: Value) {
+    let _ = serde_json::to_writer(&mut *stdout, &value);
+    let _ = writeln!(stdout);
+}
+
 /// The blocking reply for the runtimes whose plugin reads a
 /// `{"block":..,"evaluation_failed":..}` object (Amp, OpenClaw, OpenCode, Pi and
 /// Prime Agent) when Nah could not decide; `None` when the failure policy

@@ -4,12 +4,18 @@
 
 use std::collections::{HashMap, HashSet};
 
-use oxc_ast::ast::{ChainElement, Expression};
+use oxc_ast::ast::{AssignmentTarget, BindingPattern, ChainElement, Expression};
 
-use super::source_string::source_expression_key;
+use super::resolve::ParamEnv;
+use super::source_string::{
+    AggregateBindingValue, is_global_undefined, project_array_aggregate_binding,
+    project_object_aggregate_binding, source_expression_key,
+};
+use super::source_string_state::SourceStringState;
 use super::{
-    AggregateAliases, array_element, array_literal_len, assignment_flow_key, binding_is_within,
-    canonical_global_builtin_binding, expression_flow_key, literal_property_name, unparen,
+    AggregateAliases, EffectVisitor, SourceStringNames, array_element, array_literal_len,
+    assignment_flow_key, binding_is_within, canonical_global_builtin_binding, expression_flow_key,
+    literal_property_name, unparen,
 };
 
 /// Relative member path to aggregate aliases; the empty path names the value itself.
@@ -367,5 +373,381 @@ pub(super) fn expression_aggregate_alias_paths(
             expression_aggregate_alias_paths(budget, &awaited.argument, aliases, evaluated)
         }
         _ => AggregateAliasPaths::new(),
+    }
+}
+
+/// The effect visitor's aggregate alias binders: the parameters, destructuring
+/// patterns and assignments that make one binding name another's aggregate.
+impl<'a> EffectVisitor<'_, 'a> {
+    pub(super) fn bind_parameter_aggregate_alias(
+        &mut self,
+        pattern: &BindingPattern<'a>,
+        argument: Option<&Expression<'a>>,
+        argument_state: Option<&SourceStringState>,
+        caller_state: &SourceStringState,
+    ) {
+        let Some(argument) = argument else {
+            return;
+        };
+        let state = argument_state.unwrap_or(caller_state);
+        self.bind_aggregate_alias_pattern(
+            pattern,
+            AggregateBindingValue::Argument(argument),
+            &state.source_env,
+            &state.unbounded_source_env,
+            &state.aggregate_aliases,
+        );
+    }
+
+    pub(super) fn aggregate_binding_default<'r>(
+        &self,
+        value: AggregateBindingValue<'r, 'a>,
+        default: &'r Expression<'a>,
+        argument_source_env: &ParamEnv,
+        argument_unbounded_source_env: &SourceStringNames,
+    ) -> AggregateBindingValue<'r, 'a> {
+        match value {
+            AggregateBindingValue::Argument(expression)
+                if is_global_undefined(
+                    expression,
+                    argument_source_env,
+                    argument_unbounded_source_env,
+                ) =>
+            {
+                AggregateBindingValue::Local(default)
+            }
+            AggregateBindingValue::Local(expression)
+                if is_global_undefined(
+                    expression,
+                    &self.source_env,
+                    &self.unbounded_source_env,
+                ) =>
+            {
+                AggregateBindingValue::Local(default)
+            }
+            AggregateBindingValue::Missing => AggregateBindingValue::Local(default),
+            AggregateBindingValue::ArgumentKey(_)
+            | AggregateBindingValue::LocalKey(_)
+            | AggregateBindingValue::Projected(_)
+            | AggregateBindingValue::Unbounded => AggregateBindingValue::Unbounded,
+            value => value,
+        }
+    }
+
+    pub(super) fn aggregate_binding_alias_paths(
+        &self,
+        value: AggregateBindingValue<'_, 'a>,
+        argument_aliases: &AggregateAliases,
+    ) -> AggregateAliasPaths {
+        match value {
+            AggregateBindingValue::Argument(expression) => expression_aggregate_alias_paths(
+                self.nest.budget,
+                expression,
+                argument_aliases,
+                &self.evaluated_aggregate_aliases,
+            ),
+            AggregateBindingValue::Local(expression) => expression_aggregate_alias_paths(
+                self.nest.budget,
+                expression,
+                &self.aggregate_aliases,
+                &self.evaluated_aggregate_aliases,
+            ),
+            AggregateBindingValue::ArgumentKey(key) => {
+                aggregate_alias_binding_paths(self.nest.budget, argument_aliases, &key)
+            }
+            AggregateBindingValue::LocalKey(key) => {
+                aggregate_alias_binding_paths(self.nest.budget, &self.aggregate_aliases, &key)
+            }
+            AggregateBindingValue::Projected(paths) => paths,
+            AggregateBindingValue::Missing | AggregateBindingValue::Unbounded => {
+                AggregateAliasPaths::new()
+            }
+        }
+    }
+
+    pub(super) fn bind_aggregate_alias_name(
+        &mut self,
+        name: &str,
+        value: AggregateBindingValue<'_, 'a>,
+        argument_aliases: &AggregateAliases,
+    ) {
+        let argument = matches!(value, AggregateBindingValue::Argument(_));
+        let paths = self.aggregate_binding_alias_paths(value, argument_aliases);
+        clear_aggregate_aliases(
+            &mut self.aggregate_aliases,
+            &HashSet::from([name.to_string()]),
+        );
+        for (path, targets) in paths {
+            let alias = format!("{name}{path}");
+            for target in targets {
+                // Argument paths name caller bindings. A parameter with the same
+                // name shadows that binding; retaining it creates a false cycle
+                // such as node -> node.moduleSpecifier -> node.moduleSpecifier.moduleSpecifier.
+                if argument && binding_is_within(&target, name) {
+                    continue;
+                }
+                add_aggregate_alias(&mut self.aggregate_aliases, alias.clone(), target);
+            }
+        }
+    }
+
+    pub(super) fn bind_aggregate_alias_pattern<'r>(
+        &mut self,
+        pattern: &BindingPattern<'a>,
+        value: AggregateBindingValue<'r, 'a>,
+        argument_source_env: &ParamEnv,
+        argument_unbounded_source_env: &SourceStringNames,
+        argument_aliases: &AggregateAliases,
+    ) {
+        match pattern {
+            BindingPattern::BindingIdentifier(identifier) => {
+                self.bind_aggregate_alias_name(identifier.name.as_str(), value, argument_aliases)
+            }
+            BindingPattern::AssignmentPattern(assignment) => {
+                let value = self.aggregate_binding_default(
+                    value,
+                    &assignment.right,
+                    argument_source_env,
+                    argument_unbounded_source_env,
+                );
+                self.bind_aggregate_alias_pattern(
+                    &assignment.left,
+                    value,
+                    argument_source_env,
+                    argument_unbounded_source_env,
+                    argument_aliases,
+                );
+            }
+            BindingPattern::ArrayPattern(array) => {
+                for (index, element) in array.elements.iter().enumerate() {
+                    if let Some(element) = element {
+                        self.bind_aggregate_alias_pattern(
+                            element,
+                            project_array_aggregate_binding(value.clone(), index),
+                            argument_source_env,
+                            argument_unbounded_source_env,
+                            argument_aliases,
+                        );
+                    }
+                }
+                if let Some(rest) = &array.rest {
+                    let paths = project_array_rest_aggregate_alias_paths(
+                        self.aggregate_binding_alias_paths(value, argument_aliases),
+                        array.elements.len(),
+                    );
+                    self.bind_aggregate_alias_pattern(
+                        &rest.argument,
+                        AggregateBindingValue::Projected(paths),
+                        argument_source_env,
+                        argument_unbounded_source_env,
+                        argument_aliases,
+                    );
+                }
+            }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    let value = property
+                        .key
+                        .static_name()
+                        .map_or(AggregateBindingValue::Unbounded, |key| {
+                            project_object_aggregate_binding(value.clone(), &key)
+                        });
+                    self.bind_aggregate_alias_pattern(
+                        &property.value,
+                        value,
+                        argument_source_env,
+                        argument_unbounded_source_env,
+                        argument_aliases,
+                    );
+                }
+                if let Some(rest) = &object.rest {
+                    let excluded = object
+                        .properties
+                        .iter()
+                        .filter_map(|property| {
+                            property.key.static_name().map(|key| key.to_string())
+                        })
+                        .collect();
+                    let paths = project_object_rest_aggregate_alias_paths(
+                        self.aggregate_binding_alias_paths(value, argument_aliases),
+                        &excluded,
+                    );
+                    self.bind_aggregate_alias_pattern(
+                        &rest.argument,
+                        AggregateBindingValue::Projected(paths),
+                        argument_source_env,
+                        argument_unbounded_source_env,
+                        argument_aliases,
+                    );
+                }
+            }
+        }
+    }
+
+    pub(super) fn bind_assignment_aggregate_alias<'r>(
+        &mut self,
+        target: &AssignmentTarget<'a>,
+        value: AggregateBindingValue<'r, 'a>,
+        argument_source_env: &ParamEnv,
+        argument_unbounded_source_env: &SourceStringNames,
+        argument_aliases: &AggregateAliases,
+    ) {
+        match target {
+            AssignmentTarget::ArrayAssignmentTarget(array) => {
+                for (index, element) in array.elements.iter().enumerate() {
+                    if let Some(element) = element {
+                        self.bind_assignment_maybe_default_aggregate_alias(
+                            element,
+                            project_array_aggregate_binding(value.clone(), index),
+                            argument_source_env,
+                            argument_unbounded_source_env,
+                            argument_aliases,
+                        );
+                    }
+                }
+                if let Some(rest) = &array.rest {
+                    let paths = project_array_rest_aggregate_alias_paths(
+                        self.aggregate_binding_alias_paths(value, argument_aliases),
+                        array.elements.len(),
+                    );
+                    self.bind_assignment_aggregate_alias(
+                        &rest.target,
+                        AggregateBindingValue::Projected(paths),
+                        argument_source_env,
+                        argument_unbounded_source_env,
+                        argument_aliases,
+                    );
+                }
+            }
+            AssignmentTarget::ObjectAssignmentTarget(object) => {
+                for property in &object.properties {
+                    match property {
+                        oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(
+                            property,
+                        ) => {
+                            let mut property_value = project_object_aggregate_binding(
+                                value.clone(),
+                                property.binding.name.as_str(),
+                            );
+                            if let Some(default) = &property.init {
+                                property_value = self.aggregate_binding_default(
+                                    property_value,
+                                    default,
+                                    argument_source_env,
+                                    argument_unbounded_source_env,
+                                );
+                            }
+                            self.bind_aggregate_alias_name(
+                                property.binding.name.as_str(),
+                                property_value,
+                                argument_aliases,
+                            );
+                        }
+                        oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(
+                            property,
+                        ) => {
+                            let property_value = property.name.static_name().map_or(
+                                AggregateBindingValue::Unbounded,
+                                |key| project_object_aggregate_binding(value.clone(), &key),
+                            );
+                            self.bind_assignment_maybe_default_aggregate_alias(
+                                &property.binding,
+                                property_value,
+                                argument_source_env,
+                                argument_unbounded_source_env,
+                                argument_aliases,
+                            );
+                        }
+                    }
+                }
+                if let Some(rest) = &object.rest {
+                    let excluded = object
+                        .properties
+                        .iter()
+                        .filter_map(|property| match property {
+                            oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(
+                                property,
+                            ) => Some(property.binding.name.as_str().to_string()),
+                            oxc_ast::ast::AssignmentTargetProperty::AssignmentTargetPropertyProperty(
+                                property,
+                            ) => property.name.static_name().map(|key| key.to_string()),
+                        })
+                        .collect();
+                    let paths = project_object_rest_aggregate_alias_paths(
+                        self.aggregate_binding_alias_paths(value, argument_aliases),
+                        &excluded,
+                    );
+                    self.bind_assignment_aggregate_alias(
+                        &rest.target,
+                        AggregateBindingValue::Projected(paths),
+                        argument_source_env,
+                        argument_unbounded_source_env,
+                        argument_aliases,
+                    );
+                }
+            }
+            _ => {
+                if let Some(name) = assignment_flow_key(target) {
+                    self.bind_aggregate_alias_name(&name, value, argument_aliases);
+                }
+            }
+        }
+    }
+
+    pub(super) fn bind_assignment_maybe_default_aggregate_alias<'r>(
+        &mut self,
+        target: &oxc_ast::ast::AssignmentTargetMaybeDefault<'a>,
+        value: AggregateBindingValue<'r, 'a>,
+        argument_source_env: &ParamEnv,
+        argument_unbounded_source_env: &SourceStringNames,
+        argument_aliases: &AggregateAliases,
+    ) {
+        match target {
+            oxc_ast::ast::AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(default) => {
+                let value = self.aggregate_binding_default(
+                    value,
+                    &default.init,
+                    argument_source_env,
+                    argument_unbounded_source_env,
+                );
+                self.bind_assignment_aggregate_alias(
+                    &default.binding,
+                    value,
+                    argument_source_env,
+                    argument_unbounded_source_env,
+                    argument_aliases,
+                );
+            }
+            _ => self.bind_assignment_aggregate_alias(
+                target.to_assignment_target(),
+                value,
+                argument_source_env,
+                argument_unbounded_source_env,
+                argument_aliases,
+            ),
+        }
+    }
+
+    pub(super) fn track_aggregate_alias(&mut self, name: &str, value: &Expression<'a>) {
+        let names = HashSet::from([name.to_string()]);
+        clear_aggregate_aliases(&mut self.aggregate_aliases, &names);
+        let paths = expression_aggregate_alias_paths(
+            self.nest.budget,
+            value,
+            &self.aggregate_aliases,
+            &self.evaluated_aggregate_aliases,
+        );
+        self.insert_aggregate_alias_paths(name, paths);
+    }
+
+    pub(super) fn insert_aggregate_alias_paths(&mut self, name: &str, paths: AggregateAliasPaths) {
+        self.record_source_string_write_name(name);
+        for (path, targets) in paths {
+            let alias = format!("{name}{path}");
+            for target in targets {
+                add_aggregate_alias(&mut self.aggregate_aliases, alias.clone(), target);
+            }
+        }
+        self.sync_module_source_strings();
     }
 }

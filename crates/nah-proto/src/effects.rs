@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod evidence_validation;
 
-use evidence_validation::{require, validate_effect_graph, validate_public_selection};
+use evidence_validation::{require_evidence, validate_effect_graph, validate_public_selection};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct CallId(pub u32);
@@ -1031,7 +1031,7 @@ impl GuardEvidence {
                 .iter()
                 .all(|id| (id.0 as usize) < attribution.boundaries.len())
         };
-        require(
+        require_evidence(
             attribution.engine.values().all(cited) && cited(&attribution.causal),
             EvidenceError::DanglingReference,
         )?;
@@ -1042,7 +1042,7 @@ impl GuardEvidence {
             .filter(|gap| gap.phase != GapPhase::Analysis)
             .map(|gap| gap.id)
             .collect::<Vec<_>>();
-        require(
+        require_evidence(
             attribution.unknowns.len() == added.len()
                 && attribution
                     .unknowns

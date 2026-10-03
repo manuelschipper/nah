@@ -7,7 +7,7 @@ use effinterp_proto::{Subject, validate_subject};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use super::corpus::BenchRow;
+use super::corpus::InvocationRow;
 
 /// Verify the external snapshot before including it in a run's corpus identity.
 pub fn session_corpus_digest(dir: &Path) -> Result<String, String> {
@@ -43,7 +43,7 @@ struct SessionRow {
     subject: Subject,
 }
 
-pub fn load_session_rows(dir: &Path, limit: Option<usize>) -> Result<Vec<BenchRow>, String> {
+pub fn load_session_rows(dir: &Path, limit: Option<usize>) -> Result<Vec<InvocationRow>, String> {
     session_corpus_digest(dir)?;
     let file = fs::File::open(dir.join("cases.jsonl")).map_err(|e| e.to_string())?;
     let mut rows = Vec::new();
@@ -68,7 +68,7 @@ pub fn load_session_rows(dir: &Path, limit: Option<usize>) -> Result<Vec<BenchRo
         if cwd.is_some() || !context.is_empty() || row.source != "sessions" || row.weight == 0 {
             return Err("session cases require positive weights and no local host context".into());
         }
-        rows.push(BenchRow {
+        rows.push(InvocationRow {
             file: "sessions/cases.jsonl".into(),
             id: row.id,
             source: row.source,

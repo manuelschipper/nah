@@ -9,6 +9,7 @@
 //! `getattr`, `__import__`).
 
 mod argv;
+mod call_resolution;
 mod control;
 mod dataflow_capture;
 mod definitions;
@@ -19,11 +20,13 @@ mod imports;
 mod instance_tracking;
 pub(crate) mod ipython;
 mod model;
+mod path_values;
 mod registration;
 mod resolve;
 mod returns;
 mod runtime;
 mod static_containers;
+mod summary_application;
 
 use crate::lang::frontend::{
     Frontend, FrontendInput, MAX_WALK_DEPTH, ParseFailure, ParseOutcome, WalkOutcome,
@@ -46,22 +49,21 @@ use rustpython_parser::ast::{self, Constant, Expr, Ranged, Stmt};
 use rustpython_parser::{Parse, text_size::TextRange};
 
 use crate::builder::PlanBuilder;
-use crate::control_flow::{ControlExit, ControlFact, ControlFlow, Requirements, SiteFacts};
-use crate::external::{PYTHON_MODELED_ROOTS, is_python_stdlib};
+use crate::control_flow::{ControlExit, ControlFlow, Requirements, SiteFacts};
+use crate::external::is_python_stdlib;
 use crate::flow::StageWriter;
-use crate::module_summary::{CallEdge, ClassEntry, call_results};
+use crate::module_summary::{CallEdge, ClassEntry};
 use crate::nest::Nest;
-use crate::paths::{fs_resource_uses_cwd, resolve_fs_path};
 use crate::resource_transfer::TransferBinding;
-use crate::summary::{Summary, substitute_resource_expr};
+use crate::summary::{Summary, is_resolvable, substitute_resource_expr};
 use crate::word::{Word, WordPart};
 use crate::{
     ObjectIdentity, ScopeKey, SemanticValue, SemanticValueKind, TypeRef, ValueArgument,
-    ValueOrigin, bind_arguments, merge_arguments, substitute_value,
+    ValueOrigin, bind_arguments, substitute_value,
 };
 use definitions::{
     collect_class_bases, collect_class_sets, collect_class_strings, collect_classes, collect_defs,
-    collect_path_attrs, collect_returns, decorator_names, is_resolvable,
+    collect_path_attrs, collect_returns, decorator_names,
 };
 use import_bindings::import_from_module;
 use model::{Receiver, ReceiverKind, path_object_resource};
@@ -209,7 +211,7 @@ struct InitAttrValue {
 /// body (instead of emitting them to the plan). `calls` records the function's
 /// direct calls to user functions (local or imported) for cross-file linking.
 #[derive(Default)]
-struct Capture {
+struct PythonSummaryCapture {
     rebound_callables: HashSet<String>,
     effects: Vec<Effect>,
     /// Transfer pairings among `effects`, by slot.
@@ -247,7 +249,7 @@ struct Capture {
     stdout: Vec<u32>,
     /// The body's reachable returns, by statement range, with the
     /// parameter guards on each path (see [`returns::reachable_returns`]).
-    live_returns: std::collections::HashMap<TextRange, Vec<returns::Guard>>,
+    live_returns: std::collections::HashMap<TextRange, Vec<returns::ReturnPathGuard>>,
     /// Locals that may still hold a value the caller passed, with the
     /// parameters that value came from: each parameter starts as its own,
     /// and `x = p` makes `x` hold `p`'s argument too.
@@ -263,7 +265,7 @@ struct Capture {
 /// when its path's parameter guards hold.
 #[derive(Clone, PartialEq)]
 struct ReturnSite {
-    guards: Vec<returns::Guard>,
+    guards: Vec<returns::ReturnPathGuard>,
     effects: Vec<u32>,
     params: Vec<String>,
 }
@@ -277,7 +279,7 @@ struct CallReturn {
 }
 
 /// The argument a call binds to one parameter of a same-file callable.
-enum Bound {
+enum PythonBoundArgument {
     /// The call's argument at this position among its positional and then
     /// keyword arguments.
     Index(usize),
@@ -598,7 +600,7 @@ impl Frontend for PythonFrontend {
         scope: Option<ProvenanceRef>,
         failure: &ParseFailure,
     ) {
-        boundary(
+        python_boundary(
             builder,
             scope,
             BoundaryReason::PARSE_ERROR,
@@ -633,7 +635,7 @@ impl Frontend for PythonFrontend {
             builder.declare_coverage(Domain::new(domain), CoverageLevel::Full);
         }
         if depth == 0 {
-            boundary(
+            python_boundary(
                 builder,
                 scope,
                 BoundaryReason::FRONTEND_PARTIAL,
@@ -714,7 +716,7 @@ impl Frontend for PythonFrontend {
         let free_resource_parameter = walker.free_resource_parameter.get();
         drop(walker);
         if free_resource_parameter {
-            boundary(
+            python_boundary(
                 builder,
                 scope,
                 BoundaryReason::FRONTEND_PARTIAL,
@@ -1078,7 +1080,7 @@ struct PythonWalker<'a, 'b> {
     instance_sequences: std::collections::HashMap<String, Vec<Option<SemanticValue>>>,
     /// When set, effects/boundaries/coverage are collected into this buffer
     /// (summary inference) instead of emitted to the plan (execution).
-    capture: Option<Capture>,
+    capture: Option<PythonSummaryCapture>,
     capture_condition_depth: usize,
     /// Whether module execution entered any declared function or method.
     entered_callables: bool,
@@ -1283,7 +1285,7 @@ impl PythonWalker<'_, '_> {
         if self.nodes_left == 0 {
             if !self.node_budget_hit {
                 self.node_budget_hit = true;
-                boundary(
+                python_boundary(
                     self.builder,
                     self.scope,
                     BoundaryReason::LIMIT_SATURATED,
@@ -1648,7 +1650,7 @@ impl PythonWalker<'_, '_> {
             return;
         }
         self.node_budget_hit = true;
-        boundary(
+        python_boundary(
             self.builder,
             self.scope,
             BoundaryReason::PARTIAL_ANALYSIS,
@@ -2196,7 +2198,7 @@ impl PythonWalker<'_, '_> {
                             self.add_from_import(&module, member, None);
                         }
                     } else {
-                        boundary(
+                        python_boundary(
                             self.builder,
                             self.scope,
                             BoundaryReason::UNMODELED_IMPORT,
@@ -2586,19 +2588,19 @@ impl PythonWalker<'_, '_> {
 
     fn walk_expr(&mut self, expr: &Expr) {
         // Keep guarded expression spines iterative as well as ordinary expressions.
-        enum Work<'a> {
+        enum PythonExprWork<'a> {
             Expr(&'a Expr),
             AttributeBase(&'a Expr),
             Push(&'a Expr, effinterp_proto::ConditionKind, u32),
             Pop(usize),
         }
         let initial_depth = self.builder.condition_depth();
-        let mut stack = vec![Work::Expr(expr)];
+        let mut stack = vec![PythonExprWork::Expr(expr)];
         while let Some(work) = stack.pop() {
-            let attribute_base = matches!(work, Work::AttributeBase(_));
+            let attribute_base = matches!(work, PythonExprWork::AttributeBase(_));
             let expr = match work {
-                Work::Expr(expr) | Work::AttributeBase(expr) => expr,
-                Work::Push(origin, kind, arm) => {
+                PythonExprWork::Expr(expr) | PythonExprWork::AttributeBase(expr) => expr,
+                PythonExprWork::Push(origin, kind, arm) => {
                     let condition = self.builder.source_condition_path(
                         effinterp_proto::Condition::from_source_with_digest(
                             self.source,
@@ -2617,7 +2619,7 @@ impl PythonWalker<'_, '_> {
                     self.builder.push_condition(condition);
                     continue;
                 }
-                Work::Pop(count) => {
+                PythonExprWork::Pop(count) => {
                     for _ in 0..count {
                         self.builder.pop_condition();
                     }
@@ -2632,23 +2634,23 @@ impl PythonWalker<'_, '_> {
             }
             if let Expr::IfExp(branch) = expr {
                 for (arm, body) in [(1, branch.orelse.as_ref()), (0, branch.body.as_ref())] {
-                    stack.push(Work::Pop(1));
-                    stack.push(Work::Expr(body));
-                    stack.push(Work::Push(
+                    stack.push(PythonExprWork::Pop(1));
+                    stack.push(PythonExprWork::Expr(body));
+                    stack.push(PythonExprWork::Push(
                         expr,
                         effinterp_proto::ConditionKind::Branch,
                         arm,
                     ));
                 }
-                stack.push(Work::Expr(&branch.test));
+                stack.push(PythonExprWork::Expr(&branch.test));
                 continue;
             }
             if let Expr::BoolOp(branch) = expr {
-                stack.push(Work::Pop(branch.values.len().saturating_sub(1)));
+                stack.push(PythonExprWork::Pop(branch.values.len().saturating_sub(1)));
                 for (index, body) in branch.values.iter().enumerate().rev() {
-                    stack.push(Work::Expr(body));
+                    stack.push(PythonExprWork::Expr(body));
                     if index > 0 {
-                        stack.push(Work::Push(
+                        stack.push(PythonExprWork::Push(
                             &branch.values[index - 1],
                             effinterp_proto::ConditionKind::ShortCircuit,
                             u32::from(matches!(branch.op, ast::BoolOp::Or)),
@@ -2780,9 +2782,9 @@ impl PythonWalker<'_, '_> {
             for child in child_exprs(expr).into_iter().rev() {
                 // Reading a module attribute does not itself escape its owner.
                 stack.push(if matches!(expr, Expr::Attribute(_)) {
-                    Work::AttributeBase(child)
+                    PythonExprWork::AttributeBase(child)
                 } else {
-                    Work::Expr(child)
+                    PythonExprWork::Expr(child)
                 });
             }
         }
@@ -3256,758 +3258,6 @@ impl PythonWalker<'_, '_> {
             );
             SiteFacts::unknown()
         }
-    }
-
-    /// Evaluate a call and register what it establishes at its site: the
-    /// occurrences a modeled API produced, a local callee's guarantees, or
-    /// unknown code that may complete the invocation.
-    fn call(&mut self, call: &ast::ExprCall) {
-        let capture = self.capture.is_some();
-        let since = self.builder.control_registered();
-        let effects = self.control_effects_len();
-        let calls = self.capture.as_ref().map_or(0, |cap| cap.calls.len());
-        let applications = std::mem::take(&mut self.control_applications);
-        let control = self.call_inner(call);
-        let applied = std::mem::replace(&mut self.control_applications, applications);
-        let call_return =
-            matches!(&control, CallControl::Local | CallControl::Opaque) && applied.len() <= 1;
-        let direct_sink = matches!(
-            self.imports.resolve_callee(&call.func).as_deref(),
-            Some("os.remove" | "os.unlink" | "os.getenv" | "os.putenv" | "os.unsetenv")
-        );
-        let mut facts = match control {
-            CallControl::Modeled if applied.is_empty() && direct_sink => SiteFacts::known(
-                self.builder
-                    .control_own_effects(effects..self.control_effects_len()),
-            ),
-            CallControl::Modeled if applied.is_empty() => SiteFacts::known(Vec::new()),
-            CallControl::Local if applied.len() == 1 => applied.into_iter().next().unwrap(),
-            // Callbacks run under the API's own control, and several
-            // applications at one call are alternatives or wrappers.
-            CallControl::Modeled | CallControl::Local | CallControl::Opaque => SiteFacts::unknown(),
-        };
-        if matches!(
-            self.imports.resolve_callee(&call.func).as_deref(),
-            Some("sys.exit" | "exit" | "quit" | "os._exit" | "os.abort")
-        ) {
-            facts.returns = false;
-            facts.exit = None;
-            facts.throws = !matches!(
-                self.imports.resolve_callee(&call.func).as_deref(),
-                Some("os._exit" | "os.abort")
-            );
-            if facts.throws {
-                facts.thrown =
-                    crate::control_flow::Exn::named(crate::control_flow::Symbol::py("SystemExit"));
-            }
-        }
-        // One recorded edge is this call; several are dispatch alternatives.
-        facts.call_return = call_return && facts.returns;
-        if let Some(cap) = &self.capture
-            && cap.calls.len() == calls + 1
-        {
-            facts.facts.push(ControlFact::Call(calls as u32));
-            facts.throw_facts.push(ControlFact::Call(calls as u32));
-            // The callee name resolved to an edge; lookup does not throw.
-            facts.reference_known = true;
-        }
-        self.builder.control_site_since(
-            self.source,
-            capture,
-            control::span(call.range),
-            since,
-            facts,
-        );
-    }
-
-    fn control_effects_len(&self) -> usize {
-        match &self.capture {
-            Some(cap) => cap.effects.len(),
-            None => self.builder.effects_len(),
-        }
-    }
-
-    fn call_inner(&mut self, call: &ast::ExprCall) -> CallControl {
-        self.prepare_call_summaries(&call.func);
-        for argument in &call.args {
-            self.prepare_call_summaries(argument);
-        }
-        for keyword in &call.keywords {
-            self.prepare_call_summaries(&keyword.value);
-        }
-        let span = call.range;
-        if !self.safe_python_call(call) && !self.safe_python_method(call) {
-            self.modeled_values
-                .retain(|_, value| !matches!(value, model::ModeledValue::BuiltinData));
-        }
-        if self.ipython_call(call) {
-            return CallControl::Modeled;
-        }
-        if self.prime_bash
-            && !self.imports.namespace_mutated
-            && matches!(call.func.as_ref(), Expr::Name(name) if is_prime_bash_name(name.id.as_str()))
-            && matches!(call.args.as_slice(), [argument] if !matches!(argument, Expr::Starred(_)))
-            && call.keywords.is_empty()
-        {
-            // `bash(command)` runs `command` through the kernel's shell.
-            self.os_system(call, span);
-            return CallControl::Modeled;
-        }
-        if let Some(class) = callee_written(&call.func)
-            && self.class_names.contains(&class)
-            && self
-                .defs
-                .iter()
-                .any(|def| def.name == format!("{class}.__del__"))
-        {
-            self.apply_local_arguments(&format!("{class}.__del__"), &[], span);
-        }
-        if let Expr::Attribute(attribute) = call.func.as_ref()
-            && matches!(
-                attribute.attr.as_str(),
-                "append"
-                    | "extend"
-                    | "insert"
-                    | "pop"
-                    | "remove"
-                    | "clear"
-                    | "update"
-                    | "setdefault"
-            )
-            && let Expr::Name(name) = attribute.value.as_ref()
-        {
-            self.invalidate_collection(name.id.as_str());
-        }
-        // In capture mode, record a user-function call edge (local or imported)
-        // for cross-file linking, in addition to the effect handling below.
-        if self.capture.is_some() {
-            // Reserve the enclosing call before deriving receiver/argument
-            // instances. Nested constructors then follow it lexically and
-            // reuse the same Site when their own edge is visited later.
-            let origin = self.site_origin(call.range, 0);
-            if let Some(edges) = self.finite_class_edges(call) {
-                let binds = if let Some((range, _)) = &self.pending_binds
-                    && *range == call.range
-                    && let Some((_, targets)) = self.pending_binds.take()
-                {
-                    for (_, name) in &targets {
-                        self.bound_vars.insert(name.clone());
-                    }
-                    targets
-                } else {
-                    Vec::new()
-                };
-                for mut edge in edges {
-                    edge.awaited = self.executes_deferred_call(call.range);
-                    edge.results =
-                        call_results(binds.clone(), Some(origin.clone()), self.call_type(call));
-                    let pushed = if let Some(cap) = self.capture.as_mut()
-                        && cap.calls.len() < MAX_CALL_EDGES
-                    {
-                        let index = cap.calls.len();
-                        cap.calls.push(edge);
-                        Some(index)
-                    } else {
-                        None
-                    };
-                    if let Some(index) = pushed
-                        && let Some((name, ranges)) = &self.pending_deferred_container
-                        && ranges.contains(&call.range)
-                    {
-                        self.deferred_containers
-                            .entry(name.clone())
-                            .or_default()
-                            .push(index);
-                    }
-                }
-            } else if let Some(mut edge) = self.call_edge(call) {
-                edge.awaited = self.executes_deferred_call(call.range);
-                let mut binds = Vec::new();
-                // The enclosing assignment binds this call's result: record the
-                // bound locals on the edge (typed at composition time via the
-                // callee's `returns_instances`).
-                if let Some((range, _)) = &self.pending_binds
-                    && *range == call.range
-                    && let Some((_, targets)) = self.pending_binds.take()
-                {
-                    for (_, name) in &targets {
-                        self.bound_vars.insert(name.clone());
-                    }
-                    binds = targets;
-                }
-                edge.results = call_results(binds, Some(origin), self.call_type(call));
-                let pushed = if let Some(cap) = self.capture.as_mut()
-                    && cap.calls.len() < MAX_CALL_EDGES
-                {
-                    let index = cap.calls.len();
-                    cap.calls.push(edge);
-                    Some(index)
-                } else {
-                    None
-                };
-                if let Some(index) = pushed
-                    && let Some((name, ranges)) = &self.pending_deferred_container
-                    && ranges.contains(&call.range)
-                {
-                    self.deferred_containers
-                        .entry(name.clone())
-                        .or_default()
-                        .push(index);
-                }
-            }
-        }
-        if let Some(name) = self.imports.resolve_local_callee(&call.func) {
-            if self.apply_imported_call(&name, call, span) {
-                return CallControl::Modeled;
-            }
-            self.emit_unresolved_call(
-                &name,
-                BoundaryReason::UNRESOLVED_CALL,
-                BoundaryClass::Unresolved,
-                crate::external::ALL_DOMAINS,
-                span,
-                python_callee_reference(&name),
-            );
-            return CallControl::Opaque;
-        }
-        if self.imports.resolve_callee(&call.func).as_deref() == Some("getattr")
-            && self.local_callee(&Expr::Call(call.clone())).is_some()
-        {
-            return CallControl::Opaque;
-        }
-        if self.importlib_boundary(call) || self.component_lifecycle_call(call) {
-            return CallControl::Opaque;
-        }
-        if self.safe_python_method(call) || self.model_call(call, span) {
-            return CallControl::Modeled;
-        }
-        if let Expr::Attribute(attr) = call.func.as_ref()
-            && matches!(attr.attr.as_str(), "read" | "readline" | "readlines")
-            && self.modeled_value(&attr.value) == Some(model::ModeledValue::FileContext)
-        {
-            return CallControl::Modeled;
-        }
-        if let Expr::Attribute(attr) = call.func.as_ref()
-            && matches!(
-                attr.attr.as_str(),
-                "write" | "writelines" | "read" | "readline" | "readlines" | "close" | "flush"
-            )
-            && self
-                .instance_class_name(&attr.value)
-                .is_some_and(|class| matches!(class.as_str(), "open" | "io.open"))
-        {
-            return CallControl::Modeled;
-        }
-
-        // Unknown code can mutate a Request through an alias or a global.
-        // Keep its endpoint only across calls whose behavior is accounted for.
-        if !matches!(
-            self.imports.resolve_callee(&call.func).as_deref(),
-            Some("urllib.request.Request" | "urllib.request.urlopen")
-        ) && !self.safe_python_call(call)
-        {
-            self.modeled_values
-                .retain(|_, value| !matches!(value, model::ModeledValue::Request { .. }));
-        }
-        let Some(name) = self.imports.resolve_callee(&call.func) else {
-            // Follow known same-file receivers; an unknown receiver with a
-            // local method candidate needs an explicit dispatch boundary.
-            if let Some(id) = self.local_callee(&call.func) {
-                let def = self.defs.iter().find(|def| def.name == id);
-                let deferred = def.is_some_and(|def| def.is_async || def.is_generator);
-                let consumed_generator =
-                    self.execute_deferred && def.is_some_and(|def| def.is_generator);
-                if self.executes_deferred_call(call.range) || consumed_generator || !deferred {
-                    self.apply_local(&id, call, span);
-                    return CallControl::Local;
-                }
-                // Creating a coroutine or generator runs none of its body.
-                return CallControl::Modeled;
-            } else {
-                let name = callee_written(&call.func).unwrap_or_else(|| {
-                    self.source[usize::from(call.func.range().start())
-                        ..usize::from(call.func.range().end())]
-                        .to_string()
-                });
-                self.emit_unresolved_call(
-                    &name,
-                    BoundaryReason::DYNAMIC_DISPATCH,
-                    BoundaryClass::Unresolved,
-                    crate::external::ALL_DOMAINS,
-                    span,
-                    Some(CalleeReference {
-                        module: "python".to_string(),
-                        symbol: name.clone(),
-                    }),
-                );
-            }
-            return CallControl::Opaque;
-        };
-        if self.safe_python_call(call) {
-            return CallControl::Modeled;
-        }
-        let arity = (!call.args.iter().any(|arg| matches!(arg, Expr::Starred(_)))
-            && call.keywords.iter().all(|kw| kw.arg.is_some()))
-        .then_some(call.args.len());
-        if name == "django.core.management.execute_from_command_line" {
-            self.django_management_call(call, span);
-        }
-        self.unresolved_call(&name, arity, span, self.python_operands_safe(call))
-    }
-
-    /// `execute_from_command_line` runs the management command its argument
-    /// vector names after the program name, as `django-admin` does. A vector
-    /// Nah cannot recover runs no command it can name, and says so. The call
-    /// itself stays unresolved: the command runs project code.
-    fn django_management_call(&mut self, call: &ast::ExprCall, span: TextRange) {
-        let launch = self.builder.current_execution_argv();
-        let launch = launch
-            .get(1..)
-            .unwrap_or_default()
-            .iter()
-            .map(|word| match word {
-                ResourceExpr::Literal { value } => Some(value.clone()),
-                _ => None,
-            })
-            .collect::<Option<Vec<_>>>();
-        let words = match argv::argument_vector(&self.imports, self.source, call, launch) {
-            argv::ArgumentVector::Known(words) => words,
-            argv::ArgumentVector::Symbolic => return,
-            argv::ArgumentVector::Unknown => {
-                let node = self.span_node(span);
-                for domain in crate::external::ALL_DOMAINS {
-                    self.out_coverage(Domain::new(*domain), CoverageLevel::Partial);
-                }
-                self.out_boundary(Boundary {
-                    reason: BoundaryReason::INPUT_DETERMINED_ARGUMENTS,
-                    class: BoundaryClass::Unresolved,
-                    scope: BoundaryScope::Invocation,
-                    affected_resource: None,
-                    callee: None,
-                    domains: crate::external::ALL_DOMAINS
-                        .iter()
-                        .map(|domain| Domain::new(*domain))
-                        .collect(),
-                    provenance: vec![node],
-                    limit: None,
-                    detail: Some(
-                        "sys.argv or the argument vector is changed or shared where Nah cannot \
-                         recover it; the management command execute_from_command_line runs is \
-                         unknown"
-                            .to_string(),
-                    ),
-                });
-                return;
-            }
-        };
-        let argv = std::iter::once("django-admin".to_string())
-            .chain(words)
-            .collect();
-        let node = self.span_node(span);
-        self.apply_deferred_spawn(
-            DeferredSpawn::Command { argv },
-            &std::collections::HashMap::new(),
-            node,
-            span,
-        );
-    }
-
-    fn importlib_boundary(&mut self, call: &ast::ExprCall) -> bool {
-        let canonical = if let Expr::Attribute(attr) = call.func.as_ref()
-            && attr.attr.as_str() == "select"
-            && self.modeled_value(&attr.value) == Some(model::ModeledValue::EntryPoints)
-        {
-            "importlib.metadata.entry_points".to_string()
-        } else if let Some(canonical) = callee_written(&call.func)
-            .and_then(|written| self.imports.resolve_import_written(&written))
-        {
-            canonical
-        } else {
-            return false;
-        };
-        let (label, value) = match canonical.as_str() {
-            "importlib.util.spec_from_file_location" => {
-                ("plugin path", python_call_argument(call, 1, "location"))
-            }
-            "importlib.metadata.entry_points" => (
-                "entry-point group",
-                python_call_argument(call, usize::MAX, "group"),
-            ),
-            "importlib.import_module"
-                if python_call_argument(call, 0, "name")
-                    .is_none_or(|value| str_literal(value).is_none()) =>
-            {
-                ("dynamic module", python_call_argument(call, 0, "name"))
-            }
-            _ => return false,
-        };
-        let detail = value
-            .map(|value| {
-                if label != "plugin path"
-                    && let Some(literal) = str_literal(value)
-                {
-                    return literal.to_string();
-                }
-                let resource = if label != "plugin path" {
-                    substitute_resource_expr(&self.fs_resource(value), &self.var_scope)
-                } else {
-                    self.resolve_fs(value)
-                };
-                python_plugin_path_pattern(&resource).unwrap_or_else(|| {
-                    self.source
-                        [usize::from(value.range().start())..usize::from(value.range().end())]
-                        .to_string()
-                })
-            })
-            .unwrap_or_else(|| "unspecified".to_string());
-        let node = self.span_node(call.range);
-        self.out_boundary(Boundary {
-            reason: BoundaryReason::CROSS_MODULE,
-            class: BoundaryClass::Unresolved,
-            scope: BoundaryScope::Invocation,
-            affected_resource: (label == "plugin path")
-                .then(|| value.map(|value| self.resolve_fs(value)))
-                .flatten(),
-            callee: python_callee_reference(&canonical),
-            domains: crate::external::ALL_DOMAINS
-                .iter()
-                .map(|domain| Domain::new(*domain))
-                .collect(),
-            provenance: vec![node],
-            limit: None,
-            detail: Some(format!("{canonical}: {label} {detail}")),
-        });
-        true
-    }
-
-    fn component_lifecycle_call(&mut self, call: &ast::ExprCall) -> bool {
-        let Some(canonical) = self.imports.resolve_callee(&call.func) else {
-            return false;
-        };
-        let Some((model, sig)) = crate::LIFECYCLE_CATALOG.iter().find_map(|model| {
-            model
-                .component_signature(&canonical)
-                .map(|sig| (model, sig))
-        }) else {
-            return false;
-        };
-        let index = sig.component.unwrap();
-        let component = python_call_argument(call, index, sig.params[0]);
-        let name = component.and_then(callee_written);
-        let class = name.as_ref().filter(|name| {
-            self.class_names.contains(*name) && !self.receiver_rebindings.contains(*name)
-        });
-        let alternatives = component.is_none() || class.is_some();
-        let roots: Vec<_> = if let Some(class) = class {
-            self.defs
-                .iter()
-                .filter(|def| {
-                    def.parent.is_none()
-                        && def.owner.as_ref() == Some(class)
-                        && def
-                            .name
-                            .strip_prefix(&format!("{class}."))
-                            .is_some_and(|method| !method.starts_with('_'))
-                })
-                .map(|def| def.name.clone())
-                .collect()
-        } else if let Some(component) = component {
-            (self.imports.resolve_callee(component).is_none()
-                && self.imports.resolve_local_callee(component).is_none()
-                && name
-                    .as_ref()
-                    .is_none_or(|name| !self.receiver_rebindings.contains(name)))
-            .then(|| self.local_callee(component))
-            .flatten()
-            .into_iter()
-            .collect()
-        } else {
-            self.defs
-                .iter()
-                .filter(|def| {
-                    def.parent.is_none()
-                        && def.owner.is_none()
-                        && !self.receiver_rebindings.contains(&def.name)
-                })
-                .map(|def| def.name.clone())
-                .collect()
-        };
-        if roots.is_empty()
-            && self.fact_scope.is_none()
-            && let Some(component) = component
-            && let Some(canonical) = self
-                .imports
-                .resolve_local_callee(component)
-                .or_else(|| self.imports.resolve_callee(component))
-        {
-            let invocation = ast::ExprCall {
-                range: call.range,
-                func: Box::new(component.clone()),
-                args: Vec::new(),
-                keywords: Vec::new(),
-            };
-            if self.apply_imported_call(&canonical, &invocation, call.range) {
-                return true;
-            }
-        }
-        if component.is_none() || roots.is_empty() {
-            self.emit_unresolved_call(
-                &if component.is_none() {
-                    format!(
-                        "{} component dispatch: {} module-level callable candidates",
-                        model.id,
-                        roots.len()
-                    )
-                } else {
-                    format!(
-                        "{} component dispatch: unresolved component{}",
-                        model.id,
-                        name.as_ref()
-                            .map(|name| format!(" {name}"))
-                            .unwrap_or_default()
-                    )
-                },
-                BoundaryReason::DYNAMIC_DISPATCH,
-                BoundaryClass::Unresolved,
-                crate::external::ALL_DOMAINS,
-                call.range,
-                None,
-            );
-        }
-        // Repository capture retains the lifecycle call; composition owns activation.
-        if self.fact_scope.is_some() {
-            return true;
-        }
-        let count = roots.len() as u32;
-        for (arm, root) in roots.iter().enumerate() {
-            if alternatives {
-                self.builder.push_condition(self.builder.source_condition(
-                    self.source,
-                    effinterp_proto::ByteSpan {
-                        start: call.range.start().into(),
-                        end: call.range.end().into(),
-                    },
-                    effinterp_proto::ConditionKind::Branch,
-                    arm as u32,
-                    count.max(2),
-                    true,
-                    true,
-                ));
-            }
-            self.apply_local_arguments(root, &[], call.range);
-            if alternatives {
-                self.builder.pop_condition();
-            }
-        }
-        true
-    }
-
-    /// Decide whether a call is an outgoing user-function edge (a cross-file
-    /// linking candidate), returning it with arguments resolved in the caller's
-    /// scope. Modeled effect APIs and dynamic builtins contribute effects, not
-    /// edges, and return None.
-    fn call_edge(&self, call: &ast::ExprCall) -> Option<CallEdge> {
-        if self
-            .registration_spans
-            .contains(&(call.range.start().to_u32(), call.range.end().to_u32()))
-        {
-            return None;
-        }
-        if self.safe_python_method(call) {
-            return None;
-        }
-        if self.deferred_consumer(call) {
-            return None;
-        }
-        if let Expr::Attribute(attr) = call.func.as_ref()
-            && self.is_path_method_receiver(attr.attr.as_str(), &attr.value)
-        {
-            return None;
-        }
-        if self.typed_path_call(call).is_some() {
-            return None;
-        }
-        // `Class().method(...)` has no dotted written name (the base is a
-        // call). Recover it from the constructor so composition can dispatch
-        // `App().run()` through the constructed class.
-        let mut ctor_recv = None;
-        let callee = match callee_written(&call.func) {
-            Some(c) => c,
-            None => {
-                let Expr::Attribute(attr) = call.func.as_ref() else {
-                    return None;
-                };
-                let Expr::Call(inner) = attr.value.as_ref() else {
-                    return None;
-                };
-                let iref = if matches!(inner.func.as_ref(), Expr::Name(name) if name.id.as_str() == "super")
-                {
-                    let owner = self.current_class.as_ref()?;
-                    let base = self.class_bases.get(owner)?.first()?.clone();
-                    SemanticValue::object(ObjectIdentity::Class {
-                        name: base,
-                        constructor: Vec::new(),
-                    })
-                } else {
-                    self.ctor_class(inner)?
-                };
-                let name = match iref.as_object().map(|object| &object.identity) {
-                    Some(ObjectIdentity::Class { name, .. }) => name.clone(),
-                    Some(ObjectIdentity::DynamicClass) => "cls".to_string(),
-                    _ => return None,
-                };
-                ctor_recv = Some(iref);
-                format!("{name}.{}", attr.attr.as_str())
-            }
-        };
-        let component_lifecycle =
-            self.imports
-                .resolve_callee(&call.func)
-                .is_some_and(|canonical| {
-                    crate::LIFECYCLE_CATALOG
-                        .iter()
-                        .any(|model| model.component_signature(&canonical).is_some())
-                });
-        let callback = |arg: &Expr| {
-            if component_lifecycle {
-                (self.imports.resolve_callee(arg).is_none()
-                    && self.imports.resolve_local_callee(arg).is_none()
-                    && callee_written(arg)
-                        .is_none_or(|name| !self.receiver_rebindings.contains(&name)))
-                .then(|| self.local_callee(arg))
-                .flatten()
-            } else {
-                self.local_fn_name(arg)
-            }
-        };
-        let mut extra_arguments = Vec::new();
-        for (i, arg) in call.args.iter().enumerate() {
-            if let Some(func) = callback(arg) {
-                extra_arguments.push(ValueArgument {
-                    name: None,
-                    index: i,
-                    value: SemanticValue::callable(func),
-                });
-            }
-        }
-        for kw in &call.keywords {
-            let Some(param) = kw.arg.as_ref() else {
-                continue;
-            };
-            if let Some(func) = callback(&kw.value) {
-                extra_arguments.push(ValueArgument {
-                    name: Some(param.to_string()),
-                    index: 0,
-                    value: SemanticValue::callable(func),
-                });
-            }
-        }
-        let mut recv = ctor_recv;
-        let local_import = self.imports.resolve_local_callee(&call.func);
-        match self
-            .imports
-            .resolve_callee(&call.func)
-            .or_else(|| local_import.clone())
-        {
-            // Resolves through a tracked import: a modeled root or dynamic
-            // builtin is an effect/boundary, not an edge; any other module is a
-            // user function reached across files.
-            Some(canon) => {
-                let root = canon.split('.').next().unwrap_or(&canon);
-                if local_import.is_none()
-                    && (PYTHON_MODELED_ROOTS.contains(&root)
-                        || resolve::is_builtin(&canon)
-                        || is_builtin_effect(&canon))
-                {
-                    return None;
-                }
-                recv = self.recv_of(&call.func);
-            }
-            // Not a tracked import: a bare name bound to a module-level
-            // function or to a parameter of the current function (a callback
-            // site) is an edge; a `cls(...)` constructor or a method call on
-            // an unambiguous receiver is a typed-dispatch edge; a call that
-            // cannot be resolved at all still carries an edge when it is
-            // handed local functions as arguments (argparse's
-            // `p.set_defaults(func=_cmd_x)`), so the composer can treat the
-            // registered callbacks as may-invoked; anything else is effectless.
-            None if recv.is_none() => match call.func.as_ref() {
-                Expr::Name(n) if n.id.as_str() == "cls" => {
-                    recv = Some(SemanticValue::object(ObjectIdentity::DynamicClass))
-                }
-                Expr::Name(n)
-                    if self.defs.iter().any(|d| d.name == n.id.as_str())
-                        || self.current_params.iter().any(|p| p == n.id.as_str())
-                        || self.class_names.contains(n.id.as_str()) => {}
-                _ => {
-                    recv = self.recv_of(&call.func);
-                    if recv.is_none() && extra_arguments.is_empty() {
-                        return None;
-                    }
-                }
-            },
-            None => {}
-        }
-        let mut arguments = self.value_args_of(call);
-        merge_arguments(&mut arguments, extra_arguments);
-        Some(CallEdge {
-            condition: self.builder.condition_since(self.capture_condition_depth),
-            call_site: Some(
-                self.condition_source
-                    .call_site(&(u32::from(call.range.start()), u32::from(call.range.end()))),
-            ),
-            callee,
-            arguments,
-            awaited: false,
-            effects_propagated: false,
-            external_inert: self
-                .safe_python_call(call)
-                .then(|| self.imports.resolve_callee(&call.func))
-                .flatten(),
-            lifecycle_registration: false,
-            dynamic_target: false,
-            callee_span: None,
-            receiver: recv,
-            results: Vec::new(),
-            writes: Vec::new(),
-        })
-    }
-
-    /// Expand `for cls in CLASSES: cls(arg)` only when `CLASSES` is a static
-    /// tuple of written class names. Each constructor remains tied to its exact
-    /// import; composition discards tuple members that are not real classes.
-    fn finite_class_edges(&self, call: &ast::ExprCall) -> Option<Vec<CallEdge>> {
-        let Expr::Name(callee) = call.func.as_ref() else {
-            return None;
-        };
-        let classes = self.class_set_vars.get(callee.id.as_str())?;
-        let arguments = self.value_args_of(call);
-        Some(
-            classes
-                .iter()
-                .map(|name| CallEdge {
-                    condition: None,
-                    call_site: None,
-                    callee: name.clone(),
-                    arguments: arguments.clone(),
-                    awaited: false,
-                    effects_propagated: false,
-                    external_inert: self
-                        .safe_python_call(call)
-                        .then(|| self.imports.resolve_callee(&call.func))
-                        .flatten(),
-                    lifecycle_registration: false,
-                    dynamic_target: false,
-                    callee_span: None,
-                    receiver: Some(SemanticValue::object(ObjectIdentity::Class {
-                        name: name.clone(),
-                        constructor: arguments.clone(),
-                    })),
-                    results: Vec::new(),
-                    writes: Vec::new(),
-                })
-                .collect(),
-        )
     }
 
     fn imported_module_var(&self, expr: &Expr) -> Option<SemanticValue> {
@@ -4925,174 +4175,6 @@ impl PythonWalker<'_, '_> {
         )
     }
 
-    fn is_path_value(&self, value: &Expr) -> bool {
-        match value {
-            Expr::Name(name) => self.path_vars.contains(name.id.as_str()),
-            Expr::Call(call) => {
-                if self.imports.resolve_callee(&call.func).is_some_and(|name| {
-                    matches!(
-                        name.as_str(),
-                        "pathlib.Path"
-                            | "pathlib.PurePath"
-                            | "pathlib.PosixPath"
-                            | "pathlib.PurePosixPath"
-                            | "pathlib.Path.home"
-                            | "pathlib.PosixPath.home"
-                            | "pathlib.Path.cwd"
-                            | "pathlib.PosixPath.cwd"
-                    )
-                }) {
-                    return true;
-                }
-                matches!(call.func.as_ref(), Expr::Attribute(method)
-                    if matches!(method.attr.as_str(),
-                        "resolve" | "absolute" | "expanduser" | "joinpath" | "with_suffix" | "with_name")
-                        && self.is_path_value(&method.value))
-            }
-            Expr::Attribute(attribute)
-                if matches!(attribute.value.as_ref(), Expr::Name(name) if name.id.as_str() == "self")
-                    && self.is_current_path_attr(attribute.attr.as_str()) =>
-            {
-                true
-            }
-            Expr::Attribute(attribute) if attribute.attr.as_str() == "parent" => {
-                self.is_path_value(&attribute.value)
-            }
-            Expr::Subscript(subscript) if matches!(subscript.value.as_ref(), Expr::Attribute(attribute) if attribute.attr.as_str() == "parents") =>
-            {
-                let Expr::Attribute(attribute) = subscript.value.as_ref() else {
-                    unreachable!();
-                };
-                self.is_path_value(&attribute.value)
-            }
-            Expr::BinOp(binary) if binary.op == ast::Operator::Div => {
-                self.is_path_value(&binary.left)
-            }
-            _ => false,
-        }
-    }
-
-    fn may_be_path_value(&self, value: &Expr) -> bool {
-        self.is_path_value(value)
-            || matches!(value, Expr::IfExp(conditional)
-                if self.may_be_path_value(&conditional.body)
-                    || self.may_be_path_value(&conditional.orelse))
-    }
-
-    fn is_branch_mixed_path_value(&self, value: &Expr) -> bool {
-        match value {
-            Expr::Name(name) => self.branch_mixed_path_vars.contains(name.id.as_str()),
-            Expr::Call(call) => {
-                if self.imports.resolve_callee(&call.func).is_some_and(|name| {
-                    matches!(
-                        name.as_str(),
-                        "pathlib.Path"
-                            | "pathlib.PurePath"
-                            | "pathlib.PosixPath"
-                            | "pathlib.PurePosixPath"
-                            | "pathlib.Path.home"
-                            | "pathlib.PosixPath.home"
-                            | "pathlib.Path.cwd"
-                            | "pathlib.PosixPath.cwd"
-                    )
-                }) {
-                    return false;
-                }
-                matches!(call.func.as_ref(), Expr::Attribute(method)
-                    if matches!(method.attr.as_str(),
-                        "resolve" | "absolute" | "expanduser" | "joinpath" | "with_suffix" | "with_name")
-                        && self.is_branch_mixed_path_value(&method.value))
-            }
-            Expr::Attribute(attribute) if attribute.attr.as_str() == "parent" => {
-                self.is_branch_mixed_path_value(&attribute.value)
-            }
-            Expr::Subscript(subscript) if matches!(subscript.value.as_ref(), Expr::Attribute(attribute) if attribute.attr.as_str() == "parents") =>
-            {
-                let Expr::Attribute(attribute) = subscript.value.as_ref() else {
-                    unreachable!();
-                };
-                self.is_branch_mixed_path_value(&attribute.value)
-            }
-            Expr::BinOp(binary) if binary.op == ast::Operator::Div => {
-                self.is_branch_mixed_path_value(&binary.left)
-            }
-            _ => false,
-        }
-    }
-
-    fn is_current_path_attr(&self, attr: &str) -> bool {
-        self.current_class.as_ref().is_some_and(|class| {
-            self.path_attrs.iter().any(|(owner, name, ty)| {
-                owner == class
-                    && name == attr
-                    && self.imports.resolve_written(ty).is_some_and(|ty| {
-                        matches!(
-                            ty.as_str(),
-                            "pathlib.Path"
-                                | "pathlib.PurePath"
-                                | "pathlib.PosixPath"
-                                | "pathlib.PurePosixPath"
-                        )
-                    })
-            })
-        })
-    }
-
-    fn is_path_method_receiver(&self, method: &str, receiver: &Expr) -> bool {
-        if !is_path_method(method) {
-            return false;
-        }
-        if self.is_branch_mixed_path_value(receiver) && !is_branch_mixed_path_method(method) {
-            return false;
-        }
-        self.is_path_value(receiver)
-            || is_path_specific_method(method)
-                && matches!(receiver, Expr::Attribute(attribute)
-                if matches!(attribute.value.as_ref(), Expr::Name(name) if name.id.as_str() == "self")
-                    && self.current_class.as_ref().is_some_and(|class| {
-                        self.attr_values.iter().any(|value| {
-                            value.owner == *class
-                                && value.attr == attribute.attr.as_str()
-                                && matches!(value.value.as_ref(), Expr::Name(_))
-                        })
-                    }))
-    }
-
-    fn path_iter_resource(&self, value: &Expr) -> Option<ResourceExpr> {
-        let value = match value {
-            Expr::Call(call)
-                if self.imports.resolve_callee(&call.func).as_deref() == Some("sorted") =>
-            {
-                python_call_argument(call, 0, "iterable")?
-            }
-            _ => value,
-        };
-        let Expr::Call(call) = value else { return None };
-        let Expr::Attribute(method) = call.func.as_ref() else {
-            return None;
-        };
-        if !matches!(method.attr.as_str(), "glob" | "rglob" | "iterdir")
-            || !self.is_path_value(&method.value)
-        {
-            return None;
-        }
-        let glob = match method.attr.as_str() {
-            "iterdir" => Some("*".to_string()),
-            "rglob" => python_call_argument(call, 0, "pattern")
-                .and_then(str_literal)
-                .map(|pattern| format!("**/{pattern}")),
-            _ => python_call_argument(call, 0, "pattern").and_then(str_literal),
-        };
-        let member = glob
-            .map(|glob| ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
-            })
-            .unwrap_or_else(|| unresolved_resource("filesystem"));
-        Some(ResourceExpr::Join {
-            parts: vec![self.resolve_fs(&method.value), member],
-        })
-    }
-
     fn executed_local_call<'c>(&self, value: &'c Expr) -> Option<&'c ast::ExprCall> {
         match value {
             Expr::Await(awaited) => match awaited.value.as_ref() {
@@ -5154,390 +4236,6 @@ impl PythonWalker<'_, '_> {
             return None;
         }
         Some(first)
-    }
-
-    /// Apply a called function's summary at a call site: resolve the actual
-    /// arguments in the caller's scope, bind them to the callee's parameters,
-    /// and emit (or, in capture mode, collect) the specialized effects.
-    fn apply_local(&mut self, name: &str, call: &ast::ExprCall, span: TextRange) {
-        self.ensure_summary(name);
-        let mut bindings = self.call_bindings(name, call);
-        if let Expr::Call(producer_call) = call.func.as_ref()
-            && let Some(producer) = self.local_callee(&producer_call.func)
-        {
-            let mut captures = self.call_bindings(&producer, producer_call);
-            captures.extend(bindings);
-            bindings = captures;
-        }
-        self.apply_summary(name, &bindings, span);
-        let wrappers: Vec<_> = self
-            .defs
-            .iter()
-            .find(|def| def.name == name)
-            .into_iter()
-            .flat_map(|def| &def.decorators)
-            .filter(|decorator| !self.decorator_is_transparent(decorator))
-            .filter_map(|decorator| {
-                self.defs
-                    .iter()
-                    .find(|def| def.name == decorator.trim_end_matches("()"))
-            })
-            .filter_map(|decorator| self.returned_inner(decorator))
-            .filter(|(wrapper, _, _)| !wrapper.is_async && !wrapper.is_generator)
-            .map(|(wrapper, _, _)| wrapper.name.clone())
-            .collect();
-        for wrapper in wrappers {
-            // An opaque wrapper need not preserve the decorated signature.
-            self.apply_local_arguments(&wrapper, &[], span);
-        }
-        let Some(def) = self.defs.iter().find(|def| def.name == name) else {
-            return;
-        };
-        let writes = def.parameter_attr_writes.clone();
-        let params = def.params.clone();
-        let positional_param_count = def.positional_param_count;
-        let caller_params = self
-            .current_function
-            .as_deref()
-            .and_then(|name| self.defs.iter().find(|def| def.name == name))
-            .map(|def| def.params.clone())
-            .unwrap_or_default();
-        for (param, attr) in writes {
-            let Some(index) = params.iter().position(|candidate| candidate == &param) else {
-                continue;
-            };
-            let argument = if index < positional_param_count {
-                python_call_argument(call, index, &param)
-            } else {
-                call.keywords
-                    .iter()
-                    .find(|keyword| {
-                        keyword.arg.as_ref().map(|name| name.as_str()) == Some(param.as_str())
-                    })
-                    .map(|keyword| &keyword.value)
-            };
-            if let Some(Expr::Name(receiver)) = argument {
-                self.track_instance_attr_rebinding(receiver.id.as_str(), &attr);
-                let propagated = (receiver.id.to_string(), attr);
-                if caller_params.contains(&propagated.0)
-                    && let Some(capture) = self.capture.as_mut()
-                    && !capture.parameter_attr_writes.contains(&propagated)
-                {
-                    capture.parameter_attr_writes.push(propagated);
-                }
-            }
-        }
-    }
-
-    fn apply_local_root(&mut self, name: &str) {
-        let span = self
-            .defs
-            .iter()
-            .find(|def| def.name == name)
-            .and_then(|def| def.body.first())
-            .map(Ranged::range)
-            .unwrap_or_default();
-        self.apply_local_arguments(name, &[], span);
-    }
-
-    fn apply_local_arguments(&mut self, name: &str, arguments: &[ValueArgument], span: TextRange) {
-        self.ensure_summary(name);
-        let Some(summary) = self.summaries.get(name) else {
-            return;
-        };
-        let bindings = bind_arguments(&summary.params, arguments);
-        self.apply_summary(name, &bindings, span);
-    }
-
-    fn apply_context_method(
-        &mut self,
-        class: &str,
-        method: &str,
-        receiver: &SemanticValue,
-        span: TextRange,
-    ) -> Option<ResourceExpr> {
-        let name = format!("{class}.{method}");
-        self.ensure_summary(&name);
-        let def = self.defs.iter().find(|def| def.name == name)?;
-        let mut bindings = self.bind_with_defaults(
-            &def.params,
-            def.positional_param_count,
-            &def.param_defaults,
-            &[],
-            true,
-            true,
-        );
-        self.bind_receiver_attrs(class, receiver, None, &mut bindings);
-        let returned = self
-            .summaries
-            .get(&name)
-            .and_then(|summary| summary.returns.as_ref())
-            .map(|returns| {
-                substitute_value(returns, &bindings, self.nest.limits.value_limits())
-                    .lower_resource()
-            });
-        self.apply_summary(&name, &bindings, span);
-        returned
-    }
-
-    fn apply_summary(
-        &mut self,
-        name: &str,
-        bindings: &std::collections::HashMap<String, SemanticValue>,
-        span: TextRange,
-    ) {
-        self.ensure_summary(name);
-        self.invalidate_shared_vars();
-        let Some((summary, spawns)) = self
-            .summaries
-            .get(name)
-            .cloned()
-            .map(|summary| {
-                let spawns = self.spawn_summaries.get(name).cloned().unwrap_or_default();
-                (summary, spawns)
-            })
-            .or_else(|| self.imported_summary(name))
-        else {
-            return;
-        };
-        if self.capture.is_none() {
-            self.entered_callables = true;
-        }
-        let node = self.span_node(span);
-        // Slots this call site's copies landed in, so the callee's recorded
-        // transfer pairings survive substitution and nesting.
-        let mut slots: Vec<Option<u32>> = Vec::with_capacity(summary.effects.len());
-        for (index, effect) in summary.effects.iter().enumerate() {
-            let mut specialized = effect.clone();
-            if let Some(condition) = &mut specialized.condition {
-                condition.rebind(
-                    &self
-                        .condition_source
-                        .call_site(&(u32::from(span.start()), u32::from(span.end()))),
-                );
-            }
-            specialized.condition = effinterp_proto::Condition::compose(
-                specialized.condition.iter().chain(
-                    self.builder
-                        .condition_since(self.capture_condition_depth)
-                        .iter(),
-                ),
-            );
-            let mut visited = 0;
-            let value = crate::substitute_value_counted(
-                &SemanticValue::from(&effect.resource),
-                bindings,
-                self.nest.limits.value_limits(),
-                &mut visited,
-            );
-            if !self.charge_steps(visited, (u32::from(span.start()), u32::from(span.end()))) {
-                self.node_budget_hit = true;
-                return;
-            }
-            // Keep network joins neutral while one function summary is folded
-            // into another; the outer call site supplies the final URL anchor.
-            if self.capture.is_some()
-                && self.current_function.is_some()
-                && specialized.operation.domain() == "network"
-                && matches!(&value.kind, SemanticValueKind::Join(_))
-            {
-                specialized.resource = value.lower_resource();
-            } else {
-                crate::lower_effect_value(&mut specialized, &value);
-            }
-            specialized.provenance = vec![node];
-            if self
-                .capture
-                .as_ref()
-                .is_some_and(|cap| cap.effects.len() < MAX_SUMMARY_EFFECTS)
-                && !crate::nest::charge_analysis_bytes(
-                    self.builder,
-                    self.nest.budget,
-                    crate::limits::retained_bytes(&specialized),
-                    Some((span.start().into(), span.end().into())),
-                )
-            {
-                return;
-            }
-            match self.capture.as_mut() {
-                Some(cap) if cap.effects.len() < MAX_SUMMARY_EFFECTS => {
-                    cap.effects.push(specialized);
-                    cap.effect_models.push(
-                        summary
-                            .effect_models
-                            .get(index)
-                            .cloned()
-                            .unwrap_or_default(),
-                    );
-                    slots.push(Some(cap.effects.len() as u32 - 1));
-                }
-                Some(_) => slots.push(None),
-                None => {
-                    // The call site is where the host environment applies, as
-                    // for an effect emitted directly: `$HOME` passed into a
-                    // function resolves exactly as `~` written at the call.
-                    // A relative path passed in likewise names a file under
-                    // the call site's cwd.
-                    if specialized.operation.domain() == "filesystem" {
-                        if let Some(cwd) = &self.cwd
-                            && fs_resource_uses_cwd(&specialized.resource)
-                        {
-                            let cwd = std::collections::HashMap::from([(
-                                "cwd".to_string(),
-                                resolve_fs_path(cwd, None),
-                            )]);
-                            specialized.resource = normalize_resource(
-                                substitute_resource_expr(&specialized.resource, &cwd),
-                                PathPlatform::Posix,
-                            );
-                            specialized.provenance.extend(self.cwd_node);
-                        }
-                        specialized.resource = self.resolve_host_path(
-                            specialized.resource.clone(),
-                            &mut specialized.provenance,
-                        );
-                    }
-                    if specialized.operation.as_str() == "environment.write" {
-                        self.environment_rewritten = true;
-                    }
-                    for model in summary.effect_models.get(index).into_iter().flatten() {
-                        let application = self.builder.node(
-                            ProvenanceKind::ModelApplication {
-                                model: model.clone(),
-                            },
-                            &[node],
-                        );
-                        specialized.provenance.push(application);
-                    }
-                    slots.push(self.builder.effect(specialized));
-                }
-            }
-        }
-        for binding in &summary.transfers {
-            let (Some(Some(source)), Some(Some(destination))) = (
-                slots.get(binding.source as usize),
-                slots.get(binding.destination as usize),
-            ) else {
-                continue;
-            };
-            self.record_transfer(Some(*source), Some(*destination));
-        }
-        // What the callee prints reaches this program's stdout too.
-        let printed = self
-            .summary_stdout
-            .get(name)
-            .into_iter()
-            .flatten()
-            .filter_map(|slot| slots.get(*slot as usize).copied().flatten())
-            .collect::<Vec<_>>();
-        match self.capture.as_mut() {
-            Some(capture) => {
-                capture.stdout.extend(printed);
-                capture.stdout.sort_unstable();
-                capture.stdout.dedup();
-            }
-            None => crate::flow::effects_to_stdout(
-                self.builder,
-                printed,
-                effinterp_proto::CausalAssurance::Conservative,
-                vec![node],
-            ),
-        }
-        // What the callee returns is the value of this call, for the caller
-        // that binds or prints it.
-        let returned = self
-            .summary_returns
-            .get(name)
-            .into_iter()
-            .flatten()
-            .map(|site| CallReturn {
-                callee: name.to_string(),
-                site: ReturnSite {
-                    effects: site
-                        .effects
-                        .iter()
-                        .filter_map(|slot| slots.get(*slot as usize).copied().flatten())
-                        .collect(),
-                    ..site.clone()
-                },
-            })
-            .collect::<Vec<_>>();
-        if !returned.is_empty() {
-            let call_returns = match self.capture.as_mut() {
-                Some(capture) => &mut capture.call_returns,
-                None => &mut self.call_returns,
-            };
-            call_returns.entry(span).or_default().extend(returned);
-        }
-        // A summary still converging in a recursive group proves nothing yet.
-        let application = match self.summary_requirements.get(name) {
-            Some(requirements)
-                if !self.summary_in_progress.contains(name)
-                    && !self.summary_cycles.contains(name) =>
-            {
-                SiteFacts::call(requirements, |fact| match fact {
-                    ControlFact::Effect(index) => slots
-                        .get(index as usize)
-                        .copied()
-                        .flatten()
-                        .map(ControlFact::Effect),
-                    ControlFact::Call(_) | ControlFact::CallSuccess(_) => None,
-                })
-            }
-            _ => SiteFacts::unknown(),
-        };
-        self.control_applications.push(application);
-        let source_spans = self.summary_spans.get(name).cloned().unwrap_or_default();
-        for boundary in &summary.boundaries {
-            if self.capture.as_ref().is_some_and(|cap| {
-                cap.boundaries.iter().any(|old| {
-                    old.reason == boundary.reason
-                        && old.limit == boundary.limit
-                        && old.callee == boundary.callee
-                        && old.detail == boundary.detail
-                })
-            }) {
-                continue;
-            }
-            let mut b = boundary.clone();
-            if b.reason == BoundaryReason::CROSS_MODULE
-                && let Some(resource) = &b.affected_resource
-            {
-                let specialized = crate::substitute_value(
-                    &SemanticValue::from(resource),
-                    bindings,
-                    self.nest.limits.value_limits(),
-                )
-                .lower_resource();
-                if specialized != *resource
-                    && let Some(path) = python_plugin_path_pattern(&specialized)
-                {
-                    b.detail = Some(format!(
-                        "{}; recovered path {path}",
-                        b.detail
-                            .as_deref()
-                            .unwrap_or_default()
-                            .split("; recovered path ")
-                            .next()
-                            .unwrap_or_default()
-                    ));
-                }
-                b.affected_resource = Some(specialized);
-            }
-            b.provenance = vec![node];
-            for reference in &boundary.provenance {
-                if let Some(span) = source_spans.get(reference.0 as usize) {
-                    b.provenance.push(self.span_node(*span));
-                }
-            }
-            self.out_boundary(b);
-        }
-        for (domain, level) in &summary.coverage {
-            self.out_coverage(domain.clone(), *level);
-        }
-        for spawn in spawns {
-            self.apply_deferred_spawn(spawn, bindings, node, span);
-        }
     }
 
     /// Record a call that resolved through a tracked import but matched no
@@ -6626,7 +5324,7 @@ fn rebound_pattern_names(pattern: &ast::Pattern) -> Vec<String> {
     }
 }
 
-fn boundary(
+fn python_boundary(
     builder: &mut PlanBuilder,
     scope: Option<ProvenanceRef>,
     reason: BoundaryReason,

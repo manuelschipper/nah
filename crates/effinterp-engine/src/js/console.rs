@@ -7,12 +7,14 @@ use std::collections::{HashMap, HashSet};
 use oxc_ast::ast::{
     ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, BindingPattern,
     CallExpression, Class, ComputedMemberExpression, Expression, ExpressionStatement, Function,
-    FunctionBody, IdentifierReference, NewExpression, Statement, StaticMemberExpression,
-    TaggedTemplateExpression, VariableDeclarationKind, VariableDeclarator,
+    FunctionBody, IdentifierReference, MemberExpression, NewExpression, Statement,
+    StaticMemberExpression, TaggedTemplateExpression, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 
-use super::{global_reference_spans, unparen};
+use super::{
+    ConsoleAssignment, ConsoleBindingWrite, EffectVisitor, global_reference_spans, unparen,
+};
 use crate::lang::frontend::MAX_WALK_DEPTH;
 
 /// The `console` methods that write to stdout before any assignment.
@@ -195,7 +197,7 @@ pub(super) fn console_aliases(
         ..ConsoleAliases::default()
     };
     for _ in 0..MAX_ALIAS_ROUNDS {
-        let mut objects = Collect::new(&aliases, scoping, Find::Objects);
+        let mut objects = Collect::new(&aliases, scoping, ConsoleFind::Objects);
         objects.visit_program(program);
         let before = aliases.objects.len();
         for (_, symbol) in objects.found {
@@ -208,7 +210,7 @@ pub(super) fn console_aliases(
         }
     }
     for _ in 0..MAX_ALIAS_ROUNDS {
-        let mut bindings = Collect::new(&aliases, scoping, Find::Methods);
+        let mut bindings = Collect::new(&aliases, scoping, ConsoleFind::Methods);
         bindings.visit_program(program);
         let before = aliases.bindings.len();
         for (span, symbol) in bindings.found {
@@ -242,7 +244,7 @@ pub(super) fn console_aliases(
             );
         }
     }
-    let mut escapes = Collect::new(&aliases, scoping, Find::Escapes);
+    let mut escapes = Collect::new(&aliases, scoping, ConsoleFind::Escapes);
     escapes.visit_program(program);
     aliases.escapes = escapes.escapes;
     aliases
@@ -279,7 +281,7 @@ impl<'a> Visit<'a> for SilentBindings<'_> {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Find {
+enum ConsoleFind {
     /// `const` bindings initialized to the console object.
     Objects,
     /// Bindings initialized or assigned from the console or another found
@@ -292,7 +294,7 @@ enum Find {
 struct Collect<'c> {
     aliases: &'c ConsoleAliases,
     scoping: &'c oxc_semantic::Scoping,
-    find: Find,
+    find: ConsoleFind,
     found: Vec<(u32, oxc_semantic::SymbolId)>,
     escapes: HashSet<u32>,
     /// The span start of the call an expression statement discards.
@@ -301,7 +303,11 @@ struct Collect<'c> {
 }
 
 impl<'c> Collect<'c> {
-    fn new(aliases: &'c ConsoleAliases, scoping: &'c oxc_semantic::Scoping, find: Find) -> Self {
+    fn new(
+        aliases: &'c ConsoleAliases,
+        scoping: &'c oxc_semantic::Scoping,
+        find: ConsoleFind,
+    ) -> Self {
         Self {
             aliases,
             scoping,
@@ -367,19 +373,19 @@ impl<'a> Visit<'a> for Collect<'_> {
         };
         let console = self.aliases.is_console(init);
         match (&it.id, self.find) {
-            (BindingPattern::BindingIdentifier(alias), Find::Objects) => {
+            (BindingPattern::BindingIdentifier(alias), ConsoleFind::Objects) => {
                 if console && let Some(symbol) = alias.symbol_id.get() {
                     self.found.push((alias.span.start, symbol));
                 }
             }
-            (BindingPattern::BindingIdentifier(alias), Find::Methods) => {
+            (BindingPattern::BindingIdentifier(alias), ConsoleFind::Methods) => {
                 if self.reads_console(init)
                     && let Some(symbol) = alias.symbol_id.get()
                 {
                     self.found.push((alias.span.start, symbol));
                 }
             }
-            (BindingPattern::ObjectPattern(pattern), Find::Methods) if console => {
+            (BindingPattern::ObjectPattern(pattern), ConsoleFind::Methods) if console => {
                 for property in &pattern.properties {
                     if let BindingPattern::BindingIdentifier(alias) = &property.value
                         && let Some(symbol) = alias.symbol_id.get()
@@ -422,7 +428,7 @@ impl<'a> Visit<'a> for Collect<'_> {
                     && (self.aliases.method(&member.object).is_some()
                         || matches!(unparen(&member.object), Expression::Identifier(id)
                             if self.aliases.references.contains_key(&id.span.start))));
-        if self.find != Find::Escapes || !inspects {
+        if self.find != ConsoleFind::Escapes || !inspects {
             walk::walk_call_expression(self, it);
             return;
         }
@@ -437,7 +443,7 @@ impl<'a> Visit<'a> for Collect<'_> {
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
-        if self.find == Find::Methods
+        if self.find == ConsoleFind::Methods
             && let AssignmentTarget::AssignmentTargetIdentifier(alias) = &it.left
             && self.reads_console(&it.right)
             && let Some(reference) = alias.reference_id.get()
@@ -454,7 +460,7 @@ impl<'a> Visit<'a> for Collect<'_> {
     // the console used as a value.
     fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
         if self.aliases.is_global_this(&it.object) {
-            if self.find == Find::Escapes && it.property.name == "console" {
+            if self.find == ConsoleFind::Escapes && it.property.name == "console" {
                 self.escapes.insert(it.span.start);
             }
             return;
@@ -466,7 +472,7 @@ impl<'a> Visit<'a> for Collect<'_> {
 
     fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
         if self.aliases.is_global_this(&it.object) {
-            if self.find == Find::Escapes
+            if self.find == ConsoleFind::Escapes
                 && !matches!(&it.expression, Expression::StringLiteral(name) if name.value != "console")
             {
                 self.escapes.insert(it.span.start);
@@ -483,10 +489,188 @@ impl<'a> Visit<'a> for Collect<'_> {
 
     fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
         let span = it.span.start;
-        if self.find == Find::Escapes
+        if self.find == ConsoleFind::Escapes
             && (self.aliases.objects.contains(&span) || self.aliases.global_this.contains(&span))
         {
             self.escapes.insert(span);
         }
+    }
+}
+
+/// How the effect visitor reads the console during its walk: whether a callee
+/// prints to stdout, and the console assignments and binding writes that
+/// change the answer.
+impl<'a> EffectVisitor<'_, 'a> {
+    /// A call writes its arguments to this program's own stdout when its
+    /// callee is a runtime console method that prints here, or a binding
+    /// whose last value was one.
+    pub(super) fn prints_to_stdout(&self, callee: &Expression<'a>) -> bool {
+        match unparen(callee) {
+            Expression::Identifier(id) => self
+                .bindings
+                .console
+                .references
+                .get(&id.span.start)
+                .is_some_and(|symbol| self.console_binding_prints(*symbol)),
+            callee => self
+                .bindings
+                .console
+                .method(callee)
+                .is_some_and(|method| self.console_method_prints(method)),
+        }
+    }
+
+    /// Whether `expression` may evaluate to a stdout printer here: a printing
+    /// console method or a binding holding one, its `.bind(...)`, or either
+    /// value a conditional or logical expression may yield.
+    pub(super) fn is_console_printer(&self, expression: &Expression<'a>) -> bool {
+        match unparen(expression) {
+            Expression::CallExpression(call) => matches!(unparen(&call.callee),
+                Expression::StaticMemberExpression(member)
+                    if member.property.name == "bind" && self.is_console_printer(&member.object)),
+            Expression::ConditionalExpression(branch) => {
+                self.is_console_printer(&branch.consequent)
+                    || self.is_console_printer(&branch.alternate)
+            }
+            Expression::LogicalExpression(logical) => {
+                self.is_console_printer(&logical.left) || self.is_console_printer(&logical.right)
+            }
+            Expression::SequenceExpression(sequence) => sequence
+                .expressions
+                .last()
+                .is_some_and(|last| self.is_console_printer(last)),
+            expression => self.prints_to_stdout(expression),
+        }
+    }
+
+    /// Whether a value assigned to a console method provably writes nothing
+    /// to stdout: a function that does nothing or a binding that holds one,
+    /// a console method that does not print here such as `console.error`
+    /// or its `.bind(...)`, or a conditional expression whose arms are both
+    /// silent.
+    pub(super) fn is_silent(&self, expression: &Expression<'a>) -> bool {
+        match unparen(expression) {
+            Expression::Identifier(id) => self.bindings.console.silent.contains(&id.span.start),
+            Expression::CallExpression(call) => matches!(unparen(&call.callee),
+                Expression::StaticMemberExpression(member)
+                    if member.property.name == "bind" && self.is_silent(&member.object)),
+            Expression::ConditionalExpression(branch) => {
+                self.is_silent(&branch.consequent) && self.is_silent(&branch.alternate)
+            }
+            expression => {
+                self.bindings.console.silent_function(expression)
+                    || self
+                        .bindings
+                        .console
+                        .method(expression)
+                        .is_some_and(|method| !self.console_method_prints(method))
+            }
+        }
+    }
+
+    /// Whether the runtime console's `method` may print to stdout here. It
+    /// starts as a printer for `log`, `info` and `debug`; an assignment that
+    /// may print makes it one under any condition, and a silent assignment
+    /// stops it only when [`Self::definite_here`].
+    pub(super) fn console_method_prints(&self, method: &str) -> bool {
+        self.console_assignments
+            .iter()
+            .filter(|assignment| {
+                assignment
+                    .method
+                    .as_deref()
+                    .is_none_or(|name| name == method)
+            })
+            .fold(STDOUT_METHODS.contains(&method), |prints, assignment| {
+                if !assignment.silences {
+                    true
+                } else if self.definite_here(&assignment.condition, &assignment.regions) {
+                    false
+                } else {
+                    prints
+                }
+            })
+    }
+
+    /// Whether a binding that may hold a console method holds a stdout
+    /// printer here, by the same rule as [`Self::console_method_prints`]:
+    /// a write of a printer makes it one, and any other write stops it only
+    /// when definite here.
+    pub(super) fn console_binding_prints(&self, symbol: oxc_semantic::SymbolId) -> bool {
+        self.console_binding_writes
+            .iter()
+            .filter(|write| write.symbol == symbol)
+            .fold(false, |prints, write| {
+                if write.prints {
+                    true
+                } else if self.definite_here(&write.condition, &write.regions) {
+                    false
+                } else {
+                    prints
+                }
+            })
+    }
+
+    /// Whether an earlier write under `condition` within the try and catch
+    /// `regions` ran on every path reaching here: made under no condition
+    /// outside any try block or catch clause, or under this same condition
+    /// within the regions still being walked, where a throw skipping the
+    /// write also skips this point.
+    pub(super) fn definite_here(
+        &self,
+        condition: &Option<effinterp_proto::Condition>,
+        regions: &[u32],
+    ) -> bool {
+        (condition.is_none() || *condition == self.builder.current_condition())
+            && self.exception_regions.starts_with(regions)
+    }
+
+    /// Record an assignment or `delete` of a runtime console method, in
+    /// program order (see [`Self::console_method_prints`]). A computed name
+    /// Nah cannot read may be any method, so a value that may print makes
+    /// every method print and a silent one changes nothing. A write through
+    /// anything but the global `console` may be undone where Nah does not
+    /// look, so it can only make methods print.
+    pub(super) fn note_console_assignment(
+        &mut self,
+        member: &MemberExpression<'a>,
+        silences: bool,
+    ) {
+        let console = &self.bindings.console;
+        if !console.is_console(member.object()) {
+            return;
+        }
+        let method = member.static_property_name().map(|name| name.to_string());
+        if silences && method.is_none() {
+            return;
+        }
+        let silences = silences && method.is_some() && console.is_global_console(member.object());
+        self.console_assignments.push(ConsoleAssignment {
+            silences,
+            method,
+            condition: self.builder.current_condition(),
+            regions: self.exception_regions.clone(),
+        });
+    }
+
+    /// Bind a console method binding (see
+    /// [`console::ConsoleAliases::bindings`]) to whether its value prints.
+    pub(super) fn bind_console_printer(&mut self, alias: u32, prints: bool) {
+        if let Some(symbol) = self.bindings.console.bindings.get(&alias) {
+            self.note_console_binding_write(*symbol, prints);
+        }
+    }
+
+    pub(super) fn note_console_binding_write(
+        &mut self,
+        symbol: oxc_semantic::SymbolId,
+        prints: bool,
+    ) {
+        self.console_binding_writes.push(ConsoleBindingWrite {
+            symbol,
+            prints,
+            condition: self.builder.current_condition(),
+            regions: self.exception_regions.clone(),
+        });
     }
 }

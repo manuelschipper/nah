@@ -427,7 +427,7 @@ fn worktree_resource(repo: &ResourceExpr) -> Option<&ResourceExpr> {
     Some(worktree.as_ref())
 }
 
-fn environment_path(
+fn git_environment_path(
     ctx: &InvocationCtx<'_>,
     name: &str,
     base: Option<ResourceExpr>,
@@ -496,13 +496,13 @@ fn repo_expr(globals: &Globals, ctx: &InvocationCtx) -> ResourceExpr {
         .work_tree
         .as_ref()
         .map(|worktree| resolve_fs_word_with_cwd(&worktree.word, Some(base.clone())))
-        .or_else(|| environment_path(ctx, "GIT_WORK_TREE", Some(base.clone())))
+        .or_else(|| git_environment_path(ctx, "GIT_WORK_TREE", Some(base.clone())))
         .unwrap_or(base.clone());
     let git_dir = globals
         .git_dir
         .as_ref()
         .map(|git_dir| resolve_fs_word_with_cwd(&git_dir.word, Some(base.clone())));
-    let git_dir = git_dir.or_else(|| environment_path(ctx, "GIT_DIR", Some(base.clone())));
+    let git_dir = git_dir.or_else(|| git_environment_path(ctx, "GIT_DIR", Some(base.clone())));
     ResourceExpr::Concrete {
         identity: ResourceIdentity::GitRepository {
             worktree: Some(Box::new(worktree)),
@@ -542,7 +542,7 @@ fn effective_cwd<'a>(globals: &'a Globals, ctx: &'a InvocationCtx) -> Option<Str
             }
         }
         (None, Some(dir)) => {
-            match environment_path(ctx, "GIT_WORK_TREE", Some(worktree_base(globals, ctx))) {
+            match git_environment_path(ctx, "GIT_WORK_TREE", Some(worktree_base(globals, ctx))) {
                 Some(ResourceExpr::Concrete {
                     identity: ResourceIdentity::FsPath { path },
                 }) => Some(path),
@@ -556,7 +556,7 @@ fn effective_cwd<'a>(globals: &'a Globals, ctx: &'a InvocationCtx) -> Option<Str
             }
         }
         (None, None) => {
-            match environment_path(ctx, "GIT_WORK_TREE", Some(worktree_base(globals, ctx))) {
+            match git_environment_path(ctx, "GIT_WORK_TREE", Some(worktree_base(globals, ctx))) {
                 Some(ResourceExpr::Concrete {
                     identity: ResourceIdentity::FsPath { path },
                 }) => Some(path),
@@ -3963,7 +3963,7 @@ fn repack(builder: &mut PlanBuilder, s: &SubCtx) -> bool {
 /// (`-z`, dynamic input).
 fn update_ref_stdin(builder: &mut PlanBuilder, s: &SubCtx) -> bool {
     #[derive(Clone, Copy, PartialEq)]
-    enum State {
+    enum UpdateRefTransactionState {
         Open,
         Started,
         Prepared,
@@ -4010,7 +4010,7 @@ fn update_ref_stdin(builder: &mut PlanBuilder, s: &SubCtx) -> bool {
             }
         }
     };
-    let mut state = State::Open;
+    let mut state = UpdateRefTransactionState::Open;
     let mut queued: Vec<(&str, String, bool)> = Vec::new();
     let mut unread = None;
     let mut died = false;
@@ -4033,22 +4033,36 @@ fn update_ref_stdin(builder: &mut PlanBuilder, s: &SubCtx) -> bool {
             // `option` takes only `no-deref`, and only where a ref command
             // may appear.
             "option" => (line == "option no-deref"
-                && matches!(state, State::Open | State::Started))
+                && matches!(
+                    state,
+                    UpdateRefTransactionState::Open | UpdateRefTransactionState::Started
+                ))
             .then_some(state),
             "start" | "prepare" | "commit" | "abort" if !arguments.is_empty() => None,
-            "start" => matches!(state, State::Open | State::Closed).then_some(State::Started),
-            "prepare" => matches!(state, State::Open | State::Started).then_some(State::Prepared),
-            "commit" | "abort" if state == State::Closed => None,
+            "start" => matches!(
+                state,
+                UpdateRefTransactionState::Open | UpdateRefTransactionState::Closed
+            )
+            .then_some(UpdateRefTransactionState::Started),
+            "prepare" => matches!(
+                state,
+                UpdateRefTransactionState::Open | UpdateRefTransactionState::Started
+            )
+            .then_some(UpdateRefTransactionState::Prepared),
+            "commit" | "abort" if state == UpdateRefTransactionState::Closed => None,
             "commit" => {
                 commit(builder, &mut queued);
-                Some(State::Closed)
+                Some(UpdateRefTransactionState::Closed)
             }
             "abort" => {
                 queued.clear();
-                Some(State::Closed)
+                Some(UpdateRefTransactionState::Closed)
             }
             "update" | "create" | "delete" | "verify"
-                if matches!(state, State::Open | State::Started) =>
+                if matches!(
+                    state,
+                    UpdateRefTransactionState::Open | UpdateRefTransactionState::Started
+                ) =>
             {
                 let arity = match verb {
                     "update" => 2..=3,
@@ -4104,7 +4118,7 @@ fn update_ref_stdin(builder: &mut PlanBuilder, s: &SubCtx) -> bool {
             s,
             &format!("git update-ref --stdin line {line} and the lines after it are not modeled"),
         );
-    } else if !died && state == State::Open {
+    } else if !died && state == UpdateRefTransactionState::Open {
         commit(builder, &mut queued);
     }
     true

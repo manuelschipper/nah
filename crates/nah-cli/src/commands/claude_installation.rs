@@ -44,10 +44,10 @@ pub(crate) fn claude_hook_status() -> Result<RuntimeHookStatus, String> {
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     let status = hook_config::inspect_modes(
         &settings,
-        &desired_handler(&executable, FailurePolicy::Delegate)?,
-        &desired_handler(&executable, FailurePolicy::Block)?,
-        is_nah_handler,
-        is_fail_closed_handler,
+        &desired_claude_handler(&executable, FailurePolicy::Delegate)?,
+        &desired_claude_handler(&executable, FailurePolicy::Block)?,
+        is_nah_claude_handler,
+        is_fail_closed_claude_handler,
         "invalid-claude-hooks",
     )?;
     Ok(if remove_legacy(&mut settings.clone(), &home)? {
@@ -72,12 +72,12 @@ fn install_claude_hook(
     let lock = acquire_hook_lock(&paths.lock, &CLAUDE_HOOK_LOCK_ERRORS)?;
     reject_claude_hook_symlinks(&paths)?;
     let mut settings = load_claude_settings(&paths.settings)?;
-    let desired = desired_handler(executable, policy)?;
+    let desired = desired_claude_handler(executable, policy)?;
     let legacy = remove_legacy(&mut settings, home)?;
     if hook_config::add(
         &mut settings,
         desired,
-        is_nah_handler,
+        is_nah_claude_handler,
         "invalid-claude-hooks",
     )? || legacy
     {
@@ -94,7 +94,9 @@ fn uninstall_claude_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     if paths.settings.exists() {
         let mut settings = load_claude_settings(&paths.settings)?;
         let legacy = remove_legacy(&mut settings, home)?;
-        if hook_config::remove(&mut settings, is_nah_handler, "invalid-claude-hooks")? || legacy {
+        if hook_config::remove(&mut settings, is_nah_claude_handler, "invalid-claude-hooks")?
+            || legacy
+        {
             save_claude_settings(&paths.settings, &settings)?;
         }
     }
@@ -166,7 +168,7 @@ fn reject_claude_hook_symlinks(paths: &ClaudeHookPaths) -> Result<(), String> {
     reject_claude_settings_symlink(&paths.settings)
 }
 
-fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
+fn desired_claude_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let command = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -182,7 +184,7 @@ fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, St
     }))
 }
 
-fn is_nah_handler(handler: &Value) -> bool {
+fn is_nah_claude_handler(handler: &Value) -> bool {
     let Some(handler) = handler.as_object() else {
         return false;
     };
@@ -403,7 +405,7 @@ fn unquote_claude_word(quoted: &str) -> Option<String> {
     (!word.contains('\\') && word.replace('"', r#"\""#) == inner).then_some(word)
 }
 
-fn is_fail_closed_handler(handler: &Value) -> bool {
+fn is_fail_closed_claude_handler(handler: &Value) -> bool {
     handler
         .get("args")
         .and_then(Value::as_array)

@@ -20,11 +20,14 @@ use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 pub(super) fn archive_models() -> Vec<Box<dyn CommandModel>> {
-    vec![Box::new(Tar(Dialect::Gnu)), Box::new(Tar(Dialect::Bsd))]
+    vec![
+        Box::new(Tar(TarDialect::Gnu)),
+        Box::new(Tar(TarDialect::Bsd)),
+    ]
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Mode {
+enum TarMode {
     Create,
     Extract,
     List,
@@ -62,12 +65,12 @@ pub(super) fn extraction_target(dir: Option<&Word>, cwd: Option<ResourceExpr>) -
 /// TAR_OPTIONS, has no remote archives or command hooks beyond a compressor,
 /// spells `-H` and `-L` as symlink-following flags, and reads `-I` as `-T`.
 #[derive(Clone, Copy, PartialEq)]
-enum Dialect {
+enum TarDialect {
     Gnu,
     Bsd,
 }
 
-struct Tar(Dialect);
+struct Tar(TarDialect);
 
 #[derive(Clone, Copy)]
 enum AuditedBinding {
@@ -139,7 +142,7 @@ const LONG_OPTIONS: [&str; 40] = [
     "--zstd",
 ];
 
-fn environment_read(
+fn tar_environment_read(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
@@ -305,9 +308,9 @@ fn audited_tar_binding(argv: &[Word], default_archive: Option<&str>) -> Option<A
                     if mode
                         .replace(
                             if matches!(canonical_long_option(name), Some("--get" | "--extract")) {
-                                Mode::Extract
+                                TarMode::Extract
                             } else {
-                                Mode::Create
+                                TarMode::Create
                             },
                         )
                         .is_some()
@@ -353,9 +356,9 @@ fn audited_tar_binding(argv: &[Word], default_archive: Option<&str>) -> Option<A
                     'c' | 'x' => {
                         if mode
                             .replace(if letter == 'c' {
-                                Mode::Create
+                                TarMode::Create
                             } else {
-                                Mode::Extract
+                                TarMode::Extract
                             })
                             .is_some()
                         {
@@ -392,18 +395,20 @@ fn audited_tar_binding(argv: &[Word], default_archive: Option<&str>) -> Option<A
         return None;
     }
     match (mode, to_stdout, archive.or(default_archive), operands) {
-        (Some(Mode::Create), false, Some("-"), 1..) => Some(AuditedBinding::CreateStdout),
-        (Some(Mode::Create), false, Some(archive), 1..)
+        (Some(TarMode::Create), false, Some("-"), 1..) => Some(AuditedBinding::CreateStdout),
+        (Some(TarMode::Create), false, Some(archive), 1..)
             if local_archive(archive, force_local)
                 || (!force_local && remote_archive_host(archive).is_some()) =>
         {
             Some(AuditedBinding::CreateArchiveEndpoint)
         }
-        (Some(Mode::Extract), true, Some("-"), 1..) => Some(AuditedBinding::ExtractStdoutStdin),
-        (Some(Mode::Extract), true, Some(archive), 1..) if local_archive(archive, force_local) => {
+        (Some(TarMode::Extract), true, Some("-"), 1..) => Some(AuditedBinding::ExtractStdoutStdin),
+        (Some(TarMode::Extract), true, Some(archive), 1..)
+            if local_archive(archive, force_local) =>
+        {
             Some(AuditedBinding::ExtractStdoutFile)
         }
-        (Some(Mode::Extract), true, None, 1..) => Some(AuditedBinding::ExtractStdoutUnknown),
+        (Some(TarMode::Extract), true, None, 1..) => Some(AuditedBinding::ExtractStdoutUnknown),
         _ => None,
     }
 }
@@ -538,20 +543,20 @@ impl CommandModel for Tar {
 
     fn id(&self) -> &'static str {
         match self.0 {
-            Dialect::Gnu => "gnu/tar@v1",
-            Dialect::Bsd => "libarchive/bsdtar@v1",
+            TarDialect::Gnu => "gnu/tar@v1",
+            TarDialect::Bsd => "libarchive/bsdtar@v1",
         }
     }
 
     fn command_names(&self) -> &'static [&'static str] {
         match self.0 {
-            Dialect::Gnu => &["tar"],
-            Dialect::Bsd => &["bsdtar"],
+            TarDialect::Gnu => &["tar"],
+            TarDialect::Bsd => &["bsdtar"],
         }
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        let mut mode: Option<Mode> = None;
+        let mut mode: Option<TarMode> = None;
         let mut to_stdout = false;
         let mut archive: Option<(u32, Word)> = None;
         let mut directory: Option<(u32, Word)> = None;
@@ -566,7 +571,7 @@ impl CommandModel for Tar {
         // after a member name has no effect on it. Only those before every
         // member are known to apply to all of them.
         let mut leading_excludes: Vec<Word> = Vec::new();
-        let bsd = self.0 == Dialect::Bsd;
+        let bsd = self.0 == TarDialect::Bsd;
         let mut end_of_options = false;
         let mut force_local = bsd;
         let mut recursion = true;
@@ -601,7 +606,7 @@ impl CommandModel for Tar {
         let tar_options = if bsd {
             None
         } else {
-            environment_read(builder, ctx, model_node, "TAR_OPTIONS");
+            tar_environment_read(builder, ctx, model_node, "TAR_OPTIONS");
             ctx.environment_value("TAR_OPTIONS")
         };
         let prefixed = tar_options.as_ref().and_then(tar_option_words);
@@ -713,11 +718,11 @@ impl CommandModel for Tar {
                     let mut values = Vec::new();
                     for (offset, c) in letters.char_indices() {
                         match c {
-                            'c' => mode = Some(Mode::Create),
-                            'x' => mode = Some(Mode::Extract),
-                            't' => mode = Some(Mode::List),
+                            'c' => mode = Some(TarMode::Create),
+                            'x' => mode = Some(TarMode::Extract),
+                            't' => mode = Some(TarMode::List),
                             'O' => to_stdout = true,
-                            'r' | 'u' | 'A' => mode = Some(Mode::Create),
+                            'r' | 'u' | 'A' => mode = Some(TarMode::Create),
                             'F' if bsd => ok = false,
                             // bsdtar's link-following flags are last-wins: `-H`
                             // follows only command-line links, `-L`/`-h` follow
@@ -829,10 +834,10 @@ impl CommandModel for Tar {
                         // Appending, updating and concatenating all encode the
                         // named inputs into the archive, as `-r`, `-u` and `-A` do.
                         "--create" | "--append" | "--update" | "--concatenate" | "--catenate" => {
-                            mode = Some(Mode::Create)
+                            mode = Some(TarMode::Create)
                         }
-                        "--extract" | "--get" => mode = Some(Mode::Extract),
-                        "--list" => mode = Some(Mode::List),
+                        "--extract" | "--get" => mode = Some(TarMode::Extract),
+                        "--list" => mode = Some(TarMode::List),
                         "--to-stdout" => to_stdout = true,
                         "--recursion" => recursion = true,
                         "--no-recursion" => recursion = false,
@@ -955,7 +960,7 @@ impl CommandModel for Tar {
         // Without `--file`, GNU tar takes the archive from TAPE before falling
         // back to a compiled-in default device.
         if archive.is_none() {
-            environment_read(builder, ctx, model_node, "TAPE");
+            tar_environment_read(builder, ctx, model_node, "TAPE");
             match ctx.environment_value("TAPE") {
                 Some(ResourceExpr::Literal { value }) if !value.is_empty() => {
                     archive = Some((0, Word::literal(value)));
@@ -1018,7 +1023,7 @@ impl CommandModel for Tar {
         match mode {
             // Creating an archive reads the selected inputs and may write a
             // local archive. The encoded bytes are not a content-preserving copy.
-            Some(Mode::Create) => {
+            Some(TarMode::Create) => {
                 if let Some((index, archive)) = &archive {
                     if let Some(host) = &remote_host {
                         archive_effect = arg_effect(
@@ -1193,7 +1198,7 @@ impl CommandModel for Tar {
             // Extraction reads the archive and writes the bounded destination
             // scope. Unknown members stay inside that scope; no concrete child
             // path is invented for them.
-            Some(Mode::Extract) => {
+            Some(TarMode::Extract) => {
                 if let Some((index, archive)) = &archive {
                     if let Some(host) = &remote_host {
                         archive_effect = arg_effect(
@@ -1300,7 +1305,7 @@ impl CommandModel for Tar {
                     }
                 }
             }
-            Some(Mode::List) => {
+            Some(TarMode::List) => {
                 if let Some((index, archive)) = &archive {
                     if let Some(host) = &remote_host {
                         arg_effect(
@@ -1329,24 +1334,24 @@ impl CommandModel for Tar {
         }
 
         let possible = binding_shape_known.then(|| match (mode, to_stdout, archive.as_ref()) {
-            (Some(Mode::Create), false, Some((_, archive)))
+            (Some(TarMode::Create), false, Some((_, archive)))
                 if archive.as_literal() == Some("-") && !source_effects.is_empty() =>
             {
                 Some(AuditedBinding::CreateStdout)
             }
             // Creating an archive encodes the selected members into whatever
             // `-f` names, whether or not the name resolves statically.
-            (Some(Mode::Create), false, Some(_))
+            (Some(TarMode::Create), false, Some(_))
                 if !stdio_archive && !source_effects.is_empty() && archive_effect.is_some() =>
             {
                 Some(AuditedBinding::CreateArchiveEndpoint)
             }
-            (Some(Mode::Extract), true, Some((_, archive)))
+            (Some(TarMode::Extract), true, Some((_, archive)))
                 if archive.as_literal() == Some("-") =>
             {
                 Some(AuditedBinding::ExtractStdoutStdin)
             }
-            (Some(Mode::Extract), true, Some((_, archive)))
+            (Some(TarMode::Extract), true, Some((_, archive)))
                 if archive
                     .as_literal()
                     .is_some_and(|archive| local_archive(archive, force_local))
@@ -1354,7 +1359,7 @@ impl CommandModel for Tar {
             {
                 Some(AuditedBinding::ExtractStdoutFile)
             }
-            (Some(Mode::Extract), true, None) if !operands.is_empty() => {
+            (Some(TarMode::Extract), true, None) if !operands.is_empty() => {
                 Some(AuditedBinding::ExtractStdoutUnknown)
             }
             _ => None,
@@ -1404,7 +1409,7 @@ impl CommandModel for Tar {
                 CoverageLevel::Partial,
             );
         }
-        if mode == Some(Mode::Extract) {
+        if mode == Some(TarMode::Extract) {
             if let Some(command) = to_command {
                 spawned_commands.insert('T', command);
             }

@@ -539,10 +539,10 @@ fn tilde_expanded(parts: &[RValuePart]) -> Vec<RValuePart> {
 
 struct RCall {
     callee: String,
-    arguments: Vec<Argument>,
+    arguments: Vec<RArgument>,
 }
 
-struct Argument {
+struct RArgument {
     name: Option<String>,
     raw: String,
     value: Option<RValue>,
@@ -732,7 +732,7 @@ fn call(statement: &str, bindings: &BTreeMap<String, RValue>) -> Result<RCall, S
                 _ => (None, argument),
             };
             let value = value(&raw, bindings).ok();
-            Argument { name, raw, value }
+            RArgument { name, raw, value }
         })
         .collect();
     Ok(RCall {

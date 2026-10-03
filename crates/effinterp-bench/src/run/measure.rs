@@ -17,7 +17,7 @@ use super::{
     write_bench_record,
 };
 use crate::invocation;
-use crate::invocation::corpus::{load_bench, nah_rows};
+use crate::invocation::corpus::{load_invocation_rows, nah_rows};
 use crate::invocation::score::Scoreboard;
 use crate::latency;
 use crate::nah::report::{parity, run_corpus};
@@ -56,7 +56,7 @@ pub fn score_coverage(
 ) -> Result<Scoreboard, String> {
     let corpus = layout.root.join(BENCH_CORPUS);
     let digest = layout.coverage_digest()?;
-    let mut rows = load_bench(&corpus)?;
+    let mut rows = load_invocation_rows(&corpus)?;
     rows.retain(|row| row.source != "adversarial");
     let (cases, _, _) = load_nah(layout)?;
     rows.extend(nah_rows(&cases));
@@ -84,7 +84,7 @@ pub fn score_coverage(
 /// Correctness has independent expected answers; corpus coverage is measured separately.
 pub fn score_correctness(layout: &BenchLayout, engine: Arc<Engine>) -> Result<Scoreboard, String> {
     let corpus = layout.root.join(BENCH_CORPUS);
-    let rows = load_bench(&corpus)?
+    let rows = load_invocation_rows(&corpus)?
         .into_iter()
         .filter(|row| row.source == "adversarial")
         .collect();

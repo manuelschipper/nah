@@ -219,7 +219,7 @@ impl EvidencePlan {
     }
 }
 
-fn refusal(input: &ToolCallInput, kind: RefusalKind, code: &'static str) -> AdapterRefusal {
+fn adapter_refusal(input: &ToolCallInput, kind: RefusalKind, code: &'static str) -> AdapterRefusal {
     AdapterRefusal {
         kind,
         root_tool: input.tool().to_owned(),
@@ -252,14 +252,14 @@ pub fn plan_evidence(
     sources: Option<&dyn SourceProvider>,
 ) -> Result<EvidencePlan, AdapterRefusal> {
     let root = input.input();
-    let fail = |code| refusal(root, RefusalKind::InvalidInput, code);
+    let fail = |code| adapter_refusal(root, RefusalKind::InvalidInput, code);
     if budget.deadline_exceeded() {
         return Err(deadline_refusal(root, "effinterp-engine"));
     }
     if root.invocation_input().to_string().len() > 1024 * 1024
         || matches!(input, SelectedInput::Source { source, .. } if source.len() > 1024 * 1024)
     {
-        return Err(refusal(
+        return Err(adapter_refusal(
             root,
             RefusalKind::UnsupportedInput,
             "input-byte-limit",
@@ -303,7 +303,8 @@ pub fn plan_evidence(
         SelectedInput::Source {
             source, language, ..
         } => {
-            let unsupported = || refusal(root, RefusalKind::UnsupportedInput, "source-language");
+            let unsupported =
+                || adapter_refusal(root, RefusalKind::UnsupportedInput, "source-language");
             let (language, dialect) = match language {
                 SourceLanguage::Python => ("python", None),
                 SourceLanguage::Ipython => {
@@ -356,9 +357,9 @@ pub fn plan_evidence(
             Some(sources),
             Some(observations),
         )
-        .map_err(|_| refusal(root, RefusalKind::AnalysisFailed, "analysis-failed"))?;
+        .map_err(|_| adapter_refusal(root, RefusalKind::AnalysisFailed, "analysis-failed"))?;
     effinterp_proto::validate_plan(&plan)
-        .map_err(|_| refusal(root, RefusalKind::InvalidGraph, "engine-plan"))?;
+        .map_err(|_| adapter_refusal(root, RefusalKind::InvalidGraph, "engine-plan"))?;
     let source_observations = sources.observations();
     let path_observations = crate::path_observation::host_observation_manifest(&plan);
     let base = crate::plan_observation_request(&plan, &site);
@@ -450,7 +451,7 @@ pub fn plan_evidence(
     }
     names.extend(host.environment.keys().cloned());
     if names.len() + users.len() > 256 {
-        return Err(refusal(
+        return Err(adapter_refusal(
             root,
             RefusalKind::EnvironmentLimit,
             "environment-names",
@@ -611,7 +612,7 @@ pub fn observed_environment(
     observation: &Observation,
 ) -> Result<ObservedHost, AdapterRefusal> {
     let request = plan.environment_request().ok_or_else(|| {
-        refusal(
+        adapter_refusal(
             &plan.root,
             RefusalKind::InvalidObservation,
             "observation-binding",
@@ -626,7 +627,7 @@ fn host_facts(
     observation: &Observation,
 ) -> Result<ObservedHost, AdapterRefusal> {
     observation.bind(request).map_err(|_| {
-        refusal(
+        adapter_refusal(
             &plan.root,
             RefusalKind::InvalidObservation,
             "observation-binding",
@@ -672,7 +673,7 @@ fn host_facts(
         }
     }
     if bytes > 1024 * 1024 {
-        return Err(refusal(
+        return Err(adapter_refusal(
             &plan.root,
             RefusalKind::EnvironmentLimit,
             "environment-values",
@@ -717,13 +718,14 @@ pub fn project_guard_evidence<'a>(
     gap_owners: &ShippedGuardPolicy<'_>,
 ) -> Result<Projection<'a>, AdapterRefusal> {
     if observed_host(plan, observation)? != *plan.host() {
-        return Err(refusal(
+        return Err(adapter_refusal(
             &plan.root,
             RefusalKind::EnvironmentDrift,
             "environment-drift",
         ));
     }
-    let graph_refusal = |_| refusal(&plan.root, RefusalKind::InvalidGraph, "evidence-graph");
+    let graph_refusal =
+        |_| adapter_refusal(&plan.root, RefusalKind::InvalidGraph, "evidence-graph");
     let view = crate::plan_view::PlanView::new(&plan.plan, observation, ctx, self_protection)
         .map_err(|_| graph_refusal(effects::EvidenceError::InvalidPayload))?;
     let mut graph = project_invocation_calls(&plan.root, &view).map_err(graph_refusal)?;
@@ -810,7 +812,7 @@ impl Projection<'_> {
         let public = PublicSelection::visible(&self.graph);
         let evidence = GuardEvidence::new(self.graph, public)
             .and_then(|evidence| evidence.with_coverage_attribution(attribution))
-            .map_err(|_| refusal(self.root, RefusalKind::InvalidGraph, "evidence-graph"))?;
+            .map_err(|_| adapter_refusal(self.root, RefusalKind::InvalidGraph, "evidence-graph"))?;
         Ok((evidence, self.view.annotations()))
     }
 }

@@ -9,10 +9,15 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
-    adapter_fields::{runtime_field_names_covered, tool_input_text_edits},
+    adapter_fields::{
+        runtime_field_names_covered, tool_input_non_empty_string, tool_input_object,
+        tool_input_optional_non_empty_string, tool_input_string, tool_input_text_edits,
+    },
     hook_adapter,
     runtime::{FailurePolicy, Runtime},
 };
+
+const INVALID_PI_TOOL_INPUT: &str = "invalid-pi-tool-input";
 
 #[derive(Deserialize)]
 struct PiHookInput {
@@ -29,7 +34,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
 ) -> u8 {
     let request = serde_json::from_reader::<_, PiHookInput>(stdin)
         .map_err(|error| error.to_string())
-        .and_then(normalize);
+        .and_then(normalize_pi_hook_input);
     let output = match request {
         Ok(request) => {
             match hook_adapter::decide_input(request, stderr, Runtime::Pi, failure_policy) {
@@ -67,8 +72,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         )
         .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
 }
 
@@ -78,19 +82,16 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize(PiHookInput {
+    normalize_pi_hook_input(PiHookInput {
         tool_name: tool_name.into(),
         tool_input,
         cwd: cwd.into(),
     })
 }
 
-fn normalize(input: PiHookInput) -> Result<ToolCallInput, String> {
+fn normalize_pi_hook_input(input: PiHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_input.clone();
-    let lowered = input
-        .tool_input
-        .as_object()
-        .ok_or_else(|| "invalid-pi-tool-input".to_owned())
+    let lowered = tool_input_object(&input.tool_input, INVALID_PI_TOOL_INPUT)
         .and_then(|object| lower_pi_tool(&input.tool_name, &input.tool_input, object));
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
@@ -110,49 +111,34 @@ fn lower_pi_tool<'a>(
     tool_input: &Value,
     object: &serde_json::Map<String, Value>,
 ) -> Result<(&'a str, Value), String> {
-    let string = |name: &str| {
-        object
-            .get(name)
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-            .ok_or_else(|| "invalid-pi-tool-input".to_owned())
-    };
-    let optional_path = || match object.get("path") {
-        Some(Value::String(path)) if !path.is_empty() => Ok(path.clone()),
-        Some(Value::String(_)) | None => Ok(".".to_owned()),
-        Some(_) => Err("invalid-pi-tool-input".to_owned()),
+    let string = |name: &str| tool_input_non_empty_string(object, name, INVALID_PI_TOOL_INPUT);
+    let string_value = |name: &str| tool_input_string(object, name, INVALID_PI_TOOL_INPUT);
+    let optional_path = || {
+        tool_input_optional_non_empty_string(object, "path", INVALID_PI_TOOL_INPUT)
+            .map(|path| path.unwrap_or_else(|| ".".into()))
     };
     Ok(match tool_name {
-        "bash" => ("Bash", json!({"command": string_value(object, "command")?})),
+        "bash" => ("Bash", json!({"command": string_value("command")?})),
         "read" => ("Read", json!({"file_path": string("path")?})),
         "write" => (
             "Write",
-            json!({"file_path": string("path")?, "content": string_value(object, "content")?}),
+            json!({"file_path": string("path")?, "content": string_value("content")?}),
         ),
         "edit" => (
             "Edit",
-            json!({"file_path": string("path")?, "edits": tool_input_text_edits(object, "invalid-pi-tool-input")?}),
+            json!({"file_path": string("path")?, "edits": tool_input_text_edits(object, INVALID_PI_TOOL_INPUT)?}),
         ),
         "grep" => (
             "Grep",
-            json!({"pattern": string_value(object, "pattern")?, "path": optional_path()?}),
+            json!({"pattern": string_value("pattern")?, "path": optional_path()?}),
         ),
         "find" => (
             "Find",
-            json!({"pattern": string_value(object, "pattern")?, "path": optional_path()?}),
+            json!({"pattern": string_value("pattern")?, "path": optional_path()?}),
         ),
         "ls" => ("Ls", json!({"path": optional_path()?})),
         _ => (tool_name, tool_input.clone()),
     })
-}
-
-fn string_value(object: &serde_json::Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-pi-tool-input".to_owned())
 }
 
 #[cfg(test)]
@@ -160,7 +146,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(PiHookInput {
+        normalize_pi_hook_input(PiHookInput {
             tool_name: tool_name.into(),
             tool_input,
             cwd: "/repo".into(),
@@ -236,7 +222,7 @@ mod tests {
             ("find", json!({"pattern":7})),
             ("ls", json!({"path":7})),
         ] {
-            let call = normalize(PiHookInput {
+            let call = normalize_pi_hook_input(PiHookInput {
                 tool_name: name.into(),
                 tool_input: input.clone(),
                 cwd: "/repo".into(),

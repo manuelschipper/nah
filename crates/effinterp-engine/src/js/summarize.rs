@@ -41,6 +41,7 @@ use super::{Bindings, JS_DOMAINS, MAX_WALK_DEPTH, argument_expr, binding_declare
 use crate::control_flow::{
     ControlCaps, ControlExit, ControlFact, ControlFlow, ControlStack, SiteFacts,
 };
+use crate::models::common::Attrs;
 use crate::module_summary::{
     CallEdge, CallResult, ClassEntry, FunctionEntry, ImportBinding, ModuleLoadEvidence,
     ModuleLoadKind, ModuleSummary,
@@ -3861,8 +3862,6 @@ impl<'a> SummaryVisitor<'_, 'a> {
         true
     }
 }
-
-type Attrs = BTreeMap<String, AttrValue>;
 
 /// The callee as written: an identifier name, or a dotted `base.prop` member
 /// path. None for a computed or otherwise unnameable callee.

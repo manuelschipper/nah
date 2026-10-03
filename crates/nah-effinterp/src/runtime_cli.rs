@@ -30,12 +30,12 @@ pub fn recognize_runtime_cli(
     if program == "nah" {
         Some("nah")
     } else {
-        runtime_name(&program)
+        runtime_name_for_program(&program)
     }
 }
 
 /// The hook runtime name a launch executable runs, through its aliases.
-fn runtime_name(program: &str) -> Option<&'static str> {
+fn runtime_name_for_program(program: &str) -> Option<&'static str> {
     let name = match program {
         "agy" => "antigravity",
         "kiro-cli" => "kiro",

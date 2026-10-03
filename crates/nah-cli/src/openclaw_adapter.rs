@@ -39,7 +39,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
 ) -> u8 {
     let request = serde_json::from_reader::<_, OpenClawHookInput>(stdin)
         .map_err(|error| error.to_string())
-        .and_then(normalize);
+        .and_then(normalize_openclaw_hook_input);
     let output = match request {
         Ok((request, code)) => {
             match hook_adapter::decide_input(
@@ -78,8 +78,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         )
         .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
 }
 
@@ -90,7 +89,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<(ToolCallInput, Option<CodeInput>), String> {
-    normalize(OpenClawHookInput {
+    normalize_openclaw_hook_input(OpenClawHookInput {
         tool_name: tool_name.into(),
         tool_input,
         cwd: cwd.into(),
@@ -100,7 +99,9 @@ pub(crate) fn normalize_call(
     })
 }
 
-fn normalize(input: OpenClawHookInput) -> Result<(ToolCallInput, Option<CodeInput>), String> {
+fn normalize_openclaw_hook_input(
+    input: OpenClawHookInput,
+) -> Result<(ToolCallInput, Option<CodeInput>), String> {
     let original_input = input.tool_input.clone();
     let (lowered, code) = match crate::code_input::openclaw(
         &input.tool_name,
@@ -174,8 +175,8 @@ fn lower_openclaw_tool<'a>(
             "apply_patch",
             json!({"command":tool_input_non_empty_string(object, "input", INVALID_OPENCLAW_TOOL_INPUT)?}),
         ),
-        "grep" => ("Grep", search_input(object)?),
-        "find" => ("Find", search_input(object)?),
+        "grep" => ("Grep", openclaw_search_input(object)?),
+        "find" => ("Find", openclaw_search_input(object)?),
         "ls" => (
             "Ls",
             json!({"path":tool_input_optional_non_empty_string(object, "path", INVALID_OPENCLAW_TOOL_INPUT)?.unwrap_or_else(|| ".".into())}),
@@ -188,7 +189,7 @@ fn lower_openclaw_tool<'a>(
     })
 }
 
-fn search_input(object: &Map<String, Value>) -> Result<Value, String> {
+fn openclaw_search_input(object: &Map<String, Value>) -> Result<Value, String> {
     Ok(json!({
         "pattern":tool_input_string(object, "pattern", INVALID_OPENCLAW_TOOL_INPUT)?,
         "path":tool_input_optional_non_empty_string(object, "path", INVALID_OPENCLAW_TOOL_INPUT)?.unwrap_or_else(|| ".".into())
@@ -210,7 +211,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(OpenClawHookInput {
+        normalize_openclaw_hook_input(OpenClawHookInput {
             tool_name: tool_name.into(),
             tool_input,
             cwd: "/repo".into(),
@@ -260,7 +261,7 @@ mod tests {
             if let Some(restart_safe) = restart_safe {
                 original["restartSafe"] = json!(restart_safe);
             }
-            let code = normalize(OpenClawHookInput {
+            let code = normalize_openclaw_hook_input(OpenClawHookInput {
                 tool_name: "exec".into(),
                 tool_input: original.clone(),
                 cwd: "/repo".into(),
@@ -312,7 +313,7 @@ mod tests {
                 json!({"code":source,"command":source,"futureBehavior":"execute"}),
             ),
         ] {
-            let call = normalize(OpenClawHookInput {
+            let call = normalize_openclaw_hook_input(OpenClawHookInput {
                 tool_name: "exec".into(),
                 tool_input: input.clone(),
                 cwd: "/repo".into(),
@@ -335,7 +336,7 @@ mod tests {
     fn process_input_actions_stay_opaque() {
         for action in ["write", "send-keys", "submit", "paste"] {
             let input = json!({"action":action,"sessionId":"p1","data":"echo unsafe\n"});
-            let call = normalize(OpenClawHookInput {
+            let call = normalize_openclaw_hook_input(OpenClawHookInput {
                 tool_name: "process".into(),
                 tool_input: input.clone(),
                 cwd: "/repo".into(),
@@ -363,7 +364,7 @@ mod tests {
             ("find", json!({"pattern":"x","path":7})),
             ("ls", json!({"path":7})),
         ] {
-            let call = normalize(OpenClawHookInput {
+            let call = normalize_openclaw_hook_input(OpenClawHookInput {
                 tool_name: name.into(),
                 tool_input: input.clone(),
                 cwd: "/repo".into(),

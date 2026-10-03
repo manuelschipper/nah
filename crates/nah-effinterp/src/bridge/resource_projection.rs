@@ -1262,7 +1262,7 @@ pub(super) fn unconditionally_selects_path(
     platform: nah_proto::ctx::Platform,
 ) -> bool {
     recursive_concrete_selection_root(effect)
-        .is_some_and(|root| nah_proto::labels::contains(root, path.as_str(), platform))
+        .is_some_and(|root| nah_proto::labels::lexically_contains(root, path.as_str(), platform))
 }
 
 /// Whether a resource is the whole-environment pattern `*`.

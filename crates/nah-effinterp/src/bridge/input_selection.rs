@@ -5,7 +5,7 @@
 use nah_proto::effects;
 use nah_proto::tool::ToolCallInput;
 
-use super::{AdapterRefusal, RefusalKind, refusal};
+use super::{AdapterRefusal, RefusalKind, adapter_refusal};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SourceLanguage {
@@ -53,8 +53,8 @@ pub(super) fn command_text(subject: &effinterp_proto::Subject) -> Option<&str> {
 pub(super) fn native_subject(
     root: &ToolCallInput,
 ) -> Result<effinterp_proto::ToolCall, AdapterRefusal> {
-    let unsupported = |code| refusal(root, RefusalKind::UnsupportedInput, code);
-    let invalid = || refusal(root, RefusalKind::InvalidInput, "native-fields");
+    let unsupported = |code| adapter_refusal(root, RefusalKind::UnsupportedInput, code);
+    let invalid = || adapter_refusal(root, RefusalKind::InvalidInput, "native-fields");
     let object = root.input().as_object().ok_or_else(invalid)?;
     let string = |key: &str| {
         object

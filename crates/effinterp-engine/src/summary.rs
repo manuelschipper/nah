@@ -191,6 +191,13 @@ pub(crate) fn contains_unresolved(resource: &ResourceExpr) -> bool {
     }
 }
 
+/// Whether a resource expression carries usable information: anything but a
+/// bare unresolved family placeholder. A free parameter is usable, and a
+/// `Join` with an unresolved part still counts for its concrete prefix.
+pub(crate) fn is_resolvable(expr: &ResourceExpr) -> bool {
+    !matches!(expr, ResourceExpr::Unresolved { .. })
+}
+
 fn substitute_identity(
     identity: &ResourceIdentity,
     bindings: &HashMap<String, ResourceExpr>,

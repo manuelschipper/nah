@@ -7,14 +7,14 @@ use effinterp_proto::{
 use syn::Expr;
 
 use crate::summary::substitute_resource_expr;
-use crate::value::{parse_url_endpoint, unresolved_resource};
+use crate::value::{unresolved_resource, url_endpoint_resource};
 use crate::word::{Word, WordPart};
 use crate::{SemanticValue, SemanticValueKind, substitute_value};
 
 use super::{
-    Resolver, ValueFacts, child_exprs, closure_expr, command_method_preserves_executable_and_argv,
-    expr_key, is_rust_branch, mutated_base_ident, path_segments, rust_path_literal,
-    simple_boundary, single_ident, str_lit,
+    Resolver, RustValueFacts, child_exprs, closure_expr,
+    command_method_preserves_executable_and_argv, expr_key, is_rust_branch, mutated_base_ident,
+    path_segments, rust_path_literal, simple_boundary, single_ident, str_lit,
 };
 
 // ---------------------------------------------------------------------------
@@ -424,7 +424,7 @@ pub(super) struct RustSinkResolution {
 
 pub(super) fn resolve_rust_sink(
     expr: &Expr,
-    facts: &ValueFacts,
+    facts: &RustValueFacts,
     env: &HashMap<String, ResourceExpr>,
     fallback: ResourceExpr,
     domain: RustSinkDomain,
@@ -470,7 +470,7 @@ fn lower_rust_sink_value(value: &SemanticValue, domain: RustSinkDomain) -> Resou
     match &value.kind {
         SemanticValueKind::Literal(value) => match domain {
             RustSinkDomain::Filesystem => crate::paths::resolve_fs_path(value, None),
-            RustSinkDomain::Network => parse_endpoint(value),
+            RustSinkDomain::Network => url_endpoint_resource(value),
             RustSinkDomain::NetworkAddress => parse_socket_addr(value),
         },
         SemanticValueKind::Path {
@@ -478,7 +478,7 @@ fn lower_rust_sink_value(value: &SemanticValue, domain: RustSinkDomain) -> Resou
             ..
         } => match domain {
             RustSinkDomain::Filesystem => crate::paths::resolve_fs_path(value, None),
-            RustSinkDomain::Network => parse_endpoint(value),
+            RustSinkDomain::Network => url_endpoint_resource(value),
             RustSinkDomain::NetworkAddress => parse_socket_addr(value),
         },
         SemanticValueKind::Parameter(name) | SemanticValueKind::Symbol(name) => {
@@ -495,7 +495,7 @@ fn lower_rust_sink_value(value: &SemanticValue, domain: RustSinkDomain) -> Resou
             ) && let Some(value) = rust_joined_literals(parts)
             {
                 return match domain {
-                    RustSinkDomain::Network => parse_endpoint(&value),
+                    RustSinkDomain::Network => url_endpoint_resource(&value),
                     RustSinkDomain::NetworkAddress => parse_socket_addr(&value),
                     RustSinkDomain::Filesystem => unreachable!(),
                 };
@@ -674,7 +674,7 @@ pub(super) fn rust_sink_detail(expr: &Expr, give_up: RustSinkGiveUp, domain: &st
 
 pub(super) fn resolve_rust_env_name(
     arg: &Expr,
-    facts: &ValueFacts,
+    facts: &RustValueFacts,
     env: &HashMap<String, ResourceExpr>,
     value_limits: crate::ValueLimits,
 ) -> String {
@@ -941,7 +941,7 @@ pub(super) fn env_effect_struct(operation: &str, name: String) -> Effect {
 
 pub(super) fn net_effect_struct(arg: &Expr, params: &HashSet<String>) -> Effect {
     let resource = match str_lit(arg) {
-        Some(url) => parse_endpoint(&url),
+        Some(url) => url_endpoint_resource(&url),
         None => symbolic_net(arg, params),
     };
     base_effect("network.request", resource)
@@ -996,10 +996,4 @@ fn parse_socket_addr(addr: &str) -> ResourceExpr {
             path: None,
         },
     }
-}
-
-fn parse_endpoint(url: &str) -> ResourceExpr {
-    parse_url_endpoint(url)
-        .map(|identity| ResourceExpr::Concrete { identity })
-        .unwrap_or_else(|| unresolved_resource("network"))
 }

@@ -655,7 +655,7 @@ fn effect_fact_payload(
                     // disclose the selected path's contents.
                     let selected = nah_proto::ctx::AbsolutePath::new(
                         view.authority().platform(),
-                        nah_proto::labels::join(
+                        nah_proto::labels::join_lexical_path(
                             worktree.as_str(),
                             &path,
                             view.authority().platform(),

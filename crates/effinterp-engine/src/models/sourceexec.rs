@@ -90,7 +90,7 @@ impl CommandModel for GoRun {
             ],
             &["-C"],
         ) else {
-            unavailable(
+            source_unavailable(
                 builder,
                 model_node,
                 "go run source is not a bounded literal file or package",
@@ -98,7 +98,7 @@ impl CommandModel for GoRun {
             return;
         };
         let Some(value) = script.as_literal() else {
-            unavailable(builder, model_node, "go run source is symbolic");
+            source_unavailable(builder, model_node, "go run source is symbolic");
             return;
         };
         if value.ends_with(".go") {
@@ -123,7 +123,7 @@ impl CommandModel for GoRun {
             };
             nest_go(builder, ctx, model_node, index, script, Some(&path));
         } else {
-            unavailable(
+            source_unavailable(
                 builder,
                 model_node,
                 "go run package is not an exact local path",
@@ -173,7 +173,7 @@ impl CommandModel for JavaSource {
                     }
                 })
             }
-            None => unavailable(
+            None => source_unavailable(
                 builder,
                 model_node,
                 "java source is not a bounded literal file",
@@ -914,7 +914,7 @@ impl CommandModel for RustScript {
                     .is_some_and(|value| value.ends_with(".rs"))
             })
         else {
-            unavailable(
+            source_unavailable(
                 builder,
                 model_node,
                 "Rust source is not a bounded literal file",
@@ -996,15 +996,15 @@ pub(crate) fn nest(
             if let Some(detail) =
                 source_refusal_detail(builder, refusal, "source file is unavailable")
             {
-                unavailable(builder, model_node, &detail);
+                source_unavailable(builder, model_node, &detail);
             }
         }
         SourceResolution::UnsupportedEncoding => {
-            unavailable(builder, model_node, "source file is not valid UTF-8")
+            source_unavailable(builder, model_node, "source file is not valid UTF-8")
         }
         SourceResolution::AlreadySelected => (),
         SourceResolution::Unavailable => {
-            unavailable(builder, model_node, "source file is unavailable")
+            source_unavailable(builder, model_node, "source file is unavailable")
         }
     }
 }
@@ -1039,7 +1039,7 @@ fn nest_go(
             if source_path.is_some() {
                 let Some(siblings) = ctx.source_siblings(&path) else {
                     ctx.nest.record_unsupported_source(builder, &path);
-                    unavailable(
+                    source_unavailable(
                         builder,
                         model_node,
                         "go run package sibling source closure is unavailable",
@@ -1051,7 +1051,7 @@ fn nest_go(
                     .any(|sibling| sibling.ends_with(".go") && !sibling.ends_with("_test.go"))
                 {
                     ctx.nest.record_unsupported_source(builder, &path);
-                    unavailable(
+                    source_unavailable(
                         builder,
                         model_node,
                         "go run package contains unmodeled sibling Go sources",
@@ -1086,20 +1086,20 @@ fn nest_go(
             if let Some(detail) =
                 source_refusal_detail(builder, refusal, "source file is unavailable")
             {
-                unavailable(builder, model_node, &detail);
+                source_unavailable(builder, model_node, &detail);
             }
         }
         SourceResolution::UnsupportedEncoding => {
-            unavailable(builder, model_node, "source file is not valid UTF-8")
+            source_unavailable(builder, model_node, "source file is not valid UTF-8")
         }
         SourceResolution::AlreadySelected => (),
         SourceResolution::Unavailable => {
-            unavailable(builder, model_node, "source file is unavailable")
+            source_unavailable(builder, model_node, "source file is unavailable")
         }
     }
 }
 
-fn unavailable(builder: &mut PlanBuilder, model_node: ProvenanceRef, detail: &str) {
+fn source_unavailable(builder: &mut PlanBuilder, model_node: ProvenanceRef, detail: &str) {
     const DOMAINS: [&str; 4] = ["environment", "filesystem", "network", "process"];
     for domain in DOMAINS {
         builder.declare_coverage(Domain::new(domain), CoverageLevel::Partial);

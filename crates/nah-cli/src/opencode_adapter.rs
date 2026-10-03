@@ -37,7 +37,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
 ) -> u8 {
     let request = serde_json::from_reader::<_, OpenCodeHookInput>(stdin)
         .map_err(|error| error.to_string())
-        .and_then(normalize);
+        .and_then(normalize_opencode_hook_input);
     let output = match request {
         Ok(request) => {
             match hook_adapter::decide_input(request, stderr, Runtime::OpenCode, failure_policy) {
@@ -75,8 +75,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         )
         .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
 }
 
@@ -86,7 +85,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize(OpenCodeHookInput {
+    normalize_opencode_hook_input(OpenCodeHookInput {
         tool_name: tool_name.into(),
         tool_input,
         cwd: cwd.into(),
@@ -94,7 +93,7 @@ pub(crate) fn normalize_call(
     })
 }
 
-fn normalize(input: OpenCodeHookInput) -> Result<ToolCallInput, String> {
+fn normalize_opencode_hook_input(input: OpenCodeHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_input.clone();
     let lowered = input
         .tool_input
@@ -161,13 +160,13 @@ fn lower_opencode_tool<'a>(
             "apply_patch",
             json!({"command": tool_input_non_empty_string(object, "patchText", INVALID_OPENCODE_TOOL_INPUT)?}),
         ),
-        "glob" => ("Glob", search_input(object)?),
-        "grep" => ("Grep", search_input(object)?),
+        "glob" => ("Glob", opencode_search_input(object)?),
+        "grep" => ("Grep", opencode_search_input(object)?),
         _ => (tool_name, tool_input.clone()),
     })
 }
 
-fn search_input(object: &Map<String, Value>) -> Result<Value, String> {
+fn opencode_search_input(object: &Map<String, Value>) -> Result<Value, String> {
     let mut input =
         json!({"pattern": tool_input_string(object, "pattern", INVALID_OPENCODE_TOOL_INPUT)?});
     match object.get("path") {
@@ -183,7 +182,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(OpenCodeHookInput {
+        normalize_opencode_hook_input(OpenCodeHookInput {
             tool_name: tool_name.into(),
             tool_input,
             cwd: "/repo".into(),
@@ -294,7 +293,7 @@ mod tests {
             ("glob", json!({"pattern":"*","path":7})),
             ("grep", json!({"pattern":7})),
         ] {
-            let call = normalize(OpenCodeHookInput {
+            let call = normalize_opencode_hook_input(OpenCodeHookInput {
                 tool_name: name.into(),
                 tool_input: input.clone(),
                 cwd: "/repo".into(),

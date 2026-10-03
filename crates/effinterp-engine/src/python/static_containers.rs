@@ -8,11 +8,10 @@ use effinterp_proto::ResourceExpr;
 use rustpython_parser::ast;
 use rustpython_parser::ast::{Expr, Stmt};
 
-use crate::summary::substitute_resource_expr;
+use crate::summary::{is_resolvable, substitute_resource_expr};
 use crate::value::unresolved_resource;
 use crate::{SemanticValue, positional_arguments};
 
-use super::definitions::is_resolvable;
 use super::resolve::str_literal;
 use super::{
     PythonWalker, StaticContainer, StaticResource, bind_python_arguments, callee_written,

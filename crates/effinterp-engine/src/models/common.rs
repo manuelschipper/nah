@@ -1076,6 +1076,27 @@ pub(crate) fn content_read_effect(
     })
 }
 
+/// The model-application provenance node of a handwritten model: the `source`
+/// its grammar was reviewed against, over the model node and every argument.
+/// Analysis never fetches that source.
+pub(crate) fn reviewed_source_node(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    node: ProvenanceRef,
+    source: &str,
+) -> ProvenanceRef {
+    let mut provenance = vec![node];
+    for index in 1..ctx.argv.len() {
+        provenance.push(arg_node(builder, ctx, index as u32));
+    }
+    builder.node(
+        ProvenanceKind::ModelApplication {
+            model: source.into(),
+        },
+        &provenance,
+    )
+}
+
 /// Provenance node for one argv position of this invocation.
 pub(crate) fn arg_node(
     builder: &mut PlanBuilder,

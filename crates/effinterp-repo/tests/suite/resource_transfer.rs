@@ -8,17 +8,10 @@ use std::path::{Path, PathBuf};
 use effinterp_repo::{
     Composition, IndexLimits, RepoChange, apply_changes, build_index, effects_of, save_index,
 };
+use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 fn repo(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(tag);
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    for (name, source) in files {
-        let path = root.join(name);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, source).unwrap();
-    }
-    root
+    repo_test_fixture(Path::new(env!("CARGO_TARGET_TMPDIR")), tag, files)
 }
 
 /// Each composed transfer pairing as `(source operation, destination operation)`.

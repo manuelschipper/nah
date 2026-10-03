@@ -136,7 +136,7 @@ impl CommandModel for Docker {
         if ctx
             .argv
             .first()
-            .and_then(crate::exec::program_name)
+            .and_then(crate::exec::dispatch_program_name)
             .is_some_and(|command| matches!(command, "docker-compose" | "podman-compose"))
         {
             self.compose(builder, ctx, model_node, 1);
@@ -1424,7 +1424,7 @@ impl Docker {
         if selected.get("--help") == Some(&true)
             || selected.get("--dry-run") == Some(&true)
             || selected.get("--version") == Some(&true)
-                && crate::exec::program_name(&ctx.argv[0]) == Some("podman-compose")
+                && crate::exec::dispatch_program_name(&ctx.argv[0]) == Some("podman-compose")
         {
             return;
         }
@@ -1524,7 +1524,7 @@ impl Docker {
         start: usize,
         compose: bool,
     ) {
-        let BuildContext {
+        let ContainerBuildContext {
             operand_index: i,
             unknown_flags,
             operand_ambiguous,
@@ -2344,13 +2344,13 @@ fn runtime_context(
     Ok(context)
 }
 
-struct BuildContext {
+struct ContainerBuildContext {
     operand_index: usize,
     unknown_flags: Vec<(u32, String)>,
     operand_ambiguous: bool,
 }
 
-fn build_context(argv: &[Word], start: usize) -> Result<BuildContext, (usize, String)> {
+fn build_context(argv: &[Word], start: usize) -> Result<ContainerBuildContext, (usize, String)> {
     let (scanned, operand_index, operand_ambiguous) =
         container_options(argv, start, &DOCKER_BUILD, true);
     if let Some(flag) = scanned
@@ -2360,7 +2360,7 @@ fn build_context(argv: &[Word], start: usize) -> Result<BuildContext, (usize, St
     {
         return Err((flag.index as usize, argv[flag.index as usize].render_raw()));
     }
-    Ok(BuildContext {
+    Ok(ContainerBuildContext {
         operand_index,
         operand_ambiguous,
         unknown_flags: scanned.unknown_flags,

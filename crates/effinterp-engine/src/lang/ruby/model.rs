@@ -13,7 +13,7 @@ use crate::lang::frontend::MAX_CALLBACK_VALUES;
 use crate::module_summary::CallEdge;
 use crate::resource_transfer::TransferBinding;
 use crate::summary::{contains_unresolved, has_text_concat};
-use crate::value::{sink_typed_join, unresolved_resource, url_endpoint_resource};
+use crate::value::{fs_path_resource, sink_typed_join, unresolved_resource, url_endpoint_resource};
 use crate::{ObjectIdentity, ScopeKey, SemanticValue, ValueArgument};
 
 use super::{
@@ -23,7 +23,7 @@ use super::{
 
 /// What a `Send` resolves to.
 #[derive(Clone)]
-pub(super) enum Modeled {
+pub(super) enum RubyModeledSend {
     Effects {
         effects: Vec<Effect>,
         /// Source-to-destination transfer pairings among `effects`, by slot.
@@ -61,7 +61,7 @@ pub(super) enum Modeled {
 
 /// Modeling context: parameter bindings, the enclosing class, the file's
 /// definitions, and constructor-typed locals.
-pub(super) struct Scope<'a> {
+pub(super) struct RubyModelScope<'a> {
     pub(super) env: &'a HashMap<String, ResourceExpr>,
     pub(super) cwd: Option<&'a str>,
     pub(super) class: Option<&'a str>,
@@ -485,7 +485,7 @@ fn is_user_call_candidate(name: &str) -> bool {
 
 /// Model one method call. `scope` binds in-scope parameters, the enclosing
 /// class, and typed locals.
-pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
+pub(super) fn model(s: &Send, scope: &RubyModelScope) -> RubyModeledSend {
     let method = s.method_name.as_str();
     let recv = s.recv.as_deref().and_then(constant_path);
     if matches!(s.recv.as_deref(), None | Some(Node::Self_(_)))
@@ -503,7 +503,7 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
             .inert
             .contains(&(s.expression_l.begin, s.expression_l.end))
     {
-        return Modeled::None;
+        return RubyModeledSend::None;
     }
     if s.recv.is_none() && matches!(method, "require" | "require_relative" | "load") {
         let mut module = s
@@ -522,9 +522,9 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
             crate::classify_ruby_require(&module),
             Some(crate::ExternalCall::Modeled | crate::ExternalCall::Inert)
         ) {
-            return Modeled::None;
+            return RubyModeledSend::None;
         }
-        return Modeled::Boundary(Boundary {
+        return RubyModeledSend::Boundary(Boundary {
             reason: BoundaryReason::UNMODELED_IMPORT,
             class: BoundaryClass::Unresolved,
             scope: effinterp_proto::BoundaryScope::Invocation,
@@ -545,7 +545,7 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
 
     if s.recv.is_none() && scope.ctx.rake_dsl && scope.ctx.def(method).is_none() {
         match method {
-            "task" | "namespace" | "file" | "directory" => return Modeled::None,
+            "task" | "namespace" | "file" | "directory" => return RubyModeledSend::None,
             "sh" | "ruby" => return spawn(&s.args, scope.env, scope.cwd, false),
             "rm" => {
                 return each_operand(&s.args, scope.env, scope.cwd, "filesystem.delete", false);
@@ -566,8 +566,8 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
                 return file_move(&s.args, scope.env, scope.cwd);
             }
             "ln_s" => {
-                return s.args.get(1).map_or(Modeled::None, |target| {
-                    Modeled::effects(vec![effect(
+                return s.args.get(1).map_or(RubyModeledSend::None, |target| {
+                    RubyModeledSend::effects(vec![effect(
                         "filesystem.create",
                         resolve(target, scope.env, scope.cwd),
                         false,
@@ -589,7 +589,7 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
         && scope.ctx.literal_builtins
         && let Some(source) = s.args.first().and_then(literal_str)
     {
-        return Modeled::LiteralEval(source);
+        return RubyModeledSend::LiteralEval(source);
     }
 
     // `eval(CODE [, binding, file, line])`, `binding.eval(CODE)`, and
@@ -613,10 +613,10 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
             other => remote_body(other, scope.env, scope.cwd),
         }
     {
-        return Modeled::RemoteEval(url);
+        return RubyModeledSend::RemoteEval(url);
     }
     if evaluates && s.args.first().is_some_and(base64_decoded) {
-        return Modeled::DecodedEval;
+        return RubyModeledSend::DecodedEval;
     }
 
     if matches!(method, "send" | "__send__" | "public_send") {
@@ -628,22 +628,23 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
             let mut direct = s.clone();
             direct.method_name = selected.clone();
             direct.args.remove(0);
-            if let Modeled::Calls(edges) = user_call(&direct, recv.clone(), &selected, scope)
+            if let RubyModeledSend::Calls(edges) =
+                user_call(&direct, recv.clone(), &selected, scope)
                 && edges
                     .iter()
                     .all(|edge| local_key(scope.ctx, edge).is_some())
             {
-                return Modeled::Calls(edges);
+                return RubyModeledSend::Calls(edges);
             }
             // Only a proven constant receiver can select a builtin API. Do not
             // recursively interpret reflection selectors as API names.
             if scope.ctx.literal_builtins
                 && recv.is_some()
                 && !matches!(selected.as_str(), "send" | "__send__" | "public_send")
-                && let modeled @ (Modeled::Effects { .. }
-                | Modeled::ShellSpawn { .. }
-                | Modeled::ExecSpawn { .. }
-                | Modeled::SpawnUnresolved(_)) = model(&direct, scope)
+                && let modeled @ (RubyModeledSend::Effects { .. }
+                | RubyModeledSend::ShellSpawn { .. }
+                | RubyModeledSend::ExecSpawn { .. }
+                | RubyModeledSend::SpawnUnresolved(_)) = model(&direct, scope)
             {
                 return modeled;
             }
@@ -661,7 +662,7 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
             | "public_send"
             | "const_get"
     ) {
-        return Modeled::Boundary(dyn_boundary(method));
+        return RubyModeledSend::Boundary(dyn_boundary(method));
     }
 
     // Kernel / Process spawns (receiver-less, `Kernel.`/`Process.` prefixed,
@@ -693,7 +694,7 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
             "open" => return file_open(&s.args, scope.env, scope.cwd),
             "rename" => return file_rename(&s.args, scope.env, scope.cwd),
             "chmod" | "lchmod" => return chmod(&s.args, scope.env, scope.cwd, false, false),
-            _ => return Modeled::None,
+            _ => return RubyModeledSend::None,
         },
         Some("IO") => match method {
             "write" => return fs_first(&s.args, scope.env, scope.cwd, "filesystem.write"),
@@ -701,7 +702,7 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
                 return fs_content_first(&s.args, scope.env, scope.cwd);
             }
             "popen" => return spawn(&s.args, scope.env, scope.cwd, true),
-            _ => return Modeled::None,
+            _ => return RubyModeledSend::None,
         },
         Some("FileUtils") => match method {
             "rm" | "remove" | "rm_f" | "safe_unlink" => {
@@ -724,7 +725,7 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
             }
             "chmod" => return chmod(&s.args, scope.env, scope.cwd, false, true),
             "chmod_R" => return chmod(&s.args, scope.env, scope.cwd, true, true),
-            _ => return Modeled::None,
+            _ => return RubyModeledSend::None,
         },
         Some("Dir") => match method {
             "mkdir" => return fs_first(&s.args, scope.env, scope.cwd, "filesystem.create"),
@@ -734,36 +735,40 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
             "entries" | "children" | "each_child" | "foreach" | "glob" => {
                 return fs_first(&s.args, scope.env, scope.cwd, "filesystem.read");
             }
-            _ => return Modeled::None,
+            _ => return RubyModeledSend::None,
         },
         Some("YAML") => match method {
             "load_file" | "safe_load_file" | "unsafe_load_file" => {
                 return fs_first(&s.args, scope.env, scope.cwd, "filesystem.read");
             }
-            _ => return Modeled::None,
+            _ => return RubyModeledSend::None,
         },
         Some("Open3") => match method {
             "capture2" | "capture2e" | "capture3" | "popen2" | "popen2e" | "popen3" => {
                 return spawn(&s.args, scope.env, scope.cwd, false);
             }
             "pipeline" | "pipeline_r" | "pipeline_w" => {
-                return Modeled::SpawnUnresolved(None);
+                return RubyModeledSend::SpawnUnresolved(None);
             }
-            _ => return Modeled::None,
+            _ => return RubyModeledSend::None,
         },
         Some("ENV") => match method {
             "fetch" | "[]" | "key?" | "has_key?" | "include?" | "member?" => {
-                return Modeled::effects(vec![effect("environment.read", env_key(&s.args), false)]);
+                return RubyModeledSend::effects(vec![effect(
+                    "environment.read",
+                    env_key(&s.args),
+                    false,
+                )]);
             }
             "[]=" | "store" => {
-                return Modeled::effects(vec![env_write(env_key(&s.args), false)]);
+                return RubyModeledSend::effects(vec![env_write(env_key(&s.args), false)]);
             }
-            "delete" => return Modeled::effects(vec![env_write(env_key(&s.args), true)]),
+            "delete" => return RubyModeledSend::effects(vec![env_write(env_key(&s.args), true)]),
             "update" | "merge!" | "replace" => {
-                return Modeled::effects(env_hash_writes(&s.args));
+                return RubyModeledSend::effects(env_hash_writes(&s.args));
             }
-            "clear" => return Modeled::effects(vec![env_write(env_key(&[]), true)]),
-            _ => return Modeled::None,
+            "clear" => return RubyModeledSend::effects(vec![env_write(env_key(&[]), true)]),
+            _ => return RubyModeledSend::None,
         },
         Some("Net::HTTP") if matches!(method, "get" | "post" | "get_response" | "start") => {
             if method == "post" {
@@ -772,14 +777,14 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
                 if s.args.len() > 1 {
                     effects.push(effect("network.upload", resource, false));
                 }
-                return Modeled::effects(effects);
+                return RubyModeledSend::effects(effects);
             }
             return net(&s.args, scope.env, scope.cwd);
         }
         Some("URI") | Some("Kernel") if method == "open" => {
             return net(&s.args, scope.env, scope.cwd);
         }
-        Some("Kernel") => return Modeled::None,
+        Some("Kernel") => return RubyModeledSend::None,
         _ => {}
     }
 
@@ -817,7 +822,7 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
                     effinterp_proto::AttrValue::String("program_input".into()),
                 );
             }
-            return Modeled::effects(vec![effect]);
+            return RubyModeledSend::effects(vec![effect]);
         }
     }
 
@@ -827,10 +832,15 @@ pub(super) fn model(s: &Send, scope: &Scope) -> Modeled {
 /// A call into user code: build the call edge(s) the composer can dispatch —
 /// qualified same-class calls, `Cls.new(...)` constructors, chained
 /// `Cls.new(...).m`, `@ivar.m`, and typed/parameter locals.
-fn user_call(s: &Send, recv: Option<String>, method: &str, scope: &Scope) -> Modeled {
+fn user_call(
+    s: &Send,
+    recv: Option<String>,
+    method: &str,
+    scope: &RubyModelScope,
+) -> RubyModeledSend {
     let args = value_arguments(&s.args, scope.env, scope.cwd);
     let edge = |callee: String, receiver: Option<SemanticValue>| {
-        Modeled::Calls(vec![CallEdge {
+        RubyModeledSend::Calls(vec![CallEdge {
             callee,
             arguments: args.clone(),
             receiver,
@@ -878,7 +888,7 @@ fn user_call(s: &Send, recv: Option<String>, method: &str, scope: &Scope) -> Mod
                     return edge(method.to_string(), None);
                 }
                 if s.recv.is_none() && !is_user_call_candidate(method) {
-                    return Modeled::None;
+                    return RubyModeledSend::None;
                 }
                 return edge(
                     format!("self.{method}"),
@@ -886,10 +896,10 @@ fn user_call(s: &Send, recv: Option<String>, method: &str, scope: &Scope) -> Mod
                 );
             }
             if s.recv.is_none() && !is_user_call_candidate(method) {
-                return Modeled::None;
+                return RubyModeledSend::None;
             }
             if s.recv.is_some() && scope.ctx.def(method).is_none() {
-                return Modeled::None;
+                return RubyModeledSend::None;
             }
             edge(method.to_string(), None)
         }
@@ -898,7 +908,7 @@ fn user_call(s: &Send, recv: Option<String>, method: &str, scope: &Scope) -> Mod
             let attr = v.name.trim_start_matches('@').to_string();
             let classes = ivar_classes(scope, &attr);
             if !classes.is_empty() {
-                return Modeled::Calls(
+                return RubyModeledSend::Calls(
                     classes
                         .into_iter()
                         .map(|cls| CallEdge {
@@ -923,7 +933,7 @@ fn user_call(s: &Send, recv: Option<String>, method: &str, scope: &Scope) -> Mod
         // A local: constructor-typed (`x = Cls.new; x.m`) or a parameter.
         Some(Node::Lvar(v)) => {
             if let Some(classes) = scope.vars.get(&v.name) {
-                return Modeled::Calls(
+                return RubyModeledSend::Calls(
                     classes
                         .iter()
                         .map(|cls| CallEdge {
@@ -947,7 +957,7 @@ fn user_call(s: &Send, recv: Option<String>, method: &str, scope: &Scope) -> Mod
                     })),
                 );
             }
-            Modeled::None
+            RubyModeledSend::None
         }
         // Chained construction: `Cls.new(...).m(...)`, `clsref.new.m`, or a
         // factory `.new.m` that dispatches through template-base classes.
@@ -973,7 +983,7 @@ fn user_call(s: &Send, recv: Option<String>, method: &str, scope: &Scope) -> Mod
                     })),
                 );
             }
-            Modeled::None
+            RubyModeledSend::None
         }
         // `engine.start` — a same-class getter whose return class is known.
         Some(Node::Send(inner)) => {
@@ -991,9 +1001,9 @@ fn user_call(s: &Send, recv: Option<String>, method: &str, scope: &Scope) -> Mod
                     })),
                 );
             }
-            Modeled::None
+            RubyModeledSend::None
         }
-        _ => Modeled::None,
+        _ => RubyModeledSend::None,
     }
 }
 
@@ -1031,7 +1041,7 @@ pub(super) fn value_arguments(
     values
 }
 
-fn ivar_classes(scope: &Scope, attr: &str) -> Vec<String> {
+fn ivar_classes(scope: &RubyModelScope, attr: &str) -> Vec<String> {
     if let Some(classes) = scope.ivars.get(attr) {
         return classes.clone();
     }
@@ -1099,7 +1109,7 @@ fn spawn(
     env: &HashMap<String, ResourceExpr>,
     cwd: Option<&str>,
     accepts_io_mode: bool,
-) -> Modeled {
+) -> RubyModeledSend {
     let chdir = spawn_option(args, "chdir").map(|value| resolve(value, env, cwd));
     // Only a path names a file; `out: :err` or an IO object does not.
     let stdout = spawn_option(args, "out")
@@ -1107,7 +1117,7 @@ fn spawn(
         .map(|value| resolve(value, env, cwd));
     let args = spawn_args(args);
     let Some(first) = args.first() else {
-        return Modeled::None;
+        return RubyModeledSend::None;
     };
     // Kernel spawn form `system([prog, argv0], args...)`: `prog` runs and
     // `argv0` only renames it.
@@ -1121,7 +1131,7 @@ fn spawn(
                 .iter()
                 .map(|argument| spawn_word(argument, env, cwd)),
         );
-        return Modeled::ExecSpawn {
+        return RubyModeledSend::ExecSpawn {
             argv,
             cwd: chdir,
             stdout,
@@ -1135,9 +1145,9 @@ fn spawn(
             .map(|element| spawn_word(element, env, cwd))
             .collect();
         if argv.is_empty() {
-            return Modeled::SpawnUnresolved(None);
+            return RubyModeledSend::SpawnUnresolved(None);
         }
-        return Modeled::ExecSpawn {
+        return RubyModeledSend::ExecSpawn {
             argv,
             cwd: chdir,
             stdout,
@@ -1146,7 +1156,7 @@ fn spawn(
     // Single argument: a shell command line.
     if args.len() == 1 {
         return match literal_str(first) {
-            Some(cmd) => Modeled::ShellSpawn {
+            Some(cmd) => RubyModeledSend::ShellSpawn {
                 source: ResourceExpr::Literal { value: cmd },
                 cwd: chdir,
                 stdout,
@@ -1157,13 +1167,13 @@ fn spawn(
                     source,
                     ResourceExpr::Parameter { .. } | ResourceExpr::Literal { .. }
                 ) {
-                    Modeled::ShellSpawn {
+                    RubyModeledSend::ShellSpawn {
                         source,
                         cwd: chdir,
                         stdout,
                     }
                 } else {
-                    Modeled::SpawnUnresolved(leading_word(first))
+                    RubyModeledSend::SpawnUnresolved(leading_literal_word(first))
                 }
             }
         };
@@ -1181,7 +1191,7 @@ fn spawn(
                 && literal_str(args[1]).is_none()
                 && cmd.contains(char::is_whitespace)))
     {
-        return Modeled::ShellSpawn {
+        return RubyModeledSend::ShellSpawn {
             source: ResourceExpr::Literal { value: cmd },
             cwd: chdir,
             stdout,
@@ -1193,7 +1203,7 @@ fn spawn(
         .iter()
         .map(|argument| spawn_word(argument, env, cwd))
         .collect();
-    Modeled::ExecSpawn {
+    RubyModeledSend::ExecSpawn {
         argv,
         cwd: chdir,
         stdout,
@@ -1201,14 +1211,14 @@ fn spawn(
 }
 
 /// Backtick/%x parts: a literal command nests; interpolation stays symbolic.
-pub(super) fn spawn_of_parts(parts: &[Node]) -> Modeled {
+pub(super) fn spawn_of_parts(parts: &[Node]) -> RubyModeledSend {
     match literal_parts(parts) {
-        Some(cmd) => Modeled::ShellSpawn {
+        Some(cmd) => RubyModeledSend::ShellSpawn {
             source: ResourceExpr::Literal { value: cmd },
             cwd: None,
             stdout: None,
         },
-        None => Modeled::SpawnUnresolved(
+        None => RubyModeledSend::SpawnUnresolved(
             parts
                 .first()
                 .and_then(literal_str)
@@ -1219,7 +1229,7 @@ pub(super) fn spawn_of_parts(parts: &[Node]) -> Modeled {
 
 /// The first literal word of a partially-literal command string (a Dstr whose
 /// head part is a literal), e.g. `"git -C #{dir} status"` -> `git`.
-fn leading_word(node: &Node) -> Option<String> {
+fn leading_literal_word(node: &Node) -> Option<String> {
     let parts = match node {
         Node::Dstr(d) => &d.parts,
         Node::Heredoc(h) => &h.parts,
@@ -1231,7 +1241,11 @@ fn leading_word(node: &Node) -> Option<String> {
         .and_then(|s| s.split_whitespace().next().map(str::to_string))
 }
 
-fn file_open(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&str>) -> Modeled {
+fn file_open(
+    args: &[Node],
+    env: &HashMap<String, ResourceExpr>,
+    cwd: Option<&str>,
+) -> RubyModeledSend {
     let mode = args.get(1).and_then(literal_str).unwrap_or_default();
     let op = if mode.contains('w') || mode.contains('a') || mode.contains('+') {
         "filesystem.write"
@@ -1246,20 +1260,28 @@ fn fs_first(
     env: &HashMap<String, ResourceExpr>,
     cwd: Option<&str>,
     op: &str,
-) -> Modeled {
+) -> RubyModeledSend {
     match args.first() {
-        Some(a) => Modeled::effects(vec![effect(op, resolve(a, env, cwd), false)]),
-        None => Modeled::None,
+        Some(a) => RubyModeledSend::effects(vec![effect(op, resolve(a, env, cwd), false)]),
+        None => RubyModeledSend::None,
     }
 }
 
-fn file_copy(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&str>) -> Modeled {
+fn file_copy(
+    args: &[Node],
+    env: &HashMap<String, ResourceExpr>,
+    cwd: Option<&str>,
+) -> RubyModeledSend {
     file_transfer(args, env, cwd, &["filesystem.read"], None)
 }
 
 /// `File.rename` is a proven rename: it moves the source directory entry and
 /// invents no source content read. `filesystem.move` stays the semantic layer.
-fn file_rename(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&str>) -> Modeled {
+fn file_rename(
+    args: &[Node],
+    env: &HashMap<String, ResourceExpr>,
+    cwd: Option<&str>,
+) -> RubyModeledSend {
     file_transfer(
         args,
         env,
@@ -1272,7 +1294,11 @@ fn file_rename(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&
 /// `FileUtils.mv` is a general move utility: it may rename the entry or copy
 /// the content and delete the source, so the possible copy read is published
 /// alongside the entry mutation without being required by the move itself.
-fn file_move(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&str>) -> Modeled {
+fn file_move(
+    args: &[Node],
+    env: &HashMap<String, ResourceExpr>,
+    cwd: Option<&str>,
+) -> RubyModeledSend {
     file_transfer(
         args,
         env,
@@ -1282,7 +1308,7 @@ fn file_move(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&st
     )
 }
 
-impl Modeled {
+impl RubyModeledSend {
     /// Modeled effects with no transfer pairing.
     fn effects(effects: Vec<Effect>) -> Self {
         Self::Effects {
@@ -1304,16 +1330,18 @@ fn file_transfer(
     cwd: Option<&str>,
     source_operations: &[&str],
     layer: Option<&str>,
-) -> Modeled {
+) -> RubyModeledSend {
     let Some(source) = args.first() else {
-        return Modeled::None;
+        return RubyModeledSend::None;
     };
     let Some(target) = args.get(1) else {
         // Without a destination operand the known source-side effects are
         // still published; only the pairing is unavailable.
         return match layer {
-            Some(layer) => Modeled::effects(vec![effect(layer, resolve(source, env, cwd), false)]),
-            None => Modeled::None,
+            Some(layer) => {
+                RubyModeledSend::effects(vec![effect(layer, resolve(source, env, cwd), false)])
+            }
+            None => RubyModeledSend::None,
         };
     };
     let source_resource = resolve(source, env, cwd);
@@ -1330,7 +1358,7 @@ fn file_transfer(
         .collect::<Vec<_>>();
     effects.push(effect("filesystem.write", resolve(target, env, cwd), false));
     let destination = effects.len() as u32 - 1;
-    Modeled::Effects {
+    RubyModeledSend::Effects {
         transfers: source_slots
             .into_iter()
             .map(|source| TransferBinding::new(source, destination))
@@ -1346,7 +1374,7 @@ fn fs_content_first(
     args: &[Node],
     env: &HashMap<String, ResourceExpr>,
     cwd: Option<&str>,
-) -> Modeled {
+) -> RubyModeledSend {
     match args.first() {
         Some(a) => {
             let mut e = effect("filesystem.read", resolve(a, env, cwd), false);
@@ -1354,16 +1382,20 @@ fn fs_content_first(
                 "access_purpose".to_string(),
                 effinterp_proto::AttrValue::String("program_input".into()),
             );
-            Modeled::effects(vec![e])
+            RubyModeledSend::effects(vec![e])
         }
-        None => Modeled::None,
+        None => RubyModeledSend::None,
     }
 }
 
 /// Stat-flavored probes (`File.stat`/`exist?`/`readlink`/...) are metadata
 /// reads: `filesystem.read` carrying the same `metadata` attribute the
 /// fsutils ls/stat command models use.
-fn fs_meta_first(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&str>) -> Modeled {
+fn fs_meta_first(
+    args: &[Node],
+    env: &HashMap<String, ResourceExpr>,
+    cwd: Option<&str>,
+) -> RubyModeledSend {
     match args.first() {
         Some(a) => {
             let mut e = effect("filesystem.read", resolve(a, env, cwd), false);
@@ -1371,9 +1403,9 @@ fn fs_meta_first(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option
                 "metadata".to_string(),
                 effinterp_proto::AttrValue::Bool(true),
             );
-            Modeled::effects(vec![e])
+            RubyModeledSend::effects(vec![e])
         }
-        None => Modeled::None,
+        None => RubyModeledSend::None,
     }
 }
 
@@ -1383,13 +1415,13 @@ fn each_operand(
     cwd: Option<&str>,
     op: &str,
     recursive: bool,
-) -> Modeled {
+) -> RubyModeledSend {
     let effects = args
         .iter()
         .filter(|a| !matches!(a, Node::Hash(_) | Node::Kwargs(_) | Node::BlockPass(_)))
         .map(|a| effect(op, resolve(a, env, cwd), recursive))
         .collect();
-    Modeled::effects(effects)
+    RubyModeledSend::effects(effects)
 }
 
 /// `File.chmod(mode, *paths)` and `FileUtils.chmod(mode, list)`: a permission
@@ -1404,12 +1436,12 @@ fn chmod(
     cwd: Option<&str>,
     recursive: bool,
     file_utils: bool,
-) -> Modeled {
+) -> RubyModeledSend {
     let Some((mode, paths)) = args.split_first() else {
-        return Modeled::None;
+        return RubyModeledSend::None;
     };
     if file_utils && paths.iter().any(proven_noop) {
-        return Modeled::effects(Vec::new());
+        return RubyModeledSend::effects(Vec::new());
     }
     let grants = match mode {
         Node::Int(mode) => ruby_integer(&mode.value).map(crate::permission_mode::numeric),
@@ -1453,7 +1485,7 @@ fn chmod(
                 .into(),
         ),
     });
-    Modeled::Effects {
+    RubyModeledSend::Effects {
         effects,
         transfers: Vec::new(),
         boundary,
@@ -1509,7 +1541,7 @@ fn ruby_integer(text: &str) -> Option<u32> {
     u32::from_str_radix(digits, radix).ok()
 }
 
-fn net(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&str>) -> Modeled {
+fn net(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&str>) -> RubyModeledSend {
     let resource = match args.first().and_then(literal_str) {
         Some(url) => url_endpoint_resource(&url),
         None => match args.first() {
@@ -1517,7 +1549,7 @@ fn net(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&str>) ->
             None => unresolved_resource("network"),
         },
     };
-    Modeled::effects(vec![effect("network.request", resource, false)])
+    RubyModeledSend::effects(vec![effect("network.request", resource, false)])
 }
 
 /// The endpoint whose response body `node` evaluates to: `Net::HTTP.get(URL)`
@@ -1706,9 +1738,10 @@ pub(super) fn resolve(
                 && matches!(send.method_name.as_str(), "pwd" | "getwd")
                 && send.args.is_empty() =>
         {
-            cwd.map(fs_path).unwrap_or(ResourceExpr::Parameter {
-                name: "cwd".to_string(),
-            })
+            cwd.map(fs_path_resource)
+                .unwrap_or(ResourceExpr::Parameter {
+                    name: "cwd".to_string(),
+                })
         }
         Node::Send(send)
             if send.recv.as_deref().and_then(constant_path).as_deref() == Some("Dir")
@@ -1733,9 +1766,10 @@ pub(super) fn resolve(
                 .get(1)
                 .map(|base| expand_home(base).unwrap_or_else(|| resolve(base, env, cwd)))
                 .unwrap_or_else(|| {
-                    cwd.map(fs_path).unwrap_or(ResourceExpr::Parameter {
-                        name: "cwd".to_string(),
-                    })
+                    cwd.map(fs_path_resource)
+                        .unwrap_or(ResourceExpr::Parameter {
+                            name: "cwd".to_string(),
+                        })
                 });
             ResourceExpr::Join {
                 parts: vec![base, resolve(path, env, cwd)],
@@ -1862,7 +1896,7 @@ fn text_concat(mut parts: Vec<ResourceExpr>) -> ResourceExpr {
         };
         text.push_str(path);
     }
-    fs_path(&text)
+    fs_path_resource(&text)
 }
 
 fn pathname_expression(node: &Node) -> bool {
@@ -1889,14 +1923,6 @@ fn pathname_expression(node: &Node) -> bool {
     }
 }
 
-pub(super) fn fs_path(path: &str) -> ResourceExpr {
-    ResourceExpr::Concrete {
-        identity: ResourceIdentity::FsPath {
-            path: path.to_string(),
-        },
-    }
-}
-
 /// `File.expand_path` reads a leading `~` as the home directory (`HOME`) and
 /// `~user` as that user's home, which the engine cannot name.
 fn expand_home(node: &Node) -> Option<ResourceExpr> {
@@ -1912,7 +1938,7 @@ fn expand_home(node: &Node) -> Option<ResourceExpr> {
         return Some(home);
     }
     Some(ResourceExpr::Join {
-        parts: vec![home, fs_path(rest)],
+        parts: vec![home, fs_path_resource(rest)],
     })
 }
 

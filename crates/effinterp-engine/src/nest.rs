@@ -163,7 +163,7 @@ pub(crate) struct Budget {
     max_analysis_steps: u64,
     max_analysis_bytes: u64,
     /// The shell segment being walked, if any.
-    segment: Cell<Option<Segment>>,
+    segment: Cell<Option<ShellSegment>>,
     /// Pool usage of the segments already walked and of the work before them.
     pool_steps: Cell<u64>,
     pool_bytes: Cell<u64>,
@@ -242,7 +242,7 @@ const MAX_SATURATED_SEGMENTS: u32 = 32;
 /// when it began, what it was granted beyond the pools, and whether its own
 /// text pays for saturating them.
 #[derive(Clone, Copy)]
-struct Segment {
+struct ShellSegment {
     steps: u64,
     bytes: u64,
     grant_steps: u64,
@@ -462,7 +462,7 @@ impl Budget {
         if !fresh {
             // Walking an item again is work no new text pays for.
             if let Some(segment) = self.segment.get() {
-                self.segment.set(Some(Segment {
+                self.segment.set(Some(ShellSegment {
                     paid: false,
                     ..segment
                 }));
@@ -526,7 +526,7 @@ impl Budget {
                 (0, 0)
             }
         };
-        self.segment.set(Some(Segment {
+        self.segment.set(Some(ShellSegment {
             steps: self.steps.get(),
             bytes: self.retained_bytes.get(),
             grant_steps,
@@ -1012,7 +1012,7 @@ pub(crate) enum SourceSearchObservation {
 }
 
 /// Whether a nested transition may proceed, or why it was refused.
-enum Guard {
+enum NestedTransitionGuard {
     Proceed,
     Refused,
 }
@@ -2177,7 +2177,7 @@ impl<'a> Nest<'a> {
         transition: &ResolvedTransition,
         provenance: &[ProvenanceRef],
         depth: u64,
-    ) -> Guard {
+    ) -> NestedTransitionGuard {
         if builder.execution_fanout() >= self.limits.max_execution_fanout {
             if builder.note_execution_saturated() {
                 degrade_nested(builder);
@@ -2189,7 +2189,7 @@ impl<'a> Nest<'a> {
                     "max_execution_fanout",
                 );
             }
-            return Guard::Refused;
+            return NestedTransitionGuard::Refused;
         }
         if depth + 1 >= self.limits.max_execution_depth {
             let first_in_scope = builder.note_execution_saturated();
@@ -2205,7 +2205,7 @@ impl<'a> Nest<'a> {
                     "max_execution_depth",
                 );
             }
-            return Guard::Refused;
+            return NestedTransitionGuard::Refused;
         }
         match self.budget.try_charge() {
             Charge::Ok => {}
@@ -2220,7 +2220,7 @@ impl<'a> Nest<'a> {
                     BoundaryReason::EXECUTION_LIMIT,
                     "max_execution_nodes",
                 );
-                return Guard::Refused;
+                return NestedTransitionGuard::Refused;
             }
             Charge::StepsSaturated => {
                 builder.note_saturated_at("max_analysis_steps", None);
@@ -2235,7 +2235,7 @@ impl<'a> Nest<'a> {
                         "max_analysis_steps"
                     },
                 );
-                return Guard::Refused;
+                return NestedTransitionGuard::Refused;
             }
             Charge::Starved => {
                 if self.budget.note_window_starved() {
@@ -2248,10 +2248,10 @@ impl<'a> Nest<'a> {
                     BoundaryReason::BRANCH_STARVED,
                     "max_execution_nodes",
                 );
-                return Guard::Refused;
+                return NestedTransitionGuard::Refused;
             }
         }
-        Guard::Proceed
+        NestedTransitionGuard::Proceed
     }
 
     /// Record a nested transition that will be analyzed, returning the
@@ -2497,7 +2497,7 @@ impl<'a> Nest<'a> {
         if self.record_cycle(builder, &resolved, provenance) {
             return None;
         }
-        if let Guard::Refused = self.guard(builder, &resolved, provenance, depth) {
+        if let NestedTransitionGuard::Refused = self.guard(builder, &resolved, provenance, depth) {
             return None;
         }
         let origin = resolved.origin.clone();

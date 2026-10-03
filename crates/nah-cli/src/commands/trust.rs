@@ -4,7 +4,7 @@ use std::path::Path;
 
 use nah_proto::ctx::{AbsolutePath, TrustedRootId};
 
-use crate::live_state::{home, host_platform};
+use crate::live_state::{self, host_platform};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TrustedProject {
@@ -46,7 +46,7 @@ fn count_bundles(directory: &Path) -> usize {
 
 pub(crate) fn trust_root(requested: &str) -> Result<String, String> {
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     let root = canonical_project_root(requested, platform)?;
     if root == home {
         return Err("home directory cannot be trusted as a project root".into());
@@ -60,7 +60,7 @@ pub(crate) fn trust_root(requested: &str) -> Result<String, String> {
 
 pub(crate) fn untrust_root(requested: &str) -> Result<(String, usize), String> {
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     let root = canonical_project_root(requested, platform)?;
     let trusted_path = root.as_str().to_owned();
     let removed = nah_extensions::revoke_trusted_root(
@@ -75,7 +75,7 @@ pub(crate) fn untrust_root(requested: &str) -> Result<(String, usize), String> {
 
 pub(crate) fn trusted_projects() -> Result<Vec<TrustedProject>, String> {
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     let trust = nah_extensions::TrustDatabase::load(
         &nah_extensions::trust_database_path(&home, platform),
         platform,

@@ -36,7 +36,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     let request =
         match hook_adapter::read_event::<_, DroidHookInput>(stdin, "hook_event_name", "PreToolUse")
         {
-            Ok(Some(input)) => normalize(input),
+            Ok(Some(input)) => normalize_droid_hook_input(input),
             Ok(None) => return 0,
             Err(error) => Err(error.to_string()),
         };
@@ -94,7 +94,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize(DroidHookInput {
+    normalize_droid_hook_input(DroidHookInput {
         hook_event_name: "PreToolUse".into(),
         tool_name: tool_name.into(),
         tool_input,
@@ -103,7 +103,7 @@ pub(crate) fn normalize_call(
     })
 }
 
-fn normalize(input: DroidHookInput) -> Result<ToolCallInput, String> {
+fn normalize_droid_hook_input(input: DroidHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_input.clone();
     if input.hook_event_name != "PreToolUse" {
         return Err("invalid-droid-hook-event".into());
@@ -254,7 +254,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(DroidHookInput {
+        normalize_droid_hook_input(DroidHookInput {
             hook_event_name: "PreToolUse".into(),
             tool_name: tool_name.into(),
             tool_input,
@@ -376,7 +376,7 @@ mod tests {
             ("Glob", json!({"patterns":"*.rs"})),
             ("LS", json!({"directory_path":7})),
         ] {
-            let call = normalize(DroidHookInput {
+            let call = normalize_droid_hook_input(DroidHookInput {
                 hook_event_name: "PreToolUse".into(),
                 tool_name: name.into(),
                 tool_input: input.clone(),

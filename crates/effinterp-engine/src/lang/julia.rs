@@ -425,10 +425,10 @@ impl JuliaWalk<'_> {
 
 struct JuliaCall {
     callee: String,
-    arguments: Vec<Argument>,
+    arguments: Vec<JuliaArgument>,
 }
 
-struct Argument {
+struct JuliaArgument {
     keyword: Option<String>,
     /// Raw text, kept for keyword comparisons that are not path values.
     raw: String,
@@ -653,7 +653,7 @@ fn call(statement: &str) -> Result<JuliaCall, String> {
             _ => (None, argument.clone()),
         };
         let value = value(&raw).ok();
-        parsed.push(Argument {
+        parsed.push(JuliaArgument {
             keyword,
             raw,
             value,

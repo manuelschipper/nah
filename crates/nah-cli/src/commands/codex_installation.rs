@@ -19,7 +19,7 @@ pub(crate) fn mutate_codex_hook(
     install: bool,
     policy: FailurePolicy,
 ) -> Result<RuntimeMutation, String> {
-    reject_custom_home()?;
+    reject_custom_codex_home()?;
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
@@ -39,7 +39,7 @@ pub(crate) fn mutate_codex_hook(
 }
 
 pub(crate) fn codex_hook_status() -> Result<RuntimeHookStatus, String> {
-    reject_custom_home()?;
+    reject_custom_codex_home()?;
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let paths = CodexHookPaths::new(&home);
@@ -49,16 +49,16 @@ pub(crate) fn codex_hook_status() -> Result<RuntimeHookStatus, String> {
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     hook_config::inspect_modes(
         &hooks,
-        &desired_handler(&executable, FailurePolicy::Delegate)?,
-        &desired_handler(&executable, FailurePolicy::Block)?,
-        is_nah_handler,
-        is_fail_closed_handler,
+        &desired_codex_handler(&executable, FailurePolicy::Delegate)?,
+        &desired_codex_handler(&executable, FailurePolicy::Block)?,
+        is_nah_codex_handler,
+        is_fail_closed_codex_handler,
         "invalid-codex-hooks",
     )
 }
 
 pub(crate) fn codex_self_protection_paths() -> Result<Vec<PathBuf>, String> {
-    reject_custom_home()?;
+    reject_custom_codex_home()?;
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let paths = CodexHookPaths::new(&home);
@@ -68,7 +68,7 @@ pub(crate) fn codex_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     ])
 }
 
-fn reject_custom_home() -> Result<(), String> {
+fn reject_custom_codex_home() -> Result<(), String> {
     if std::env::var_os("CODEX_HOME").is_some() {
         Err("custom-CODEX_HOME-unsupported".into())
     } else {
@@ -85,8 +85,13 @@ fn install_codex_hook(
     let lock = acquire_hook_lock(&paths.lock, &CODEX_HOOK_LOCK_ERRORS)?;
     reject_codex_hook_symlinks(&paths)?;
     let mut hooks = load_codex_hooks(&paths.hooks)?;
-    let desired = desired_handler(executable, policy)?;
-    if hook_config::add(&mut hooks, desired, is_nah_handler, "invalid-codex-hooks")? {
+    let desired = desired_codex_handler(executable, policy)?;
+    if hook_config::add(
+        &mut hooks,
+        desired,
+        is_nah_codex_handler,
+        "invalid-codex-hooks",
+    )? {
         save_codex_hooks(&paths.hooks, &hooks)?;
     }
     drop(lock);
@@ -99,7 +104,7 @@ fn uninstall_codex_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     reject_codex_hook_symlinks(&paths)?;
     if paths.hooks.exists() {
         let mut hooks = load_codex_hooks(&paths.hooks)?;
-        if hook_config::remove(&mut hooks, is_nah_handler, "invalid-codex-hooks")? {
+        if hook_config::remove(&mut hooks, is_nah_codex_handler, "invalid-codex-hooks")? {
             save_codex_hooks(&paths.hooks, &hooks)?;
         }
     }
@@ -171,7 +176,7 @@ fn reject_codex_hook_symlinks(paths: &CodexHookPaths) -> Result<(), String> {
     reject_codex_hooks_symlink(&paths.hooks)
 }
 
-fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
+fn desired_codex_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -191,7 +196,7 @@ fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, St
     }))
 }
 
-fn is_nah_handler(handler: &Value) -> bool {
+fn is_nah_codex_handler(handler: &Value) -> bool {
     let Some(handler) = handler.as_object() else {
         return false;
     };
@@ -212,7 +217,7 @@ fn is_nah_handler(handler: &Value) -> bool {
                 && (executable.ends_with("\\nah.exe\"") || executable.ends_with("/nah.exe\""))))
 }
 
-fn is_fail_closed_handler(handler: &Value) -> bool {
+fn is_fail_closed_codex_handler(handler: &Value) -> bool {
     handler
         .get("command")
         .and_then(Value::as_str)

@@ -113,7 +113,7 @@ impl CompiledMcpTool {
                     request_assurance: effect.request_assurance,
                     id: Default::default(),
                     operation: Operation::new(effect.operation.clone()),
-                    resource: resource(&effect.resource, current.as_deref()),
+                    resource: mcp_resource(&effect.resource, current.as_deref()),
                     attributes: effect
                         .attributes
                         .iter()
@@ -311,7 +311,7 @@ fn constant_attribute(declaration: &AttributeDeclaration) -> AttrValue {
 /// A validated MCP resource: literal values, or `current` for the rule's
 /// string argument. An argument that is not a string names one resource of
 /// the declared kind whose identity is unknown.
-fn resource(declaration: &ResourceDeclaration, current: Option<&str>) -> ResourceExpr {
+fn mcp_resource(declaration: &ResourceDeclaration, current: Option<&str>) -> ResourceExpr {
     let value = |value: &ValueDeclaration| match value {
         ValueDeclaration::Literal { value } => Some(value.clone()),
         ValueDeclaration::Current => current.map(str::to_string),

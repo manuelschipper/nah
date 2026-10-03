@@ -9,7 +9,7 @@
 use std::cell::OnceCell;
 use std::rc::Rc;
 
-use crate::shell::lex::{self, DupTarget, Op, RedirKind, Seg, Span, Tok, WordTok};
+use crate::shell::lex::{self, Op, RedirKind, Seg, ShellDupTarget, ShellSpan, Tok, WordTok};
 
 #[derive(Debug, Clone)]
 pub(super) enum ShellItem {
@@ -20,7 +20,7 @@ pub(super) enum ShellItem {
     Pipeline {
         cmds: Vec<Simple>,
         conditional: bool,
-        short_circuit: Option<(Span, bool)>,
+        short_circuit: Option<(ShellSpan, bool)>,
     },
     /// A command group whose inner items are walked in order.
     Group {
@@ -28,7 +28,10 @@ pub(super) enum ShellItem {
         items: Vec<ShellItem>,
     },
     /// A recognized construct this frontend does not interpret.
-    Unsupported { construct: &'static str, span: Span },
+    Unsupported {
+        construct: &'static str,
+        span: ShellSpan,
+    },
     /// Marks the body of a loop that never ends and starts background jobs
     /// it never reaps, so the loop creates processes without bound. Carried
     /// as an item because only the parser still has the loop's header.
@@ -36,12 +39,12 @@ pub(super) enum ShellItem {
     /// before the loop can shadow.
     UnboundedSpawn {
         condition: Option<String>,
-        span: Span,
+        span: ShellSpan,
     },
     /// A header expansion whose possible commands are not walked.
-    UnwalkedExpansion { span: Span },
+    UnwalkedExpansion { span: ShellSpan },
     /// Tokens that do not form a recognizable command.
-    ParseError { message: String, span: Span },
+    ParseError { message: String, span: ShellSpan },
     /// A function definition. The body is not executed here; a later call
     /// to `name` walks it at the call site.
     Function {
@@ -50,7 +53,7 @@ pub(super) enum ShellItem {
         redirs: Vec<Redir>,
         inputs: Rc<OnceCell<super::ReferencedInputs>>,
         saturated_inputs: Rc<OnceCell<super::ReferencedInputs>>,
-        span: Span,
+        span: ShellSpan,
     },
     /// Mutually exclusive `if`/`case` alternatives. Arms stay separate so
     /// effects retain their branch conditions and budget allocation is fair.
@@ -66,9 +69,9 @@ pub(super) enum ShellItem {
     /// loop variables remain unknown rather than environment reads.
     /// `arithmetic` spans the `INIT; COND; STEP` text of a `for (( ))` header.
     For {
-        var: Option<(String, Span)>,
+        var: Option<(String, ShellSpan)>,
         values: Option<Vec<WordTok>>,
-        arithmetic: Option<Span>,
+        arithmetic: Option<ShellSpan>,
         items: Vec<ShellItem>,
     },
 }
@@ -78,7 +81,7 @@ pub(super) enum ShellItem {
 pub(super) enum GroupKind {
     Coprocess {
         name: Option<String>,
-        span: Span,
+        span: ShellSpan,
     },
     /// `{ ...; }`: runs in the current shell; state changes persist.
     Brace,
@@ -101,7 +104,7 @@ pub(super) enum GroupKind {
     Conditional {
         entry: Option<Option<String>>,
     },
-    ShortCircuit(Option<(Span, bool)>),
+    ShortCircuit(Option<(ShellSpan, bool)>),
     /// Commands no path reaches: the body of a loop whose constant condition
     /// never enters it, or what follows an unconditional `break` or
     /// `continue` in a loop body. `head` names the command that decided it,
@@ -122,7 +125,7 @@ pub(super) struct Simple {
     /// shell (`{ ...; }`, a loop, `if`, `case`). Assignments their expansions
     /// make persist, unlike a null command's here-document.
     pub compound_redirects: bool,
-    pub span: Span,
+    pub span: ShellSpan,
 }
 
 #[derive(Debug, Clone)]
@@ -131,7 +134,7 @@ pub(super) struct Assign {
     pub value: WordTok,
     /// `NAME+=value`: the value extends what NAME already holds.
     pub append: bool,
-    pub span: Span,
+    pub span: ShellSpan,
 }
 
 #[derive(Debug, Clone)]
@@ -143,12 +146,12 @@ pub(super) struct Redir {
     /// `{name}` allocates or closes a runtime-selected descriptor.
     pub named_fd: Option<String>,
     /// The duplication target for `Dup` (`2>&1` → Fd(1), `2>&-` → Close).
-    pub dup: Option<DupTarget>,
+    pub dup: Option<ShellDupTarget>,
     /// `&>`/`>&file`: this redirect affects stdout and stderr together.
     pub both: bool,
     pub target: Option<WordTok>,
     pub heredoc: Option<lex::HereDoc>,
-    pub span: Span,
+    pub span: ShellSpan,
 }
 
 /// Reserved words that open a construct we skip to its closer.
@@ -323,17 +326,17 @@ impl<'a> Parser<'a> {
         }
         assign.value = WordTok {
             segs: vec![Seg::Arith {
-                span: Span {
+                span: ShellSpan {
                     start: value,
                     end: word.span.end,
                 },
             }],
-            span: Span {
+            span: ShellSpan {
                 start: value,
                 end: word.span.end,
             },
         };
-        assign.span = Span {
+        assign.span = ShellSpan {
             start: open.start,
             end: close.end,
         };
@@ -378,7 +381,7 @@ impl<'a> Parser<'a> {
                         .map(|span| {
                             let start = *chain_start.get_or_insert(span.start);
                             (
-                                Span {
+                                ShellSpan {
                                     start,
                                     end: self.prev_end(),
                                 },
@@ -434,7 +437,7 @@ impl<'a> Parser<'a> {
                         let end = self.skip_parens();
                         items.push(ShellItem::Unsupported {
                             construct: "subshell",
-                            span: Span { start, end },
+                            span: ShellSpan { start, end },
                         });
                     } else {
                         self.pos += 1;
@@ -497,7 +500,7 @@ impl<'a> Parser<'a> {
                                             kind: RedirKind::Dup,
                                             fd: Some(2),
                                             named_fd: None,
-                                            dup: Some(DupTarget::Fd(1)),
+                                            dup: Some(ShellDupTarget::Fd(1)),
                                             both: false,
                                             target: None,
                                             heredoc: None,
@@ -555,7 +558,7 @@ impl<'a> Parser<'a> {
                             let item = ShellItem::Group {
                                 kind: GroupKind::Coprocess {
                                     name,
-                                    span: Span {
+                                    span: ShellSpan {
                                         start,
                                         end: self.prev_end(),
                                     },
@@ -651,7 +654,7 @@ impl<'a> Parser<'a> {
     fn compound_consumer(
         &mut self,
         conditional: bool,
-        short_circuit: Option<(Span, bool)>,
+        short_circuit: Option<(ShellSpan, bool)>,
         depth: u32,
     ) -> Option<ShellItem> {
         let saved = (self.pos, self.errors.len());
@@ -689,7 +692,7 @@ impl<'a> Parser<'a> {
     /// If `text` opens a construct we walk (`if`/`for`/`while`/`until`/`select`
     /// or a brace group), parse it into a group. Beyond the nesting bound the
     /// construct is skipped to its closer instead.
-    fn try_open(&mut self, text: &str, span: Span, depth: u32) -> Option<ShellItem> {
+    fn try_open(&mut self, text: &str, span: ShellSpan, depth: u32) -> Option<ShellItem> {
         let opens = matches!(
             text,
             "if" | "for" | "while" | "until" | "select" | "case" | "{"
@@ -706,7 +709,7 @@ impl<'a> Parser<'a> {
             };
             return Some(ShellItem::Unsupported {
                 construct,
-                span: Span {
+                span: ShellSpan {
                     start: span.start,
                     end,
                 },
@@ -821,7 +824,7 @@ impl<'a> Parser<'a> {
         if let Some(condition) = unbounded {
             items.push(ShellItem::UnboundedSpawn {
                 condition,
-                span: Span {
+                span: ShellSpan {
                     start,
                     end: self.prev_end(),
                 },
@@ -861,7 +864,7 @@ impl<'a> Parser<'a> {
         // Token count per `;`-separated section of a `(( INIT; COND; POST ))`
         // header. An empty COND is the loop that never ends.
         let mut sections = vec![0usize];
-        let mut header = Span { start: 0, end: 0 };
+        let mut header = ShellSpan { start: 0, end: 0 };
         // The `NAME in WORDS` header is not a command list; preserve its
         // words for bounded loop-variable binding, then skip it to `do`.
         while let Some(tok) = self.peek() {
@@ -916,7 +919,7 @@ impl<'a> Parser<'a> {
                     "loop header is missing do"
                 }
                 .into(),
-                span: Span {
+                span: ShellSpan {
                     start,
                     end: self.src_end,
                 },
@@ -936,7 +939,7 @@ impl<'a> Parser<'a> {
         {
             body.push(ShellItem::UnboundedSpawn {
                 condition: None,
-                span: Span {
+                span: ShellSpan {
                     start,
                     end: self.prev_end(),
                 },
@@ -1009,7 +1012,7 @@ impl<'a> Parser<'a> {
                     "case header is missing in"
                 }
                 .into(),
-                span: Span {
+                span: ShellSpan {
                     start: group,
                     end: self.src_end,
                 },
@@ -1183,7 +1186,7 @@ impl<'a> Parser<'a> {
             };
             items.push(ShellItem::ParseError {
                 message: "invalid or unterminated case pattern".into(),
-                span: Span {
+                span: ShellSpan {
                     start: span.start,
                     end: self.src_end,
                 },
@@ -1203,7 +1206,7 @@ impl<'a> Parser<'a> {
         &mut self,
         items: &mut Vec<ShellItem>,
         conditional: bool,
-        short_circuit: Option<(Span, bool)>,
+        short_circuit: Option<(ShellSpan, bool)>,
         depth: u32,
     ) -> bool {
         let mut cmds = Vec::new();
@@ -1284,7 +1287,7 @@ impl<'a> Parser<'a> {
                             kind: RedirKind::Dup,
                             fd: Some(2),
                             named_fd: None,
-                            dup: Some(DupTarget::Fd(1)),
+                            dup: Some(ShellDupTarget::Fd(1)),
                             both: false,
                             target: None,
                             heredoc: None,
@@ -1364,7 +1367,7 @@ impl<'a> Parser<'a> {
                             return SimpleOut::Function {
                                 name,
                                 body,
-                                span: Span {
+                                span: ShellSpan {
                                     start: w.span.start,
                                     end: self.prev_end(),
                                 },
@@ -1373,7 +1376,7 @@ impl<'a> Parser<'a> {
                         let fn_end = self.skip_function_body();
                         return SimpleOut::Unsupported {
                             construct: "function definition",
-                            span: Span {
+                            span: ShellSpan {
                                 start: w.span.start,
                                 end: fn_end,
                             },
@@ -1431,20 +1434,20 @@ impl<'a> Parser<'a> {
             words,
             redirs,
             compound_redirects: false,
-            span: Span { start, end },
+            span: ShellSpan { start, end },
         })
     }
 
     /// Handle a reserved word in command position that the list layer did not
     /// intercept: constructs that reach here (as a later pipeline stage, or
     /// ones we do not walk) are skipped to their closer.
-    fn reserved(&mut self, text: &str, span: Span, depth: u32) -> Option<SimpleOut> {
+    fn reserved(&mut self, text: &str, span: ShellSpan, depth: u32) -> Option<SimpleOut> {
         if OPENERS.contains(&text) {
             self.pos += 1;
             let end = self.skip_construct();
             return Some(SimpleOut::Unsupported {
                 construct: "control-flow construct",
-                span: Span {
+                span: ShellSpan {
                     start: span.start,
                     end,
                 },
@@ -1471,7 +1474,7 @@ impl<'a> Parser<'a> {
                     Some(SimpleOut::Function {
                         name,
                         body,
-                        span: Span {
+                        span: ShellSpan {
                             start: span.start,
                             end: self.prev_end(),
                         },
@@ -1480,7 +1483,7 @@ impl<'a> Parser<'a> {
                     let end = self.skip_function_body();
                     Some(SimpleOut::Unsupported {
                         construct: "function definition",
-                        span: Span {
+                        span: ShellSpan {
                             start: span.start,
                             end,
                         },
@@ -1492,7 +1495,7 @@ impl<'a> Parser<'a> {
                 let end = self.skip_braces();
                 Some(SimpleOut::Unsupported {
                     construct: "brace group",
-                    span: Span {
+                    span: ShellSpan {
                         start: span.start,
                         end,
                     },
@@ -1575,7 +1578,7 @@ impl<'a> Parser<'a> {
                 if !terminated || invalid_separator {
                     self.errors.push(ShellItem::ParseError {
                         message: "invalid or unterminated double-bracket condition".into(),
-                        span: Span {
+                        span: ShellSpan {
                             start: span.start,
                             end: if terminated { end } else { self.src_end },
                         },
@@ -1586,7 +1589,7 @@ impl<'a> Parser<'a> {
                     words,
                     redirs: Vec::new(),
                     compound_redirects: false,
-                    span: Span {
+                    span: ShellSpan {
                         start: span.start,
                         end,
                     },
@@ -1612,7 +1615,7 @@ impl<'a> Parser<'a> {
         };
         self.errors.push(ShellItem::ParseError {
             message: "unterminated shell construct".into(),
-            span: Span {
+            span: ShellSpan {
                 start,
                 end: self.src_end,
             },
@@ -1703,7 +1706,7 @@ impl<'a> Parser<'a> {
             let end = self.skip_function_body();
             return vec![ShellItem::Unsupported {
                 construct: "function body",
-                span: Span { start: end, end },
+                span: ShellSpan { start: end, end },
             }];
         }
         if let Some(Tok::Word(w)) = self.peek()
@@ -1756,11 +1759,11 @@ enum SimpleOut {
     Function {
         name: String,
         body: Vec<ShellItem>,
-        span: Span,
+        span: ShellSpan,
     },
     Unsupported {
         construct: &'static str,
-        span: Span,
+        span: ShellSpan,
     },
     Empty,
 }
@@ -1778,32 +1781,33 @@ fn tok_end(tok: &Tok) -> u32 {
 
 /// Source span covering `items`, so a region the walker did not analyze can
 /// be reported as an explicit boundary rather than silently dropped.
-pub(crate) fn items_span(items: &[ShellItem]) -> Option<Span> {
+pub(crate) fn items_span(items: &[ShellItem]) -> Option<ShellSpan> {
     items
         .iter()
         .filter_map(|item| match item {
             ShellItem::Pipeline { cmds, .. } => match (cmds.first(), cmds.last()) {
-                (Some(first), Some(last)) => Some(Span {
+                (Some(first), Some(last)) => Some(ShellSpan {
                     start: first.span.start,
                     end: last.span.end,
                 }),
                 _ => None,
             },
             ShellItem::Group { items, .. } | ShellItem::For { items, .. } => items_span(items),
-            ShellItem::Alternatives { arms, .. } => {
-                arms.iter().filter_map(|arm| items_span(arm)).reduce(merge)
-            }
+            ShellItem::Alternatives { arms, .. } => arms
+                .iter()
+                .filter_map(|arm| items_span(arm))
+                .reduce(merge_spans),
             ShellItem::UnwalkedExpansion { span }
             | ShellItem::Unsupported { span, .. }
             | ShellItem::UnboundedSpawn { span, .. }
             | ShellItem::ParseError { span, .. }
             | ShellItem::Function { span, .. } => Some(*span),
         })
-        .reduce(merge)
+        .reduce(merge_spans)
 }
 
-fn merge(a: Span, b: Span) -> Span {
-    Span {
+fn merge_spans(a: ShellSpan, b: ShellSpan) -> ShellSpan {
+    ShellSpan {
         start: a.start.min(b.start),
         end: a.end.max(b.end),
     }

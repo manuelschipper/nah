@@ -29,6 +29,7 @@ use super::bindings::{
     AssignmentTargetBindings, collect_binding_names, collect_scope_binding_names,
     loop_binding_writes,
 };
+use super::plus_coercion::{plus_coercion_assignment_object, plus_coercion_binding_name};
 use super::source_string::{
     AggregateBindingValue, SourceBindingValue, SourceStringValue, append_source_string_parts,
     bind_source_string_pattern, home_directory_value, is_home_directory_call,
@@ -39,10 +40,9 @@ use super::{
     CallableBinding, ConsoleAssignment, EffectVisitor, SequentialStop,
     aggregate_mutation_target_bindings, assignment_flow_key, console_printed_arguments, control,
     expression_flow_key, expression_write_binding_name, is_create_server, literal_property_name,
-    literal_truth, logical_call_argument, model, plus_coercion_assignment_object,
-    plus_coercion_binding_name, resolve, simple_assignment_target_write_binding_name,
-    statement_sequential_stop, statement_sequential_stop_in_switch,
-    statement_stops_sequential_execution, unparen,
+    literal_truth, logical_call_argument, model, resolve,
+    simple_assignment_target_write_binding_name, statement_sequential_stop,
+    statement_sequential_stop_in_switch, statement_stops_sequential_execution, unparen,
 };
 
 impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {

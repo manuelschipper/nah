@@ -635,7 +635,9 @@ fn environment_effect_with_operation(op: &str, resource: ResourceExpr, unset: bo
     }
 }
 
-pub(super) fn endpoint(url: &str) -> Option<ResourceExpr> {
+/// The network endpoint of an absolute URL (one with a `://` scheme); `None`
+/// for a relative or unparseable one, which callers leave unresolved.
+pub(super) fn absolute_url_endpoint(url: &str) -> Option<ResourceExpr> {
     if !url.contains("://") {
         return None;
     }
@@ -676,7 +678,7 @@ impl<'a> PhpCaptureWalker<'a> {
             && let Some(resource) = args
                 .first()
                 .and_then(|arg| literal_string(*arg, self.src))
-                .and_then(|url| endpoint(&url))
+                .and_then(|url| absolute_url_endpoint(&url))
         {
             self.push_effect("network.request", resource);
             return;
@@ -685,7 +687,7 @@ impl<'a> PhpCaptureWalker<'a> {
             let resource = args
                 .first()
                 .and_then(|arg| literal_string(*arg, self.src))
-                .and_then(|url| endpoint(&url))
+                .and_then(|url| absolute_url_endpoint(&url))
                 .unwrap_or(unresolved_resource("network"));
             self.push_effect("network.request", resource);
             return;

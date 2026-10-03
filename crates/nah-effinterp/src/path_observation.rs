@@ -87,17 +87,17 @@ impl ObservationResolver for HostPathObservations {
             Observed::Error { .. } => refused(ObservationRefusal::Unobserved),
             Observed::Ok { value } => ObservationOutcome::Path(PathFact {
                 entry: value.resolved().as_str().to_owned(),
-                kind: path_kind(value.kind()),
+                kind: path_kind_from_observation(value.kind()),
                 followed: match value.realpath() {
                     Some(target) => Fact::Known(PathTarget {
                         path: target.as_str().to_owned(),
                         kind: if value.kind() == observation::PathKind::Symlink {
-                            value.target_kind().map(path_kind).map_or(
+                            value.target_kind().map(path_kind_from_observation).map_or(
                                 Fact::Unavailable(ObservationRefusal::Unobserved),
                                 Fact::Known,
                             )
                         } else {
-                            Fact::Known(path_kind(value.kind()))
+                            Fact::Known(path_kind_from_observation(value.kind()))
                         },
                     }),
                     None => Fact::Unavailable(ObservationRefusal::Unobserved),
@@ -114,7 +114,7 @@ impl ObservationResolver for HostPathObservations {
     }
 }
 
-fn path_kind(kind: observation::PathKind) -> PathKind {
+fn path_kind_from_observation(kind: observation::PathKind) -> PathKind {
     match kind {
         observation::PathKind::Missing => PathKind::Missing,
         observation::PathKind::File => PathKind::File,

@@ -34,7 +34,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
 ) -> u8 {
     let request = serde_json::from_reader::<_, PrimeAgentHookInput>(stdin)
         .map_err(|error| error.to_string())
-        .and_then(normalize);
+        .and_then(normalize_prime_agent_hook_input);
     let output = match request {
         Ok((request, code)) => match hook_adapter::decide_input(
             (request, code.as_ref()),
@@ -73,8 +73,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         )
         .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
 }
 
@@ -86,7 +85,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<(ToolCallInput, Option<CodeInput>), String> {
-    normalize(PrimeAgentHookInput {
+    normalize_prime_agent_hook_input(PrimeAgentHookInput {
         tool_name: tool_name.into(),
         tool_input,
         cwd: cwd.into(),
@@ -95,7 +94,9 @@ pub(crate) fn normalize_call(
     })
 }
 
-fn normalize(input: PrimeAgentHookInput) -> Result<(ToolCallInput, Option<CodeInput>), String> {
+fn normalize_prime_agent_hook_input(
+    input: PrimeAgentHookInput,
+) -> Result<(ToolCallInput, Option<CodeInput>), String> {
     let builtin_ipython = input.tool_name == "ipython"
         && input.tool_source.as_deref() == Some("builtin")
         && input.tool_path.as_deref() == Some("<builtin:ipython>");
@@ -138,7 +139,7 @@ mod tests {
 
     #[test]
     fn builtin_ipython_input_carries_typed_code_and_tracks_completeness() {
-        let (request, code) = normalize(PrimeAgentHookInput {
+        let (request, code) = normalize_prime_agent_hook_input(PrimeAgentHookInput {
             tool_name: "ipython".into(),
             tool_input: json!({"code":"import os"}),
             cwd: "/repo".into(),
@@ -154,7 +155,7 @@ mod tests {
         );
         assert!(request.normalization_complete());
 
-        let (request, code) = normalize(PrimeAgentHookInput {
+        let (request, code) = normalize_prime_agent_hook_input(PrimeAgentHookInput {
             tool_name: "ipython".into(),
             tool_input: json!({"code":"import os","futureBehavior":"execute"}),
             cwd: "/repo".into(),
@@ -165,7 +166,7 @@ mod tests {
         assert!(matches!(code, Some(CodeInput::Ipython { .. })));
         assert!(!request.normalization_complete());
 
-        let (request, code) = normalize(PrimeAgentHookInput {
+        let (request, code) = normalize_prime_agent_hook_input(PrimeAgentHookInput {
             tool_name: "ipython".into(),
             tool_input: json!({"code":7}),
             cwd: "/repo".into(),
@@ -212,7 +213,7 @@ mod tests {
             ),
         ] {
             let original = json!({"tool_name":tool_name,"tool_input":tool_input});
-            let (request, code) = normalize(PrimeAgentHookInput {
+            let (request, code) = normalize_prime_agent_hook_input(PrimeAgentHookInput {
                 tool_name: tool_name.into(),
                 tool_input,
                 cwd: "/repo".into(),

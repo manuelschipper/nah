@@ -680,7 +680,7 @@ impl PythonWalker<'_, '_> {
     fn resolve_process_arg(&self, expr: &Expr) -> ResourceExpr {
         str_literal(expr)
             .map(|value| ResourceExpr::Literal { value })
-            .unwrap_or_else(|| resolve::symbolic(expr, "process"))
+            .unwrap_or_else(|| resolve::symbolic_resource(expr, "process"))
     }
 
     /// `open(path, mode)` / `io.open(...)` — read/write/append from the mode.
@@ -1410,7 +1410,7 @@ impl PythonWalker<'_, '_> {
         }
         let source = str_literal(first)
             .map(|cmd| ResourceExpr::Literal { value: cmd })
-            .unwrap_or_else(|| resolve::symbolic(first, "process"));
+            .unwrap_or_else(|| resolve::symbolic_resource(first, "process"));
         self.defer_or_nest_shell(
             source,
             self.cwd.clone(),
@@ -1578,7 +1578,7 @@ impl PythonWalker<'_, '_> {
                     .map(|value| ResourceExpr::Literal { value })
                     .unwrap_or_else(|| {
                         substitute_resource_expr(
-                            &resolve::symbolic(&keyword.value, "process"),
+                            &resolve::symbolic_resource(&keyword.value, "process"),
                             &self.var_scope,
                         )
                     })
@@ -1656,11 +1656,11 @@ impl PythonWalker<'_, '_> {
                 DeferredArgv::Words(vec![
                     program
                         .map(|value| ResourceExpr::Literal { value })
-                        .unwrap_or_else(|| resolve::symbolic(executable, "process")),
+                        .unwrap_or_else(|| resolve::symbolic_resource(executable, "process")),
                     ResourceExpr::Literal { value: "-c".into() },
                     command
                         .map(|value| ResourceExpr::Literal { value })
-                        .unwrap_or_else(|| resolve::symbolic(first, "process")),
+                        .unwrap_or_else(|| resolve::symbolic_resource(first, "process")),
                 ]),
                 cwd,
                 cwd_resource,
@@ -1684,7 +1684,7 @@ impl PythonWalker<'_, '_> {
             }
             let source = str_literal(first)
                 .map(|cmd| ResourceExpr::Literal { value: cmd })
-                .unwrap_or_else(|| resolve::symbolic(first, "process"));
+                .unwrap_or_else(|| resolve::symbolic_resource(first, "process"));
             self.defer_or_nest_shell(
                 source,
                 cwd,
@@ -3193,7 +3193,7 @@ impl PythonWalker<'_, '_> {
                 }
                 self.emit(
                     "process.signal",
-                    resolve::symbolic(&call.args[0], "process"),
+                    resolve::symbolic_resource(&call.args[0], "process"),
                     &[],
                     node,
                 );

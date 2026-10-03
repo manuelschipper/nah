@@ -7,11 +7,8 @@
 
 use tree_sitter::Node;
 
-use crate::control_flow::{Catch, ControlExit, Exn, Frontier, Graph, Jump, Span, Symbol};
-
-pub(super) fn span(node: Node) -> Span {
-    (node.start_byte() as u32, node.end_byte() as u32)
-}
+use crate::control_flow::{Catch, ControlExit, Exn, Frontier, Graph, Jump, Symbol};
+use crate::lang::tree_sitter_nodes::{named_children, node_span, node_text};
 
 /// Running a class: static initialization, then `main`.
 pub(super) fn build_program(graph: &mut Graph, root: Node, main: Option<Node>, source: &str) {
@@ -66,11 +63,6 @@ struct JavaControlFlowBuilder<'g, 's> {
     source: &'s str,
 }
 
-fn named_children(node: Node) -> Vec<Node> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor).collect()
-}
-
 fn literal_true(node: Node) -> bool {
     let mut node = node;
     while node.kind() == "parenthesized_expression" {
@@ -90,7 +82,7 @@ impl<'g, 's> JavaControlFlowBuilder<'g, 's> {
     }
 
     fn site(&mut self, node: Node, opaque: bool) {
-        self.at = self.graph.site(self.at, span(node), opaque);
+        self.at = self.graph.site(self.at, node_span(node), opaque);
     }
 
     fn children(&mut self, node: Node) {
@@ -399,12 +391,6 @@ const JAVA_EXCEPTIONS: &[&str] = &[
     "Error",
     "NullPointerException",
 ];
-
-fn node_text<'a>(node: Node, source: &'a str) -> &'a str {
-    let start = node.start_byte();
-    let end = node.end_byte().min(source.len());
-    source.get(start..end).unwrap_or("")
-}
 
 fn simple_name(text: &str) -> &str {
     text.trim()

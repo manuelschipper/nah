@@ -891,13 +891,6 @@ pub(super) fn collect_class_sets(body: &[Stmt]) -> std::collections::HashMap<Str
     out
 }
 
-/// Whether a resolved resource carries usable information (anything but a
-/// widened unknown). A free parameter is usable — `def f(p): return p` returns
-/// its argument.
-pub(super) fn is_resolvable(expr: &ResourceExpr) -> bool {
-    !matches!(expr, ResourceExpr::Unresolved { .. })
-}
-
 pub(super) fn contains_literal(expr: &ResourceExpr) -> bool {
     match expr {
         ResourceExpr::Literal { .. } => true,

@@ -58,7 +58,9 @@
   `ResourceExpr` where it reaches an effect. `substitute_value` binds call
   arguments into semantic values; `substitute_resource_expr` (`summary.rs`)
   binds them into resource expressions; build an unresolved one with
-  `value::unresolved_resource(family)`, not a per-file helper. Frontend types
+  `value::unresolved_resource(family)`, a concrete path with
+  `fs_path_resource` and an endpoint with `url_endpoint_resource`, never a
+  per-file helper. Frontend types
   carry their language (`<Lang>ControlFlowBuilder`, `<Lang>Walker`), while the
   entry points keep the shared names `analyze` and `summarize_ast`. Model document types belong to
   `crates/effinterp-model-schema`; import them from `effinterp_model_schema`,

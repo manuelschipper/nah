@@ -736,8 +736,9 @@ fn executed_identity<'a>(view: &PlanView<'a>, effect: &Effect, path: &str) -> Op
                 )
         })
         .any(|earlier| {
-            crate::observation_request::observation_bound(&earlier.resource)
-                .is_none_or(|(bound, _)| nah_proto::labels::contains(&bound, path, platform))
+            crate::observation_request::observation_bound(&earlier.resource).is_none_or(
+                |(bound, _)| nah_proto::labels::lexically_contains(&bound, path, platform),
+            )
         });
     if changed {
         return None;
@@ -763,7 +764,7 @@ fn cargo_protection_tier(
     effect: &Effect,
 ) -> Option<nah_proto::labels::NahProtectionTier> {
     use nah_proto::labels::lexical_path::{
-        installed_binary_paths, join, lexically_normalized, same_path,
+        installed_binary_paths, join_lexical_path, lexically_normalized, same_path,
     };
     let authority = view.authority();
     let (home, platform) = (authority.home().as_str(), authority.platform());
@@ -831,7 +832,10 @@ fn cargo_protection_tier(
                     ) || installed.iter().any(|installed| {
                         same_path(
                             installed,
-                            &lexically_normalized(&join(directory, binary, platform), platform),
+                            &lexically_normalized(
+                                &join_lexical_path(directory, binary, platform),
+                                platform,
+                            ),
                             platform,
                         )
                     })

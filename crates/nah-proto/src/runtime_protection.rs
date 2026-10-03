@@ -2,7 +2,7 @@
 
 use crate::ctx::{AbsolutePath, Platform};
 
-use crate::labels::lexical_path::{fold, lexically_normalized, same_path};
+use crate::labels::lexical_path::{fold_path_spelling, lexically_normalized, same_path};
 use crate::labels::normalized_program;
 
 /// The runtime's own protected absolute paths, sorted and deduplicated, so a
@@ -335,9 +335,9 @@ fn same_lexical_path(left: &str, right: &str, platform: Platform) -> bool {
 }
 
 fn has_projected_path(critical_paths: &[AbsolutePath], suffix: &str, platform: Platform) -> bool {
-    let suffix = fold(suffix, platform);
+    let suffix = fold_path_spelling(suffix, platform);
     critical_paths.iter().any(|path| {
-        fold(&lexically_normalized(path.as_str(), platform), platform)
+        fold_path_spelling(&lexically_normalized(path.as_str(), platform), platform)
             .ends_with(&format!("/{suffix}"))
     })
 }

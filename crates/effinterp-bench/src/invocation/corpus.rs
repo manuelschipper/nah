@@ -16,10 +16,13 @@ use serde::{Deserialize, Serialize};
 use crate::nah::corpus::{CaseLoad, Fixtures};
 use nah_corpus_schema::{CaseInput, corpus_family_files};
 
-pub const BENCH_MANIFEST_SCHEMA: &str = "effinterp/bench-invocation/v1";
+/// The `schema` value of the invocation corpus manifest, `bench/invocation/MANIFEST.json`.
+pub const INVOCATION_MANIFEST_SCHEMA: &str = "effinterp/bench-invocation/v1";
 
+/// The invocation corpus manifest: the vendored row files, their digests, and
+/// the per-source sampling record.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct BenchManifest {
+pub struct InvocationManifest {
     pub schema: String,
     pub corpus_digest: String,
     pub files: Vec<String>,
@@ -38,7 +41,8 @@ pub struct SourceManifest {
     pub source_digest: String,
 }
 
-pub fn read_bench_manifest(dir: &Path) -> Result<BenchManifest, String> {
+/// Reads the invocation corpus manifest, `MANIFEST.json` in `dir`.
+pub fn read_invocation_manifest(dir: &Path) -> Result<InvocationManifest, String> {
     let path = dir.join("MANIFEST.json");
     let bytes = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))
@@ -58,8 +62,9 @@ struct RawRow {
     expected_effects: Vec<String>,
 }
 
+/// One invocation corpus row, resolved to the subject the engine analyzes.
 #[derive(Debug, Clone)]
-pub struct BenchRow {
+pub struct InvocationRow {
     pub file: String,
     pub id: String,
     pub source: String,
@@ -73,7 +78,7 @@ pub struct BenchRow {
 /// Load every row of every `*.jsonl` file in `dir`, in (file, line) order.
 /// Any malformed row is an error: the bench corpus is committed, so a bad
 /// row is a vendoring defect rather than a case to score.
-pub fn load_bench(dir: &Path) -> Result<Vec<BenchRow>, String> {
+pub fn load_invocation_rows(dir: &Path) -> Result<Vec<InvocationRow>, String> {
     let fixtures_path = dir.join("FIXTURES.json");
     let fixtures: Fixtures = fs::read_to_string(&fixtures_path)
         .map_err(|e| e.to_string())
@@ -105,7 +110,7 @@ pub fn load_bench(dir: &Path) -> Result<Vec<BenchRow>, String> {
     Ok(rows)
 }
 
-fn parse_row(file: &str, line: &str, fixtures: &Fixtures) -> Result<BenchRow, String> {
+fn parse_row(file: &str, line: &str, fixtures: &Fixtures) -> Result<InvocationRow, String> {
     let raw: RawRow = serde_json::from_str(line).map_err(|e| e.to_string())?;
     let mut cwd = None;
     let mut context = HostContext::default();
@@ -139,7 +144,7 @@ fn parse_row(file: &str, line: &str, fixtures: &Fixtures) -> Result<BenchRow, St
             }
         }
     };
-    Ok(BenchRow {
+    Ok(InvocationRow {
         file: file.to_string(),
         id: raw.id,
         source: raw.source,
@@ -153,11 +158,11 @@ fn parse_row(file: &str, line: &str, fixtures: &Fixtures) -> Result<BenchRow, St
 
 /// The nah parity corpus as a bench source: every well-formed case, weight 1,
 /// kind `shell`, `tool` or `code`. Malformed rows are counted by the parity section.
-pub fn nah_rows(cases: &[CaseLoad]) -> Vec<BenchRow> {
+pub fn nah_rows(cases: &[CaseLoad]) -> Vec<InvocationRow> {
     cases
         .iter()
         .filter_map(|load| match load {
-            CaseLoad::Ok(case) => Some(BenchRow {
+            CaseLoad::Ok(case) => Some(InvocationRow {
                 file: case.file.clone(),
                 id: case.id.clone(),
                 source: "nah".to_string(),

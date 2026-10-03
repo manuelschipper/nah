@@ -20,7 +20,7 @@ pub(crate) fn mutate_copilot_hook(
     install: bool,
     policy: FailurePolicy,
 ) -> Result<RuntimeMutation, String> {
-    reject_custom_home()?;
+    reject_custom_copilot_home()?;
     let platform = live_state::host_platform();
     let path = live_state::home(platform).and_then(|home| {
         if install {
@@ -40,7 +40,7 @@ pub(crate) fn mutate_copilot_hook(
 }
 
 pub(crate) fn copilot_hook_status() -> Result<RuntimeHookStatus, String> {
-    reject_custom_home()?;
+    reject_custom_copilot_home()?;
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let paths = CopilotHookPaths::new(&home);
@@ -51,11 +51,11 @@ pub(crate) fn copilot_hook_status() -> Result<RuntimeHookStatus, String> {
     let configured = load_copilot_hook(&paths.hook)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    if configured == desired_hook(&executable, FailurePolicy::Delegate)? {
+    if configured == desired_copilot_hook(&executable, FailurePolicy::Delegate)? {
         Ok(RuntimeHookStatus::WiringCurrent)
-    } else if configured == desired_hook(&executable, FailurePolicy::Block)? {
+    } else if configured == desired_copilot_hook(&executable, FailurePolicy::Block)? {
         Ok(RuntimeHookStatus::WiringCurrentFailClosed)
-    } else if is_owned(&configured) {
+    } else if is_owned_copilot_hook(&configured) {
         Ok(RuntimeHookStatus::stale(
             if configured.to_string().contains("run --fail-closed") {
                 FailurePolicy::Block
@@ -69,7 +69,7 @@ pub(crate) fn copilot_hook_status() -> Result<RuntimeHookStatus, String> {
 }
 
 pub(crate) fn copilot_self_protection_paths() -> Result<Vec<PathBuf>, String> {
-    reject_custom_home()?;
+    reject_custom_copilot_home()?;
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     Ok(vec![
@@ -86,14 +86,14 @@ fn install_copilot_hook(
     let paths = CopilotHookPaths::new(home);
     let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &COPILOT_HOOK_LOCK_ERRORS)?;
     reject_copilot_hook_symlinks(&paths)?;
-    let desired = desired_hook(executable, policy)?;
+    let desired = desired_copilot_hook(executable, policy)?;
     if paths.hook.exists() {
         let configured = load_copilot_hook(&paths.hook)?;
         if configured == desired {
             drop(lock);
             return Ok(paths.hook);
         }
-        if !is_owned(&configured) {
+        if !is_owned_copilot_hook(&configured) {
             return Err("copilot-hook-file-conflict".into());
         }
     }
@@ -108,7 +108,7 @@ fn uninstall_copilot_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     reject_copilot_hook_symlinks(&paths)?;
     if paths.hook.exists() {
         let configured = load_copilot_hook(&paths.hook)?;
-        if !is_owned(&configured) {
+        if !is_owned_copilot_hook(&configured) {
             return Err("copilot-hook-file-conflict".into());
         }
         std::fs::remove_file(&paths.hook).map_err(|_| "copilot-hook-remove-failed")?;
@@ -135,7 +135,7 @@ impl CopilotHookPaths {
     }
 }
 
-fn reject_custom_home() -> Result<(), String> {
+fn reject_custom_copilot_home() -> Result<(), String> {
     if std::env::var_os("COPILOT_HOME").is_some() {
         Err("custom-copilot-home-unsupported".into())
     } else {
@@ -143,7 +143,7 @@ fn reject_custom_home() -> Result<(), String> {
     }
 }
 
-fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
+fn desired_copilot_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -177,7 +177,7 @@ fn load_copilot_hook(path: &Path) -> Result<Value, String> {
     serde_json::from_reader(file).map_err(|_| "invalid-copilot-hook".into())
 }
 
-fn is_owned(config: &Value) -> bool {
+fn is_owned_copilot_hook(config: &Value) -> bool {
     let Some(root) = config.as_object() else {
         return false;
     };
@@ -197,10 +197,12 @@ fn is_owned(config: &Value) -> bool {
                 .all(|key| matches!(key.as_str(), "type" | "command" | "timeoutSec"))
         })
         && entries[0]["type"] == "command"
-        && entries[0]["command"].as_str().is_some_and(is_owned_command)
+        && entries[0]["command"]
+            .as_str()
+            .is_some_and(is_owned_copilot_command)
 }
 
-fn is_owned_command(command: &str) -> bool {
+fn is_owned_copilot_command(command: &str) -> bool {
     let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
     let Some(executable) = command.strip_suffix(" hook copilot run") else {
         return false;
