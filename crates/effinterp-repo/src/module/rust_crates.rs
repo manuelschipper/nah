@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::SKIP_DIRS;
+use crate::CRAWL_SKIP_DIRS;
 
 /// One Cargo package: its `src` directory and optional `[lib] path`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -47,7 +47,7 @@ pub(super) fn collect_rust_crates(
                 let name = entry.file_name().to_string_lossy().to_string();
                 // Test/fixture trees hold sample Cargo.tomls (bat's TOML
                 // syntax fixtures), never workspace members.
-                if SKIP_DIRS.contains(&name.as_str())
+                if CRAWL_SKIP_DIRS.contains(&name.as_str())
                     || matches!(
                         name.as_str(),
                         "tests" | "testdata" | "fixtures" | "examples"

@@ -8,10 +8,15 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::adapter_fields::runtime_field_names_covered;
+use crate::adapter_fields::{
+    runtime_field_names_covered, tool_input_non_empty_string, tool_input_object,
+    tool_input_optional_non_empty_string, tool_input_string,
+};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::live_state;
 use crate::runtime::{FailurePolicy, Runtime};
+
+const INVALID_CURSOR_TOOL_INPUT: &str = "invalid-cursor-tool-input";
 
 #[derive(Deserialize)]
 struct CursorHookInput {
@@ -30,7 +35,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
-    run_for_platform(
+    run_cursor_for_platform(
         stdin,
         stdout,
         stderr,
@@ -39,7 +44,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     )
 }
 
-fn run_for_platform<R: Read, W: Write, E: Write>(
+fn run_cursor_for_platform<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
@@ -51,7 +56,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
         "hook_event_name",
         "preToolUse",
     ) {
-        Ok(Some(input)) => normalize_for_platform(input, platform),
+        Ok(Some(input)) => normalize_cursor_hook_input_for_platform(input, platform),
         Ok(None) => return 0,
         Err(error) => Err(error.to_string()),
     };
@@ -62,7 +67,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
     match decision {
         HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
             let feedback = hook_adapter::feedback(&decision);
-            deny(stdout, &feedback);
+            write_cursor_deny_reply(stdout, &feedback);
             let _ = writeln!(stderr, "nah - {feedback}");
             if decision.guard_block_incomplete() {
                 let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
@@ -76,7 +81,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
             0
         }
         HookOutcome::IrrelevantEvent => 0,
-        HookOutcome::MalformedInput => deny_unavailable(
+        HookOutcome::MalformedInput => deny_unavailable_on_cursor_stdout(
             stdout,
             stderr,
             failure_policy,
@@ -84,22 +89,24 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
         )
         .unwrap_or(0),
         HookOutcome::EvaluationUnavailable(kind) => {
-            deny_unavailable(stdout, stderr, failure_policy, kind).unwrap_or_else(|| {
-                let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
-                0
-            })
+            deny_unavailable_on_cursor_stdout(stdout, stderr, failure_policy, kind).unwrap_or_else(
+                || {
+                    let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                    0
+                },
+            )
         }
     }
 }
 
-fn deny_unavailable<W: Write, E: Write>(
+fn deny_unavailable_on_cursor_stdout<W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
     failure_policy: FailurePolicy,
     unavailable: hook_adapter::IntegrationUnavailable,
 ) -> Option<u8> {
     hook_adapter::unavailable_feedback(failure_policy, Runtime::Cursor, unavailable).map(|reason| {
-        deny(stdout, &reason);
+        write_cursor_deny_reply(stdout, &reason);
         let _ = writeln!(stderr, "nah - {reason}");
         2
     })
@@ -112,7 +119,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize_for_platform(
+    normalize_cursor_hook_input_for_platform(
         CursorHookInput {
             hook_event_name: "preToolUse".into(),
             tool_name: tool_name.into(),
@@ -125,7 +132,7 @@ pub(crate) fn normalize_call(
     )
 }
 
-fn normalize_for_platform(
+fn normalize_cursor_hook_input_for_platform(
     input: CursorHookInput,
     platform: Platform,
 ) -> Result<ToolCallInput, String> {
@@ -156,7 +163,7 @@ fn normalize_for_platform(
         .map(|input| input.with_original_input(original_input, false))
         .map_err(|error| error.to_string());
     }
-    let lowered = lower(&input.tool_name, &input.tool_input, &fallback_cwd);
+    let lowered = lower_cursor_tool(&input.tool_name, &input.tool_input, &fallback_cwd);
     let (tool, tool_input, cwd, normalization_complete) = match lowered {
         Ok((tool, tool_input, cwd)) => (
             tool,
@@ -182,57 +189,65 @@ fn normalize_for_platform(
     .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_cursor_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     fallback_cwd: &str,
 ) -> Result<(&'a str, Value, String), String> {
     Ok(match tool_name {
         "Shell" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
             let cwd = shell_cwd(object, fallback_cwd)?;
-            ("Bash", json!({"command": string(object, "command")?}), cwd)
+            (
+                "Bash",
+                json!({"command": tool_input_string(object, "command", INVALID_CURSOR_TOOL_INPUT)?}),
+                cwd,
+            )
         }
         "Read" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
             (
                 "Read",
-                json!({"file_path": non_empty(object, "file_path")?}),
+                json!({"file_path": tool_input_non_empty_string(object, "file_path", INVALID_CURSOR_TOOL_INPUT)?}),
                 fallback_cwd.to_owned(),
             )
         }
         "Write" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
             (
                 "Write",
                 json!({
-                    "file_path": non_empty(object, "file_path")?,
-                    "content": string(object, "content")?
+                    "file_path": tool_input_non_empty_string(object, "file_path", INVALID_CURSOR_TOOL_INPUT)?,
+                    "content": tool_input_string(object, "content", INVALID_CURSOR_TOOL_INPUT)?
                 }),
                 fallback_cwd.to_owned(),
             )
         }
         "Delete" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
             (
                 "Delete",
-                json!({"file_path": non_empty(object, "file_path")?}),
+                json!({"file_path": tool_input_non_empty_string(object, "file_path", INVALID_CURSOR_TOOL_INPUT)?}),
                 fallback_cwd.to_owned(),
             )
         }
         "Grep" => {
-            let object = object(tool_input)?;
-            let mut normalized = json!({"pattern": string(object, "pattern")?});
-            if let Some(path) = optional_non_empty(object, "file_path")? {
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
+            let mut normalized = json!({"pattern": tool_input_string(object, "pattern", INVALID_CURSOR_TOOL_INPUT)?});
+            if let Some(path) = tool_input_optional_non_empty_string(
+                object,
+                "file_path",
+                INVALID_CURSOR_TOOL_INPUT,
+            )? {
                 normalized["path"] = json!(path);
             }
             ("Grep", normalized, fallback_cwd.to_owned())
         }
         "List" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
             (
                 "Ls",
-                json!({"path": non_empty(object, "file_path")?}),
+                json!({"path": tool_input_non_empty_string(object, "file_path", INVALID_CURSOR_TOOL_INPUT)?}),
                 fallback_cwd.to_owned(),
             )
         }
@@ -241,58 +256,29 @@ fn lower<'a>(
 }
 
 fn shell_cwd(object: &Map<String, Value>, fallback: &str) -> Result<String, String> {
-    let cwd = optional_non_empty(object, "cwd")?;
-    let working_directory = optional_non_empty(object, "working_directory")?;
+    let cwd = tool_input_optional_non_empty_string(object, "cwd", INVALID_CURSOR_TOOL_INPUT)?;
+    let working_directory = tool_input_optional_non_empty_string(
+        object,
+        "working_directory",
+        INVALID_CURSOR_TOOL_INPUT,
+    )?;
     match (cwd, working_directory) {
-        (Some(left), Some(right)) if left != right => Err("invalid-cursor-tool-input".into()),
+        (Some(left), Some(right)) if left != right => Err(INVALID_CURSOR_TOOL_INPUT.into()),
         (Some(cwd), _) | (_, Some(cwd)) => Ok(cwd),
         (None, None) => Ok(fallback.to_owned()),
     }
 }
 
-fn object(input: &Value) -> Result<&Map<String, Value>, String> {
-    input
-        .as_object()
-        .ok_or_else(|| "invalid-cursor-tool-input".to_owned())
-}
-
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-cursor-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        if value.is_empty() {
-            Err("invalid-cursor-tool-input".into())
-        } else {
-            Ok(value)
-        }
-    })
-}
-
-fn optional_non_empty(object: &Map<String, Value>, name: &str) -> Result<Option<String>, String> {
-    match object.get(name) {
-        Some(Value::String(value)) if !value.is_empty() => Ok(Some(value.clone())),
-        Some(Value::String(_)) | None => Ok(None),
-        Some(_) => Err("invalid-cursor-tool-input".into()),
-    }
-}
-
-fn deny<W: Write>(stdout: &mut W, reason: &str) {
+fn write_cursor_deny_reply<W: Write>(stdout: &mut W, reason: &str) {
     let reason = format!("nah - {reason}");
-    let _ = serde_json::to_writer(
-        &mut *stdout,
-        &json!({
+    hook_adapter::write_hook_reply_line(
+        stdout,
+        json!({
             "permission": "deny",
             "user_message": reason,
             "agent_message": reason
         }),
     );
-    let _ = writeln!(stdout);
 }
 
 #[cfg(test)]
@@ -300,7 +286,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize_for_platform(
+        normalize_cursor_hook_input_for_platform(
             CursorHookInput {
                 hook_event_name: "preToolUse".into(),
                 tool_name: tool_name.into(),
@@ -394,7 +380,7 @@ mod tests {
                 json!({"command":"pwd","cwd":"/one","working_directory":"/two"}),
             ),
         ] {
-            let call = normalize_for_platform(
+            let call = normalize_cursor_hook_input_for_platform(
                 CursorHookInput {
                     hook_event_name: "preToolUse".into(),
                     tool_name: name.into(),
@@ -415,7 +401,7 @@ mod tests {
     #[test]
     fn native_windows_shell_calls_remain_opaque() {
         let original = json!({"command":"Remove-Item -Recurse -Force C:\\","cwd":"C:\\repo"});
-        let call = normalize_for_platform(
+        let call = normalize_cursor_hook_input_for_platform(
             CursorHookInput {
                 hook_event_name: "preToolUse".into(),
                 tool_name: "Shell".into(),

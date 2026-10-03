@@ -9,11 +9,13 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    adapter_fields::runtime_field_names_covered,
+    adapter_fields::{runtime_field_names_covered, tool_input_object},
     code_input::CodeInput,
     hook_adapter, live_state,
     runtime::{FailurePolicy, Runtime},
 };
+
+const INVALID_COPILOT_TOOL_INPUT: &str = "invalid-copilot-tool-input";
 
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -50,7 +52,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
-    run_for_platform(
+    run_copilot_for_platform(
         stdin,
         stdout,
         stderr,
@@ -59,7 +61,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     )
 }
 
-fn run_for_platform<R: Read, W: Write, E: Write>(
+fn run_copilot_for_platform<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
@@ -82,7 +84,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
     let request = parsed
         .map_err(|error| error.to_string())
         .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
-        .and_then(|input| normalize(input, platform));
+        .and_then(|input| normalize_copilot_hook_input(input, platform));
     let (surface, decision) = match request {
         Ok((surface, request, code)) => {
             let decision = hook_adapter::decide_input(
@@ -144,8 +146,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
         }
     };
     if let Some(output) = output {
-        let _ = serde_json::to_writer(&mut *stdout, &output);
-        let _ = writeln!(stdout);
+        hook_adapter::write_hook_reply_line(stdout, output);
     }
     0
 }
@@ -157,7 +158,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<(ToolCallInput, Option<CodeInput>), String> {
-    normalize(
+    normalize_copilot_hook_input(
         CopilotHookInput::VsCode {
             hook_event_name: "PreToolUse".into(),
             session_id: None,
@@ -170,7 +171,7 @@ pub(crate) fn normalize_call(
     .map(|(_, request, code)| (request, code))
 }
 
-fn normalize(
+fn normalize_copilot_hook_input(
     input: CopilotHookInput,
     platform: nah_proto::ctx::Platform,
 ) -> Result<(Surface, ToolCallInput, Option<CodeInput>), String> {
@@ -230,7 +231,7 @@ fn normalize(
         .map_err(|error| error.to_string())?;
         return Ok((surface, request, None));
     }
-    let lowered = lower(&name, input.clone(), cwd.clone(), platform);
+    let lowered = lower_copilot_tool(&name, input.clone(), cwd.clone(), platform);
     let (tool, input, cwd, code, normalization_complete) = match lowered {
         Ok((tool, input, cwd, code)) => {
             let normalization_complete = input_complete
@@ -250,13 +251,13 @@ fn parse_cli_input(input: Value) -> Result<Value, String> {
     match input {
         Value::String(value) if value.is_empty() => Ok(Value::Null),
         Value::String(value) => {
-            serde_json::from_str(&value).map_err(|_| "invalid-copilot-tool-input".into())
+            serde_json::from_str(&value).map_err(|_| INVALID_COPILOT_TOOL_INPUT.into())
         }
         value => Ok(value),
     }
 }
 
-fn lower(
+fn lower_copilot_tool(
     name: &str,
     input: Value,
     fallback_cwd: String,
@@ -264,70 +265,73 @@ fn lower(
 ) -> Result<(&str, Value, String, Option<CodeInput>), String> {
     let lowered = match name {
         "bash" | "Bash" | "runTerminalCommand" | "run_in_terminal" => {
-            let object = object(&input)?;
-            let cwd = optional_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
+            let cwd = tool_input_optional_aliased_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
             (
                 "Bash",
-                json!({"command": string(object, &["command"])?}),
+                json!({"command": tool_input_aliased_string(object, &["command"])?}),
                 cwd,
                 None,
             )
         }
         "powershell" if platform == nah_proto::ctx::Platform::Windows => {
-            let object = object(&input)?;
-            let cwd = optional_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
+            let cwd = tool_input_optional_aliased_string(object, &["cwd"])?.unwrap_or(fallback_cwd);
             let code = CodeInput::PowerShell {
-                source: string(object, &["command"])?,
+                source: tool_input_aliased_string(object, &["command"])?,
             };
             (name, code.canonical_input(), cwd, Some(code))
         }
         "view" | "Read" | "readFile" | "read_file" => {
-            let object = object(&input)?;
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             (
                 "Read",
-                json!({"file_path": non_empty(object, &["path", "filePath", "file_path"])?}),
+                json!({"file_path": tool_input_aliased_non_empty_string(object, &["path", "filePath", "file_path"])?}),
                 fallback_cwd,
                 None,
             )
         }
         "create" | "Write" | "createFile" | "create_file" => {
-            let object = object(&input)?;
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             (
                 "Write",
                 json!({
-                    "file_path":non_empty(object, &["path", "filePath", "file_path"])?,
-                    "content":string(object, &["file_text", "content"])?
+                    "file_path":tool_input_aliased_non_empty_string(object, &["path", "filePath", "file_path"])?,
+                    "content":tool_input_aliased_string(object, &["file_text", "content"])?
                 }),
                 fallback_cwd,
                 None,
             )
         }
         "edit" | "str_replace_editor" | "replaceString" | "replace_string_in_file" => {
-            let object = object(&input)?;
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             (
                 "Edit",
                 json!({
-                    "file_path":non_empty(object, &["path", "filePath", "file_path"])?,
-                    "old_string":non_empty(object, &["old_str", "oldString", "old_string"])?,
-                    "new_string":string(object, &["new_str", "newString", "new_string"])?
+                    "file_path":tool_input_aliased_non_empty_string(object, &["path", "filePath", "file_path"])?,
+                    "old_string":tool_input_aliased_non_empty_string(object, &["old_str", "oldString", "old_string"])?,
+                    "new_string":tool_input_aliased_string(object, &["new_str", "newString", "new_string"])?
                 }),
                 fallback_cwd,
                 None,
             )
         }
         "grep" | "rg" | "Grep" | "grepSearch" | "grep_search" => {
-            let object = object(&input)?;
-            let mut lowered = json!({"pattern":string(object, &["pattern", "query"])?});
-            if let Some(path) = optional_string(object, &["path", "filePath", "file_path"])? {
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
+            let mut lowered =
+                json!({"pattern":tool_input_aliased_string(object, &["pattern", "query"])?});
+            if let Some(path) =
+                tool_input_optional_aliased_string(object, &["path", "filePath", "file_path"])?
+            {
                 lowered["path"] = json!(path);
             }
             ("Grep", lowered, fallback_cwd, None)
         }
         "glob" | "Glob" | "fileSearch" | "file_search" => {
-            let object = object(&input)?;
+            let object = tool_input_object(&input, INVALID_COPILOT_TOOL_INPUT)?;
             (
                 "Glob",
-                json!({"pattern":string(object, &["pattern", "query"])?}),
+                json!({"pattern":tool_input_aliased_string(object, &["pattern", "query"])?}),
                 fallback_cwd,
                 None,
             )
@@ -337,44 +341,51 @@ fn lower(
     Ok(lowered)
 }
 
-fn object(input: &Value) -> Result<&Map<String, Value>, String> {
-    input
-        .as_object()
-        .ok_or_else(|| "invalid-copilot-tool-input".into())
-}
-
-fn string(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
+/// Reads a required string tool input field that Copilot spells under several
+/// alias names. Only the first alias present is read; it may be empty.
+fn tool_input_aliased_string(
+    object: &Map<String, Value>,
+    names: &[&str],
+) -> Result<String, String> {
     names
         .iter()
         .find_map(|name| object.get(*name))
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .ok_or_else(|| "invalid-copilot-tool-input".into())
+        .ok_or_else(|| INVALID_COPILOT_TOOL_INPUT.into())
 }
 
-fn non_empty(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
-    string(object, names).and_then(|value| {
+/// Reads a required aliased tool input field that must be a non-empty string.
+fn tool_input_aliased_non_empty_string(
+    object: &Map<String, Value>,
+    names: &[&str],
+) -> Result<String, String> {
+    tool_input_aliased_string(object, names).and_then(|value| {
         if value.is_empty() {
-            Err("invalid-copilot-tool-input".into())
+            Err(INVALID_COPILOT_TOOL_INPUT.into())
         } else {
             Ok(value)
         }
     })
 }
 
-fn optional_string(object: &Map<String, Value>, names: &[&str]) -> Result<Option<String>, String> {
+/// Reads an optional aliased tool input field. No alias present is `None`; the
+/// first alias present must be a non-empty string.
+fn tool_input_optional_aliased_string(
+    object: &Map<String, Value>,
+    names: &[&str],
+) -> Result<Option<String>, String> {
     let Some(value) = names.iter().find_map(|name| object.get(*name)) else {
         return Ok(None);
     };
     match value {
         Value::String(value) if !value.is_empty() => Ok(Some(value.clone())),
-        _ => Err("invalid-copilot-tool-input".into()),
+        _ => Err(INVALID_COPILOT_TOOL_INPUT.into()),
     }
 }
 
 fn emit_progress<W: Write>(stdout: &mut W, message: &str) {
-    let _ = serde_json::to_writer(&mut *stdout, &json!({"type":"progress","message":message}));
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, json!({"type":"progress","message":message}));
 }
 
 fn response(surface: Surface, reason: &str, incomplete: bool) -> Value {
@@ -445,7 +456,8 @@ mod tests {
         ];
         for (name, input, expected) in cases {
             let (tool, _, _, _) =
-                lower(name, input, "/repo".into(), nah_proto::ctx::Platform::Linux).unwrap();
+                lower_copilot_tool(name, input, "/repo".into(), nah_proto::ctx::Platform::Linux)
+                    .unwrap();
             assert_eq!(tool, expected);
         }
     }
@@ -453,7 +465,7 @@ mod tests {
     #[test]
     fn preserves_unknown_tools() {
         let input = json!({"query":"example"});
-        let (tool, lowered, _, _) = lower(
+        let (tool, lowered, _, _) = lower_copilot_tool(
             "web_fetch",
             input.clone(),
             "/repo".into(),
@@ -488,23 +500,27 @@ mod tests {
             tool_input: json!({"command":"echo ok"}),
         };
 
-        let (_, bash, code) = normalize(cli("bash"), nah_proto::ctx::Platform::Windows).unwrap();
+        let (_, bash, code) =
+            normalize_copilot_hook_input(cli("bash"), nah_proto::ctx::Platform::Windows).unwrap();
         assert_eq!(bash.tool(), "Bash");
         assert!(code.is_none());
 
         let (_, powershell, code) =
-            normalize(cli("powershell"), nah_proto::ctx::Platform::Windows).unwrap();
+            normalize_copilot_hook_input(cli("powershell"), nah_proto::ctx::Platform::Windows)
+                .unwrap();
         assert_eq!(powershell.tool(), "powershell");
         assert!(powershell.normalization_complete());
         assert!(matches!(code, Some(CodeInput::PowerShell { .. })));
 
         let (_, powershell, code) =
-            normalize(cli("powershell"), nah_proto::ctx::Platform::Linux).unwrap();
+            normalize_copilot_hook_input(cli("powershell"), nah_proto::ctx::Platform::Linux)
+                .unwrap();
         assert_eq!(powershell.tool(), "powershell");
         assert!(code.is_none());
 
         for tool in ["Bash", "runTerminalCommand", "run_in_terminal"] {
-            let (_, call, code) = normalize(cli(tool), nah_proto::ctx::Platform::Windows).unwrap();
+            let (_, call, code) =
+                normalize_copilot_hook_input(cli(tool), nah_proto::ctx::Platform::Windows).unwrap();
             assert_eq!(call.tool(), "CopilotWindowsShell", "{tool}");
             assert!(!call.normalization_complete(), "{tool}");
             assert!(code.is_none(), "{tool}");

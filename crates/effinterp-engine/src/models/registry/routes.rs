@@ -1,6 +1,17 @@
 //! Forge API route matching for destructive repository requests.
 
-use super::*;
+use std::collections::BTreeMap;
+use std::sync::LazyLock;
+
+use effinterp_model_schema::{
+    ApiRouteSegmentKind, ApiRouteShapeDeclaration, AttributeDeclaration, Declaration,
+    DeclarationDocument, EffectSourceDeclaration, ValueDeclaration,
+};
+use effinterp_proto::AttrValue;
+
+use super::PROMOTED_MODEL_SOURCES;
+use super::literals::{percent_decode, safe_route_component};
+use super::validate::command_behaviors;
 
 fn valid_api_url_suffix(value: &str) -> bool {
     let bytes = value.as_bytes();

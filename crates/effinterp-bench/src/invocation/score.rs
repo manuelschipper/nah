@@ -10,10 +10,10 @@ use effinterp_proto::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::corpus::BenchRow;
+use super::corpus::InvocationRow;
 use super::judge::{Verdict, judge_plan};
 use super::tiers::{Bucket, Tier, bucket_of, bucket_reasons};
-use super::{Analyzed, FailureKind, MutationSummary, Outcome};
+use super::{Analyzed, FailureKind, MutationSummary, SubjectOutcome};
 use crate::latency::LatencySection;
 use crate::nah::classify::ParityClass;
 use crate::nah::mutate::MutationMeasurement;
@@ -415,7 +415,7 @@ fn subject_text(subject: &Subject) -> &str {
 /// Reduce one analyzed plan to what scoring reads. Runs in the worker so the
 /// plan can be dropped before the next row is analyzed.
 pub(super) fn summarize(
-    row: &BenchRow,
+    row: &InvocationRow,
     plan: &Plan,
     mutation: Option<MutationMeasurement>,
 ) -> Analyzed {
@@ -468,7 +468,7 @@ pub(super) fn summarize(
     }
 }
 
-fn silent_drops(outcomes: &[Outcome]) -> SilentDrops {
+fn silent_drops(outcomes: &[SubjectOutcome]) -> SilentDrops {
     let mut result = SilentDrops::default();
     for outcome in outcomes {
         let Ok(analyzed) = &outcome.result else {
@@ -486,7 +486,7 @@ fn silent_drops(outcomes: &[Outcome]) -> SilentDrops {
     result
 }
 
-pub fn host_stats(outcomes: &[Outcome], max_rss_kb: u64) -> HostStats {
+pub fn host_stats(outcomes: &[SubjectOutcome], max_rss_kb: u64) -> HostStats {
     let mut wall: Vec<f64> = outcomes.iter().map(|o| o.elapsed_ms).collect();
     wall.sort_by(f64::total_cmp);
     let at = |fraction: f64| {
@@ -505,7 +505,7 @@ pub fn host_stats(outcomes: &[Outcome], max_rss_kb: u64) -> HostStats {
 }
 
 /// Aggregate one source's outcomes. `rows` and `outcomes` are index-aligned.
-pub fn score_source(rows: &[BenchRow], outcomes: &[Outcome]) -> SourceScore {
+pub fn score_source(rows: &[InvocationRow], outcomes: &[SubjectOutcome]) -> SourceScore {
     let total: u64 = rows.iter().map(|row| row.weight).sum();
     let mut score = SourceScore {
         rows: rows.len(),
@@ -688,7 +688,7 @@ fn top_shares(
         .collect()
 }
 
-pub fn score_adversarial(rows: &[BenchRow], outcomes: &[Outcome]) -> AdversarialScore {
+pub fn score_adversarial(rows: &[InvocationRow], outcomes: &[SubjectOutcome]) -> AdversarialScore {
     let mut score = AdversarialScore {
         silent_drops: silent_drops(outcomes),
         ..Default::default()

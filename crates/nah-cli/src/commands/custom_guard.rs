@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use nah_proto::ctx::{ActivationProjection, GuardIdentity, GuardScope};
 
 use crate::catalog::reserved_guard_names;
-use crate::live_state::{home, host_platform};
+use crate::live_state::{self, host_platform};
 
 use super::{
     GuardEntry, GuardSelector, GuardStatus, GuardTarget, canonical_project_root, scope_name,
@@ -23,7 +23,7 @@ pub(crate) fn new_guard(
         ));
     }
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     let created = match selector {
         GuardSelector::Any | GuardSelector::User => {
             nah_extensions::create_user_guard(&home, platform, name)
@@ -91,7 +91,7 @@ pub(crate) fn enable_guard_identity(
 
 fn discovered_bundles() -> Result<Vec<nah_extensions::ExtensionBundle>, String> {
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     let trust_path = nah_extensions::trust_database_path(&home, platform);
     let trust = nah_extensions::TrustDatabase::load(&trust_path, platform)
         .and_then(|database| database.projection())
@@ -104,7 +104,7 @@ fn discovered_bundles() -> Result<Vec<nah_extensions::ExtensionBundle>, String> 
 
 fn activate_projection(projection: &ActivationProjection) -> Result<(), String> {
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     let trust_path = nah_extensions::trust_database_path(&home, platform);
     let actor = std::env::var("USER")
         .ok()
@@ -138,7 +138,7 @@ fn activate_projection(projection: &ActivationProjection) -> Result<(), String> 
 
 pub(crate) fn disable_custom_guard(name: &str) -> Result<(), String> {
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     let path = nah_extensions::activation_database_path(&home, platform);
     let activations =
         nah_extensions::ActivationDatabase::load(&path).map_err(|error| error.to_string())?;
@@ -174,7 +174,7 @@ pub(crate) fn disable_custom_guard_scoped(
 pub(crate) fn disable_guard_identity(identity: &GuardIdentity) -> Result<(), String> {
     validate_guard_identity(identity, None)?;
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     nah_extensions::remove_activation_by_identity(
         &nah_extensions::activation_database_path(&home, platform),
         identity,
@@ -212,7 +212,7 @@ pub(crate) fn validate_guard_identity(
         };
     }
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     let activations = nah_extensions::ActivationDatabase::load(
         &nah_extensions::activation_database_path(&home, platform),
     )
@@ -234,7 +234,7 @@ fn scoped_identity(name: &str, selector: &GuardSelector) -> Result<GuardIdentity
         GuardSelector::User => GuardIdentity::user(name).map_err(|error| error.to_string()),
         GuardSelector::Project(requested) => {
             let platform = host_platform();
-            let home = home(platform)?;
+            let home = live_state::home(platform)?;
             let root = canonical_project_root(requested, platform)?;
             let trust = nah_extensions::TrustDatabase::load(
                 &nah_extensions::trust_database_path(&home, platform),
@@ -366,7 +366,7 @@ pub(crate) fn list_custom_guards() -> Result<String, String> {
 
 pub(crate) fn custom_guard_entries() -> Result<Vec<GuardEntry>, String> {
     let platform = host_platform();
-    let home = home(platform)?;
+    let home = live_state::home(platform)?;
     let trust = nah_extensions::TrustDatabase::load(
         &nah_extensions::trust_database_path(&home, platform),
         platform,

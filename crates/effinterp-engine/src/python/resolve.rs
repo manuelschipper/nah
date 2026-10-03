@@ -8,16 +8,16 @@
 
 use std::collections::{HashMap, HashSet};
 
-use effinterp_proto::{PathPlatform, ResourceExpr, ResourceFamily, ResourceIdentity};
+use effinterp_proto::{PathPlatform, ResourceExpr, ResourceIdentity};
 use rustpython_parser::ast::{self, Constant, Expr};
 
 use crate::paths::resolve_fs_word;
-use crate::value::parse_url_endpoint;
+use crate::value::{parse_url_endpoint, unresolved_resource};
 use crate::word::Word;
 
 /// Tracks which local names refer to which known modules / imported symbols.
 #[derive(Clone, Default)]
-pub(super) struct Imports {
+pub(super) struct PythonImportNames {
     /// local name -> canonical dotted path, e.g. `sp` -> `subprocess`,
     /// `rm` -> `os.remove`, `Path` -> `pathlib.Path`.
     names: HashMap<String, String>,
@@ -31,7 +31,7 @@ pub(super) struct Imports {
     pub(super) namespace_mutated: bool,
 }
 
-impl Imports {
+impl PythonImportNames {
     /// `import a.b.c as d` / `import os`.
     pub(super) fn add_import(&mut self, name: &str, asname: Option<&str>) {
         match asname {
@@ -364,7 +364,7 @@ pub(super) fn str_literal(expr: &Expr) -> Option<String> {
 /// parameter) stays a symbolic `Parameter`; anything else widens.
 pub(super) fn fs_resource(
     expr: &Expr,
-    imports: &Imports,
+    imports: &PythonImportNames,
     cwd: Option<&str>,
     source_file: Option<&str>,
     path_vars: &HashSet<String>,
@@ -392,9 +392,7 @@ pub(super) fn fs_resource(
         return if name == "os.path.expanduser" {
             expanduser_resource(ResourceExpr::Literal { value })
         } else {
-            expandvars_resource(&value).unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            })
+            expandvars_resource(&value).unwrap_or(unresolved_resource("filesystem"))
         };
     }
     // os.path.join(a, b, ...) -> Join of the lowered parts.
@@ -407,19 +405,17 @@ pub(super) fn fs_resource(
             .map(|a| join_part(a, imports, source_file, path_vars))
             .collect();
         return match parts.len() {
-            0 => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            },
+            0 => unresolved_resource("filesystem"),
             1 => parts.into_iter().next().unwrap(),
             _ => ResourceExpr::Join { parts },
         };
     }
-    symbolic(expr, "filesystem")
+    symbolic_resource(expr, "filesystem")
 }
 
 fn path_resource(
     expr: &Expr,
-    imports: &Imports,
+    imports: &PythonImportNames,
     cwd: Option<&str>,
     source_file: Option<&str>,
     path_vars: &HashSet<String>,
@@ -618,9 +614,7 @@ pub(super) fn expanduser_resource(base: ResourceExpr) -> ResourceExpr {
         };
     };
     if !rest.is_empty() && !rest.starts_with('/') {
-        return ResourceExpr::Unresolved {
-            family: ResourceFamily::new("filesystem"),
-        };
+        return unresolved_resource("filesystem");
     }
     let mut parts = vec![ResourceExpr::Environment {
         name: "HOME".to_string(),
@@ -698,7 +692,7 @@ fn ancestor(resource: ResourceExpr, count: usize) -> Option<ResourceExpr> {
 /// nested joins recurse, everything else widens.
 fn join_part(
     expr: &Expr,
-    imports: &Imports,
+    imports: &PythonImportNames,
     source_file: Option<&str>,
     path_vars: &HashSet<String>,
 ) -> ResourceExpr {
@@ -715,7 +709,7 @@ fn join_part(
 /// bindings have been substituted.
 pub(super) fn concatenated_resource(
     expr: &Expr,
-    imports: &Imports,
+    imports: &PythonImportNames,
     source_file: Option<&str>,
 ) -> Option<ResourceExpr> {
     if !matches!(
@@ -732,7 +726,7 @@ pub(super) fn concatenated_resource(
 
 fn concatenated_parts(
     expr: &Expr,
-    imports: &Imports,
+    imports: &PythonImportNames,
     source_file: Option<&str>,
     parts: &mut Vec<ResourceExpr>,
 ) -> Option<()> {
@@ -772,7 +766,7 @@ fn concatenated_parts(
 /// Lower one string-concatenation operand for an augmented assignment.
 pub(super) fn concatenated_part_resource(
     expr: &Expr,
-    imports: &Imports,
+    imports: &PythonImportNames,
     source_file: Option<&str>,
 ) -> Option<ResourceExpr> {
     let mut parts = Vec::new();
@@ -782,7 +776,7 @@ pub(super) fn concatenated_part_resource(
 
 fn concatenated_part(
     expr: &Expr,
-    imports: &Imports,
+    imports: &PythonImportNames,
     source_file: Option<&str>,
     parts: &mut Vec<ResourceExpr>,
 ) -> Option<()> {
@@ -820,9 +814,7 @@ fn concatenated_part(
             }
             parts.push(ResourceExpr::Environment { name });
         }
-        Expr::Attribute(_) | Expr::Subscript(_) => parts.push(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("value"),
-        }),
+        Expr::Attribute(_) | Expr::Subscript(_) => parts.push(unresolved_resource("value")),
         Expr::BinOp(binary) if binary.op == ast::Operator::Add => {
             concatenated_parts(expr, imports, source_file, parts)?;
         }
@@ -834,14 +826,12 @@ fn concatenated_part(
 
 /// A symbolic resource for a non-literal expression: a bare variable keeps its
 /// name (a `Parameter`); anything more complex widens to an unresolved family.
-pub(super) fn symbolic(expr: &Expr, family: &str) -> ResourceExpr {
+pub(super) fn symbolic_resource(expr: &Expr, family: &str) -> ResourceExpr {
     match expr {
         Expr::Name(n) => ResourceExpr::Parameter {
             name: n.id.as_str().to_string(),
         },
-        _ => ResourceExpr::Unresolved {
-            family: ResourceFamily::new(family),
-        },
+        _ => unresolved_resource(family),
     }
 }
 
@@ -851,10 +841,8 @@ pub(super) fn net_resource(expr: &Expr) -> ResourceExpr {
     match str_literal(expr) {
         Some(url) => parse_url_endpoint(&url)
             .map(|identity| ResourceExpr::Concrete { identity })
-            .unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            }),
-        None => symbolic(expr, "network"),
+            .unwrap_or(unresolved_resource("network")),
+        None => symbolic_resource(expr, "network"),
     }
 }
 

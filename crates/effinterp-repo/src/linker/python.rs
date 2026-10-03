@@ -1,4 +1,11 @@
-use super::*;
+use effinterp_engine::{Assurance, ExternalCall, ResolvedObject, classify_python_call};
+use effinterp_proto::CalleeReference;
+
+use super::{
+    Linker, Resolution, find_import, resolve_common_method, resolve_standard_callee,
+    standard_class_candidates,
+};
+use crate::module::{ModuleFile, ModuleRegistry};
 
 pub(crate) struct PythonLinker;
 
@@ -39,7 +46,7 @@ macro_rules! standard_linker {
 
             fn resolve_callee<'a>(
                 &self,
-                reg: &'a Registry,
+                reg: &'a ModuleRegistry,
                 file: &'a ModuleFile,
                 callee: &str,
             ) -> Resolution<'a> {
@@ -48,7 +55,7 @@ macro_rules! standard_linker {
 
             fn class_candidates<'a>(
                 &self,
-                reg: &'a Registry,
+                reg: &'a ModuleRegistry,
                 file: &'a ModuleFile,
                 name: &str,
             ) -> Vec<(ResolvedObject, Assurance)> {
@@ -57,7 +64,7 @@ macro_rules! standard_linker {
 
             fn resolve_method<'a>(
                 &self,
-                reg: &'a Registry,
+                reg: &'a ModuleRegistry,
                 inst: &ResolvedObject,
                 method: &str,
             ) -> Resolution<'a> {
@@ -66,7 +73,7 @@ macro_rules! standard_linker {
 
             fn classify_external(
                 &self,
-                _reg: &Registry,
+                _reg: &ModuleRegistry,
                 module: &str,
                 member: &str,
                 arity: Option<usize>,
@@ -76,7 +83,7 @@ macro_rules! standard_linker {
 
             fn classify_import(
                 &self,
-                _reg: &Registry,
+                _reg: &ModuleRegistry,
                 _file: &ModuleFile,
                 _spec: &str,
             ) -> Option<ExternalCall> {
@@ -85,7 +92,7 @@ macro_rules! standard_linker {
 
             fn execution_roots<'a>(
                 &self,
-                _reg: &'a Registry,
+                _reg: &'a ModuleRegistry,
                 _file: &'a ModuleFile,
             ) -> Vec<(&'a ModuleFile, Option<&'a str>)> {
                 Vec::new()

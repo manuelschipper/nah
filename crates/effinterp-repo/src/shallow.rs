@@ -7,6 +7,8 @@ use effinterp_engine::{
 };
 use effinterp_proto::native_extension_candidate;
 
+use crate::is_executable;
+
 /// Reads invocation-selected files and explicit dependencies beneath one canonical cwd root.
 pub struct ShallowSourceResolver {
     root: PathBuf,
@@ -383,18 +385,6 @@ pub(crate) fn python_native_candidates_absent(root: &Path, relative: &str) -> bo
         }
     }
     true
-}
-
-#[cfg(unix)]
-fn is_executable(metadata: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-
-    metadata.permissions().mode() & 0o111 != 0
-}
-
-#[cfg(not(unix))]
-fn is_executable(_: &std::fs::Metadata) -> bool {
-    false
 }
 
 #[cfg(test)]

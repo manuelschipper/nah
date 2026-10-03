@@ -9,7 +9,7 @@ use nah_proto::effinterp_proto::{
     ListedEntry, ListingFact, MAX_LISTING_DEPTH, MAX_LISTING_ENTRIES, MAX_OBSERVATION_PATH_BYTES,
     ObservationRefusal, PathKind,
 };
-use nah_proto::observation::{Observed, PathKind as HostKind};
+use nah_proto::observation::{self, Observed};
 
 use crate::io_paths::is_reparse_point;
 use crate::path_facts::observe_path;
@@ -29,8 +29,12 @@ pub fn observe_listing(
         Observed::Error { .. } => return Err(ObservationRefusal::Unobserved),
     };
     let directory = match (root.kind(), root.target_kind(), root.realpath()) {
-        (HostKind::Directory, _, Some(realpath))
-        | (HostKind::Symlink, Some(HostKind::Directory), Some(realpath)) => realpath.clone(),
+        (observation::PathKind::Directory, _, Some(realpath))
+        | (
+            observation::PathKind::Symlink,
+            Some(observation::PathKind::Directory),
+            Some(realpath),
+        ) => realpath.clone(),
         (_, _, None) => return Err(ObservationRefusal::Unobserved),
         _ => return Err(ObservationRefusal::Unsupported),
     };

@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use crate::fulfill;
+use crate::fulfill_observation_request;
 use crate::fulfill_with_git;
 use nah_proto::ctx::SchemaVersion;
 #[cfg(unix)]
@@ -69,7 +69,7 @@ fn env_only_non_unicode_helper() {
         return;
     }
     let request = env_request("NAH_OBSERVE_NON_UNICODE_VALUE");
-    let observation = fulfill(&request).expect("env-only observation");
+    let observation = fulfill_observation_request(&request).expect("env-only observation");
     assert!(matches!(
         observation.facts(),
         [fact]

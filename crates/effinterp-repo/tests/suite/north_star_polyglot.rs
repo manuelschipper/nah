@@ -9,6 +9,7 @@ use effinterp_proto::{
 use effinterp_repo::{EntrypointKind, IndexLimits, RepoIndex, build_index, save_index};
 
 use super::plan_execution;
+use crate::support::literal;
 
 const PACKAGE_JSON: &str = include_str!("../fixtures/north-star-polyglot/package.json");
 const PACKAGE_SCRIPT: &str = "./src/launcher.ts";
@@ -30,13 +31,6 @@ const EDGE_KINDS: [ExecutionEdgeKind; 9] = [
 
 fn fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/north-star-polyglot")
-}
-
-fn literal(expr: &ResourceExpr) -> Option<&str> {
-    match expr {
-        ResourceExpr::Literal { value } => Some(value),
-        _ => None,
-    }
 }
 
 fn argv(node: &ExecutionNode) -> Vec<&str> {

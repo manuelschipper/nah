@@ -1,5 +1,5 @@
 use super::support::{canonical, init_repo, request, value};
-use crate::fulfill;
+use crate::fulfill_observation_request;
 #[cfg(windows)]
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::observation::ObservationFailure;
@@ -27,7 +27,8 @@ fn multiply_linked_files_keep_entry_identity_and_kind() {
         &[("alias", PathKind::File, None)]
     };
     for (requested, kind, target_kind) in requested {
-        let observation = fulfill(&request(&repo, &[("path", requested)])).expect("observation");
+        let observation = fulfill_observation_request(&request(&repo, &[("path", requested)]))
+            .expect("observation");
         let ObservationValue::Path {
             observed: Observed::Ok { value: path },
         } = value(&observation, "path")
@@ -53,7 +54,7 @@ fn an_unobservable_path_does_not_discard_other_path_facts() {
     let repo = temp.path().join("repo");
     init_repo(&repo);
 
-    let observation = fulfill(&request(
+    let observation = fulfill_observation_request(&request(
         &repo,
         &[("tracked", "tracked"), ("control", "line\n")],
     ))
@@ -98,7 +99,7 @@ fn missing_path_realpath_resolves_existing_symlink_parent_and_kind_uses_lstat() 
     )
     .expect("dangling relative parent symlink");
 
-    let observation = fulfill(&request(
+    let observation = fulfill_observation_request(&request(
         &repo,
         &[
             ("missing", "link/new/file"),
@@ -188,7 +189,8 @@ fn symlink_to_fifo_records_the_followed_target_kind() {
     symlink("relay", repo.join("link")).expect("fifo symlink");
 
     let observation =
-        fulfill(&request(&repo, &[("fifo", "relay"), ("link", "link")])).expect("observation");
+        fulfill_observation_request(&request(&repo, &[("fifo", "relay"), ("link", "link")]))
+            .expect("observation");
     let ObservationValue::Path {
         observed: Observed::Ok { value: fifo },
     } = value(&observation, "fifo")

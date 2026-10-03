@@ -1,6 +1,8 @@
-//! Declares the runtime fields preserved by each documented tool adapter.
+//! Declares the runtime fields preserved by each documented tool adapter, and
+//! the tool input field readers the adapters share. Each reader returns the
+//! calling adapter's `invalid-<runtime>-tool-input` error code as `invalid`.
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 /// Checks field-name coverage for listed runtime/tool pairs, including modeled
 /// nested fields. Missing known fields are permitted; unlisted pairs return true.
@@ -192,6 +194,94 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
             }
             _ => true,
         }
+}
+
+/// Reads a runtime tool input as a JSON object.
+pub(crate) fn tool_input_object<'a>(
+    input: &'a Value,
+    invalid: &str,
+) -> Result<&'a Map<String, Value>, String> {
+    input.as_object().ok_or_else(|| invalid.to_owned())
+}
+
+/// Reads a required tool input field that must be a string; it may be empty.
+pub(crate) fn tool_input_string(
+    object: &Map<String, Value>,
+    name: &str,
+    invalid: &str,
+) -> Result<String, String> {
+    object
+        .get(name)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| invalid.to_owned())
+}
+
+/// Reads a required tool input field that must be a non-empty string.
+pub(crate) fn tool_input_non_empty_string(
+    object: &Map<String, Value>,
+    name: &str,
+    invalid: &str,
+) -> Result<String, String> {
+    tool_input_string(object, name, invalid).and_then(|value| {
+        if value.is_empty() {
+            Err(invalid.into())
+        } else {
+            Ok(value)
+        }
+    })
+}
+
+/// Reads an optional string tool input field. A missing field and an empty
+/// string are both `None`; any other type, including null, is invalid.
+pub(crate) fn tool_input_optional_non_empty_string(
+    object: &Map<String, Value>,
+    name: &str,
+    invalid: &str,
+) -> Result<Option<String>, String> {
+    match object.get(name) {
+        Some(Value::String(value)) if !value.is_empty() => Ok(Some(value.clone())),
+        Some(Value::String(_)) | None => Ok(None),
+        Some(_) => Err(invalid.into()),
+    }
+}
+
+/// Reads an optional boolean tool input field. A missing field is `None`; any
+/// other type, including null, is invalid.
+pub(crate) fn tool_input_optional_bool(
+    object: &Map<String, Value>,
+    name: &str,
+    invalid: &str,
+) -> Result<Option<bool>, String> {
+    match object.get(name) {
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        None => Ok(None),
+        Some(_) => Err(invalid.into()),
+    }
+}
+
+/// Reads the required `edits` tool input field that OpenClaw and Pi send: a
+/// non-empty array of text edits, each an object whose `oldText` and `newText`
+/// are strings. Returns the array unchanged.
+pub(crate) fn tool_input_text_edits(
+    object: &Map<String, Value>,
+    invalid: &str,
+) -> Result<Value, String> {
+    let edits = object
+        .get("edits")
+        .and_then(Value::as_array)
+        .filter(|edits| !edits.is_empty())
+        .ok_or_else(|| invalid.to_owned())?;
+    edits
+        .iter()
+        .all(|edit| {
+            edit.as_object().is_some_and(|edit| {
+                edit.get("oldText").is_some_and(Value::is_string)
+                    && edit.get("newText").is_some_and(Value::is_string)
+            })
+        })
+        .then(|| Value::Array(edits.clone()))
+        .ok_or_else(|| invalid.to_owned())
 }
 
 fn only_fields(input: &Value, allowed: &[&str]) -> bool {

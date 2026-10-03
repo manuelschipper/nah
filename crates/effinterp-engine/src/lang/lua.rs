@@ -59,7 +59,7 @@ pub(super) fn analyze(
         builder.note_deadline();
         return;
     }
-    let mut walk = Walk {
+    let mut walk = LuaWalk {
         nest,
         cwd,
         node,
@@ -91,34 +91,34 @@ pub(super) fn analyze(
     }
 }
 
-struct Walk<'a> {
+struct LuaWalk<'a> {
     nest: &'a Nest<'a>,
     cwd: Option<&'a str>,
     node: ProvenanceRef,
     depth: u64,
     /// Global names a definition or `name = {}` bound. A replaced name no
     /// longer reaches the standard library; earlier calls already did.
-    globals: Frame,
+    globals: LuaScopeFrame,
     /// The locals visible here, one frame per declaration, innermost last.
     /// A function's body sees the frames visible where it was defined, shared
     /// as Lua upvalues are, so a later assignment to one reaches the body.
-    locals: Vec<Frame>,
+    locals: Vec<LuaScopeFrame>,
     /// Every function defined so far.
     functions: Vec<Function>,
     /// Every argument value bound to a parameter so far.
-    values: Vec<Value>,
+    values: Vec<LuaValue>,
     understood: bool,
 }
 
-type Frame = Rc<RefCell<BTreeMap<String, Binding>>>;
+type LuaScopeFrame = Rc<RefCell<BTreeMap<String, LuaBinding>>>;
 
 #[derive(Clone, Copy)]
-enum Binding {
-    /// An index into [`Walk::functions`].
+enum LuaBinding {
+    /// An index into [`LuaWalk::functions`].
     Function(usize),
     /// Replaced by an empty table.
     Replaced,
-    /// A parameter; an index into [`Walk::values`].
+    /// A parameter; an index into [`LuaWalk::values`].
     Value(usize),
 }
 
@@ -127,11 +127,11 @@ struct Function {
     params: Vec<String>,
     body: String,
     /// The local frames visible at the definition.
-    captured: Vec<Frame>,
+    captured: Vec<LuaScopeFrame>,
     called: bool,
 }
 
-impl Walk<'_> {
+impl LuaWalk<'_> {
     /// Walk a straight-line chunk. Stops at the first construct outside the
     /// grammar so no statement after an unexplained one is claimed. Returns
     /// whether the chunk ran to its end.
@@ -149,13 +149,13 @@ impl Walk<'_> {
                 return false;
             }
             if let Some((local, name)) = replacement(&statement) {
-                self.bind(local, name, Binding::Replaced);
+                self.bind(local, name, LuaBinding::Replaced);
                 continue;
             }
             // A definition rebinds the name, so later calls reach its body.
-            if let Some((local, name, params, body)) = definition(&statement) {
+            if let Some((local, name, params, body)) = lua_function_definition(&statement) {
                 let index = self.functions.len();
-                self.bind(local, name, Binding::Function(index));
+                self.bind(local, name, LuaBinding::Function(index));
                 self.functions.push(Function {
                     name: name.to_string(),
                     params,
@@ -182,7 +182,7 @@ impl Walk<'_> {
     /// A `local` declaration opens a new frame that ends with its block.
     /// Any other binding assigns the innermost visible local of that name, or
     /// else the global.
-    fn bind(&mut self, local: bool, name: &str, binding: Binding) {
+    fn bind(&mut self, local: bool, name: &str, binding: LuaBinding) {
         let declared = BTreeMap::from([(name.to_string(), binding)]);
         if local {
             self.locals.push(Rc::new(RefCell::new(declared)));
@@ -197,7 +197,7 @@ impl Walk<'_> {
         frame.borrow_mut().extend(declared);
     }
 
-    fn lookup(&self, name: &str) -> Option<Binding> {
+    fn lookup(&self, name: &str) -> Option<LuaBinding> {
         self.locals
             .iter()
             .rev()
@@ -211,7 +211,7 @@ impl Walk<'_> {
         &mut self,
         builder: &mut PlanBuilder,
         source: &str,
-        scopes: Vec<Frame>,
+        scopes: Vec<LuaScopeFrame>,
         depth: u32,
     ) -> bool {
         let caller = std::mem::replace(&mut self.locals, scopes);
@@ -225,10 +225,10 @@ impl Walk<'_> {
     fn apply(
         &mut self,
         builder: &mut PlanBuilder,
-        call: &Call,
+        call: &LuaCall,
         depth: u32,
     ) -> Result<bool, String> {
-        let call = &Call {
+        let call = &LuaCall {
             callee: call.callee.clone(),
             arguments: call
                 .arguments
@@ -239,13 +239,13 @@ impl Walk<'_> {
         };
         let root = call.callee.split('.').next().unwrap_or_default();
         match self.lookup(root) {
-            Some(Binding::Replaced) => {
+            Some(LuaBinding::Replaced) => {
                 return Err(format!("lua global {root} was replaced before this call"));
             }
-            Some(Binding::Value(_)) => {
+            Some(LuaBinding::Value(_)) => {
                 return Err(format!("lua call through parameter {root} is not modeled"));
             }
-            Some(Binding::Function(index)) => {
+            Some(LuaBinding::Function(index)) => {
                 if call.callee != root
                     || call.arguments.len() != self.functions[index].params.len()
                     || call.invoked
@@ -267,8 +267,8 @@ impl Walk<'_> {
                 // Each call binds its parameters as fresh locals of the body.
                 let mut frame = BTreeMap::new();
                 for (param, argument) in params.into_iter().zip(&call.arguments) {
-                    frame.insert(param, Binding::Value(self.values.len()));
-                    self.values.push(Value(argument.0.clone()));
+                    frame.insert(param, LuaBinding::Value(self.values.len()));
+                    self.values.push(LuaValue(argument.0.clone()));
                 }
                 scopes.push(Rc::new(RefCell::new(frame)));
                 return Ok(self.walk_block(builder, &body, scopes, depth + 1));
@@ -292,7 +292,7 @@ impl Walk<'_> {
     }
 
     /// Apply a standard-library call.
-    fn library(&mut self, builder: &mut PlanBuilder, call: &Call) -> Result<(), String> {
+    fn library(&mut self, builder: &mut PlanBuilder, call: &LuaCall) -> Result<(), String> {
         match (call.callee.as_str(), call.arguments.len()) {
             ("os.execute", 1) | ("io.popen", 1 | 2) => {
                 let Some(command) = self.text(builder, &call.arguments[0]) else {
@@ -364,7 +364,7 @@ impl Walk<'_> {
         &mut self,
         builder: &mut PlanBuilder,
         operation: &str,
-        value: &Value,
+        value: &LuaValue,
         attributes: &[(&str, bool)],
     ) -> Result<(), String> {
         let Some(resource) = self.resource(builder, value) else {
@@ -390,50 +390,50 @@ impl Walk<'_> {
 
     /// `value` with each parameter name replaced by the argument it is bound
     /// to here, so it no longer depends on the scope.
-    fn close(&self, value: &Value) -> Result<Value, String> {
+    fn close(&self, value: &LuaValue) -> Result<LuaValue, String> {
         let mut parts = Vec::new();
         for part in &value.0 {
             match part {
-                Part::Name(name) => match self.lookup(name) {
-                    Some(Binding::Value(index)) => parts.extend(self.values[index].0.clone()),
+                LuaValuePart::Name(name) => match self.lookup(name) {
+                    Some(LuaBinding::Value(index)) => parts.extend(self.values[index].0.clone()),
                     _ => return Err(format!("lua name {name} is not a bound parameter")),
                 },
                 part => parts.push(part.clone()),
             }
         }
-        Ok(Value(parts))
+        Ok(LuaValue(parts))
     }
 
     /// Fully literal text, with every environment read recorded.
-    fn text(&mut self, builder: &mut PlanBuilder, value: &Value) -> Option<String> {
+    fn text(&mut self, builder: &mut PlanBuilder, value: &LuaValue) -> Option<String> {
         let mut text = String::new();
         for part in &value.0 {
             match part {
-                Part::Text(literal) => text.push_str(literal),
-                Part::Env(name) => match self.env(builder, name) {
+                LuaValuePart::Text(literal) => text.push_str(literal),
+                LuaValuePart::Env(name) => match self.env(builder, name) {
                     Some(ResourceExpr::Literal { value }) => text.push_str(&value),
                     _ => return None,
                 },
                 // Closed by `apply` before any value is used.
-                Part::Name(_) => return None,
+                LuaValuePart::Name(_) => return None,
             }
         }
         Some(text)
     }
 
     /// A path resource: concrete when every part resolves, symbolic otherwise.
-    fn resource(&mut self, builder: &mut PlanBuilder, value: &Value) -> Option<ResourceExpr> {
+    fn resource(&mut self, builder: &mut PlanBuilder, value: &LuaValue) -> Option<ResourceExpr> {
         let mut parts = Vec::new();
         for part in &value.0 {
             match part {
-                Part::Text(literal) => parts.push(ResourceExpr::Literal {
+                LuaValuePart::Text(literal) => parts.push(ResourceExpr::Literal {
                     value: literal.clone(),
                 }),
-                Part::Env(name) => parts.push(
+                LuaValuePart::Env(name) => parts.push(
                     self.env(builder, name)
                         .unwrap_or(ResourceExpr::Environment { name: name.clone() }),
                 ),
-                Part::Name(_) => return None,
+                LuaValuePart::Name(_) => return None,
             }
         }
         let literal = parts
@@ -494,17 +494,17 @@ impl Walk<'_> {
     }
 }
 
-struct Call {
+struct LuaCall {
     callee: String,
-    arguments: Vec<Value>,
+    arguments: Vec<LuaValue>,
     /// `load("...")()` calls the compiled chunk immediately.
     invoked: bool,
 }
 
-struct Value(Vec<Part>);
+struct LuaValue(Vec<LuaValuePart>);
 
 #[derive(Clone)]
-enum Part {
+enum LuaValuePart {
     Text(String),
     Env(String),
     /// A name, which must be a parameter bound where the value is used.
@@ -681,7 +681,7 @@ fn function_block_len(source: &str) -> Result<Option<usize>, String> {
 
 /// Whether a `[local] function name(params) ... end` definition is local,
 /// with its name, parameter names and body.
-fn definition(statement: &str) -> Option<(bool, &str, Vec<String>, &str)> {
+fn lua_function_definition(statement: &str) -> Option<(bool, &str, Vec<String>, &str)> {
     let statement = statement.trim();
     let local = statement
         .strip_prefix("local")
@@ -753,7 +753,7 @@ fn replacement(statement: &str) -> Option<(bool, &str)> {
 }
 
 /// Parse one statement as `name(arguments)` or `load(argument)()`.
-fn call(statement: &str) -> Result<Call, String> {
+fn call(statement: &str) -> Result<LuaCall, String> {
     let statement = statement.trim();
     let open = statement.find('(').ok_or("lua statement is not a call")?;
     let callee = statement[..open].trim();
@@ -780,7 +780,7 @@ fn call(statement: &str) -> Result<Call, String> {
             ));
         }
     };
-    Ok(Call {
+    Ok(LuaCall {
         callee: callee.to_string(),
         arguments: split(arguments)?
             .iter()
@@ -862,20 +862,20 @@ fn split(source: &str) -> Result<Vec<String>, String> {
 
 /// A value is a `..` concatenation of string literals, `os.getenv` reads and
 /// names.
-fn value(source: &str) -> Result<Value, String> {
+fn value(source: &str) -> Result<LuaValue, String> {
     let mut parts = Vec::new();
     for term in concatenation(source)? {
         let term = term.trim();
         if term.starts_with('"') || term.starts_with('\'') {
-            parts.push(Part::Text(unescape(term)?));
+            parts.push(LuaValuePart::Text(unescape(term)?));
             continue;
         }
         if term.starts_with('[') {
-            parts.push(Part::Text(long_string(term)?));
+            parts.push(LuaValuePart::Text(long_string(term)?));
             continue;
         }
         if is_name(term) {
-            parts.push(Part::Name(term.to_string()));
+            parts.push(LuaValuePart::Name(term.to_string()));
             continue;
         }
         let name = term
@@ -896,12 +896,12 @@ fn value(source: &str) -> Result<Value, String> {
         if !(inner.starts_with('"') || inner.starts_with('\'')) {
             return Err("lua os.getenv name is not a literal".into());
         }
-        parts.push(Part::Env(unescape(inner)?));
+        parts.push(LuaValuePart::Env(unescape(inner)?));
     }
     if parts.is_empty() {
         return Err("lua value is empty".into());
     }
-    Ok(Value(parts))
+    Ok(LuaValue(parts))
 }
 
 /// Split one value on top-level `..` concatenation operators.

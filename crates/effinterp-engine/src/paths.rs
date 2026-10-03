@@ -1,3 +1,4 @@
+use crate::value::unresolved_resource;
 use effinterp_proto::{HostContext, PathPlatform, ResourceExpr, ResourceIdentity};
 
 /// Whether a filesystem resource still carries the ambient cwd parameter.
@@ -90,9 +91,7 @@ fn filesystem_path(path: &str, cwd: Option<ResourceExpr>, platform: PathPlatform
                 path: effinterp_proto::normalize_path(path, platform),
             },
         },
-        PathAnchoring::DriveRelative => ResourceExpr::Unresolved {
-            family: effinterp_proto::ResourceFamily::new("filesystem"),
-        },
+        PathAnchoring::DriveRelative => unresolved_resource("filesystem"),
         PathAnchoring::Relative => effinterp_proto::filesystem_path(path, cwd, platform),
     }
 }
@@ -166,12 +165,7 @@ fn typed_tool_resource(resource: ResourceExpr) -> ResourceExpr {
         return resource;
     }
     ResourceExpr::Join {
-        parts: vec![
-            resource,
-            ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("filesystem"),
-            },
-        ],
+        parts: vec![resource, unresolved_resource("filesystem")],
     }
 }
 
@@ -273,9 +267,7 @@ pub(crate) fn resolve_fs_word_with_cwd_on_platform(
             WordPart::Literal(text)
                 if i == 0 && path_anchoring(text, platform) == PathAnchoring::DriveRelative =>
             {
-                ResourceExpr::Unresolved {
-                    family: effinterp_proto::ResourceFamily::new("filesystem"),
-                }
+                unresolved_resource("filesystem")
             }
             WordPart::Literal(text)
                 if i == 0 && path_anchoring(text, platform) == PathAnchoring::Relative =>
@@ -346,9 +338,7 @@ pub(crate) fn resolve_fs_word_with_cwd_on_platform(
                 }
             }
             WordPart::Value(value) => value.clone(),
-            WordPart::Unknown => ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("filesystem"),
-            },
+            WordPart::Unknown => unresolved_resource("filesystem"),
         });
     }
     if parts.len() == 1 {
@@ -562,9 +552,7 @@ fn command_word(word: &crate::word::Word, cwd: Option<&ResourceExpr>) -> Resourc
                         .map(|word| command_word(word, cwd))
                         .collect(),
                 },
-                WordPart::Unknown => ResourceExpr::Unresolved {
-                    family: effinterp_proto::ResourceFamily::new("process"),
-                },
+                WordPart::Unknown => unresolved_resource("process"),
             })
             .collect(),
     }

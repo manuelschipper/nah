@@ -1,6 +1,24 @@
-use super::*;
+use std::collections::HashMap;
 
-impl<'a, 'b> Walker<'a, 'b> {
+use effinterp_proto::{
+    Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, Modality, Operation,
+    ResourceExpr, ResourceIdentity, Subject,
+};
+use tree_sitter::Node;
+
+use crate::SemanticValue;
+use crate::builder::KNOWN_DOMAINS;
+use crate::lang::frontend::MAX_CALLBACK_VALUES;
+use crate::nest::Transition;
+use crate::summary::{contains_unresolved, has_text_concat};
+use crate::value::{parse_url_endpoint, unresolved_resource};
+
+use super::{
+    PhpCaptureWalker, PhpWalker, arg_nodes, array_values, callable_name, child_kind,
+    literal_string, named_argument, poisoned_php_reference, resolve_expr, text, variable_name,
+};
+
+impl<'a, 'b> PhpWalker<'a, 'b> {
     /// Model a known PHP builtin; returns Some(()) if it claimed the call.
     pub(super) fn builtin(
         &mut self,
@@ -92,9 +110,7 @@ impl<'a, 'b> Walker<'a, 'b> {
                     .unwrap_or_default();
                 if values.len() > MAX_CALLBACK_VALUES {
                     values.truncate(MAX_CALLBACK_VALUES);
-                    values.push(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("value"),
-                    });
+                    values.push(unresolved_resource("value"));
                 }
                 if let Some(callable) = callable {
                     if values.is_empty() {
@@ -231,9 +247,7 @@ impl<'a, 'b> Walker<'a, 'b> {
                             self.runtime_cwd_resource.clone(),
                         )
                     })
-                    .unwrap_or(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    });
+                    .unwrap_or(unresolved_resource("filesystem"));
                 self.emit(
                     Effect {
                         request_assurance: effinterp_proto::RequestAssurance::Conservative,
@@ -363,9 +377,7 @@ impl<'a, 'b> Walker<'a, 'b> {
                     .and_then(|arg| variable_name(*arg, self.src))
                     .and_then(|handle| self.network_handles.get(handle))
                     .cloned()
-                    .unwrap_or(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("network"),
-                    });
+                    .unwrap_or(unresolved_resource("network"));
                 self.emit_network(resource, n, "network.request");
             }
             "curl_setopt" => {
@@ -452,9 +464,7 @@ impl<'a, 'b> Walker<'a, 'b> {
             arg.and_then(|argument| poisoned_php_reference(argument, &self.poisoned, self.src));
         let resource = match arg {
             Some(a) => self.resolve(a, env),
-            None => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            },
+            None => unresolved_resource("filesystem"),
         };
         let mut effect = Effect {
             request_assurance: effinterp_proto::RequestAssurance::Conservative,
@@ -481,9 +491,7 @@ impl<'a, 'b> Walker<'a, 'b> {
                 reason: BoundaryReason::UNMODELED_DYNAMIC,
                 class: BoundaryClass::Unresolved,
                 scope: effinterp_proto::BoundaryScope::Invocation,
-                affected_resource: Some(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                }),
+                affected_resource: Some(unresolved_resource("filesystem")),
                 callee: None,
                 domains: vec![Domain::new("filesystem")],
                 provenance: vec![node],
@@ -525,9 +533,7 @@ impl<'a, 'b> Walker<'a, 'b> {
                     self.builder.current_execution_cwd(),
                 ),
             },
-            None => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("process"),
-            },
+            None => unresolved_resource("process"),
         };
         Effect {
             request_assurance: effinterp_proto::RequestAssurance::Exact,
@@ -590,9 +596,7 @@ fn env_effect(arg: Option<Node>, src: &str, op: &str) -> Effect {
         .map(|name| ResourceExpr::Concrete {
             identity: ResourceIdentity::EnvironmentVariable { name },
         })
-        .unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("environment"),
-        });
+        .unwrap_or(unresolved_resource("environment"));
     environment_effect_with_operation(op, resource, false)
 }
 
@@ -631,14 +635,16 @@ fn environment_effect_with_operation(op: &str, resource: ResourceExpr, unset: bo
     }
 }
 
-pub(super) fn endpoint(url: &str) -> Option<ResourceExpr> {
+/// The network endpoint of an absolute URL (one with a `://` scheme); `None`
+/// for a relative or unparseable one, which callers leave unresolved.
+pub(super) fn absolute_url_endpoint(url: &str) -> Option<ResourceExpr> {
     if !url.contains("://") {
         return None;
     }
     parse_url_endpoint(url).map(|identity| ResourceExpr::Concrete { identity })
 }
 
-impl<'a> Cap<'a> {
+impl<'a> PhpCaptureWalker<'a> {
     pub(super) fn call(&mut self, n: Node<'a>) {
         let Some(name_node) = child_kind(n, "name") else {
             self.boundaries.push(Boundary {
@@ -672,7 +678,7 @@ impl<'a> Cap<'a> {
             && let Some(resource) = args
                 .first()
                 .and_then(|arg| literal_string(*arg, self.src))
-                .and_then(|url| endpoint(&url))
+                .and_then(|url| absolute_url_endpoint(&url))
         {
             self.push_effect("network.request", resource);
             return;
@@ -681,20 +687,13 @@ impl<'a> Cap<'a> {
             let resource = args
                 .first()
                 .and_then(|arg| literal_string(*arg, self.src))
-                .and_then(|url| endpoint(&url))
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                });
+                .and_then(|url| absolute_url_endpoint(&url))
+                .unwrap_or(unresolved_resource("network"));
             self.push_effect("network.request", resource);
             return;
         }
         if fname == "curl_exec" {
-            self.push_effect(
-                "network.request",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                },
-            );
+            self.push_effect("network.request", unresolved_resource("network"));
             return;
         }
         if matches!(fname, "curl_init" | "curl_setopt") {
@@ -725,9 +724,7 @@ impl<'a> Cap<'a> {
             let resource = args
                 .first()
                 .map(|a| resolve_expr(*a, self.src, &self.env))
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                });
+                .unwrap_or(unresolved_resource("filesystem"));
             self.push_effect(op, resource);
             return;
         }
@@ -747,9 +744,7 @@ impl<'a> Cap<'a> {
                         cwd: None,
                     },
                 })
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("process"),
-                });
+                .unwrap_or(unresolved_resource("process"));
             self.push_effect("process.exec", resource.clone());
             self.boundaries.push(Boundary {
                 reason: BoundaryReason::UNCOMPOSED_SUBPROCESS,

@@ -25,7 +25,7 @@ use super::frontend::MAX_WALK_DEPTH;
 /// while a right-leaning chain (`a = b = ...`, `!!!...`, `if (a) if (b) ...`)
 /// grows without bound.
 pub(crate) fn js_nesting_exceeds(source: &str) -> bool {
-    scan(source.as_bytes(), Syntax::JsTs)
+    scan_nesting(source.as_bytes(), Syntax::JsTs)
 }
 
 /// Whether Ruby source nests deeper than the walk limit anywhere.
@@ -39,7 +39,7 @@ pub(crate) fn js_nesting_exceeds(source: &str) -> bool {
 /// over-counts brackets inside string and comment text, which only ever trips
 /// the boundary early.
 pub(crate) fn ruby_nesting_exceeds(source: &str) -> bool {
-    scan(source.as_bytes(), Syntax::Ruby)
+    scan_nesting(source.as_bytes(), Syntax::Ruby)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -48,7 +48,7 @@ enum Syntax {
     Ruby,
 }
 
-fn scan(bytes: &[u8], syntax: Syntax) -> bool {
+fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
     let mut i = 0;
     let mut bracket: u32 = 0;
     let mut op_run: u32 = 0;

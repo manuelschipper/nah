@@ -5,7 +5,7 @@
 //! the repo index and reaching the entrypoint traces INTO the callee's file.
 #![allow(clippy::disallowed_methods)]
 
-use effinterp_repo::{IndexLimits, Selector, build_index, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 #[test]
@@ -26,7 +26,7 @@ fn go_package_qualified_call_reaches_cross_package_delete() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/x").unwrap(), None);
+    let report = reach(&idx, &ResourceSelector::parse("fs:/x").unwrap(), None);
     assert!(
         report
             .payload
@@ -55,7 +55,7 @@ fn rust_path_qualified_call_reaches_cross_file_delete() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/x").unwrap(), None);
+    let report = reach(&idx, &ResourceSelector::parse("fs:/x").unwrap(), None);
     assert!(
         report
             .payload

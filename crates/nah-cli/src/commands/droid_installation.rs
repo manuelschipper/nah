@@ -1,7 +1,5 @@
 //! Installs and removes nah's user-level Factory Droid PreToolUse hook.
 
-use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
@@ -10,11 +8,13 @@ use serde_json::{Map, Value, json};
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
-use super::hook_paths::reject_hook_path_symlink;
+use super::hook_paths::{
+    HookFileWriteErrorCodes, HookJsonReadErrorCodes, HookLockErrorCodes, acquire_hook_lock,
+    read_hook_json_object, reject_hook_path_symlink, write_hook_json_atomically,
+};
 use super::runtime::reject_unsupported_windows_runtime;
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 /// The events where status counts Nah's handlers, so install and uninstall
 /// remove owned handlers from each of them.
@@ -30,9 +30,9 @@ pub(crate) fn mutate_droid_hook(
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable, policy)
+            install_droid_hook(&home, &executable, policy)
         } else {
-            uninstall_hook(&home)
+            uninstall_droid_hook(&home)
         }
     })?;
     Ok(RuntimeMutation::new(
@@ -50,29 +50,33 @@ pub(crate) fn droid_hook_status() -> Result<RuntimeHookStatus, String> {
     }
     let home = live_state::home(platform)?;
     let paths = DroidHookPaths::new(&home);
-    reject_symlinks(&paths)?;
-    let hooks = load(&paths.hooks)?;
+    reject_droid_hook_symlinks(&paths)?;
+    let hooks = load_droid_settings(&paths.hooks)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    let desired = desired_handler(&executable, FailurePolicy::Delegate)?;
-    let strict_desired = desired_handler(&executable, FailurePolicy::Block)?;
+    let desired = desired_droid_handler(&executable, FailurePolicy::Delegate)?;
+    let strict_desired = desired_droid_handler(&executable, FailurePolicy::Block)?;
     let current = inspect_standalone(&hooks, &desired)?;
     let strict_current = inspect_standalone(&hooks, &strict_desired)?;
-    let old_current =
-        hook_config::inspect(&hooks, &desired, is_owned_handler, "invalid-droid-settings")?;
-    let legacy_config = load(&paths.legacy_settings)?;
+    let old_current = hook_config::inspect(
+        &hooks,
+        &desired,
+        is_owned_droid_handler,
+        "invalid-droid-settings",
+    )?;
+    let legacy_config = load_droid_settings(&paths.legacy_settings)?;
     let legacy = hook_config::inspect(
         &legacy_config,
         &desired,
-        is_owned_handler,
+        is_owned_droid_handler,
         "invalid-droid-settings",
     )?;
-    let nested_config = load(&paths.legacy_nested_hooks)?;
+    let nested_config = load_droid_settings(&paths.legacy_nested_hooks)?;
     let nested = inspect_standalone(&nested_config, &desired)?;
     let old_nested = hook_config::inspect(
         &nested_config,
         &desired,
-        is_owned_handler,
+        is_owned_droid_handler,
         "invalid-droid-settings",
     )?;
     let status = match (current, old_current, legacy, nested, old_nested) {
@@ -128,40 +132,40 @@ pub(crate) fn droid_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     ])
 }
 
-fn install_hook(
+fn install_droid_hook(
     home: &AbsolutePath,
     executable: &Path,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = DroidHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
-    let mut hooks = load(&paths.hooks)?;
+    let lock = acquire_hook_lock(&paths.lock, &DROID_HOOK_LOCK_ERRORS)?;
+    reject_droid_hook_symlinks(&paths)?;
+    let mut hooks = load_droid_settings(&paths.hooks)?;
     let mut legacy_configs = [&paths.legacy_settings, &paths.legacy_nested_hooks]
         .into_iter()
         .filter(|path| path.exists())
-        .map(|path| load(path).map(|config| (path, config)))
+        .map(|path| load_droid_settings(path).map(|config| (path, config)))
         .collect::<Result<Vec<_>, _>>()?;
-    let desired = desired_handler(executable, policy)?;
+    let desired = desired_droid_handler(executable, policy)?;
     let mut hooks_changed = migrate_nested_hooks(&mut hooks)?;
-    hooks_changed |= remove_owned(&mut hooks, &EVENTS[1..])?;
+    hooks_changed |= remove_owned_droid_handlers(&mut hooks, &EVENTS[1..])?;
     hooks_changed |= add_standalone(&mut hooks, desired)?;
     if hooks_changed {
-        save(&paths.hooks, &hooks)?;
+        save_droid_settings(&paths.hooks, &hooks)?;
     }
     for (path, config) in &mut legacy_configs {
-        if remove_owned(config, &EVENTS)? {
-            save(path, config)?;
+        if remove_owned_droid_handlers(config, &EVENTS)? {
+            save_droid_settings(path, config)?;
         }
     }
     drop(lock);
     Ok(paths.hooks)
 }
 
-fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_droid_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = DroidHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &DROID_HOOK_LOCK_ERRORS)?;
+    reject_droid_hook_symlinks(&paths)?;
     let mut configs = [
         &paths.hooks,
         &paths.legacy_settings,
@@ -169,11 +173,11 @@ fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     ]
     .into_iter()
     .filter(|path| path.exists())
-    .map(|path| load(path).map(|config| (path, config)))
+    .map(|path| load_droid_settings(path).map(|config| (path, config)))
     .collect::<Result<Vec<_>, _>>()?;
     for (path, config) in &mut configs {
-        if remove_owned(config, &EVENTS)? {
-            save(path, config)?;
+        if remove_owned_droid_handlers(config, &EVENTS)? {
+            save_droid_settings(path, config)?;
         }
     }
     drop(lock);
@@ -202,46 +206,23 @@ impl DroidHookPaths {
     }
 }
 
-fn lock(paths: &DroidHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-droid-hook-lock-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "droid-hook-lock-failed")?;
-    reject_hook_path_symlink(&paths.lock, "droid-hook-lock-failed")?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "droid-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "droid-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "droid-hook-lock-failed")?;
-    Ok(file)
-}
+const DROID_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-droid-hook-lock-path",
+    failed: "droid-hook-lock-failed",
+    permissions: "droid-hook-permissions-failed",
+};
 
-fn load(path: &Path) -> Result<Value, String> {
+const DROID_SETTINGS_READ_ERRORS: HookJsonReadErrorCodes = HookJsonReadErrorCodes {
+    read_failed: "droid-settings-read-failed",
+    invalid: "invalid-droid-settings",
+};
+
+fn load_droid_settings(path: &Path) -> Result<Value, String> {
     reject_hook_path_symlink(path, "droid-settings-symlink-unsupported")?;
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Value::Object(Map::new()));
-        }
-        Err(_) => return Err("droid-settings-read-failed".into()),
-    };
-    let value: Value =
-        serde_json::from_reader(file).map_err(|_| "invalid-droid-settings".to_owned())?;
-    if !value.is_object() {
-        return Err("invalid-droid-settings".into());
-    }
-    Ok(value)
+    read_hook_json_object(path, &DROID_SETTINGS_READ_ERRORS)
 }
 
-fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
+fn desired_droid_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -261,7 +242,7 @@ fn inspect_standalone(config: &Value, desired: &Value) -> Result<RuntimeHookStat
     hook_config::inspect(
         &json!({"hooks": config}),
         desired,
-        is_owned_handler,
+        is_owned_droid_handler,
         "invalid-droid-settings",
     )
 }
@@ -271,7 +252,7 @@ fn add_standalone(config: &mut Value, desired: Value) -> Result<bool, String> {
     let changed = hook_config::add(
         &mut wrapped,
         desired,
-        is_owned_handler,
+        is_owned_droid_handler,
         "invalid-droid-settings",
     )?;
     if changed {
@@ -286,7 +267,7 @@ fn add_standalone(config: &mut Value, desired: Value) -> Result<bool, String> {
 /// Removes owned handlers from `events`, at the top level and under a nested
 /// `hooks` object, dropping only the groups, events and `hooks` object that
 /// removal empties.
-fn remove_owned(config: &mut Value, events: &[&str]) -> Result<bool, String> {
+fn remove_owned_droid_handlers(config: &mut Value, events: &[&str]) -> Result<bool, String> {
     let mut changed = false;
     for event in events {
         changed |= remove_owned_groups(config, event)?;
@@ -330,7 +311,7 @@ fn remove_owned_groups(container: &mut Value, event: &str) -> Result<bool, Strin
             return true;
         };
         let before = handlers.len();
-        handlers.retain(|handler| !is_owned_handler(handler));
+        handlers.retain(|handler| !is_owned_droid_handler(handler));
         let dropped = handlers.len() != before;
         changed |= dropped;
         !dropped || !handlers.is_empty()
@@ -378,7 +359,7 @@ fn migrate_nested_hooks(config: &mut Value) -> Result<bool, String> {
     Ok(true)
 }
 
-fn is_owned_handler(handler: &Value) -> bool {
+fn is_owned_droid_handler(handler: &Value) -> bool {
     let Some(command) = handler
         .as_object()
         .filter(|handler| handler.get("type").and_then(Value::as_str) == Some("command"))
@@ -418,7 +399,7 @@ fn owned_fail_closed_modes(config: &Value) -> Vec<bool> {
     }
     handlers
         .into_iter()
-        .filter(|handler| is_owned_handler(handler))
+        .filter(|handler| is_owned_droid_handler(handler))
         .map(|handler| {
             handler["command"]
                 .as_str()
@@ -427,32 +408,19 @@ fn owned_fail_closed_modes(config: &Value) -> Vec<bool> {
         .collect()
 }
 
-fn save(path: &Path, settings: &Value) -> Result<(), String> {
+const DROID_SETTINGS_WRITE_ERRORS: HookFileWriteErrorCodes = HookFileWriteErrorCodes {
+    invalid_path: "invalid-droid-settings-path",
+    write_failed: "droid-settings-write-failed",
+    permissions: "droid-hook-permissions-failed",
+    sync_failed: "droid-hook-sync-failed",
+};
+
+fn save_droid_settings(path: &Path, settings: &Value) -> Result<(), String> {
     reject_hook_path_symlink(path, "droid-settings-symlink-unsupported")?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid-droid-settings-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "droid-settings-write-failed")?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "droid-settings-write-failed")?;
-    restrict_file_to_owner(temporary.as_file())
-        .map_err(|_| "droid-hook-permissions-failed".to_owned())?;
-    serde_json::to_writer_pretty(&mut temporary, settings)
-        .map_err(|_| "droid-settings-write-failed")?;
-    temporary
-        .write_all(b"\n")
-        .map_err(|_| "droid-settings-write-failed")?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "droid-settings-write-failed")?;
-    temporary
-        .persist(path)
-        .map_err(|_| "droid-settings-write-failed")?;
-    sync_parent_directory(parent).map_err(|_| "droid-hook-sync-failed".to_owned())
+    write_hook_json_atomically(path, settings, &DROID_SETTINGS_WRITE_ERRORS)
 }
 
-fn reject_symlinks(paths: &DroidHookPaths) -> Result<(), String> {
+fn reject_droid_hook_symlinks(paths: &DroidHookPaths) -> Result<(), String> {
     for directory in &paths.directories {
         reject_hook_path_symlink(directory, "droid-settings-symlink-unsupported")?;
     }
@@ -472,8 +440,9 @@ mod tests {
 
     #[test]
     fn mixed_owned_handler_modes_are_not_reliably_strict() {
-        let strict = desired_handler(Path::new("/old/nah"), FailurePolicy::Block).unwrap();
-        let delegate = desired_handler(Path::new("/old/nah"), FailurePolicy::Delegate).unwrap();
+        let strict = desired_droid_handler(Path::new("/old/nah"), FailurePolicy::Block).unwrap();
+        let delegate =
+            desired_droid_handler(Path::new("/old/nah"), FailurePolicy::Delegate).unwrap();
         let config = json!({"PreToolUse":[{"matcher":"*","hooks":[strict,delegate]}]});
         assert_eq!(owned_fail_closed_modes(&config), [true, false]);
     }

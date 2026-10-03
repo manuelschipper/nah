@@ -10,12 +10,13 @@ use std::collections::HashMap;
 
 use effinterp_proto::{
     AttrValue, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, Modality, Operation,
-    ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity, SourceDialect, Subject,
+    ProvenanceRef, ResourceExpr, ResourceIdentity, SourceDialect, Subject,
 };
 
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::models::common::{Attrs, arg_node, boundary};
 use crate::models::{CommandModel, InvocationCtx};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 pub(super) fn datastore_models() -> Vec<Box<dyn CommandModel>> {
@@ -28,7 +29,7 @@ pub(super) fn datastore_models() -> Vec<Box<dyn CommandModel>> {
     ]
 }
 
-fn effect(
+fn datastore_effect(
     builder: &mut PlanBuilder,
     provenance: Vec<ProvenanceRef>,
     operation: &str,
@@ -56,17 +57,11 @@ fn text_attrs(pairs: &[(&str, &str)]) -> Attrs {
         .collect()
 }
 
-fn unresolved_db() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("db"),
-    }
-}
-
 /// A database-level resource; with neither server nor database known it
 /// names nothing, so it stays unresolved.
 fn db_schema(server: Option<String>, database: Option<String>) -> ResourceExpr {
     if server.is_none() && database.is_none() {
-        return unresolved_db();
+        return unresolved_resource("db");
     }
     ResourceExpr::Concrete {
         identity: ResourceIdentity::DatabaseSchema {
@@ -93,9 +88,14 @@ fn db_table(
     }
 }
 
-fn connect(builder: &mut PlanBuilder, provenance: Vec<ProvenanceRef>, host: &str, scheme: &str) {
+fn datastore_connect_effect(
+    builder: &mut PlanBuilder,
+    provenance: Vec<ProvenanceRef>,
+    host: &str,
+    scheme: &str,
+) {
     let (host, port) = split_host_port(host);
-    effect(
+    datastore_effect(
         builder,
         provenance,
         "network.connect",
@@ -151,11 +151,11 @@ fn cloud_database_coverage(builder: &mut PlanBuilder, provenance: Vec<Provenance
     builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
     builder.declare_coverage(Domain::new("database"), CoverageLevel::Full);
     builder.declare_coverage(Domain::new("network"), CoverageLevel::Full);
-    effect(
+    datastore_effect(
         builder,
         provenance,
         "network.connect",
-        super::cloud::unresolved_network(),
+        unresolved_resource("network"),
         Attrs::new(),
     );
 }
@@ -577,12 +577,12 @@ fn emit_redis_flush(
 ) {
     builder.declare_coverage(Domain::new("database"), CoverageLevel::Full);
     match &server {
-        Some(server) => connect(builder, provenance.clone(), server, "redis"),
-        None => effect(
+        Some(server) => datastore_connect_effect(builder, provenance.clone(), server, "redis"),
+        None => datastore_effect(
             builder,
             provenance.clone(),
             "network.connect",
-            super::cloud::unresolved_network(),
+            unresolved_resource("network"),
             Attrs::new(),
         ),
     }
@@ -591,9 +591,9 @@ fn emit_redis_flush(
     let resource = match (flushall, database) {
         (true, _) => db_schema(server, None),
         (false, RedisDatabase::Number(number)) => db_schema(server, Some(number.clone())),
-        (false, RedisDatabase::Unknown) => unresolved_db(),
+        (false, RedisDatabase::Unknown) => unresolved_resource("db"),
     };
-    effect(
+    datastore_effect(
         builder,
         provenance,
         "database.truncate",
@@ -814,7 +814,7 @@ impl CommandModel for Mongo {
                 provenance.push(arg_node(builder, ctx, *index as u32));
             }
             builder.declare_coverage(Domain::new("network"), CoverageLevel::Full);
-            connect(builder, provenance, server, "mongodb");
+            datastore_connect_effect(builder, provenance, server, "mongodb");
         }
 
         let mut scripts = Vec::new();
@@ -991,7 +991,7 @@ fn mongo_host(text: &str) -> Option<String> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-enum Tok {
+enum MongoJsTok {
     Ident(String),
     /// A string literal; None when an escape leaves its value uncertain.
     Str(Option<String>),
@@ -1009,9 +1009,9 @@ fn is_line_terminator(c: char) -> bool {
 /// Tokens with a flag recording whether a line break preceded each one.
 /// None when the text has an unterminated string or comment, or a template
 /// literal with substitutions, whose extent the lexer cannot establish.
-fn lex_js(source: &str) -> Option<Vec<(Tok, bool)>> {
+fn lex_js(source: &str) -> Option<Vec<(MongoJsTok, bool)>> {
     let chars: Vec<char> = source.chars().collect();
-    let mut tokens: Vec<(Tok, bool)> = Vec::new();
+    let mut tokens: Vec<(MongoJsTok, bool)> = Vec::new();
     let mut newline = false;
     let mut i = 0;
     while i < chars.len() {
@@ -1061,7 +1061,7 @@ fn lex_js(source: &str) -> Option<Vec<(Tok, bool)>> {
                 i += 1;
             }
             i += 1;
-            Tok::Str(exact.then_some(value))
+            MongoJsTok::Str(exact.then_some(value))
         } else if c == '/' && regex_allowed(tokens.last().map(|(token, _)| token)) {
             let mut class = false;
             i += 1;
@@ -1083,7 +1083,7 @@ fn lex_js(source: &str) -> Option<Vec<(Tok, bool)>> {
             while chars.get(i).is_some_and(|c| c.is_ascii_alphabetic()) {
                 i += 1;
             }
-            Tok::Regex
+            MongoJsTok::Regex
         } else if c.is_ascii_digit() {
             while chars
                 .get(i)
@@ -1091,7 +1091,7 @@ fn lex_js(source: &str) -> Option<Vec<(Tok, bool)>> {
             {
                 i += 1;
             }
-            Tok::Num
+            MongoJsTok::Num
         } else if c.is_alphabetic() || c == '_' || c == '$' {
             let start = i;
             while chars
@@ -1100,10 +1100,10 @@ fn lex_js(source: &str) -> Option<Vec<(Tok, bool)>> {
             {
                 i += 1;
             }
-            Tok::Ident(chars[start..i].iter().collect())
+            MongoJsTok::Ident(chars[start..i].iter().collect())
         } else {
             i += 1;
-            Tok::Punct(c)
+            MongoJsTok::Punct(c)
         };
         tokens.push((token, newline));
         newline = false;
@@ -1113,11 +1113,11 @@ fn lex_js(source: &str) -> Option<Vec<(Tok, bool)>> {
 
 /// Whether a `/` after `previous` starts a regular expression literal
 /// rather than a division.
-fn regex_allowed(previous: Option<&Tok>) -> bool {
+fn regex_allowed(previous: Option<&MongoJsTok>) -> bool {
     match previous {
         None => true,
-        Some(Tok::Punct(c)) => !matches!(c, ')' | ']' | '}'),
-        Some(Tok::Ident(word)) => matches!(
+        Some(MongoJsTok::Punct(c)) => !matches!(c, ')' | ']' | '}'),
+        Some(MongoJsTok::Ident(word)) => matches!(
             word.as_str(),
             "return"
                 | "typeof"
@@ -1139,15 +1139,15 @@ fn regex_allowed(previous: Option<&Tok>) -> bool {
 
 /// Split tokens into top-level statements at `;` and at line breaks where
 /// neither side continues an expression. None when brackets do not balance.
-fn js_statements(tokens: Vec<(Tok, bool)>) -> Option<Vec<Vec<Tok>>> {
+fn js_statements(tokens: Vec<(MongoJsTok, bool)>) -> Option<Vec<Vec<MongoJsTok>>> {
     let mut statements = Vec::new();
-    let mut current: Vec<Tok> = Vec::new();
+    let mut current: Vec<MongoJsTok> = Vec::new();
     let mut stack = Vec::new();
     for (token, newline) in tokens {
         if stack.is_empty() && newline && !current.is_empty() {
             let continues_before = matches!(
                 current.last(),
-                Some(Tok::Punct(
+                Some(MongoJsTok::Punct(
                     '.' | ','
                         | '('
                         | '['
@@ -1171,7 +1171,7 @@ fn js_statements(tokens: Vec<(Tok, bool)>) -> Option<Vec<Vec<Tok>>> {
             );
             let continues_after = matches!(
                 token,
-                Tok::Punct(
+                MongoJsTok::Punct(
                     '.' | ','
                         | ')'
                         | ']'
@@ -1197,14 +1197,14 @@ fn js_statements(tokens: Vec<(Tok, bool)>) -> Option<Vec<Vec<Tok>>> {
             }
         }
         match token {
-            Tok::Punct(open @ ('(' | '[' | '{')) => stack.push(open),
-            Tok::Punct(close @ (')' | ']' | '}')) => {
+            MongoJsTok::Punct(open @ ('(' | '[' | '{')) => stack.push(open),
+            MongoJsTok::Punct(close @ (')' | ']' | '}')) => {
                 let open = stack.pop()?;
                 if !matches!((open, close), ('(', ')') | ('[', ']') | ('{', '}')) {
                     return None;
                 }
             }
-            Tok::Punct(';') if stack.is_empty() => {
+            MongoJsTok::Punct(';') if stack.is_empty() => {
                 statements.push(std::mem::take(&mut current));
                 continue;
             }
@@ -1318,16 +1318,16 @@ const LITERAL_CALLS: &[&str] = &[
     "RegExp",
 ];
 
-fn recognize_mongo(tokens: &[Tok]) -> MongoStatement {
+fn recognize_mongo(tokens: &[MongoJsTok]) -> MongoStatement {
     let tokens = match tokens.first() {
-        Some(Tok::Ident(word)) if word == "await" => &tokens[1..],
+        Some(MongoJsTok::Ident(word)) if word == "await" => &tokens[1..],
         _ => tokens,
     };
     match tokens {
-        [Tok::Ident(keyword), Tok::Ident(name)] if keyword == "use" => {
+        [MongoJsTok::Ident(keyword), MongoJsTok::Ident(name)] if keyword == "use" => {
             return MongoStatement::Use(name.clone());
         }
-        [Tok::Ident(keyword), Tok::Ident(what)]
+        [MongoJsTok::Ident(keyword), MongoJsTok::Ident(what)]
             if keyword == "show"
                 && matches!(
                     what.as_str(),
@@ -1341,7 +1341,7 @@ fn recognize_mongo(tokens: &[Tok]) -> MongoStatement {
                 uncertain_filter: false,
             }]);
         }
-        [Tok::Ident(word)] if matches!(word.as_str(), "quit" | "exit") => {
+        [MongoJsTok::Ident(word)] if matches!(word.as_str(), "quit" | "exit") => {
             return MongoStatement::Ops(Vec::new());
         }
         _ => {}
@@ -1349,18 +1349,18 @@ fn recognize_mongo(tokens: &[Tok]) -> MongoStatement {
     // print(...), printjson(...), console.log(...) around one expression.
     let inner = match tokens {
         [
-            Tok::Ident(name),
-            Tok::Punct('('),
+            MongoJsTok::Ident(name),
+            MongoJsTok::Punct('('),
             inner @ ..,
-            Tok::Punct(')'),
+            MongoJsTok::Punct(')'),
         ] if matches!(name.as_str(), "print" | "printjson" | "quit" | "sleep") => Some(inner),
         [
-            Tok::Ident(console),
-            Tok::Punct('.'),
-            Tok::Ident(log),
-            Tok::Punct('('),
+            MongoJsTok::Ident(console),
+            MongoJsTok::Punct('.'),
+            MongoJsTok::Ident(log),
+            MongoJsTok::Punct('('),
             inner @ ..,
-            Tok::Punct(')'),
+            MongoJsTok::Punct(')'),
         ] if console == "console" && log == "log" => Some(inner),
         _ => None,
     };
@@ -1373,7 +1373,7 @@ fn recognize_mongo(tokens: &[Tok]) -> MongoStatement {
     expression_statement(tokens)
 }
 
-fn expression_statement(tokens: &[Tok]) -> MongoStatement {
+fn expression_statement(tokens: &[MongoJsTok]) -> MongoStatement {
     if let Some(ops) = mongo_expression(tokens) {
         return MongoStatement::Ops(ops);
     }
@@ -1387,36 +1387,40 @@ fn expression_statement(tokens: &[Tok]) -> MongoStatement {
 /// line or a program, with only string arguments (and an argument array for
 /// the program forms), rebuilt as JavaScript source. Options, callbacks, and
 /// any other argument leave the call unrecognized.
-fn child_process_call(tokens: &[Tok]) -> Option<String> {
-    let ("require", module, [Tok::Punct('.'), after @ ..]) = call(tokens)? else {
+fn child_process_call(tokens: &[MongoJsTok]) -> Option<String> {
+    let ("require", module, [MongoJsTok::Punct('.'), after @ ..]) = mongo_call(tokens)? else {
         return None;
     };
-    let [[Tok::Str(Some(module))]] = module.as_slice() else {
+    let [[MongoJsTok::Str(Some(module))]] = module.as_slice() else {
         return None;
     };
     if !matches!(module.as_str(), "child_process" | "node:child_process") {
         return None;
     }
-    let (function, args, []) = call(after)? else {
+    let (function, args, []) = mongo_call(after)? else {
         return None;
     };
-    let strings = |tokens: &[Tok]| -> Option<Vec<String>> {
+    let strings = |tokens: &[MongoJsTok]| -> Option<Vec<String>> {
         match tokens {
-            [Tok::Punct('['), inner @ .., Tok::Punct(']')] => balanced_arguments(inner)?
-                .into_iter()
-                .map(|element| match element {
-                    [Tok::Str(Some(value))] => Some(value.clone()),
-                    _ => None,
-                })
-                .collect(),
+            [MongoJsTok::Punct('['), inner @ .., MongoJsTok::Punct(']')] => {
+                balanced_arguments(inner)?
+                    .into_iter()
+                    .map(|element| match element {
+                        [MongoJsTok::Str(Some(value))] => Some(value.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            }
             _ => None,
         }
     };
     let arguments = match (function, args.as_slice()) {
-        ("exec" | "execSync", [[Tok::Str(Some(command))]]) => vec![serde_json::json!(command)],
+        ("exec" | "execSync", [[MongoJsTok::Str(Some(command))]]) => {
+            vec![serde_json::json!(command)]
+        }
         (
             "spawn" | "spawnSync" | "execFile" | "execFileSync",
-            [[Tok::Str(Some(file))], rest @ ..],
+            [[MongoJsTok::Str(Some(file))], rest @ ..],
         ) => match rest {
             [] => vec![serde_json::json!(file)],
             [array] => vec![serde_json::json!(file), serde_json::json!(strings(array)?)],
@@ -1437,7 +1441,7 @@ fn child_process_call(tokens: &[Tok]) -> Option<String> {
 
 /// Split the tokens inside a call's parentheses into top-level arguments.
 /// None when brackets do not balance.
-fn balanced_arguments(tokens: &[Tok]) -> Option<Vec<&[Tok]>> {
+fn balanced_arguments(tokens: &[MongoJsTok]) -> Option<Vec<&[MongoJsTok]>> {
     if tokens.is_empty() {
         return Some(Vec::new());
     }
@@ -1446,9 +1450,9 @@ fn balanced_arguments(tokens: &[Tok]) -> Option<Vec<&[Tok]>> {
     let mut start = 0;
     for (index, token) in tokens.iter().enumerate() {
         match token {
-            Tok::Punct('(' | '[' | '{') => depth += 1,
-            Tok::Punct(')' | ']' | '}') => depth = depth.checked_sub(1)?,
-            Tok::Punct(',') if depth == 0 => {
+            MongoJsTok::Punct('(' | '[' | '{') => depth += 1,
+            MongoJsTok::Punct(')' | ']' | '}') => depth = depth.checked_sub(1)?,
+            MongoJsTok::Punct(',') if depth == 0 => {
                 args.push(&tokens[start..index]);
                 start = index + 1;
             }
@@ -1463,38 +1467,40 @@ fn balanced_arguments(tokens: &[Tok]) -> Option<Vec<&[Tok]>> {
 /// Whether tokens form a literal value: objects, arrays, strings, numbers,
 /// regular expressions, and the BSON value constructors. Any other name or
 /// operator could run code when the argument is evaluated.
-fn is_literal(tokens: &[Tok]) -> bool {
+fn is_literal(tokens: &[MongoJsTok]) -> bool {
     tokens.iter().enumerate().all(|(index, token)| match token {
-        Tok::Str(_) | Tok::Num | Tok::Regex => true,
-        Tok::Punct(c) => matches!(c, '{' | '}' | '[' | ']' | ',' | ':' | '-' | '(' | ')'),
-        Tok::Ident(name) => {
+        MongoJsTok::Str(_) | MongoJsTok::Num | MongoJsTok::Regex => true,
+        MongoJsTok::Punct(c) => matches!(c, '{' | '}' | '[' | ']' | ',' | ':' | '-' | '(' | ')'),
+        MongoJsTok::Ident(name) => {
             matches!(
                 name.as_str(),
                 "true" | "false" | "null" | "undefined" | "new"
             ) || LITERAL_CALLS.contains(&name.as_str())
-                && matches!(tokens.get(index + 1), Some(Tok::Punct('(')))
-                || matches!(tokens.get(index + 1), Some(Tok::Punct(':')))
+                && matches!(tokens.get(index + 1), Some(MongoJsTok::Punct('(')))
+                || matches!(tokens.get(index + 1), Some(MongoJsTok::Punct(':')))
                     && matches!(
                         index.checked_sub(1).map(|previous| &tokens[previous]),
-                        Some(Tok::Punct('{' | ','))
+                        Some(MongoJsTok::Punct('{' | ','))
                     )
         }
     }) && tokens.windows(2).all(|pair| {
         // A parenthesis only follows a value constructor's name.
-        !matches!(pair[1], Tok::Punct('('))
-            || matches!(&pair[0], Tok::Ident(name) if LITERAL_CALLS.contains(&name.as_str()))
+        !matches!(pair[1], MongoJsTok::Punct('('))
+            || matches!(&pair[0], MongoJsTok::Ident(name) if LITERAL_CALLS.contains(&name.as_str()))
     })
 }
 
 /// A filter argument: `{}`, or a literal whose every condition holds for any
 /// document, selects every document; any other object literal has a
 /// condition. A single name is a variable whose value is unknown.
-fn filter_of(argument: Option<&[Tok]>) -> Option<(Option<bool>, bool)> {
+fn filter_of(argument: Option<&[MongoJsTok]>) -> Option<(Option<bool>, bool)> {
     match argument {
         None | Some([]) => Some((None, true)),
         Some(tokens) if is_literal(tokens) && matches_all(tokens) => Some((Some(false), false)),
-        Some(tokens @ [Tok::Punct('{'), ..]) if is_literal(tokens) => Some((Some(true), false)),
-        Some([Tok::Ident(name)]) if !matches!(name.as_str(), "true" | "false" | "null") => {
+        Some(tokens @ [MongoJsTok::Punct('{'), ..]) if is_literal(tokens) => {
+            Some((Some(true), false))
+        }
+        Some([MongoJsTok::Ident(name)]) if !matches!(name.as_str(), "true" | "false" | "null") => {
             Some((None, true))
         }
         Some(tokens) if is_literal(tokens) => Some((None, true)),
@@ -1506,35 +1512,37 @@ fn filter_of(argument: Option<&[Tok]>) -> Option<(Option<bool>, bool)> {
 /// `_id: {$exists: true}` (every document has an `_id`), `$expr: true`, an
 /// `$or` with such a filter among its operands, or an `$and` of only such
 /// filters. Any other condition may exclude a document.
-fn matches_all(tokens: &[Tok]) -> bool {
-    fn filters(value: &[Tok]) -> Option<Vec<&[Tok]>> {
+fn matches_all(tokens: &[MongoJsTok]) -> bool {
+    fn filters(value: &[MongoJsTok]) -> Option<Vec<&[MongoJsTok]>> {
         match value {
-            [Tok::Punct('['), inner @ .., Tok::Punct(']')] => balanced_arguments(inner),
+            [MongoJsTok::Punct('['), inner @ .., MongoJsTok::Punct(']')] => {
+                balanced_arguments(inner)
+            }
             _ => None,
         }
     }
-    let [Tok::Punct('{'), inner @ .., Tok::Punct('}')] = tokens else {
+    let [MongoJsTok::Punct('{'), inner @ .., MongoJsTok::Punct('}')] = tokens else {
         return false;
     };
     balanced_arguments(inner).is_some_and(|properties| {
         properties.iter().all(|property| match property {
             [] => true,
             [
-                Tok::Ident(key) | Tok::Str(Some(key)),
-                Tok::Punct(':'),
+                MongoJsTok::Ident(key) | MongoJsTok::Str(Some(key)),
+                MongoJsTok::Punct(':'),
                 value @ ..,
             ] => match key.as_str() {
                 "_id" => matches!(
                     value,
                     [
-                        Tok::Punct('{'),
-                        Tok::Ident(operator) | Tok::Str(Some(operator)),
-                        Tok::Punct(':'),
-                        Tok::Ident(exists),
-                        Tok::Punct('}'),
+                        MongoJsTok::Punct('{'),
+                        MongoJsTok::Ident(operator) | MongoJsTok::Str(Some(operator)),
+                        MongoJsTok::Punct(':'),
+                        MongoJsTok::Ident(exists),
+                        MongoJsTok::Punct('}'),
                     ] if operator == "$exists" && exists == "true"
                 ),
-                "$expr" => matches!(value, [Tok::Ident(value)] if value == "true"),
+                "$expr" => matches!(value, [MongoJsTok::Ident(value)] if value == "true"),
                 "$or" => filters(value)
                     .is_some_and(|operands| operands.iter().any(|operand| matches_all(operand))),
                 "$and" => filters(value).is_some_and(|operands| {
@@ -1551,25 +1559,29 @@ fn matches_all(tokens: &[Tok]) -> bool {
 /// options object whose last `justOne` property (quoted or not) decides.
 /// None when the value is not a boolean literal or a key is not a plain
 /// string, since that key may be `justOne`.
-fn just_one(argument: Option<&[Tok]>) -> Option<bool> {
+fn just_one(argument: Option<&[MongoJsTok]>) -> Option<bool> {
     let tokens = match argument {
         None => return Some(false),
-        Some([Tok::Ident(value)]) if value == "true" => return Some(true),
-        Some([Tok::Ident(value)]) if value == "false" => return Some(false),
-        Some([Tok::Punct('{'), inner @ .., Tok::Punct('}')]) => inner,
+        Some([MongoJsTok::Ident(value)]) if value == "true" => return Some(true),
+        Some([MongoJsTok::Ident(value)]) if value == "false" => return Some(false),
+        Some([MongoJsTok::Punct('{'), inner @ .., MongoJsTok::Punct('}')]) => inner,
         Some(_) => return None,
     };
     for property in balanced_arguments(tokens)?.into_iter().rev() {
         let key = match property {
             [] => continue,
-            [Tok::Ident(key) | Tok::Str(Some(key)), Tok::Punct(':'), ..] => key,
-            [Tok::Num, Tok::Punct(':'), ..] => continue,
+            [
+                MongoJsTok::Ident(key) | MongoJsTok::Str(Some(key)),
+                MongoJsTok::Punct(':'),
+                ..,
+            ] => key,
+            [MongoJsTok::Num, MongoJsTok::Punct(':'), ..] => continue,
             _ => return None,
         };
         if key == "justOne" {
             return match &property[2..] {
-                [Tok::Ident(value)] if value == "true" => Some(true),
-                [Tok::Ident(value)] if value == "false" => Some(false),
+                [MongoJsTok::Ident(value)] if value == "true" => Some(true),
+                [MongoJsTok::Ident(value)] if value == "false" => Some(false),
                 _ => None,
             };
         }
@@ -1578,18 +1590,18 @@ fn just_one(argument: Option<&[Tok]>) -> Option<bool> {
 }
 
 /// A parsed `NAME ( args )`: the name, the argument list, and the tokens after it.
-type Call<'a> = (&'a str, Vec<&'a [Tok]>, &'a [Tok]);
+type Call<'a> = (&'a str, Vec<&'a [MongoJsTok]>, &'a [MongoJsTok]);
 
 /// Parse `NAME ( args )` at the start of `tokens`.
-fn call(tokens: &[Tok]) -> Option<Call<'_>> {
-    let [Tok::Ident(name), Tok::Punct('('), rest @ ..] = tokens else {
+fn mongo_call(tokens: &[MongoJsTok]) -> Option<Call<'_>> {
+    let [MongoJsTok::Ident(name), MongoJsTok::Punct('('), rest @ ..] = tokens else {
         return None;
     };
     let mut depth = 1usize;
     let close = rest.iter().position(|token| {
         match token {
-            Tok::Punct('(' | '[' | '{') => depth += 1,
-            Tok::Punct(')' | ']' | '}') => depth -= 1,
+            MongoJsTok::Punct('(' | '[' | '{') => depth += 1,
+            MongoJsTok::Punct(')' | ']' | '}') => depth -= 1,
             _ => {}
         }
         depth == 0
@@ -1598,16 +1610,16 @@ fn call(tokens: &[Tok]) -> Option<Call<'_>> {
     Some((name, args, &rest[close + 1..]))
 }
 
-fn string_arg(args: &[&[Tok]]) -> Option<Option<String>> {
+fn string_arg(args: &[&[MongoJsTok]]) -> Option<Option<String>> {
     match args {
-        [[Tok::Str(value)]] => Some(value.clone()),
+        [[MongoJsTok::Str(value)]] => Some(value.clone()),
         _ => None,
     }
 }
 
 /// Recognize one `db`-rooted expression statement.
-fn mongo_expression(tokens: &[Tok]) -> Option<Vec<MongoOp>> {
-    let [Tok::Ident(root), rest @ ..] = tokens else {
+fn mongo_expression(tokens: &[MongoJsTok]) -> Option<Vec<MongoOp>> {
+    let [MongoJsTok::Ident(root), rest @ ..] = tokens else {
         return None;
     };
     if root != "db" {
@@ -1615,8 +1627,8 @@ fn mongo_expression(tokens: &[Tok]) -> Option<Vec<MongoOp>> {
     }
     let mut database = MongoDb::Current;
     let mut rest = rest;
-    if let [Tok::Punct('.'), after @ ..] = rest
-        && let Some(("getSiblingDB", args, tail)) = call(after)
+    if let [MongoJsTok::Punct('.'), after @ ..] = rest
+        && let Some(("getSiblingDB", args, tail)) = mongo_call(after)
     {
         database = MongoDb::Named(string_arg(&args)?);
         rest = tail;
@@ -1628,8 +1640,8 @@ fn mongo_expression(tokens: &[Tok]) -> Option<Vec<MongoOp>> {
         uncertain_filter: false,
     };
     // Database methods.
-    if let [Tok::Punct('.'), after @ ..] = rest
-        && let Some((name, args, [])) = call(after)
+    if let [MongoJsTok::Punct('.'), after @ ..] = rest
+        && let Some((name, args, [])) = mongo_call(after)
         && args.iter().all(|arg| is_literal(arg))
     {
         match name {
@@ -1644,21 +1656,26 @@ fn mongo_expression(tokens: &[Tok]) -> Option<Vec<MongoOp>> {
     }
     // Collection selection: db.NAME, db.getCollection("NAME"), db["NAME"].
     let (collection, rest) = match rest {
-        [Tok::Punct('['), Tok::Str(name), Tok::Punct(']'), rest @ ..] => (name.clone(), rest),
-        [Tok::Punct('.'), after @ ..] => match call(after) {
+        [
+            MongoJsTok::Punct('['),
+            MongoJsTok::Str(name),
+            MongoJsTok::Punct(']'),
+            rest @ ..,
+        ] => (name.clone(), rest),
+        [MongoJsTok::Punct('.'), after @ ..] => match mongo_call(after) {
             Some(("getCollection", args, tail)) => (string_arg(&args)?, tail),
             Some(_) => return None,
             None => match after {
-                [Tok::Ident(name), rest @ ..] => (Some(name.clone()), rest),
+                [MongoJsTok::Ident(name), rest @ ..] => (Some(name.clone()), rest),
                 _ => return None,
             },
         },
         _ => return None,
     };
-    let [Tok::Punct('.'), rest @ ..] = rest else {
+    let [MongoJsTok::Punct('.'), rest @ ..] = rest else {
         return None;
     };
-    let (method, args, mut chain) = call(rest)?;
+    let (method, args, mut chain) = mongo_call(rest)?;
     let op = |kind, uncertain_filter| MongoOp {
         kind,
         database: database.clone(),
@@ -1690,7 +1707,7 @@ fn mongo_expression(tokens: &[Tok]) -> Option<Vec<MongoOp>> {
             if chain.is_empty()
                 && literal_args
                 && args.iter().flat_map(|arg| arg.iter()).any(|token| {
-                    matches!(token, Tok::Ident(name) | Tok::Str(Some(name))
+                    matches!(token, MongoJsTok::Ident(name) | MongoJsTok::Str(Some(name))
                         if matches!(name.as_str(), "$out" | "$merge"))
                 }) =>
         {
@@ -1776,9 +1793,9 @@ fn mongo_expression(tokens: &[Tok]) -> Option<Vec<MongoOp>> {
         "aggregate"
             if args.iter().all(|arg| is_literal(arg))
                 && !args.iter().flat_map(|arg| arg.iter()).any(|token| {
-                    matches!(token, Tok::Ident(name) | Tok::Str(Some(name))
+                    matches!(token, MongoJsTok::Ident(name) | MongoJsTok::Str(Some(name))
                         if matches!(name.as_str(), "$out" | "$merge"))
-                        || matches!(token, Tok::Str(None))
+                        || matches!(token, MongoJsTok::Str(None))
                 }) =>
         {
             (MongoOpKind::Read, false)
@@ -1798,10 +1815,10 @@ fn mongo_expression(tokens: &[Tok]) -> Option<Vec<MongoOp>> {
         if kind.0 != MongoOpKind::Read {
             return None;
         }
-        let [Tok::Punct('.'), after @ ..] = chain else {
+        let [MongoJsTok::Punct('.'), after @ ..] = chain else {
             return None;
         };
-        let (name, args, tail) = call(after)?;
+        let (name, args, tail) = mongo_call(after)?;
         if !CURSOR_METHODS.contains(&name) || !args.iter().all(|arg| is_literal(arg)) {
             return None;
         }
@@ -1813,8 +1830,8 @@ fn mongo_expression(tokens: &[Tok]) -> Option<Vec<MongoOp>> {
 /// The properties of an object literal as `(key, value tokens)`, with plain
 /// or quoted keys. None when the tokens are not an object or a key is
 /// computed.
-fn object_properties(tokens: &[Tok]) -> Option<Vec<(&str, &[Tok])>> {
-    let [Tok::Punct('{'), inner @ .., Tok::Punct('}')] = tokens else {
+fn object_properties(tokens: &[MongoJsTok]) -> Option<Vec<(&str, &[MongoJsTok])>> {
+    let [MongoJsTok::Punct('{'), inner @ .., MongoJsTok::Punct('}')] = tokens else {
         return None;
     };
     balanced_arguments(inner)?
@@ -1822,8 +1839,8 @@ fn object_properties(tokens: &[Tok]) -> Option<Vec<(&str, &[Tok])>> {
         .filter(|property| !property.is_empty())
         .map(|property| match property {
             [
-                Tok::Ident(key) | Tok::Str(Some(key)),
-                Tok::Punct(':'),
+                MongoJsTok::Ident(key) | MongoJsTok::Str(Some(key)),
+                MongoJsTok::Punct(':'),
                 value @ ..,
             ] => Some((key.as_str(), value)),
             _ => None,
@@ -1834,8 +1851,8 @@ fn object_properties(tokens: &[Tok]) -> Option<Vec<(&str, &[Tok])>> {
 /// `bulkWrite([{deleteMany: {filter: F}}, ...])`: the operation each
 /// element requests, with whether its selection is uncertain. None when an
 /// element is not one of the driver's write models.
-fn bulk_write(args: &[&[Tok]]) -> Option<Vec<(MongoOpKind, bool)>> {
-    let [Tok::Punct('['), inner @ .., Tok::Punct(']')] = *args.first()? else {
+fn bulk_write(args: &[&[MongoJsTok]]) -> Option<Vec<(MongoOpKind, bool)>> {
+    let [MongoJsTok::Punct('['), inner @ .., MongoJsTok::Punct(']')] = *args.first()? else {
         return None;
     };
     balanced_arguments(inner)?
@@ -1870,14 +1887,14 @@ fn bulk_write(args: &[&[Tok]]) -> Option<Vec<(MongoOpKind, bool)>> {
 /// run by a final `execute()`. A chain that does not end in `execute`, or
 /// executes nothing, is left unrecognized: a builder bound to a name would
 /// otherwise lose the writes queued on it in another statement.
-fn bulk_builder(mut chain: &[Tok]) -> Option<Vec<(MongoOpKind, bool)>> {
+fn bulk_builder(mut chain: &[MongoJsTok]) -> Option<Vec<(MongoOpKind, bool)>> {
     let mut kinds = Vec::new();
     let mut selection = None;
     loop {
-        let [Tok::Punct('.'), after @ ..] = chain else {
+        let [MongoJsTok::Punct('.'), after @ ..] = chain else {
             return None;
         };
-        let (name, args, tail) = call(after)?;
+        let (name, args, tail) = mongo_call(after)?;
         if !args.iter().all(|arg| is_literal(arg)) {
             return None;
         }
@@ -1911,8 +1928,11 @@ fn bulk_builder(mut chain: &[Tok]) -> Option<Vec<(MongoOpKind, bool)>> {
 /// it makes and the collection it writes. `$out` replaces the whole target
 /// collection when it exists; `$merge` inserts or updates documents in it.
 /// None when the stage is not last or its target is not a plain name.
-fn aggregate_write(pipeline: &[Tok], database: &MongoDb) -> Option<(MongoOpKind, MongoDb, String)> {
-    let [Tok::Punct('['), inner @ .., Tok::Punct(']')] = pipeline else {
+fn aggregate_write(
+    pipeline: &[MongoJsTok],
+    database: &MongoDb,
+) -> Option<(MongoOpKind, MongoDb, String)> {
+    let [MongoJsTok::Punct('['), inner @ .., MongoJsTok::Punct(']')] = pipeline else {
         return None;
     };
     let stages = balanced_arguments(inner)?
@@ -1920,8 +1940,8 @@ fn aggregate_write(pipeline: &[Tok], database: &MongoDb) -> Option<(MongoOpKind,
         .filter(|stage| !stage.is_empty())
         .collect::<Vec<_>>();
     let (last, earlier) = stages.split_last()?;
-    let is_write = |stage: &[Tok]| {
-        matches!(stage, [_, Tok::Ident(key) | Tok::Str(Some(key)), ..]
+    let is_write = |stage: &[MongoJsTok]| {
+        matches!(stage, [_, MongoJsTok::Ident(key) | MongoJsTok::Str(Some(key)), ..]
             if matches!(key.as_str(), "$out" | "$merge"))
     };
     if earlier.iter().any(|stage| is_write(stage)) {
@@ -1945,11 +1965,11 @@ fn aggregate_write(pipeline: &[Tok], database: &MongoDb) -> Option<(MongoOpKind,
         _ => return None,
     };
     let (target_database, collection) = match target {
-        [Tok::Str(Some(name))] => (database.clone(), name.clone()),
+        [MongoJsTok::Str(Some(name))] => (database.clone(), name.clone()),
         _ => {
             let properties = object_properties(target)?;
             let text = |name: &str| match properties.iter().rev().find(|(key, _)| *key == name) {
-                Some((_, [Tok::Str(Some(value))])) => Some(value.clone()),
+                Some((_, [MongoJsTok::Str(Some(value))])) => Some(value.clone()),
                 _ => None,
             };
             (MongoDb::Named(Some(text("db")?)), text("coll")?)
@@ -1963,27 +1983,27 @@ fn aggregate_write(pipeline: &[Tok], database: &MongoDb) -> Option<(MongoOpKind,
 }
 
 /// `db.runCommand({dropDatabase: 1})` and `db.runCommand({drop: "NAME"})`.
-fn run_command(args: &[&[Tok]], database: MongoDb) -> Option<MongoOp> {
+fn run_command(args: &[&[MongoJsTok]], database: MongoDb) -> Option<MongoOp> {
     let [
         [
-            Tok::Punct('{'),
-            Tok::Ident(key),
-            Tok::Punct(':'),
+            MongoJsTok::Punct('{'),
+            MongoJsTok::Ident(key),
+            MongoJsTok::Punct(':'),
             value,
-            Tok::Punct('}'),
+            MongoJsTok::Punct('}'),
         ],
     ] = args
     else {
         return None;
     };
     match (key.as_str(), value) {
-        ("dropDatabase", Tok::Num) => Some(MongoOp {
+        ("dropDatabase", MongoJsTok::Num) => Some(MongoOp {
             kind: MongoOpKind::DropDatabase,
             database,
             collection: None,
             uncertain_filter: false,
         }),
-        ("drop", Tok::Str(name)) => Some(MongoOp {
+        ("drop", MongoJsTok::Str(name)) => Some(MongoOp {
             kind: MongoOpKind::DropCollection,
             database,
             collection: Some(name.clone()),
@@ -2073,11 +2093,11 @@ fn shell_command(
 /// `const|let|var NAME = VALUE` whose value is `db`, `db.getSiblingDB("NAME")`,
 /// `require("child_process")`, or a literal: a binding later statements
 /// may read in place of the name.
-fn binding(statement: &[Tok]) -> Option<(&str, &[Tok])> {
+fn mongo_binding(statement: &[MongoJsTok]) -> Option<(&str, &[MongoJsTok])> {
     let [
-        Tok::Ident(keyword),
-        Tok::Ident(name),
-        Tok::Punct('='),
+        MongoJsTok::Ident(keyword),
+        MongoJsTok::Ident(name),
+        MongoJsTok::Punct('='),
         value @ ..,
     ] = statement
     else {
@@ -2087,15 +2107,15 @@ fn binding(statement: &[Tok]) -> Option<(&str, &[Tok])> {
         return None;
     }
     let bound = match value {
-        [Tok::Ident(root)] => root == "db",
-        [Tok::Ident(root), Tok::Punct('.'), after @ ..] if root == "db" => matches!(
-            call(after),
-            Some(("getSiblingDB", args, [])) if matches!(args.as_slice(), [[Tok::Str(_)]])
+        [MongoJsTok::Ident(root)] => root == "db",
+        [MongoJsTok::Ident(root), MongoJsTok::Punct('.'), after @ ..] if root == "db" => matches!(
+            mongo_call(after),
+            Some(("getSiblingDB", args, [])) if matches!(args.as_slice(), [[MongoJsTok::Str(_)]])
         ),
         _ => {
             is_literal(value)
-                || matches!(call(value), Some(("require", args, []))
-                    if matches!(args.as_slice(), [[Tok::Str(Some(module))]]
+                || matches!(mongo_call(value), Some(("require", args, []))
+                    if matches!(args.as_slice(), [[MongoJsTok::Str(Some(module))]]
                         if matches!(module.as_str(), "child_process" | "node:child_process")))
         }
     };
@@ -2105,15 +2125,18 @@ fn binding(statement: &[Tok]) -> Option<(&str, &[Tok])> {
 /// The statement with each bound name read as a value replaced by its
 /// binding. A name after `.` is a property and a name before `:` in an
 /// object literal is a key; neither is a read of the binding.
-fn substitute(statement: &[Tok], bindings: &HashMap<String, Vec<Tok>>) -> Vec<Tok> {
+fn substitute(
+    statement: &[MongoJsTok],
+    bindings: &HashMap<String, Vec<MongoJsTok>>,
+) -> Vec<MongoJsTok> {
     let mut out = Vec::with_capacity(statement.len());
     for (index, token) in statement.iter().enumerate() {
         let previous = index.checked_sub(1).map(|previous| &statement[previous]);
-        let property = matches!(previous, Some(Tok::Punct('.')));
-        let key = matches!(previous, Some(Tok::Punct('{' | ',')))
-            && matches!(statement.get(index + 1), Some(Tok::Punct(':')));
+        let property = matches!(previous, Some(MongoJsTok::Punct('.')));
+        let key = matches!(previous, Some(MongoJsTok::Punct('{' | ',')))
+            && matches!(statement.get(index + 1), Some(MongoJsTok::Punct(':')));
         let value = match token {
-            Tok::Ident(name) if !property && !key => bindings.get(name),
+            MongoJsTok::Ident(name) if !property && !key => bindings.get(name),
             _ => None,
         };
         match value {
@@ -2139,10 +2162,10 @@ fn analyze_mongo_script(
     };
     let mut unknown = false;
     let mut uncertain = false;
-    let mut bindings: HashMap<String, Vec<Tok>> = HashMap::new();
+    let mut bindings: HashMap<String, Vec<MongoJsTok>> = HashMap::new();
     for statement in statements {
         let statement = substitute(&statement, &bindings);
-        if let Some((name, value)) = binding(&statement) {
+        if let Some((name, value)) = mongo_binding(&statement) {
             bindings.insert(name.to_string(), value.to_vec());
             continue;
         }
@@ -2227,7 +2250,7 @@ fn emit_mongo_op(
         (true, Some(database), Some(Some(collection))) => {
             db_table(target.server.clone(), Some(database), None, collection)
         }
-        _ => unresolved_db(),
+        _ => unresolved_resource("db"),
     };
     let (operation, attributes) = match op.kind {
         MongoOpKind::DropDatabase => (
@@ -2262,7 +2285,7 @@ fn emit_mongo_op(
             text_attrs(&[("object_kind", "index")]),
         ),
     };
-    effect(
+    datastore_effect(
         builder,
         provenance.to_vec(),
         operation,
@@ -2419,7 +2442,7 @@ impl CommandModel for Mongorestore {
         }
         if let Some(server) = &server {
             builder.declare_coverage(Domain::new("network"), CoverageLevel::Full);
-            connect(builder, provenance.clone(), server, "mongodb");
+            datastore_connect_effect(builder, provenance.clone(), server, "mongodb");
         }
         let resource = match (&database, &collection, database_known) {
             (Some(database), Some(Some(collection)), true) => db_table(
@@ -2428,7 +2451,7 @@ impl CommandModel for Mongorestore {
                 None,
                 collection.clone(),
             ),
-            (_, Some(None), _) | (_, _, false) => unresolved_db(),
+            (_, Some(None), _) | (_, _, false) => unresolved_resource("db"),
             (database, _, true) => db_schema(server.clone(), database.clone()),
         };
         let dry_run = scanned.has(&["--dryRun"]);
@@ -2440,7 +2463,7 @@ impl CommandModel for Mongorestore {
         };
         // --drop drops each collection it restores before inserting.
         if scanned.has(&["--drop"]) {
-            effect(
+            datastore_effect(
                 builder,
                 provenance.clone(),
                 "database.schema_drop",
@@ -2448,7 +2471,7 @@ impl CommandModel for Mongorestore {
                 with_dry_run(text_attrs(&[("object_kind", "collection")])),
             );
         }
-        effect(
+        datastore_effect(
             builder,
             provenance,
             "database.write",
@@ -2479,7 +2502,7 @@ impl CommandModel for Mongorestore {
                     crate::models::common::fs_arg_node(builder, ctx, index, &word),
                 );
             }
-            effect(
+            datastore_effect(
                 builder,
                 provenance,
                 "filesystem.read",
@@ -2665,7 +2688,7 @@ impl CommandModel for Bq {
                     ),
                     "table",
                 ),
-                None => (unresolved_db(), "table"),
+                None => (unresolved_resource("db"), "table"),
             },
             (Some(Some(parsed)), false) if parsed.table.is_none() => (
                 ResourceExpr::Concrete {
@@ -2677,10 +2700,10 @@ impl CommandModel for Bq {
                 },
                 "schema",
             ),
-            (_, true) => (unresolved_db(), "table"),
-            (_, false) => (unresolved_db(), "schema"),
+            (_, true) => (unresolved_resource("db"), "table"),
+            (_, false) => (unresolved_resource("db"), "schema"),
         };
-        effect(
+        datastore_effect(
             builder,
             provenance,
             "database.schema_drop",
@@ -2827,7 +2850,7 @@ impl CommandModel for Cbt {
                 cloud_database_coverage(builder, vec![model_node]);
                 builder.declare_coverage(Domain::new("cloud"), CoverageLevel::Full);
                 let provenance = vec![arg_node(builder, ctx, index as u32), model_node];
-                effect(
+                datastore_effect(
                     builder,
                     provenance,
                     "cloud.resource.delete",
@@ -2862,12 +2885,12 @@ impl CommandModel for Cbt {
             provenance.push(arg_node(builder, ctx, (command + 1) as u32));
             match operand(1) {
                 Some(table) => db_table(None, instance.clone(), None, table.to_string()),
-                None => unresolved_db(),
+                None => unresolved_resource("db"),
             }
         } else {
             db_schema(None, instance.clone())
         };
-        effect(builder, provenance, operation, resource, attributes);
+        datastore_effect(builder, provenance, operation, resource, attributes);
     }
 }
 
@@ -3016,12 +3039,12 @@ impl CommandModel for Firebase {
                         }
                         None if recursive => (
                             "database.schema_drop",
-                            unresolved_db(),
+                            unresolved_resource("db"),
                             text_attrs(&[("object_kind", "collection")]),
                         ),
                         None => (
                             "database.write",
-                            unresolved_db(),
+                            unresolved_resource("db"),
                             text_attrs(&[("action", "delete")]),
                         ),
                     }
@@ -3059,14 +3082,14 @@ impl CommandModel for Firebase {
                     ),
                     None => (
                         "database.write",
-                        unresolved_db(),
+                        unresolved_resource("db"),
                         text_attrs(&[("action", if remove { "delete" } else { "overwrite" })]),
                     ),
                 }
             }
         };
         cloud_database_coverage(builder, vec![model_node]);
-        effect(builder, provenance, operation, resource, attributes);
+        datastore_effect(builder, provenance, operation, resource, attributes);
         // database:set PATH FILE reads the new value from FILE.
         if command == "database:set"
             && scanned.value_of(&["-d", "--data"]).is_none()
@@ -3074,7 +3097,7 @@ impl CommandModel for Firebase {
         {
             builder.declare_coverage(Domain::new("filesystem"), CoverageLevel::Full);
             let arg = crate::models::common::fs_arg_node(builder, ctx, index, file);
-            effect(
+            datastore_effect(
                 builder,
                 vec![arg, model_node],
                 "filesystem.read",

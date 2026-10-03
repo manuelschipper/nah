@@ -23,6 +23,10 @@
   `crates/nah-cli/src/`, and its hook installation exposes
   `mutate_<runtime>_hook`, `<runtime>_hook_status`, and
   `<runtime>_self_protection_paths` in `commands/<runtime>_installation.rs`.
+  Installers take their hook lock through `acquire_hook_lock` in
+  `commands/hook_paths.rs`, and adapters read tool input through the
+  `tool_input_*` readers in `adapter_fields.rs`; a private copy exists only
+  where its behavior differs.
 - Production decides every call with the engine alone:
   `crates/nah-cli/src/pipeline.rs` composes the engine plan, the bridge's
   evidence and observations, and `nah-policy`. Two separate gates hold it.
@@ -36,12 +40,13 @@
   `measure` records it and prints its verdict, and `publish` makes it the
   baseline; `publish --dry-run` computes the verdict alone. Search `publish`,
   not accept, promote or check: `crates/effinterp-bench/src/run/publish.rs`
-  owns verdicts and publication. A plane is one measured group (correctness,
+  owns verdicts and publication; `run/measure.rs` (`measure_run`) owns
+  measurement. A plane is one measured group (correctness,
   coverage, repositories, performance), selected with `--group`; the
   `bench/invocation` rows are the invocation corpus, not a plane.
 - The coverage headline, "understood what it could", counts successfully
   analysed plans outside the `gap` bucket, so a boundary reason's tier in
-  `crates/effinterp-bench/src/bench/tiers.rs` sets that number. Move a reason
+  `crates/effinterp-bench/src/invocation/tiers.rs` sets that number. Move a reason
   out of `gap` only when every site that emits it qualifies: no static
   analyser given the fixture's inputs, including the files and context the
   fixture supplies, could resolve it. A reason with any resolvable site stays
@@ -52,10 +57,18 @@
   (`crates/effinterp-engine/src/value.rs`), which lowers to a protocol
   `ResourceExpr` where it reaches an effect. `substitute_value` binds call
   arguments into semantic values; `substitute_resource_expr` (`summary.rs`)
-  binds them into resource expressions. Model document types belong to
+  binds them into resource expressions; build an unresolved one with
+  `value::unresolved_resource(family)`, a concrete path with
+  `fs_path_resource` and an endpoint with `url_endpoint_resource`, never a
+  per-file helper. Frontend types
+  carry their language (`<Lang>ControlFlowBuilder`, `<Lang>Walker`), while the
+  entry points keep the shared names `analyze` and `summarize_ast`. Model document types belong to
   `crates/effinterp-model-schema`; import them from `effinterp_model_schema`,
   not through `effinterp_engine`, which compiles them in
   `src/models/registry/`.
+- `effinterp-repo` composition and linking must not dispatch on source
+  language; `tests/suite/effect_ir_linker.rs` checks an explicit list of
+  `compose/*.rs` and `linker/*.rs` files, so add a new file there.
 
 Edit this guidance in `.mdmanager/sections/agents.md`, then run
 `mdmanager project apply agents`. `.mdmanager/project.toml` owns the

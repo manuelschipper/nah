@@ -3,36 +3,14 @@
 //! languages, realms, duplicate paths, empty repos, and incremental discovery.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
-use std::{
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::path::PathBuf;
 
 use effinterp_proto::{ResourceExpr, ResourceIdentity};
-use effinterp_repo::{
-    IndexLimits, RepoChange, Selector, apply_changes, build_index, effects_of, reach,
-};
+use effinterp_repo::{IndexLimits, RepoChange, ResourceSelector, apply_changes, effects_of, reach};
 
-use crate::support::antecedent_origins;
+use crate::support::{antecedent_origins, temp_repo};
 
-static NEXT_TEMP_REPO: AtomicU64 = AtomicU64::new(0);
-
-fn temp_repo(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-    let nonce = NEXT_TEMP_REPO.fetch_add(1, Ordering::Relaxed);
-    let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("{tag}-{}-{nonce}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    for (rel, content) in files {
-        let path = root.join(rel);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, content).unwrap();
-    }
-    root
-}
-
-fn build(root: &Path) -> effinterp_repo::RepoIndex {
-    build_index(root, IndexLimits::default())
-}
+use crate::live;
 
 /// Every occurrence a fact's roots derive from, walking the envelope graph
 /// backwards the way explanation does.
@@ -86,7 +64,7 @@ class Installer {
             ),
         ],
     );
-    let index = build(&root);
+    let index = live(&root);
     let composition = index.composition("bin/composer").unwrap();
     let effects = &composition.effects;
     for operation in ["network.request", "filesystem.write", "process.exec"] {
@@ -148,7 +126,7 @@ func Shell() { exec.Command("bash", "-c", "echo ok").Run() }
         )
     }
 
-    let positive = build(&fixture("p11b-asdf-urfave", "github.com/urfave/cli/v3"));
+    let positive = live(&fixture("p11b-asdf-urfave", "github.com/urfave/cli/v3"));
     let composition = positive.composition("cmd/asdf/main.go").unwrap();
     let effects = &composition.effects;
     assert!(effects.iter().any(|effect| {
@@ -164,7 +142,7 @@ func Shell() { exec.Command("bash", "-c", "echo ok").Run() }
         .collect();
     assert_eq!(processes.len(), 2, "{processes:#?}");
 
-    let negative = build(&fixture(
+    let negative = live(&fixture(
         "p11b-asdf-wrong-urfave",
         "example.com/urfave/cli/v3",
     ));
@@ -226,7 +204,7 @@ func (p *Printer) Print() {{ p.writer.GetWriter() }}
         )
     }
 
-    let positive = build(&fixture("p11b-go-interface-field", "writer"));
+    let positive = live(&fixture("p11b-go-interface-field", "writer"));
     assert!(
         positive
             .composition("main.go")
@@ -249,7 +227,7 @@ func (p *Printer) Print() {{ p.writer.GetWriter() }}
                     ))
     );
 
-    let negative = build(&fixture("p11b-go-interface-field-negative", "nil"));
+    let negative = live(&fixture("p11b-go-interface-field-negative", "nil"));
     assert!(
         negative
             .composition("main.go")
@@ -296,7 +274,7 @@ func (executor *Executor) ExecCommand(command string) *exec.Cmd {
             ),
         ],
     );
-    let effects = effects_of(&build(&root), "main.go")
+    let effects = effects_of(&live(&root), "main.go")
         .unwrap()
         .payload
         .into_effects()
@@ -376,7 +354,7 @@ func (executor *Executor) ExecCommand(command string) *exec.Cmd {
             ),
         ],
     );
-    let effects = effects_of(&build(&root), "main.go")
+    let effects = effects_of(&live(&root), "main.go")
         .unwrap()
         .payload
         .into_effects()
@@ -430,10 +408,10 @@ func main() {{
         )
     }
 
-    let positive = build(&fixture("p11b-cobra-persistent", "github.com/spf13/cobra"));
+    let positive = live(&fixture("p11b-cobra-persistent", "github.com/spf13/cobra"));
     assert_eq!(reached_by(&positive, "env:NO_COLOR"), vec!["main.go"]);
 
-    let negative = build(&fixture(
+    let negative = live(&fixture(
         "p11b-cobra-persistent-negative",
         "example.com/spf13/cobra",
     ));
@@ -470,7 +448,7 @@ export async function writeSafe() {{
         )
     }
 
-    let positive = build(&fixture("p11b-js-returned-cleanup", "temp.cleanup"));
+    let positive = live(&fixture("p11b-js-returned-cleanup", "temp.cleanup"));
     assert!(
         positive
             .composition("app.js")
@@ -491,7 +469,7 @@ export async function writeSafe() {{
                         && occurrence.source_file == "utils.js"))
     );
 
-    let negative = build(&fixture(
+    let negative = live(&fixture(
         "p11b-js-returned-cleanup-negative",
         "other.cleanup",
     ));
@@ -534,7 +512,7 @@ module.exports.__promise = run();
             ),
         ],
     );
-    let index = build(&root);
+    let index = live(&root);
     let report = effects_of(&index, "bin/prettier.cjs")
         .expect("Prettier wrapper analyzed")
         .payload
@@ -594,7 +572,7 @@ fn python_static_class_tuple_dispatches_exact_imported_constructors() {
         )
     }
 
-    let positive = build(&fixture(
+    let positive = live(&fixture(
         "p11b-python-class-tuple",
         "for source_type in SOURCE_TYPES:\n        source_type(path)",
     ));
@@ -615,7 +593,7 @@ fn python_static_class_tuple_dispatches_exact_imported_constructors() {
             })
     }));
 
-    let negative = build(&fixture(
+    let negative = live(&fixture(
         "p11b-python-class-tuple-negative",
         "for source_type in get_source_types():\n        source_type(path)",
     ));
@@ -650,16 +628,16 @@ fn python_super_dispatches_only_the_declared_base() {
         )
     }
 
-    let positive = build(&fixture("p11b-python-super", "super()"));
+    let positive = live(&fixture("p11b-python-super", "super()"));
     assert_eq!(reached_by(&positive, "env:EXACT_BASE"), vec!["main.py"]);
 
-    let negative = build(&fixture("p11b-python-super-negative", "parent()"));
+    let negative = live(&fixture("p11b-python-super-negative", "parent()"));
     assert!(reached_by(&negative, "env:EXACT_BASE").is_empty());
 }
 
 /// Entrypoints whose reach matches the selector.
 fn reached_by(idx: &effinterp_repo::RepoIndex, selector: &str) -> Vec<String> {
-    let mut ids: Vec<String> = reach(idx, &Selector::parse(selector).unwrap(), None)
+    let mut ids: Vec<String> = reach(idx, &ResourceSelector::parse(selector).unwrap(), None)
         .payload
         .into_reach()
         .unwrap()
@@ -689,7 +667,7 @@ fn uncalled_cross_file_function_is_off_the_forward_surface() {
             ("util.py", UTIL_PY),
         ],
     );
-    let idx = build(&root);
+    let idx = live(&root);
     let fwd = effects_of(&idx, "app.py").expect("app.py analyzed");
     assert!(
         !fwd.payload
@@ -714,7 +692,7 @@ fn uncalled_cross_file_function_is_off_the_forward_surface() {
             ("util.py", UTIL_PY),
         ],
     );
-    let fwd = effects_of(&build(&called), "app.py").unwrap();
+    let fwd = effects_of(&live(&called), "app.py").unwrap();
     assert!(
         fwd.payload
             .as_effects()
@@ -745,7 +723,7 @@ fn shared_library_effects_stay_per_entrypoint() {
             ("util.py", UTIL_PY),
         ],
     );
-    let idx = build(&root);
+    let idx = live(&root);
     assert_eq!(
         reached_by(&idx, "fs:/data/migrations"),
         vec!["migrate.py"],
@@ -776,7 +754,7 @@ fn import_cycle_terminates_and_attributes() {
         ],
     );
     // Termination is the primary assertion: build_index must return.
-    let idx = build(&root);
+    let idx = live(&root);
     assert_eq!(
         reached_by(&idx, "fs:/cycle/target"),
         vec!["a.py"],
@@ -798,8 +776,12 @@ fn aliased_import_resolves_cross_file() {
             ("util.py", UTIL_PY),
         ],
     );
-    let idx = build(&root);
-    let report = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let idx = live(&root);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
     let hit = report
         .payload
         .as_reach()
@@ -832,8 +814,12 @@ fn reexport_chain_resolves_to_definition() {
             ("util.py", UTIL_PY),
         ],
     );
-    let idx = build(&root);
-    let report = reach(&idx, &Selector::parse("fs:/srv/data").unwrap(), None);
+    let idx = live(&root);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/srv/data").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -870,8 +856,12 @@ fn mixed_language_subprocess_composes_local_source() {
             ),
         ],
     );
-    let idx = build(&root);
-    let report = reach(&idx, &Selector::parse("fs:/opt/app/data").unwrap(), None);
+    let idx = live(&root);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/opt/app/data").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -915,7 +905,7 @@ fn container_to_database_effect() {
             "#!/bin/sh\ndocker exec pg psql -c 'DROP TABLE public.orders'\n",
         )],
     );
-    let idx = build(&root);
+    let idx = live(&root);
     // The table identity is global: an unqualified db query spans realms.
     assert_eq!(reached_by(&idx, "db:public.orders"), vec!["maint.sh"]);
     // But the execution origin is the container, not the host.
@@ -963,7 +953,7 @@ fn pod_to_cloud_effect() {
             "#!/bin/sh\nkubectl exec worker -- aws s3 rm s3://backups/nightly.tar\n",
         )],
     );
-    let idx = build(&root);
+    let idx = live(&root);
     // Object-store identity is global: unqualified query finds it.
     assert_eq!(
         reached_by(&idx, "obj:backups/nightly.tar"),
@@ -991,7 +981,7 @@ fn duplicate_effect_via_two_paths_is_one_row() {
             ("util.py", UTIL_PY),
         ],
     );
-    let idx = build(&root);
+    let idx = live(&root);
     let fwd = effects_of(&idx, "app.py").unwrap();
     let rows: Vec<_> = fwd
         .payload
@@ -1008,7 +998,11 @@ fn duplicate_effect_via_two_paths_is_one_row() {
     assert_eq!(rows.len(), 1, "one row, not one per path: {rows:?}");
     assert!(!rows[0].provenance_roots.is_empty());
 
-    let report = reach(&idx, &Selector::parse("fs:/shared/state").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/shared/state").unwrap(),
+        None,
+    );
     let hits: Vec<_> = report
         .payload
         .as_reach()
@@ -1032,9 +1026,13 @@ fn repo_without_entrypoints_yields_empty_results() {
             ("notes.txt", "no runnable code here\n"),
         ],
     );
-    let idx = build(&root);
+    let idx = live(&root);
     assert!(idx.entrypoints.is_empty(), "nothing to discover");
-    let report = reach(&idx, &Selector::parse("fs:/anything").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/anything").unwrap(),
+        None,
+    );
     assert!(report.payload.as_reach().unwrap().matches.is_empty());
     assert!(report.payload.as_reach().unwrap().indeterminate.is_empty());
     assert!(effects_of(&idx, "lib.py").is_none());
@@ -1052,7 +1050,7 @@ fn incremental_change_affecting_discovery() {
             "import shutil\ndef clean():\n    shutil.rmtree(\"/tmp/scratch\")\n",
         )],
     );
-    let mut idx = build(&root);
+    let mut idx = live(&root);
     assert!(
         idx.entrypoints.is_empty(),
         "a pure library is not discovered"
@@ -1070,7 +1068,7 @@ fn incremental_change_affecting_discovery() {
         &[RepoChange::Modified("tool.py".into())],
     );
 
-    let rebuilt = build(&root);
+    let rebuilt = live(&root);
     assert_eq!(
         idx.fingerprint, rebuilt.fingerprint,
         "incremental discovery change matches a clean rebuild"
@@ -1119,8 +1117,8 @@ fn paired_wrong_receivers_remove_only_the_unsupported_path() {
             ],
         )
     };
-    let python_positive = build(&python("p13e-python-positive", "Right"));
-    let python_negative = build(&python("p13e-python-negative", "Wrong"));
+    let python_positive = live(&python("p13e-python-positive", "Right"));
+    let python_negative = live(&python("p13e-python-negative", "Wrong"));
     assert_eq!(
         p13e_delete_resources(&python_positive, "app.py"),
         ["fs:/p13e/python-baseline", "fs:/p13e/python-target"]
@@ -1147,8 +1145,8 @@ fn paired_wrong_receivers_remove_only_the_unsupported_path() {
             ],
         )
     };
-    let javascript_positive = build(&javascript("p13e-javascript-positive", "Right"));
-    let javascript_negative = build(&javascript("p13e-javascript-negative", "Wrong"));
+    let javascript_positive = live(&javascript("p13e-javascript-positive", "Right"));
+    let javascript_negative = live(&javascript("p13e-javascript-negative", "Wrong"));
     assert_eq!(
         p13e_delete_resources(&javascript_positive, "app.js"),
         ["fs:/p13e/javascript-baseline", "fs:/p13e/javascript-target"]
@@ -1224,7 +1222,7 @@ pub fn run() {
             ),
         ],
     );
-    let index = build(&root);
+    let index = live(&root);
     let composition = index.composition("src/main.rs").unwrap();
     assert!(
         composition.effects.iter().any(|effect| {

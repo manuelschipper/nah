@@ -21,7 +21,7 @@ use crate::models::{CommandModel, InvocationCtx};
 use crate::nest::{Transition, word_resource};
 use crate::word::{Word, WordPart};
 
-pub(crate) fn models() -> Vec<Box<dyn CommandModel>> {
+pub(crate) fn wrapper_models() -> Vec<Box<dyn CommandModel>> {
     vec![
         Box::new(PrefixWrapper {
             id: "util-linux/su@v0",
@@ -1450,7 +1450,7 @@ impl CommandModel for Nsenter {
             return;
         }
         if changes_root && builder.is_host_realm() {
-            let host_root = root.as_ref().and_then(|root| concrete_fs_path(ctx, root));
+            let host_root = root.as_ref().and_then(|root| word_fs_path(ctx, root));
             let arg = arg_node(builder, ctx, start as u32);
             let argv_provenance = ctx.argv_provenance_range(builder, start..ctx.argv.len());
             {
@@ -1591,7 +1591,7 @@ impl CommandModel for Unshare {
             return;
         }
         if let Some(root) = root.as_ref().filter(|_| builder.is_host_realm()) {
-            let host_root = concrete_fs_path(ctx, root);
+            let host_root = word_fs_path(ctx, root);
             let arg = arg_node(builder, ctx, start as u32);
             let argv_provenance = ctx.argv_provenance_range(builder, start..ctx.argv.len());
             {
@@ -1942,7 +1942,7 @@ fn optional_inline_flag(flag: &str, optional_flags: &[&str]) -> bool {
     })
 }
 
-fn concrete_fs_path(ctx: &InvocationCtx, word: &Word) -> Option<String> {
+fn word_fs_path(ctx: &InvocationCtx, word: &Word) -> Option<String> {
     match ctx.resolve_fs_word(word) {
         ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },

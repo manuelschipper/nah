@@ -1,8 +1,7 @@
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, Condition, CoverageLevel, Domain,
     Effect, ExecutionEdgeKind, ExecutionInputReason, ExecutionInputRole, ExecutionPhase,
-    ExecutionSelector, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceFamily, Subject,
+    ExecutionSelector, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, Subject,
 };
 
 use crate::SourcePurpose;
@@ -15,7 +14,7 @@ use crate::models::common::{
 use crate::models::{InvocationCtx, StdinValue, model_application_node, source_refusal_detail};
 use crate::nest::{Nest, SourceResolution, Transition, word_resource};
 use crate::paths::process_identity_with_cwd;
-use crate::value::{SemanticValue, SemanticValueKind};
+use crate::value::{SemanticValue, SemanticValueKind, unresolved_resource};
 use crate::word::{Word, WordPart};
 
 pub(crate) enum UnresolvedHead {
@@ -53,7 +52,7 @@ enum TerminalText {
 
 /// The command name a model dispatches on: an established program's basename,
 /// or else the literal path, which names no modeled tool.
-pub(crate) fn program_name(argv0: &Word) -> Option<&str> {
+pub(crate) fn dispatch_program_name(argv0: &Word) -> Option<&str> {
     let text = argv0.as_literal()?;
     if !established_program(argv0) {
         return Some(text);
@@ -148,9 +147,7 @@ fn terminal_input(
     }
     builder.rollback(checkpoint);
     if candidates.is_empty() {
-        candidates.push(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("process"),
-        });
+        candidates.push(unresolved_resource("process"));
     }
     for resource in candidates {
         builder.effect(Effect {
@@ -471,9 +468,7 @@ pub(crate) fn analyze_exec(
                 request_assurance: effinterp_proto::RequestAssurance::Conservative,
                 id: Default::default(),
                 operation: Operation::new("process.exec"),
-                resource: ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("process"),
-                },
+                resource: unresolved_resource("process"),
                 attributes: Default::default(),
                 modality: Modality::May,
                 realm: effinterp_proto::ExecutionRealm::Host,
@@ -521,7 +516,7 @@ pub(crate) fn analyze_exec(
                 builder.pop_condition();
                 return false;
             }
-            unresolved(
+            unresolved_command(
                 builder,
                 arg0,
                 "executable name is not statically resolvable",
@@ -1430,7 +1425,7 @@ pub(crate) fn unmodeled(builder: &mut PlanBuilder, arg0: ProvenanceRef, detail: 
     );
 }
 
-fn unresolved(builder: &mut PlanBuilder, arg0: ProvenanceRef, detail: &str) {
+fn unresolved_command(builder: &mut PlanBuilder, arg0: ProvenanceRef, detail: &str) {
     command_boundary(
         builder,
         arg0,

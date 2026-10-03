@@ -4,7 +4,6 @@ use std::fmt::Write;
 
 use nah_proto::action::Coverage;
 use nah_proto::ctx::SchemaVersion;
-use nah_proto::decision::Verdict;
 use nah_proto::tool::ToolCallInput;
 use serde_json::Value;
 
@@ -12,6 +11,7 @@ use super::engine_plan_rendering::render_engine_plan;
 use crate::args::{TestArgs, TestSourceLanguage};
 use crate::code_input::{self, CodeInput, CodeIntake};
 use crate::dispatch::decide_live_for_runtime;
+use crate::records::verdict_name;
 use crate::runtime::Runtime;
 use crate::{
     amp_adapter, antigravity_adapter, cline_adapter, codex_adapter, copilot_adapter,
@@ -239,13 +239,6 @@ fn runtime_tool_call(
         }
         Runtime::Pi => pi_adapter::normalize_call(tool, arguments, cwd).map(without_code),
         Runtime::PrimeAgent => prime_agent_adapter::normalize_call(tool, arguments, cwd),
-    }
-}
-
-const fn verdict_name(verdict: Verdict) -> &'static str {
-    match verdict {
-        Verdict::Block => "block",
-        Verdict::Delegate => "delegate",
     }
 }
 

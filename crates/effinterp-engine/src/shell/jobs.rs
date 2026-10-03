@@ -35,7 +35,7 @@ pub(crate) fn condition_head(cond: &[ShellItem]) -> Option<String> {
 /// bound. The caller establishes that the loop itself never terminates.
 pub(crate) fn unbounded_body(body: &[ShellItem]) -> bool {
     let mut jobs = Jobs::default();
-    scan(body, &mut jobs, 0);
+    scan_jobs(body, &mut jobs, 0);
     jobs.unbounded()
 }
 
@@ -43,7 +43,7 @@ pub(crate) fn unbounded_body(body: &[ShellItem]) -> bool {
 #[derive(Default)]
 struct Jobs {
     /// Job starts and reaps in the order the body performs them.
-    events: Vec<Event>,
+    events: Vec<JobEvent>,
     /// A started job that no `wait` in this shell can ever reap.
     escaped: bool,
     /// The body leaves the loop, so it runs a bounded number of times.
@@ -53,7 +53,7 @@ struct Jobs {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Event {
+enum JobEvent {
     Start,
     ReapAll,
     ReapOne,
@@ -71,16 +71,16 @@ impl Jobs {
         }
         // A no-operand wait empties this shell's running-job table. Otherwise
         // each selective wait can discharge at most one launch per pass.
-        !self.events.contains(&Event::ReapAll)
+        !self.events.contains(&JobEvent::ReapAll)
             && self
                 .events
                 .iter()
-                .filter(|event| **event == Event::Start)
+                .filter(|event| **event == JobEvent::Start)
                 .count()
                 > self
                     .events
                     .iter()
-                    .filter(|event| **event == Event::ReapOne)
+                    .filter(|event| **event == JobEvent::ReapOne)
                     .count()
     }
 
@@ -89,9 +89,9 @@ impl Jobs {
         let mut running = 0usize;
         for event in &self.events {
             match event {
-                Event::Start => running += 1,
-                Event::ReapAll => running = 0,
-                Event::ReapOne => running = running.saturating_sub(1),
+                JobEvent::Start => running += 1,
+                JobEvent::ReapAll => running = 0,
+                JobEvent::ReapOne => running = running.saturating_sub(1),
             }
         }
         running != 0
@@ -103,7 +103,7 @@ impl Jobs {
     }
 }
 
-fn scan(items: &[ShellItem], jobs: &mut Jobs, depth: u32) {
+fn scan_jobs(items: &[ShellItem], jobs: &mut Jobs, depth: u32) {
     if depth >= MAX_DEPTH {
         jobs.unknown = true;
         return;
@@ -113,7 +113,7 @@ fn scan(items: &[ShellItem], jobs: &mut Jobs, depth: u32) {
             ShellItem::Group {
                 kind: GroupKind::Background,
                 ..
-            } => jobs.events.push(Event::Start),
+            } => jobs.events.push(JobEvent::Start),
             // A subshell owns the jobs it starts. Ones it leaves running
             // outlive it, and no `wait` in this shell can reach them.
             ShellItem::Group {
@@ -121,7 +121,7 @@ fn scan(items: &[ShellItem], jobs: &mut Jobs, depth: u32) {
                 items,
             } => {
                 let mut inner = Jobs::default();
-                scan(items, &mut inner, depth + 1);
+                scan_jobs(items, &mut inner, depth + 1);
                 jobs.unknown |= inner.unknown;
                 jobs.escaped |= inner.escaped || inner.leftover();
             }
@@ -150,8 +150,8 @@ fn scan(items: &[ShellItem], jobs: &mut Jobs, depth: u32) {
                     continue;
                 }
                 match builtin {
-                    JobBuiltin::WaitAll => jobs.events.push(Event::ReapAll),
-                    JobBuiltin::WaitOne => jobs.events.push(Event::ReapOne),
+                    JobBuiltin::WaitAll => jobs.events.push(JobEvent::ReapAll),
+                    JobBuiltin::WaitOne => jobs.events.push(JobEvent::ReapOne),
                     // The job leaves the table, so no later `wait` reaps it.
                     JobBuiltin::Disown => jobs.escaped |= jobs.leftover(),
                     JobBuiltin::Leave => jobs.leaves = true,
@@ -171,10 +171,10 @@ fn scan(items: &[ShellItem], jobs: &mut Jobs, depth: u32) {
 /// selects. `if false; then wait; fi` reaps nothing.
 fn scan_alternatives(items: &[ShellItem], jobs: &mut Jobs, depth: u32) {
     let Some((ShellItem::Alternatives { arms, .. }, cond)) = items.split_last() else {
-        scan(items, jobs, depth);
+        scan_jobs(items, jobs, depth);
         return;
     };
-    scan(cond, jobs, depth);
+    scan_jobs(cond, jobs, depth);
     // Two arms are `if COND; then ...; else ...`, in that order.
     let taken = match (constant_status(cond), arms.len()) {
         (Some(true), 2) => Some(0),
@@ -182,7 +182,7 @@ fn scan_alternatives(items: &[ShellItem], jobs: &mut Jobs, depth: u32) {
         _ => None,
     };
     match taken {
-        Some(index) => scan(&arms[index], jobs, depth + 1),
+        Some(index) => scan_jobs(&arms[index], jobs, depth + 1),
         None => jobs.unknown |= arms.iter().any(|arm| probe(arm, depth + 1)),
     }
 }
@@ -190,7 +190,7 @@ fn scan_alternatives(items: &[ShellItem], jobs: &mut Jobs, depth: u32) {
 /// Whether a region that runs only on some paths touches the job table.
 fn probe(items: &[ShellItem], depth: u32) -> bool {
     let mut jobs = Jobs::default();
-    scan(items, &mut jobs, depth);
+    scan_jobs(items, &mut jobs, depth);
     jobs.relevant()
 }
 

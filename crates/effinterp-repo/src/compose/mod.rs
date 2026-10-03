@@ -17,12 +17,18 @@ use crate::dispatch::DispatchVia;
 use crate::index::RepositoryLimits;
 use crate::launch::{is_process_template, specialize_process_template_with_bindings};
 use crate::linker::Resolution;
-use crate::module::{ModuleFile, Registry};
+use crate::module::{ModuleFile, ModuleRegistry};
+use accumulation::{
+    BoundaryCollection, ComposedBoundaryKey, RecursiveOccurrences, finalize,
+    push_composed_boundary, push_composed_effect, push_composed_effect_slot,
+    remove_composed_occurrence, replay_summary_transfers,
+};
 pub use budget::ComposeBudget;
 pub(crate) use budget::cap_depth;
 use budget::{
     all_domains, charge_compose_step, check_composition_depth, owned_domains, reserve_effect,
 };
+use control_discharge::{ControlOwner, control_requirements, evaluate_flow};
 use effinterp_engine::{
     Assurance, CallEdge, ControlFact, ExternalCall, ImportBinding, ObjectIdentity, Requirements,
     ResolvedObject, SemanticValue, SemanticValueKind, SigRole, TransferBinding, TypeRef,
@@ -42,14 +48,17 @@ use instance::{
 };
 use lifecycle::{LifecycleState, activate_lifecycle, apply_lifecycle, lifecycle_match};
 use memo::{MemoKey, MemoizedWalk};
+use module_execution::{execute_imports, execution_reachable, push_unseen_file};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 
+mod accumulation;
 mod budget;
+mod control_discharge;
 mod function;
 mod instance;
 mod lifecycle;
 mod memo;
+mod module_execution;
 
 /// Exact callable bound to a function parameter.
 #[derive(Debug, Clone)]
@@ -59,27 +68,29 @@ enum BoundCallable {
     External { module: String, member: String },
 }
 
-struct Walk<'a> {
-    registry: &'a Registry,
+/// One composition walk in progress: the call path and stack that reached the
+/// current function, its instance typing, and the composition being built.
+struct CompositionWalk<'a> {
+    registry: &'a ModuleRegistry,
     linker: &'a dyn crate::linker::Linker,
     out: &'a mut Composition,
     path: Vec<String>,
     stack: Vec<(String, String)>,
-    env: Env,
+    env: InstanceEnv,
     assurance: Assurance,
 }
 
-impl<'a> Walk<'a> {
+impl<'a> CompositionWalk<'a> {
     fn run<R>(
-        registry: &'a Registry,
+        registry: &'a ModuleRegistry,
         file: &ModuleFile,
         out: &'a mut Composition,
-        state: (&[String], &mut Vec<(String, String)>, &mut Env),
-        run: impl FnOnce(&mut Walk<'a>) -> R,
+        state: (&[String], &mut Vec<(String, String)>, &mut InstanceEnv),
+        run: impl FnOnce(&mut CompositionWalk<'a>) -> R,
     ) -> R {
         let (path, stack, env) = state;
         let assurance = out.walk_assurance;
-        let mut walk = Walk {
+        let mut walk = CompositionWalk {
             registry,
             linker: registry.linker(file.lang),
             out,
@@ -103,7 +114,7 @@ type Callbacks = HashMap<String, BoundCallable>;
 /// instances. Everything here has unambiguous constructor provenance; an
 /// untyped name simply never dispatches.
 #[derive(Debug, Clone, Default)]
-struct Env {
+struct InstanceEnv {
     receiver: Option<ResolvedObject>,
     self_attrs: HashMap<String, ResolvedObject>,
     params: HashMap<String, ResolvedObject>,
@@ -113,7 +124,7 @@ struct Env {
 
 /// Receiver context handed to an entered function.
 #[derive(Debug, Clone, Default)]
-struct Dispatch {
+struct ReceiverContext {
     receiver: Option<ResolvedObject>,
     self_attrs: HashMap<String, ResolvedObject>,
 }
@@ -480,7 +491,7 @@ impl Composition {
 /// resolves to.
 #[cfg(test)]
 pub(crate) fn compose(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     entry: &ModuleFile,
     entry_function: Option<&str>,
 ) -> Composition {
@@ -496,7 +507,7 @@ pub(crate) fn compose(
 }
 
 pub(crate) fn compose_with_package_init(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     entry: &ModuleFile,
     entry_function: Option<&str>,
     registration: Option<&effinterp_engine::Registration>,
@@ -519,7 +530,7 @@ pub(crate) fn compose_with_package_init(
 }
 
 pub(crate) fn compose_callable(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     entry: &ModuleFile,
     limits: RepositoryLimits,
 ) -> Composition {
@@ -527,7 +538,7 @@ pub(crate) fn compose_callable(
 }
 
 fn compose_inner(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     entry: &ModuleFile,
     entry_function: Option<&str>,
     registration: Option<&effinterp_engine::Registration>,
@@ -578,7 +589,7 @@ fn compose_inner(
     }
     // Main-guard calls run because this file IS the entrypoint; imported files'
     // main guards never run (execute_imports follows module_calls only).
-    let mut module_env = Env::default();
+    let mut module_env = InstanceEnv::default();
     // A top-level call is required when the module's successful completions
     // all reach it and the entrypoint-only statements can still succeed; a
     // main-guard call additionally needs the module to always reach its end.
@@ -615,7 +626,7 @@ fn compose_inner(
             .iter()
             .filter(|(_, function)| function.is_none())
         {
-            let mut env = Env::default();
+            let mut env = InstanceEnv::default();
             for (index, edge) in file.summary.module_calls.iter().enumerate() {
                 if edge_origin_function(edge).is_some_and(|name| !name.is_empty()) {
                     continue;
@@ -624,7 +635,7 @@ fn compose_inner(
                 out.accepts_throw = !entry_module
                     .on_success
                     .contains(&ControlFact::CallSuccess(index as u32));
-                Walk::run(
+                CompositionWalk::run(
                     registry,
                     file,
                     &mut out,
@@ -638,7 +649,7 @@ fn compose_inner(
             .iter()
             .filter_map(|(file, function)| function.map(|function| (*file, function)))
         {
-            let mut env = Env::default();
+            let mut env = InstanceEnv::default();
             let mut function_path = module_root.clone();
             function_path.push(format!("{}:{function}", file.path));
             if let Some(entry) = file.function(function) {
@@ -647,7 +658,7 @@ fn compose_inner(
                         callee: function.to_string(),
                         ..Default::default()
                     };
-                    Walk::run(
+                    CompositionWalk::run(
                         registry,
                         file,
                         &mut out,
@@ -659,7 +670,7 @@ fn compose_inner(
                                 file,
                                 function,
                                 &edge,
-                                Dispatch::default(),
+                                ReceiverContext::default(),
                                 false,
                             )
                         },
@@ -672,7 +683,7 @@ fn compose_inner(
                 if edge_origin_function(edge) != Some(function) {
                     continue;
                 }
-                Walk::run(
+                CompositionWalk::run(
                     registry,
                     file,
                     &mut out,
@@ -692,7 +703,7 @@ fn compose_inner(
             out.accepts_throw = !entry_main
                 .on_success
                 .contains(&ControlFact::CallSuccess(index as u32));
-            Walk::run(
+            CompositionWalk::run(
                 registry,
                 entry,
                 &mut out,
@@ -737,7 +748,7 @@ fn compose_inner(
         for (edge, required, accepts_throw) in roots {
             out.required = required;
             out.accepts_throw = accepts_throw;
-            Walk::run(
+            CompositionWalk::run(
                 registry,
                 entry,
                 &mut out,
@@ -815,7 +826,7 @@ fn compose_inner(
             }),
             ..Default::default()
         };
-        Walk::run(
+        CompositionWalk::run(
             registry,
             entry,
             &mut out,
@@ -824,7 +835,15 @@ fn compose_inner(
                 if registration.is_some() {
                     follow_execution_root(walk, entry, &edge, &no_callbacks);
                 } else {
-                    enter_function(walk, entry, entry, name, &edge, Dispatch::default(), false);
+                    enter_function(
+                        walk,
+                        entry,
+                        entry,
+                        name,
+                        &edge,
+                        ReceiverContext::default(),
+                        false,
+                    );
                 }
             },
         );
@@ -852,7 +871,7 @@ fn compose_inner(
             continue;
         };
         let path = vec![format!("{}:{}", entry.path, func.name)];
-        let mut env = Env::default();
+        let mut env = InstanceEnv::default();
         for edge in &func.calls {
             // A call through this function's own parameter is bound only at a
             // call site: this callerless walk knows nothing about its target,
@@ -860,7 +879,7 @@ fn compose_inner(
             if edge.dynamic_target && func.summary.params.contains(&edge.callee) {
                 continue;
             }
-            Walk::run(
+            CompositionWalk::run(
                 registry,
                 entry,
                 &mut out,
@@ -903,7 +922,7 @@ fn edge_origin_function(edge: &CallEdge) -> Option<&str> {
 }
 
 fn push_root_effects(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     file: &ModuleFile,
     function: &effinterp_engine::FunctionEntry,
     path: &[String],
@@ -986,7 +1005,7 @@ fn specialize_effect(
 /// identifies which occurrence of an identical unknown the package view
 /// resolved.
 pub(crate) fn go_root_effects(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     file: &ModuleFile,
     function: &str,
     composition: &mut Composition,
@@ -1033,7 +1052,7 @@ pub(crate) fn go_root_effects(
 }
 
 fn follow_execution_root(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     file: &ModuleFile,
     edge: &CallEdge,
     callbacks: &Callbacks,
@@ -1050,7 +1069,7 @@ fn follow_execution_root(
             file,
             &edge.callee,
             edge,
-            Dispatch::default(),
+            ReceiverContext::default(),
             false,
         );
         walk.out.walk_condition = prior_condition;
@@ -1167,895 +1186,11 @@ fn push_specialized_process_effects(
     }
 }
 
-fn effect_evidence_key(effect: &Effect) -> String {
-    let mut effect = effect.clone();
-    effect.condition = effect
-        .condition
-        .as_ref()
-        .map(effinterp_proto::Condition::identity);
-    effinterp_proto::canonical_json(&effect)
-}
-
-pub(crate) fn composed_effect_id(effect: &Effect) -> effinterp_proto::EffectId {
-    effinterp_proto::EffectId::derive(&effinterp_proto::EffectIdentity {
-        operation: effect.operation.clone(),
-        resource: effect.resource.clone(),
-        realm: effect.realm.clone(),
-        modality: effect.modality,
-        request_assurance: effect.request_assurance,
-        attributes: effect.attributes.clone(),
-        condition: None,
-        occurrence: effinterp_proto::EffectOccurrence {
-            subject_digest: effinterp_proto::stable_hash("effinterp/repo-composition/v1", &()),
-            realm: effect.realm.clone(),
-            ordinal: 0,
-        },
-    })
-}
-
-// Recursive fixed-point caches retain evidence per origin and dispatch.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct EffectOccurrenceKey {
-    source_file: String,
-    effect: effinterp_proto::EffectId,
-    via_dispatch: Option<DispatchVia>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ComposedBoundaryKey {
-    class: effinterp_proto::BoundaryClass,
-    reason: BoundaryReason,
-    detail: String,
-    source_file: Option<String>,
-    callee: Option<CalleeReference>,
-    domains: Vec<String>,
-    affected_resource: Option<ResourceExpr>,
-    limit: Option<String>,
-    via_dispatch: Option<DispatchVia>,
-}
-
-impl Hash for ComposedBoundaryKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.class.hash(state);
-        self.reason.as_str().hash(state);
-        self.detail.hash(state);
-        self.source_file.hash(state);
-        self.callee.hash(state);
-        self.domains.hash(state);
-        self.affected_resource
-            .as_ref()
-            .map(effinterp_proto::canonical_json)
-            .hash(state);
-        self.limit.hash(state);
-        self.via_dispatch.hash(state);
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-struct BoundaryCollection {
-    rows: Vec<ComposedBoundary>,
-    positions: HashMap<ComposedBoundaryKey, usize>,
-    paths: HashMap<ComposedBoundaryKey, BTreeSet<Vec<String>>>,
-}
-
-fn boundary_key(boundary: &ComposedBoundary) -> ComposedBoundaryKey {
-    ComposedBoundaryKey {
-        class: boundary.class,
-        reason: boundary.reason.clone(),
-        detail: boundary.detail.clone(),
-        source_file: boundary.source_file.clone(),
-        callee: boundary.callee.clone(),
-        domains: boundary.domains.clone(),
-        affected_resource: boundary.affected_resource.clone(),
-        limit: boundary.limit.clone(),
-        via_dispatch: boundary.via_dispatch.clone(),
-    }
-}
-
-fn merge_boundary(existing: &mut ComposedBoundary, incoming: &ComposedBoundary, count: usize) {
-    existing.occurrences = count as u32;
-    existing
-        .exemplar_paths
-        .extend(incoming.exemplar_paths.iter().cloned());
-    existing
-        .exemplar_paths
-        .sort_by(|a, b| a.len().cmp(&b.len()).then(a.cmp(b)));
-    existing.exemplar_paths.dedup();
-    existing.exemplar_paths.truncate(4);
-}
-
-fn push_composed_boundary(out: &mut Composition, mut boundary: BoundaryOccurrence) {
-    // Attach the call site before coalescing so counts, memo captures, and
-    // exemplar paths all retain the frame where composition stopped.
-    if let Some((path, call)) = &out.boundary_call
-        && boundary.path == *path
-    {
-        boundary.path.push(call.clone());
-    }
-    let paths = vec![boundary.path.clone()];
-    push_coalesced_boundary(out, boundary.into(), &paths);
-}
-
-fn push_coalesced_boundary(
-    out: &mut Composition,
-    mut boundary: ComposedBoundary,
-    paths: &[Vec<String>],
-) {
-    boundary.exemplar_paths = paths.to_vec();
-    boundary
-        .exemplar_paths
-        .sort_by(|a, b| a.len().cmp(&b.len()).then(a.cmp(b)));
-    boundary.exemplar_paths.dedup();
-    boundary.exemplar_paths.truncate(4);
-    let key = boundary_key(&boundary);
-    // Capture each callable's own evidence, even when the global row already exists.
-    for collection in &mut out.memo_boundaries {
-        if collection.positions.contains_key(&key)
-            || collection.rows.len() < out.budget.limits.max_composed_boundaries
-        {
-            collection
-                .paths
-                .entry(key.clone())
-                .or_default()
-                .extend(paths.iter().cloned());
-        }
-        if let Some(index) = collection.positions.get(&key) {
-            merge_boundary(
-                &mut collection.rows[*index],
-                &boundary,
-                collection.paths[&key].len(),
-            );
-        } else if collection.rows.len() < out.budget.limits.max_composed_boundaries {
-            collection
-                .positions
-                .insert(key.clone(), collection.rows.len());
-            let mut captured = boundary.clone();
-            captured.occurrences = collection.paths[&key].len() as u32;
-            collection.rows.push(captured);
-        }
-    }
-    if out.boundary_keys.contains_key(&key)
-        || out.boundaries.len() < out.budget.limits.max_composed_boundaries
-        || boundary.reason == BoundaryReason::LIMIT_SATURATED
-    {
-        out.boundary_paths
-            .entry(key.clone())
-            .or_default()
-            .extend(paths.iter().cloned());
-    }
-    if let Some(index) = out.boundary_keys.get(&key) {
-        merge_boundary(
-            &mut out.boundaries[*index],
-            &boundary,
-            out.boundary_paths[&key].len(),
-        );
-    } else if boundary.reason == BoundaryReason::LIMIT_SATURATED
-        || out.boundaries.len() < out.budget.limits.max_composed_boundaries
-    {
-        boundary.occurrences = out.boundary_paths[&key].len() as u32;
-        out.boundary_keys.insert(key, out.boundaries.len());
-        out.boundaries.push(boundary);
-    } else {
-        budget::report_limit(
-            out,
-            &boundary.exemplar_paths[0],
-            "repository.max_composed_boundaries",
-        );
-    }
-}
-
-fn push_dependency(out: &mut Composition, dependency: String) {
-    if out.dep_keys.insert(dependency.clone()) {
-        out.deps.push(dependency);
-    }
-}
-
-fn push_coverage(out: &mut Composition, coverage: (String, CoverageLevel)) {
-    if !out.coverage.contains(&coverage) {
-        out.coverage.push(coverage);
-    }
-}
-
-/// Occurrence multiplicity keyed by effect, operation, causal path, assurance, and dispatch.
-type OccurrenceCounts =
-    BTreeMap<(usize, String, Vec<String>, Assurance, Option<DispatchVia>), usize>;
-
-// A round contributes the maximum multiplicity observed at each causal path,
-// rather than adding another copy of every fact from earlier rounds. Distinct
-// calls within one walk still contribute separate occurrences at the same path.
-#[derive(Debug, Clone)]
-struct RecursiveOccurrences {
-    previous: OccurrenceCounts,
-    current: OccurrenceCounts,
-}
-
-impl RecursiveOccurrences {
-    fn new(occurrences: &[ComposedOccurrence]) -> Self {
-        let mut previous = BTreeMap::new();
-        for occurrence in occurrences {
-            *previous
-                .entry((
-                    occurrence.effect,
-                    occurrence.source_file.clone(),
-                    occurrence.path.clone(),
-                    occurrence.assurance,
-                    occurrence.via_dispatch.clone(),
-                ))
-                .or_default() += 1;
-        }
-        Self {
-            previous,
-            current: BTreeMap::new(),
-        }
-    }
-}
-
-fn push_composed_effect(out: &mut Composition, mut effect: EffectOccurrence) -> bool {
-    if let (Some(condition), Some(instance)) =
-        (&mut effect.effect.condition, &out.walk_call_instance)
-    {
-        condition.rebind(instance);
-    }
-    effect.effect.condition = effinterp_proto::Condition::compose(
-        effect
-            .effect
-            .condition
-            .iter()
-            .chain(out.walk_condition.iter()),
-    );
-    push_bound_composed_effect(out, effect)
-}
-
-fn push_bound_composed_effect(out: &mut Composition, mut effect: EffectOccurrence) -> bool {
-    if out.budget.saturated.is_some() {
-        return false;
-    }
-    if out.recursive_round {
-        effect.effect.modality = Modality::May;
-        effect.effect.condition = Some(effinterp_proto::Condition::Widened);
-    }
-    if effect
-        .effect
-        .condition
-        .as_ref()
-        .is_some_and(effinterp_proto::Condition::is_widened)
-    {
-        effect.effect.modality = Modality::May;
-        if !out
-            .boundaries
-            .iter()
-            .any(|boundary| boundary.limit.as_deref() == Some("max_causal_condition"))
-        {
-            push_composed_boundary(
-                out,
-                BoundaryOccurrence {
-                    class: effinterp_proto::BoundaryClass::Limit,
-                    reason: BoundaryReason::LIMIT_SATURATED,
-                    detail: "causal condition composition widened".to_string(),
-                    source_file: Some(effect.source_file.clone()),
-                    callee: None,
-                    domains: vec!["dataflow".to_string()],
-                    affected_resource: None,
-                    limit: Some("max_causal_condition".to_string()),
-                    path: effect.path.clone(),
-                    via_dispatch: effect.via_dispatch.clone(),
-                },
-            );
-            push_coverage(out, ("dataflow".to_string(), CoverageLevel::Partial));
-        }
-    }
-    if out.force_may || !out.required {
-        effect.effect.modality = Modality::May;
-    }
-    if effect.assurance != Assurance::Exact
-        || effect
-            .effect
-            .condition
-            .as_ref()
-            .is_some_and(effinterp_proto::Condition::is_widened)
-    {
-        effect.effect.request_assurance = effinterp_proto::RequestAssurance::Conservative;
-    }
-    let key = composed_effect_id(&effect.effect);
-    let index = out
-        .effect_positions
-        .get(&key)
-        .copied()
-        .unwrap_or(out.effects.len());
-    // Inner rounds must suppress their own iteration duplicates before an
-    // enclosing round counts this as one of its calls.
-    for round in out.recursive_occurrences.iter_mut().rev() {
-        let occurrence = (
-            index,
-            effect.source_file.clone(),
-            effect.path.clone(),
-            effect.assurance,
-            effect.via_dispatch.clone(),
-        );
-        let count = round.current.entry(occurrence.clone()).or_default();
-        *count += 1;
-        if *count <= round.previous.get(&occurrence).copied().unwrap_or_default() {
-            return true;
-        }
-    }
-    if index == out.effects.len() && !budget::reserve_new_effect(out, &effect.path) {
-        return false;
-    }
-    let condition = effect.effect.condition.clone();
-    if index == out.effects.len() {
-        effect.effect.condition = condition
-            .as_ref()
-            .map(|_| effinterp_proto::Condition::Widened);
-        effect.effect.id = key.clone();
-        out.effect_positions.insert(key, index);
-        out.effects.push(ComposedEffect {
-            effect: effect.effect,
-            occurrences: 0,
-            unconditional_occurrences: 0,
-        });
-    }
-    if condition.is_none() {
-        out.effects[index].unconditional_occurrences += 1;
-        out.effects[index].effect.condition = None;
-    }
-    out.effects[index].occurrences = out.effects[index].occurrences.saturating_add(1);
-    out.occurrences += 1;
-    if out.occurrence_effects.len() < out.budget.limits.max_composed_occurrences {
-        out.occurrence_effects.push(ComposedOccurrence {
-            effect: index,
-            condition,
-            source_file: effect.source_file,
-            path: effect.path,
-            assurance: effect.assurance,
-            via_dispatch: effect.via_dispatch,
-        });
-    } else {
-        budget::report_limit(out, &effect.path, "repository.max_composed_occurrences");
-    }
-    true
-}
-
-/// Push an effect and report the occurrence slot it landed in, if it produced
-/// a new occurrence. The boolean keeps `push_composed_effect`'s meaning: false
-/// means the traversal budget is exhausted and the caller must stop.
-fn push_composed_effect_slot(
-    out: &mut Composition,
-    effect: EffectOccurrence,
-) -> (bool, Option<usize>) {
-    let before = out.occurrence_effects.len();
-    let retained = push_composed_effect(out, effect);
-    let slot = (out.occurrence_effects.len() > before).then(|| out.occurrence_effects.len() - 1);
-    (retained, slot)
-}
-
-/// Record one source-to-destination pairing over composed occurrence slots.
-/// Bindings are bounded by the same ceiling as occurrence rows, so a
-/// saturated walk keeps its endpoint effects and simply carries no pairing.
-fn push_composed_transfer(out: &mut Composition, binding: TransferBinding) {
-    let slots = out.occurrence_effects.len() as u32;
-    if binding.source >= slots || binding.destination >= slots {
-        return;
-    }
-    if binding.source == binding.destination {
-        return;
-    }
-    if out.transfers.len() >= out.budget.limits.max_composed_occurrences {
-        return;
-    }
-    if !out.transfers.contains(&binding) {
-        out.transfers.push(binding);
-    }
-}
-
-/// Replay a summary's own transfer pairings against the composed occurrence
-/// slots its effects landed in. A binding whose endpoint effect was not
-/// composed (a template skipped, a budget reached) contributes nothing rather
-/// than a pairing pointing at an unrelated occurrence.
-fn replay_summary_transfers(
-    out: &mut Composition,
-    transfers: &[TransferBinding],
-    slots: &[Option<usize>],
-) {
-    for binding in transfers {
-        let Some(Some(source)) = slots.get(binding.source as usize).copied() else {
-            continue;
-        };
-        let Some(Some(destination)) = slots.get(binding.destination as usize).copied() else {
-            continue;
-        };
-        push_composed_transfer(out, TransferBinding::new(source as u32, destination as u32));
-    }
-}
-
-fn rebuild_effect_positions(out: &mut Composition) {
-    out.effect_positions = out
-        .effects
-        .iter()
-        .enumerate()
-        .map(|(index, effect)| (composed_effect_id(&effect.effect), index))
-        .collect();
-}
-
-fn remove_composed_occurrence(out: &mut Composition, slot: usize) {
-    out.memo.clear();
-    let occurrence = out.occurrence_effects.remove(slot);
-    let index = occurrence.effect;
-    out.effects[index].occurrences -= 1;
-    if occurrence.condition.is_none() {
-        out.effects[index].unconditional_occurrences -= 1;
-        if out.effects[index].unconditional_occurrences == 0 {
-            out.effects[index].effect.condition = Some(effinterp_proto::Condition::Widened);
-        }
-    }
-    out.occurrences -= 1;
-    let removed_identity = out.effects[index].occurrences == 0;
-    if removed_identity {
-        out.effects.remove(index);
-        for occurrence in &mut out.occurrence_effects {
-            if occurrence.effect > index {
-                occurrence.effect -= 1;
-            }
-        }
-    }
-    for round in &mut out.recursive_occurrences {
-        for counts in [&mut round.previous, &mut round.current] {
-            if let Some(count) = counts.get_mut(&(
-                index,
-                occurrence.source_file.clone(),
-                occurrence.path.clone(),
-                occurrence.assurance,
-                occurrence.via_dispatch.clone(),
-            )) {
-                *count = count.saturating_sub(1);
-            }
-            if removed_identity {
-                *counts = std::mem::take(counts)
-                    .into_iter()
-                    .filter_map(
-                        |((effect, source_file, path, assurance, via_dispatch), count)| {
-                            (effect != index).then(|| {
-                                (
-                                    (
-                                        effect - usize::from(effect > index),
-                                        source_file,
-                                        path,
-                                        assurance,
-                                        via_dispatch,
-                                    ),
-                                    count,
-                                )
-                            })
-                        },
-                    )
-                    .collect();
-            }
-        }
-    }
-    // Remove pairings with the replaced occurrence and rebase retained slots.
-    let slot = slot as u32;
-    out.transfers
-        .retain(|binding| binding.source != slot && binding.destination != slot);
-    for binding in &mut out.transfers {
-        binding.source -= u32::from(binding.source > slot);
-        binding.destination -= u32::from(binding.destination > slot);
-    }
-    rebuild_effect_positions(out);
-}
-
-fn finalize(out: &mut Composition) {
-    out.resolved_decorators.sort();
-    out.resolved_decorators.dedup();
-    out.boundaries.retain(|boundary| {
-        boundary.reason != BoundaryReason::UNRESOLVED_DECORATOR
-            || !out.resolved_decorators.iter().any(|resolved| {
-                boundary.source_file.as_deref().is_some_and(|source_file| {
-                    resolved.matches_boundary(
-                        source_file,
-                        boundary.callee.as_ref(),
-                        Some(&boundary.detail),
-                    )
-                })
-            })
-    });
-    out.resolved_calls.sort_by(|left, right| {
-        (&left.source_file, &left.callee).cmp(&(&right.source_file, &right.callee))
-    });
-    out.resolved_calls.dedup();
-    out.resolved_calls
-        .retain(|resolved| !out.unresolved_calls.contains(resolved));
-    out.unresolved_calls = Vec::new();
-    out.boundaries.retain(|boundary| {
-        (boundary.reason != BoundaryReason::UNRESOLVED_CALL
-            && boundary.reason != BoundaryReason::UNMODELED_IMPORT)
-            || !boundary
-                .source_file
-                .as_ref()
-                .zip(boundary.callee.as_ref())
-                .is_some_and(|(source_file, callee)| {
-                    out.resolved_calls
-                        .binary_search_by(|resolved| {
-                            (&resolved.source_file, &resolved.callee).cmp(&(source_file, callee))
-                        })
-                        .is_ok()
-                })
-    });
-    out.boundary_keys = out
-        .boundaries
-        .iter()
-        .enumerate()
-        .map(|(index, boundary)| (boundary_key(boundary), index))
-        .collect();
-    let mut boundary_evidence: HashSet<(Vec<String>, String)> = out
-        .boundaries
-        .iter()
-        .flat_map(|boundary| {
-            out.boundary_paths
-                .get(&boundary_key(boundary))
-                .into_iter()
-                .flatten()
-                .flat_map(|path| {
-                    boundary
-                        .domains
-                        .iter()
-                        .map(move |domain| (path.clone(), domain.clone()))
-                })
-        })
-        .collect();
-    let domains: BTreeSet<_> = out
-        .coverage
-        .iter()
-        .map(|(domain, _)| domain.clone())
-        .collect();
-    for (path, claims) in std::mem::take(&mut out.coverage_segments) {
-        for (domain, level) in &claims {
-            if *level != CoverageLevel::Full
-                && !boundary_evidence.contains(&(path.clone(), domain.clone()))
-            {
-                boundary_evidence.insert((path.clone(), domain.clone()));
-                push_composed_boundary(
-                    out,
-                    BoundaryOccurrence {
-                        class: effinterp_proto::BoundaryClass::Unmodeled,
-                        reason: BoundaryReason::FRONTEND_PARTIAL,
-                        detail: "contributing function coverage remains incomplete".to_string(),
-                        source_file: None,
-                        callee: None,
-                        domains: vec![domain.clone()],
-                        affected_resource: None,
-                        limit: None,
-                        path: path.clone(),
-                        via_dispatch: None,
-                    },
-                );
-            }
-        }
-        let missing: Vec<_> = domains
-            .iter()
-            .filter(|domain| !claims.iter().any(|(claimed, _)| claimed == *domain))
-            .cloned()
-            .collect();
-        if !missing.is_empty() {
-            push_composed_boundary(
-                out,
-                BoundaryOccurrence {
-                    class: effinterp_proto::BoundaryClass::Unmodeled,
-                    reason: BoundaryReason::FRONTEND_PARTIAL,
-                    detail: "contributing function summary makes no claim in these domains"
-                        .to_string(),
-                    source_file: None,
-                    callee: None,
-                    domains: missing.clone(),
-                    affected_resource: None,
-                    limit: None,
-                    path,
-                    via_dispatch: None,
-                },
-            );
-            for domain in missing {
-                push_coverage(out, (domain, CoverageLevel::Partial));
-            }
-        }
-    }
-    out.deps.sort();
-    out.deps.dedup();
-    out.memo = HashMap::new();
-    out.effect_positions = HashMap::new();
-    out.boundary_keys = HashMap::new();
-    out.boundary_paths = HashMap::new();
-    out.dep_keys = HashSet::new();
-    out.executed = HashSet::new();
-    out.lifecycle = LifecycleState::default();
-    out.walk_via_dispatch = None;
-}
-
-/// Execute imported modules' top-level call edges (Python import semantics),
-/// including `from pkg import name` when `pkg.name` is itself a submodule.
-fn execute_imports(
-    registry: &Registry,
-    importer: &ModuleFile,
-    path: &[String],
-    stack: &mut Vec<(String, String)>,
-    out: &mut Composition,
-) {
-    if registry.defers_python_registrations(&importer.path) {
-        push_composed_boundary(
-            out,
-            BoundaryOccurrence {
-                class: effinterp_proto::BoundaryClass::Unmodeled,
-                reason: BoundaryReason::DYNAMIC_REGISTRATION,
-                detail: format!(
-                    "{} omits expansion of a large registration-only re-export set",
-                    importer.path
-                ),
-                source_file: None,
-                callee: None,
-                domains: all_domains(),
-                affected_resource: None,
-                limit: None,
-                path: path.to_vec(),
-                via_dispatch: out.walk_via_dispatch.clone(),
-            },
-        );
-        return;
-    }
-    // Direct imports first (so playbook.py reaches constants.py before
-    // descending into ansible.cli's import tree and hitting the budget).
-    let mut next_files: Vec<&ModuleFile> = Vec::new();
-    for binding in &importer.summary.imports {
-        match registry.resolve_import(importer, binding) {
-            Some(target) => {
-                out.resolved_calls.push(ResolvedCall {
-                    source_file: importer.path.clone(),
-                    callee: CalleeReference {
-                        module: binding.module.clone(),
-                        symbol: "__module_init__".to_string(),
-                    },
-                });
-                push_unseen(&mut next_files, &mut out.executed, target);
-            }
-            None => {
-                let linker = registry.linker(importer.lang);
-                let ruby_diagnostic = registry.ruby_import_diagnostic(importer, &binding.module);
-                let classification = if ruby_diagnostic.is_some() {
-                    None
-                } else {
-                    linker.classify_import(registry, importer, &binding.module)
-                };
-                // A repository boundary replaces the raw import boundary even
-                // when the target remains unknown; it does not prove execution.
-                if classification.is_some()
-                    || ruby_diagnostic.is_some()
-                    || linker.unknown_import_is_boundary()
-                {
-                    out.resolved_calls.push(ResolvedCall {
-                        source_file: importer.path.clone(),
-                        callee: CalleeReference {
-                            module: binding.module.clone(),
-                            symbol: "__module_init__".into(),
-                        },
-                    });
-                }
-                let (reason, detail, domains) = match classification {
-                    Some(ExternalCall::Modeled | ExternalCall::Inert) => {
-                        (None, String::new(), Vec::new())
-                    }
-                    // A recognized library clouds only the domains it can
-                    // reach; an unrecognized import could be anything.
-                    Some(ExternalCall::Unmodeled(domains)) => (
-                        Some((
-                            effinterp_proto::BoundaryClass::Unmodeled,
-                            BoundaryReason::EXTERNAL_UNMODELED,
-                        )),
-                        linker.external_import_label(registry, importer, &binding.module),
-                        owned_domains(domains),
-                    ),
-                    None if linker.unknown_import_is_boundary() => (
-                        Some((
-                            effinterp_proto::BoundaryClass::Unresolved,
-                            BoundaryReason::CROSS_MODULE,
-                        )),
-                        ruby_diagnostic.unwrap_or_else(|| {
-                            format!("import {:?} is not an analyzed repo file", binding.module)
-                        }),
-                        all_domains(),
-                    ),
-                    None => (None, String::new(), Vec::new()),
-                };
-                if let Some((class, reason)) = reason {
-                    push_composed_boundary(
-                        out,
-                        BoundaryOccurrence {
-                            class,
-                            reason,
-                            detail,
-                            source_file: Some(importer.path.clone()),
-                            callee: Some(CalleeReference {
-                                module: binding.module.clone(),
-                                symbol: "__module_init__".into(),
-                            }),
-                            domains,
-                            affected_resource: None,
-                            limit: None,
-                            path: path.to_vec(),
-                            via_dispatch: out.walk_via_dispatch.clone(),
-                        },
-                    );
-                }
-            }
-        }
-        if let Some(imported) = &binding.imported {
-            let sub = ImportBinding {
-                local: imported.clone(),
-                module: join_module(&binding.module, imported),
-                imported: None,
-            };
-            if let Some(target) = registry.resolve_import(importer, &sub) {
-                push_unseen(&mut next_files, &mut out.executed, target);
-            }
-        }
-    }
-    for file in &next_files {
-        run_module_toplevel(registry, file, path, stack, out);
-    }
-    for file in next_files {
-        let mut next = path.to_vec();
-        next.push(file.path.clone());
-        execute_imports(registry, file, &next, stack, out);
-    }
-}
-
-/// Run a module's top level (import-time calls and direct effects) once the
-/// module has been marked executed. Used both for eager imports and for a
-/// scoped import that first becomes live when a resolved call enters the file.
-fn run_module_toplevel(
-    registry: &Registry,
-    file: &ModuleFile,
-    path: &[String],
-    stack: &mut Vec<(String, String)>,
-    out: &mut Composition,
-) {
-    push_dependency(out, file.path.clone());
-    let mut next = path.to_vec();
-    next.push(file.path.clone());
-    let no_callbacks = HashMap::new();
-    let mut env = Env::default();
-    // Import-time execution is its own path, whatever call imported it.
-    let required = std::mem::replace(&mut out.required, false);
-    for edge in &file.summary.module_calls {
-        // A top-level call to a function defined in the imported file
-        // itself: unlike the entrypoint (whose plan inlines its own local
-        // calls), no plan covers an imported file, so enter the function
-        // here or its effects would be lost. An import binding of the same
-        // name still wins, matching resolve_callee.
-        if !edge.callee.contains('.')
-            && edge.receiver.is_none()
-            && find_import(&file.summary, &edge.callee).is_none()
-            && file.function(&edge.callee).is_some()
-        {
-            Walk::run(registry, file, out, (&next, stack, &mut env), |walk| {
-                enter_function(
-                    walk,
-                    file,
-                    file,
-                    &edge.callee,
-                    edge,
-                    Dispatch::default(),
-                    false,
-                )
-            });
-            continue;
-        }
-        Walk::run(registry, file, out, (&next, stack, &mut env), |walk| {
-            follow(walk, file, edge, &no_callbacks)
-        });
-    }
-    // The imported module's own top-level DIRECT effects (an
-    // `os.environ.get(...)` at module scope, a class-body read) run at
-    // import time; no plan covers an imported file, so surface them and
-    // their unresolved boundaries here.
-    push_module_effects(file, &next, out);
-    out.required = required;
-}
-
-/// Import a module that a resolved call just entered: its top level runs once,
-/// then its own imports, matching `import mod; mod.fn()` / a scoped
-/// `from mod import fn; fn()`.
-fn ensure_module_executed(
-    registry: &Registry,
-    file: &ModuleFile,
-    path: &[String],
-    stack: &mut Vec<(String, String)>,
-    out: &mut Composition,
-) {
-    if !out.executed.insert(file.path.clone()) {
-        return;
-    }
-    run_module_toplevel(registry, file, path, stack, out);
-    let mut next = path.to_vec();
-    next.push(file.path.clone());
-    execute_imports(registry, file, &next, stack, out);
-}
-
-fn push_unseen<'a>(
-    out: &mut Vec<&'a ModuleFile>,
-    seen: &mut HashSet<String>,
-    file: &'a ModuleFile,
-) {
-    if seen.insert(file.path.clone()) {
-        out.push(file);
-    }
-}
-
-fn push_unseen_file<'a>(out: &mut Vec<&'a ModuleFile>, file: &'a ModuleFile) {
-    if !out.iter().any(|existing| existing.path == file.path) {
-        out.push(file);
-    }
-}
-
-fn join_module(module: &str, imported: &str) -> String {
-    if module.chars().all(|c| c == '.') {
-        format!("{module}{imported}")
-    } else {
-        format!("{module}.{imported}")
-    }
-}
-
-/// The local functions reachable from the module's execution roots, by walking
-/// the local call graph. Execution begins at the module's top-level calls
-/// (`module_calls` plus its own main-guard calls; for compiled languages
-/// `module_calls` are `main`'s direct calls);
-/// each local call into another defined function extends the reachable set.
-/// Cross-file edges of these functions are the ones the execution surface may
-/// follow; a function no execution path reaches is excluded.
-///
-fn execution_reachable(entry: &ModuleFile) -> HashSet<String> {
-    let roots: Vec<&CallEdge> = entry
-        .summary
-        .module_calls
-        .iter()
-        .chain(&entry.summary.main_calls)
-        .collect();
-    let mut reachable = HashSet::new();
-    let mut work: Vec<String> = roots
-        .iter()
-        .filter_map(|e| local_callee(entry, &e.callee))
-        .collect();
-    while let Some(name) = work.pop() {
-        if !reachable.insert(name.clone()) {
-            continue;
-        }
-        if let Some(func) = entry.function(&name) {
-            // Gated bodies and their descendants are walked at actual call sites
-            // through enter_function_inner, after proving every decorator.
-            if !func.decorator_gate.is_empty() {
-                reachable.remove(&name);
-                continue;
-            }
-            for edge in &func.calls {
-                if let Some(local) = local_callee(entry, &edge.callee) {
-                    work.push(local);
-                }
-            }
-        }
-    }
-    reachable
-}
-
-/// The name of the local function a call edge targets, if it is a bare call to
-/// a function defined in this module (not a `member` access, not an imported
-/// binding). Matches how the frontends record intra-file call edges.
-fn local_callee(entry: &ModuleFile, callee: &str) -> Option<String> {
-    if callee.contains('.') {
-        return None;
-    }
-    entry.function(callee).map(|_| callee.to_string())
-}
-
 /// Compose from an explicit set of root call edges evaluated in `entry` — the
 /// composition primitive, used directly in tests with a hand-built registry.
 #[cfg(test)]
 pub fn compose_roots(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     entry: &ModuleFile,
     root_label: &str,
     roots: &[CallEdge],
@@ -2063,9 +1198,9 @@ pub fn compose_roots(
     let mut out = Composition::default();
     let mut stack: Vec<(String, String)> = Vec::new();
     let no_callbacks = HashMap::new();
-    let mut env = Env::default();
+    let mut env = InstanceEnv::default();
     for edge in roots {
-        Walk::run(
+        CompositionWalk::run(
             registry,
             entry,
             &mut out,
@@ -2115,7 +1250,12 @@ fn bind_call_condition(
     (prior_condition, prior_instance)
 }
 
-fn follow(walk: &mut Walk<'_>, importer: &ModuleFile, edge: &CallEdge, callbacks: &Callbacks) {
+fn follow(
+    walk: &mut CompositionWalk<'_>,
+    importer: &ModuleFile,
+    edge: &CallEdge,
+    callbacks: &Callbacks,
+) {
     if !charge_compose_step(walk.out, &walk.path) {
         return;
     }
@@ -2164,7 +1304,7 @@ fn substitute_edge_values(
 fn bind_declared_result_values(
     linker: &dyn crate::linker::Linker,
     edge: &CallEdge,
-    env: &mut Env,
+    env: &mut InstanceEnv,
     value_limits: effinterp_engine::ValueLimits,
 ) {
     for result in &edge.results {
@@ -2187,7 +1327,7 @@ fn bind_declared_result_values(
 }
 
 fn follow_inner(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     importer: &ModuleFile,
     edge: &CallEdge,
     callbacks: &Callbacks,
@@ -2289,7 +1429,7 @@ fn follow_inner(
                     importer,
                     (target, &function),
                     edge,
-                    Dispatch::default(),
+                    ReceiverContext::default(),
                     assurance,
                     false,
                 );
@@ -2317,7 +1457,7 @@ fn follow_inner(
                         target,
                         function,
                         edge,
-                        Dispatch::default(),
+                        ReceiverContext::default(),
                         false,
                     );
                 }
@@ -2397,7 +1537,7 @@ fn follow_inner(
                         importer,
                         (target, &function),
                         edge,
-                        Dispatch {
+                        ReceiverContext {
                             receiver: Some(receiver.clone()),
                             self_attrs: HashMap::new(),
                         },
@@ -2443,7 +1583,7 @@ fn follow_inner(
                     importer,
                     (target, &function),
                     edge,
-                    Dispatch::default(),
+                    ReceiverContext::default(),
                     assurance,
                     false,
                 );
@@ -2488,7 +1628,7 @@ fn follow_inner(
                 importer,
                 &edge.callee,
                 edge,
-                Dispatch::default(),
+                ReceiverContext::default(),
                 inline_only,
             );
             if let Some(value) = resolve_exact_class(walk.registry, importer, &edge.callee) {
@@ -2612,235 +1752,6 @@ fn alternatives<T>(out: &mut Composition, targets: &[T]) -> bool {
     required
 }
 
-/// Which retained control-flow graph of a file owns an occurrence.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum ControlOwner {
-    Module,
-    Main,
-    Function(String),
-}
-
-/// Import chains deeper than this are not followed to discharge an import.
-const MAX_DISCHARGE_DEPTH: usize = 8;
-
-/// What a file's retained graph guarantees in this repository: an unresolved
-/// import exit is discharged when the module it names resolves to a repo file
-/// whose own top level always completes normally.
-fn control_requirements(
-    registry: &Registry,
-    file: &ModuleFile,
-    owner: &ControlOwner,
-    out: &mut Composition,
-    path: &[String],
-) -> Requirements {
-    evaluate_control(registry, file, owner, out, path, &mut Vec::new())
-}
-
-fn evaluate_control(
-    registry: &Registry,
-    file: &ModuleFile,
-    owner: &ControlOwner,
-    out: &mut Composition,
-    path: &[String],
-    evaluating: &mut Vec<(String, ControlOwner)>,
-) -> Requirements {
-    let key = (file.path.clone(), owner.clone());
-    if evaluating.contains(&key) || evaluating.len() >= MAX_DISCHARGE_DEPTH {
-        return Requirements::unknown();
-    }
-    // A result cut short by an import cycle is only more conservative.
-    if let Some(requirements) = out.control_requirements.get(&key) {
-        return requirements.clone();
-    }
-    let flow = match owner {
-        ControlOwner::Module => &file.summary.module_control_flow,
-        ControlOwner::Main => &file.summary.main_control_flow,
-        ControlOwner::Function(name) => match file.function(name) {
-            Some(function) => &function.summary.control_flow,
-            None => return Requirements::unknown(),
-        },
-    };
-    if !charge_compose_step(out, path) {
-        return Requirements::unknown();
-    }
-    let mut discharged = BTreeSet::new();
-    let mut calls = BTreeMap::new();
-    evaluating.push(key.clone());
-    {
-        for module in flow.imports() {
-            let Some(target) = file
-                .summary
-                .imports
-                .iter()
-                .chain(&file.summary.scoped_imports)
-                .filter(|binding| binding.module == module)
-                .find_map(|binding| registry.resolve_import(file, binding))
-            else {
-                continue;
-            };
-            let imported = evaluate_control(
-                registry,
-                target,
-                &ControlOwner::Module,
-                out,
-                path,
-                evaluating,
-            );
-            if imported.succeeds && !imported.may_exit {
-                discharged.insert(module.to_string());
-            }
-        }
-    }
-    let edges = match owner {
-        ControlOwner::Module => &file.summary.module_calls,
-        ControlOwner::Main => &file.summary.main_calls,
-        ControlOwner::Function(name) => &file.function(name).unwrap().calls,
-    };
-    for slot in flow.unresolved_calls().collect::<BTreeSet<_>>() {
-        if !charge_compose_step(out, path) {
-            break;
-        }
-        let Some(edge) = edges.get(slot as usize) else {
-            continue;
-        };
-        if edge.dynamic_target {
-            continue;
-        }
-        let targets = if edge.receiver.is_some() {
-            let Some(targets) = module_receiver_targets(registry, file, edge) else {
-                continue;
-            };
-            targets
-        } else {
-            match registry
-                .linker(file.lang)
-                .resolve_callee(registry, file, &edge.callee)
-            {
-                Resolution::Local => vec![(file, edge.callee.clone(), Assurance::Exact)],
-                Resolution::Targets(targets)
-                    if !targets.is_empty()
-                        && targets
-                            .iter()
-                            .all(|(_, _, assurance)| *assurance == Assurance::Exact) =>
-                {
-                    targets
-                }
-                _ => continue,
-            }
-        };
-        let mut succeeds = false;
-        let mut returns = false;
-        let mut may_exit = false;
-        let mut throws = false;
-        let mut escaping = effinterp_engine::Exn::Unknown;
-        let mut escaping_set = false;
-        for (target, name, _) in targets {
-            let Some(function) = target.function(&name) else {
-                may_exit = true;
-                throws = true;
-                succeeds = true;
-                returns = true;
-                escaping = effinterp_engine::Exn::Unknown;
-                escaping_set = true;
-                continue;
-            };
-            if !function.decorator_gate.is_empty() || (function.is_async && !edge.awaited) {
-                may_exit = true;
-                throws = true;
-                succeeds = true;
-                returns = true;
-                escaping = effinterp_engine::Exn::Unknown;
-                escaping_set = true;
-                continue;
-            }
-            let callee = evaluate_control(
-                registry,
-                target,
-                &ControlOwner::Function(name),
-                out,
-                path,
-                evaluating,
-            );
-            succeeds |= callee.succeeds;
-            returns |= callee.succeeds || callee.may_return || callee.fails;
-            may_exit |= callee.may_exit;
-            if callee.throws {
-                if throws && escaping_set {
-                    escaping = escaping.join(callee.escaping);
-                } else {
-                    escaping = callee.escaping;
-                    escaping_set = true;
-                }
-            }
-            throws |= callee.throws;
-        }
-        calls.insert(
-            slot,
-            effinterp_engine::CallContract {
-                returns,
-                succeeds,
-                may_exit,
-                throws,
-                escaping: if throws {
-                    escaping
-                } else {
-                    effinterp_engine::Exn::Unknown
-                },
-            },
-        );
-    }
-    evaluating.pop();
-    let requirements = evaluate_flow(flow, &discharged, &calls, file, out, path);
-    out.control_requirements.insert(key, requirements.clone());
-    requirements
-}
-
-fn evaluate_flow(
-    flow: &effinterp_engine::ControlFlow,
-    discharged: &BTreeSet<String>,
-    calls: &BTreeMap<u32, effinterp_engine::CallContract>,
-    file: &ModuleFile,
-    out: &mut Composition,
-    path: &[String],
-) -> Requirements {
-    // Necessity refines causal cardinality, so its fixpoint shares the causal
-    // pair bound rather than the traversal budget effects need.
-    let cap = effinterp_engine::AnalysisLimits::default().max_causal_pairs;
-    let mut work = 0u64;
-    let mut refused = false;
-    let requirements = flow.requirements(
-        &mut |module| discharged.contains(module),
-        &mut |slot| calls.get(&slot).cloned(),
-        &mut |steps, _| {
-            if steps > cap - work {
-                refused = true;
-                return false;
-            }
-            work += steps;
-            true
-        },
-    );
-    if refused {
-        push_composed_boundary(
-            out,
-            BoundaryOccurrence {
-                class: effinterp_proto::BoundaryClass::Limit,
-                reason: BoundaryReason::LIMIT_SATURATED,
-                detail: "required-on-success reachability widened".to_string(),
-                source_file: Some(file.path.clone()),
-                callee: None,
-                domains: vec!["dataflow".to_string()],
-                affected_resource: None,
-                limit: Some("max_causal_pairs".to_string()),
-                path: path.to_vec(),
-                via_dispatch: out.walk_via_dispatch.clone(),
-            },
-        );
-        push_coverage(out, ("dataflow".to_string(), CoverageLevel::Partial));
-    }
-    requirements
-}
-
 fn dispatch_is_exhaustive(targets: &[(&ModuleFile, String, Assurance)]) -> bool {
     !targets.is_empty()
         && targets
@@ -2849,7 +1760,7 @@ fn dispatch_is_exhaustive(targets: &[(&ModuleFile, String, Assurance)]) -> bool 
 }
 
 fn record_resolved_call(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     edge: &CallEdge,
     out: &mut Composition,
@@ -2863,7 +1774,7 @@ fn record_resolved_call(
 }
 
 fn record_resolved_dispatch_call(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     edge: &CallEdge,
     instance: &ResolvedObject,
@@ -2890,7 +1801,7 @@ fn record_resolved_dispatch_call(
 }
 
 fn record_unresolved_call(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     edge: &CallEdge,
     out: &mut Composition,
@@ -2904,7 +1815,7 @@ fn record_unresolved_call(
 }
 
 fn bind_external_necessity(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     importer: &ModuleFile,
     edge: &CallEdge,
     effect: &mut Effect,
@@ -2949,7 +1860,7 @@ fn bind_external_necessity(
 }
 
 fn apply_external_resolution(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     importer: &ModuleFile,
     edge: &CallEdge,
     module: &str,
@@ -3123,7 +2034,7 @@ fn apply_external_resolution(
 /// Only a single structurally resolved constant receiver preserves the
 /// caller's necessity; runtime-selected receivers remain optional.
 fn follow_dispatch(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     importer: &ModuleFile,
     edge: &CallEdge,
     receiver: &SemanticValue,
@@ -3143,7 +2054,7 @@ fn follow_dispatch(
 }
 
 fn module_receiver_targets<'a>(
-    registry: &'a Registry,
+    registry: &'a ModuleRegistry,
     file: &'a ModuleFile,
     edge: &CallEdge,
 ) -> Option<Vec<(&'a ModuleFile, String, Assurance)>> {
@@ -3177,7 +2088,7 @@ fn module_receiver_targets<'a>(
 }
 
 fn follow_receiver_dispatch(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     importer: &ModuleFile,
     edge: &CallEdge,
     receiver: &SemanticValue,
@@ -3437,7 +2348,7 @@ fn follow_receiver_dispatch(
 }
 
 fn enter_dispatch_targets(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     importer: &ModuleFile,
     edge: &CallEdge,
     receiver_value: &SemanticValue,
@@ -3505,7 +2416,7 @@ fn enter_dispatch_targets(
             importer,
             (target, &function),
             edge,
-            Dispatch {
+            ReceiverContext {
                 receiver: Some(receiver),
                 self_attrs: self_attrs.clone(),
             },
@@ -3530,7 +2441,7 @@ fn find_import<'a>(
 }
 
 fn frontend_call_reference(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     edge: &CallEdge,
 ) -> Option<ResolvedCall> {

@@ -1,19 +1,20 @@
 //! Installs and removes nah's shared Antigravity PreToolUse hook.
 
-use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
-use super::hook_paths::reject_hook_path_symlink;
+use super::hook_paths::{
+    HookFileWriteErrorCodes, HookJsonReadErrorCodes, HookLockErrorCodes,
+    acquire_hook_lock_in_unlinked_directory, read_hook_json_object, reject_hook_path_symlink,
+    write_hook_json_atomically,
+};
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 const HOOK_NAME: &str = "nah";
 const HOOK_MATCHER: &str = "run_command|view_file|write_to_file|replace_file_content|multi_replace_file_content|list_dir|find_by_name|grep_search";
@@ -27,9 +28,9 @@ pub(crate) fn mutate_antigravity_hook(
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_hook(&home, &executable, policy)
+            install_antigravity_hook(&home, &executable, policy)
         } else {
-            uninstall_hook(&home)
+            uninstall_antigravity_hook(&home)
         }
     })?;
     Ok(RuntimeMutation::new(
@@ -45,17 +46,17 @@ pub(crate) fn antigravity_hook_status() -> Result<RuntimeHookStatus, String> {
     let home = live_state::home(platform)?;
     let paths = AntigravityHookPaths::new(&home);
     reject_hook_symlinks(&paths)?;
-    let config = load(&paths.hooks)?;
+    let config = load_antigravity_hooks(&paths.hooks)?;
     let Some(configured) = config.get(HOOK_NAME) else {
         return Ok(RuntimeHookStatus::NotConfigured);
     };
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    if configured == &desired_hook(&executable, FailurePolicy::Delegate)? {
+    if configured == &desired_antigravity_hook(&executable, FailurePolicy::Delegate)? {
         Ok(RuntimeHookStatus::WiringCurrent)
-    } else if configured == &desired_hook(&executable, FailurePolicy::Block)? {
+    } else if configured == &desired_antigravity_hook(&executable, FailurePolicy::Block)? {
         Ok(RuntimeHookStatus::WiringCurrentFailClosed)
-    } else if is_owned(configured) {
+    } else if is_owned_antigravity_hook(configured) {
         Ok(RuntimeHookStatus::stale(if is_fail_closed(configured) {
             FailurePolicy::Block
         } else {
@@ -72,46 +73,46 @@ pub(crate) fn antigravity_self_protection_paths() -> Result<Vec<PathBuf>, String
     Ok(vec![AntigravityHookPaths::new(&home).hooks])
 }
 
-fn install_hook(
+fn install_antigravity_hook(
     home: &AbsolutePath,
     executable: &Path,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = AntigravityHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &ANTIGRAVITY_HOOK_LOCK_ERRORS)?;
     reject_hook_symlinks(&paths)?;
-    let mut config = load(&paths.hooks)?;
-    let desired = desired_hook(executable, policy)?;
+    let mut config = load_antigravity_hooks(&paths.hooks)?;
+    let desired = desired_antigravity_hook(executable, policy)?;
     let root = config
         .as_object_mut()
         .ok_or_else(|| "invalid-antigravity-hooks".to_owned())?;
     match root.get(HOOK_NAME) {
         Some(configured) if configured == &desired => {}
-        Some(configured) if !is_owned(configured) => {
+        Some(configured) if !is_owned_antigravity_hook(configured) => {
             return Err("antigravity-hook-name-conflict".into());
         }
         _ => {
             root.insert(HOOK_NAME.into(), desired);
-            save(&paths.hooks, &config)?;
+            save_antigravity_hooks(&paths.hooks, &config)?;
         }
     }
     drop(lock);
     Ok(paths.hooks)
 }
 
-fn uninstall_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_antigravity_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = AntigravityHookPaths::new(home);
-    let lock = lock(&paths)?;
+    let lock = acquire_hook_lock_in_unlinked_directory(&paths.lock, &ANTIGRAVITY_HOOK_LOCK_ERRORS)?;
     reject_hook_symlinks(&paths)?;
     if paths.hooks.exists() {
-        let mut config = load(&paths.hooks)?;
+        let mut config = load_antigravity_hooks(&paths.hooks)?;
         let root = config
             .as_object_mut()
             .ok_or_else(|| "invalid-antigravity-hooks".to_owned())?;
         match root.get(HOOK_NAME) {
-            Some(configured) if is_owned(configured) => {
+            Some(configured) if is_owned_antigravity_hook(configured) => {
                 root.remove(HOOK_NAME);
-                save(&paths.hooks, &config)?;
+                save_antigravity_hooks(&paths.hooks, &config)?;
             }
             Some(_) => return Err("antigravity-hook-name-conflict".into()),
             None => {}
@@ -140,28 +141,11 @@ impl AntigravityHookPaths {
     }
 }
 
-fn lock(paths: &AntigravityHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-antigravity-hook-lock-path".to_owned())?;
-    reject_hook_path_symlink(parent, "antigravity-hook-lock-failed")?;
-    std::fs::create_dir_all(parent).map_err(|_| "antigravity-hook-lock-failed")?;
-    reject_hook_path_symlink(&paths.lock, "antigravity-hook-lock-failed")?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "antigravity-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "antigravity-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "antigravity-hook-lock-failed")?;
-    Ok(file)
-}
+const ANTIGRAVITY_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-antigravity-hook-lock-path",
+    failed: "antigravity-hook-lock-failed",
+    permissions: "antigravity-hook-permissions-failed",
+};
 
 fn reject_hook_symlinks(paths: &AntigravityHookPaths) -> Result<(), String> {
     for directory in &paths.hook_directories {
@@ -170,24 +154,17 @@ fn reject_hook_symlinks(paths: &AntigravityHookPaths) -> Result<(), String> {
     reject_hook_path_symlink(&paths.hooks, "antigravity-hooks-symlink-unsupported")
 }
 
-fn load(path: &Path) -> Result<Value, String> {
+const ANTIGRAVITY_HOOKS_READ_ERRORS: HookJsonReadErrorCodes = HookJsonReadErrorCodes {
+    read_failed: "antigravity-hooks-read-failed",
+    invalid: "invalid-antigravity-hooks",
+};
+
+fn load_antigravity_hooks(path: &Path) -> Result<Value, String> {
     reject_hook_path_symlink(path, "antigravity-hooks-symlink-unsupported")?;
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Value::Object(Map::new()));
-        }
-        Err(_) => return Err("antigravity-hooks-read-failed".into()),
-    };
-    let value: Value =
-        serde_json::from_reader(file).map_err(|_| "invalid-antigravity-hooks".to_owned())?;
-    if !value.is_object() {
-        return Err("invalid-antigravity-hooks".into());
-    }
-    Ok(value)
+    read_hook_json_object(path, &ANTIGRAVITY_HOOKS_READ_ERRORS)
 }
 
-fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
+fn desired_antigravity_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -216,14 +193,14 @@ fn desired_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, Strin
     }))
 }
 
-fn is_owned(definition: &Value) -> bool {
+fn is_owned_antigravity_hook(definition: &Value) -> bool {
     definition["PreToolUse"]
         .as_array()
         .into_iter()
         .flatten()
         .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
         .filter_map(|handler| handler["command"].as_str())
-        .any(is_owned_command)
+        .any(is_owned_antigravity_command)
 }
 
 fn is_fail_closed(definition: &Value) -> bool {
@@ -233,14 +210,14 @@ fn is_fail_closed(definition: &Value) -> bool {
         .flatten()
         .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
         .filter_map(|handler| handler["command"].as_str())
-        .filter(|command| is_owned_command(command));
+        .filter(|command| is_owned_antigravity_command(command));
     commands
         .next()
         .is_some_and(|command| command.ends_with(" hook antigravity run --fail-closed"))
         && commands.all(|command| command.ends_with(" hook antigravity run --fail-closed"))
 }
 
-fn is_owned_command(command: &str) -> bool {
+fn is_owned_antigravity_command(command: &str) -> bool {
     let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
     let Some(executable) = command.strip_suffix(" hook antigravity run") else {
         return false;
@@ -252,27 +229,14 @@ fn is_owned_command(command: &str) -> bool {
                 && (executable.ends_with("\\nah.exe\"") || executable.ends_with("/nah.exe\""))))
 }
 
-fn save(path: &Path, config: &Value) -> Result<(), String> {
+const ANTIGRAVITY_HOOKS_WRITE_ERRORS: HookFileWriteErrorCodes = HookFileWriteErrorCodes {
+    invalid_path: "invalid-antigravity-hooks-path",
+    write_failed: "antigravity-hooks-write-failed",
+    permissions: "antigravity-hook-permissions-failed",
+    sync_failed: "antigravity-hook-sync-failed",
+};
+
+fn save_antigravity_hooks(path: &Path, config: &Value) -> Result<(), String> {
     reject_hook_path_symlink(path, "antigravity-hooks-symlink-unsupported")?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid-antigravity-hooks-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "antigravity-hooks-write-failed")?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "antigravity-hooks-write-failed")?;
-    restrict_file_to_owner(temporary.as_file())
-        .map_err(|_| "antigravity-hook-permissions-failed".to_owned())?;
-    serde_json::to_writer_pretty(&mut temporary, config)
-        .map_err(|_| "antigravity-hooks-write-failed")?;
-    temporary
-        .write_all(b"\n")
-        .map_err(|_| "antigravity-hooks-write-failed")?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "antigravity-hooks-write-failed")?;
-    temporary
-        .persist(path)
-        .map_err(|_| "antigravity-hooks-write-failed")?;
-    sync_parent_directory(parent).map_err(|_| "antigravity-hook-sync-failed".to_owned())
+    write_hook_json_atomically(path, config, &ANTIGRAVITY_HOOKS_WRITE_ERRORS)
 }

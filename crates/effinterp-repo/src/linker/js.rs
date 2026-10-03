@@ -1,4 +1,14 @@
-use super::*;
+use std::collections::HashSet;
+
+use effinterp_engine::{Assurance, ExternalCall, ObjectIdentity, ResolvedObject};
+use effinterp_proto::{CalleeReference, Effect, ResourceExpr};
+
+use super::{
+    Linker, Resolution, find_import, imported_class_name, imported_function_name, instance, one,
+    resolve_common_method, resolve_export_class, resolve_standard_callee,
+    standard_class_candidates,
+};
+use crate::module::{ModuleFile, ModuleRegistry};
 
 pub(crate) struct JsLinker;
 
@@ -24,7 +34,7 @@ impl PartialEq for JsName<'_> {
 }
 
 fn resolve_js_name<'a>(
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     file: &'a ModuleFile,
     name: &str,
     require_export: bool,
@@ -121,7 +131,7 @@ impl Linker for JsLinker {
     }
     fn import_dispatch_reference(
         &self,
-        registry: &Registry,
+        registry: &ModuleRegistry,
         importer: &ModuleFile,
         edge: &effinterp_engine::CallEdge,
         instance: &ResolvedObject,
@@ -153,7 +163,7 @@ impl Linker for JsLinker {
 
     fn resolve_callee<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         callee: &str,
     ) -> Resolution<'a> {
@@ -220,7 +230,7 @@ impl Linker for JsLinker {
 
     fn class_candidates<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         name: &str,
     ) -> Vec<(ResolvedObject, Assurance)> {
@@ -253,7 +263,7 @@ impl Linker for JsLinker {
 
     fn resolve_method<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         inst: &ResolvedObject,
         method: &str,
     ) -> Resolution<'a> {
@@ -268,7 +278,7 @@ impl Linker for JsLinker {
 
     fn classify_external(
         &self,
-        _reg: &Registry,
+        _reg: &ModuleRegistry,
         module: &str,
         member: &str,
         _arity: Option<usize>,
@@ -282,7 +292,7 @@ impl Linker for JsLinker {
 
     fn classify_import(
         &self,
-        _reg: &Registry,
+        _reg: &ModuleRegistry,
         _file: &ModuleFile,
         _spec: &str,
     ) -> Option<ExternalCall> {
@@ -291,7 +301,7 @@ impl Linker for JsLinker {
 
     fn execution_roots<'a>(
         &self,
-        _reg: &'a Registry,
+        _reg: &'a ModuleRegistry,
         _file: &'a ModuleFile,
     ) -> Vec<(&'a ModuleFile, Option<&'a str>)> {
         Vec::new()

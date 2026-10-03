@@ -9,15 +9,12 @@
 
 use tree_sitter::Node;
 
-use crate::control_flow::{Catch, Exn, Frontier, Graph, Jump, Span, Symbol};
-
-pub(super) fn span(node: Node) -> Span {
-    (node.start_byte() as u32, node.end_byte() as u32)
-}
+use crate::control_flow::{Catch, Exn, Frontier, Graph, Jump, Symbol};
+use crate::lang::tree_sitter_nodes::{named_children, node_span, node_text};
 
 pub(super) fn build(graph: &mut Graph, statements: &[Node], source: &str) {
     graph.enable_exceptions();
-    let mut builder = Builder {
+    let mut builder = PhpControlFlowBuilder {
         at: graph.entry(),
         graph,
         source,
@@ -28,15 +25,10 @@ pub(super) fn build(graph: &mut Graph, statements: &[Node], source: &str) {
     builder.graph.jump(builder.at, Jump::Return);
 }
 
-struct Builder<'g, 's> {
+struct PhpControlFlowBuilder<'g, 's> {
     graph: &'g mut Graph,
     at: Frontier,
     source: &'s str,
-}
-
-fn named_children(node: Node) -> Vec<Node> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor).collect()
 }
 
 fn literal_true(node: Node) -> bool {
@@ -50,9 +42,9 @@ fn literal_true(node: Node) -> bool {
     node.kind() == "boolean" && node.start_byte() + 4 == node.end_byte()
 }
 
-impl Builder<'_, '_> {
+impl PhpControlFlowBuilder<'_, '_> {
     fn site(&mut self, node: Node, opaque: bool) {
-        self.at = self.graph.site(self.at, span(node), opaque);
+        self.at = self.graph.site(self.at, node_span(node), opaque);
     }
 
     fn children(&mut self, node: Node) {
@@ -400,12 +392,6 @@ impl Builder<'_, '_> {
 }
 
 const PHP_EXCEPTIONS: &[&str] = &["Throwable", "Exception", "Error", "ValueError", "TypeError"];
-
-fn node_text<'a>(node: Node, source: &'a str) -> &'a str {
-    let start = node.start_byte();
-    let end = node.end_byte().min(source.len());
-    source.get(start..end).unwrap_or("")
-}
 
 fn simple_name(text: &str) -> &str {
     text.trim().strip_prefix('\\').unwrap_or(text.trim())

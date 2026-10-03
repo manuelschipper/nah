@@ -1,17 +1,18 @@
 //! Installs and removes nah's Amp system plugin.
 
-use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
 
 use crate::{live_state, runtime::FailurePolicy};
 
-use super::hook_paths::reject_hook_path_symlink;
+use super::hook_paths::{
+    HookFileWriteErrorCodes, HookLockErrorCodes, acquire_hook_lock, reject_hook_path_symlink,
+    write_hook_file_atomically,
+};
 use super::runtime::reject_unsupported_windows_runtime;
 use super::{RuntimeHookStatus, RuntimeMutation};
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
+use crate::private_files::sync_parent_directory;
 
 const MARKER: &str = "// Managed by nah.";
 
@@ -25,9 +26,9 @@ pub(crate) fn mutate_amp_hook(
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_plugin(&home, &executable, policy)
+            install_amp_plugin(&home, &executable, policy)
         } else {
-            uninstall_plugin(&home)
+            uninstall_amp_plugin(&home)
         }
     })?;
     Ok(RuntimeMutation::new(
@@ -45,7 +46,7 @@ pub(crate) fn amp_hook_status() -> Result<RuntimeHookStatus, String> {
     }
     let home = live_state::home(platform)?;
     let paths = AmpHookPaths::new(&home);
-    reject_symlinks(&paths)?;
+    reject_amp_hook_symlinks(&paths)?;
     let bytes = match std::fs::read(&paths.plugin) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -53,15 +54,15 @@ pub(crate) fn amp_hook_status() -> Result<RuntimeHookStatus, String> {
         }
         Err(_) => return Err("amp-plugin-read-failed".into()),
     };
-    if !owned(&bytes) {
+    if !is_owned_amp_plugin(&bytes) {
         return Err("amp-plugin-not-owned".into());
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     Ok(
-        if bytes == plugin(&executable, FailurePolicy::Delegate)?.as_bytes() {
+        if bytes == amp_plugin_source(&executable, FailurePolicy::Delegate)?.as_bytes() {
             RuntimeHookStatus::WiringCurrent
-        } else if bytes == plugin(&executable, FailurePolicy::Block)?.as_bytes() {
+        } else if bytes == amp_plugin_source(&executable, FailurePolicy::Block)?.as_bytes() {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
             let strict = bytes
@@ -85,27 +86,29 @@ pub(crate) fn amp_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![AmpHookPaths::new(&home).plugin])
 }
 
-fn install_plugin(
+fn install_amp_plugin(
     home: &AbsolutePath,
     executable: &Path,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = AmpHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &AMP_HOOK_LOCK_ERRORS)?;
+    reject_amp_hook_symlinks(&paths)?;
     let parent = paths
         .plugin
         .parent()
         .ok_or_else(|| "invalid-amp-plugin-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "amp-plugin-write-failed")?;
-    reject_symlinks(&paths)?;
-    let desired = plugin(executable, policy)?;
+    reject_amp_hook_symlinks(&paths)?;
+    let desired = amp_plugin_source(executable, policy)?;
     match std::fs::read(&paths.plugin) {
         Ok(bytes) if bytes == desired.as_bytes() => {}
-        Ok(bytes) if owned(&bytes) => save(&paths.plugin, desired.as_bytes())?,
+        Ok(bytes) if is_owned_amp_plugin(&bytes) => {
+            save_amp_plugin(&paths.plugin, desired.as_bytes())?
+        }
         Ok(_) => return Err("amp-plugin-not-owned".into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            save(&paths.plugin, desired.as_bytes())?;
+            save_amp_plugin(&paths.plugin, desired.as_bytes())?;
         }
         Err(_) => return Err("amp-plugin-read-failed".into()),
     }
@@ -113,12 +116,12 @@ fn install_plugin(
     Ok(paths.plugin)
 }
 
-fn uninstall_plugin(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_amp_plugin(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = AmpHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &AMP_HOOK_LOCK_ERRORS)?;
+    reject_amp_hook_symlinks(&paths)?;
     match std::fs::read(&paths.plugin) {
-        Ok(bytes) if owned(&bytes) => {
+        Ok(bytes) if is_owned_amp_plugin(&bytes) => {
             std::fs::remove_file(&paths.plugin).map_err(|_| "amp-plugin-remove-failed")?;
             if let Some(parent) = paths.plugin.parent() {
                 sync_parent_directory(parent).map_err(|_| "amp-plugin-sync-failed".to_owned())?;
@@ -165,58 +168,32 @@ impl AmpHookPaths {
     }
 }
 
-fn lock(paths: &AmpHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-amp-hook-lock-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "amp-hook-lock-failed")?;
-    reject_hook_path_symlink(&paths.lock, "amp-hook-lock-failed")?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "amp-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "amp-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "amp-hook-lock-failed")?;
-    Ok(file)
-}
+const AMP_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-amp-hook-lock-path",
+    failed: "amp-hook-lock-failed",
+    permissions: "amp-hook-permissions-failed",
+};
 
-fn reject_symlinks(paths: &AmpHookPaths) -> Result<(), String> {
+fn reject_amp_hook_symlinks(paths: &AmpHookPaths) -> Result<(), String> {
     for directory in &paths.checked_directories {
         reject_hook_path_symlink(directory, "amp-plugin-symlink-unsupported")?;
     }
     reject_hook_path_symlink(&paths.plugin, "amp-plugin-symlink-unsupported")
 }
 
-fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
+const AMP_PLUGIN_WRITE_ERRORS: HookFileWriteErrorCodes = HookFileWriteErrorCodes {
+    invalid_path: "invalid-amp-plugin-path",
+    write_failed: "amp-plugin-write-failed",
+    permissions: "amp-plugin-permissions-failed",
+    sync_failed: "amp-plugin-sync-failed",
+};
+
+fn save_amp_plugin(path: &Path, bytes: &[u8]) -> Result<(), String> {
     reject_hook_path_symlink(path, "amp-plugin-symlink-unsupported")?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid-amp-plugin-path".to_owned())?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "amp-plugin-write-failed")?;
-    restrict_file_to_owner(temporary.as_file())
-        .map_err(|_| "amp-plugin-permissions-failed".to_owned())?;
-    temporary
-        .write_all(bytes)
-        .map_err(|_| "amp-plugin-write-failed")?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "amp-plugin-write-failed")?;
-    temporary
-        .persist(path)
-        .map_err(|_| "amp-plugin-write-failed")?;
-    sync_parent_directory(parent).map_err(|_| "amp-plugin-sync-failed".to_owned())
+    write_hook_file_atomically(path, bytes, &AMP_PLUGIN_WRITE_ERRORS)
 }
 
-fn plugin(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
+fn amp_plugin_source(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -343,7 +320,7 @@ export default function nahAmpPlugin(amp: PluginAPI) {{
     ))
 }
 
-fn owned(bytes: &[u8]) -> bool {
+fn is_owned_amp_plugin(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bytes);
     text.starts_with(MARKER) && text.contains(r#"["hook", "amp", "run""#)
 }

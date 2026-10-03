@@ -1,17 +1,18 @@
 //! Installs and removes nah's user-level Claude Code PreToolUse hook.
 
-use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
 
 use super::hook_config;
+use super::hook_paths::{
+    HookFileWriteErrorCodes, HookJsonReadErrorCodes, HookLockErrorCodes, acquire_hook_lock,
+    read_hook_json_object, write_hook_json_atomically,
+};
 use super::{RuntimeHookStatus, RuntimeMutation};
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
 
 /// The tool hook events where Nah 0.x registered its Claude hooks.
 const LEGACY_EVENTS: [&str; 3] = ["PreToolUse", "PostToolUse", "PostToolUseFailure"];
@@ -37,16 +38,16 @@ pub(crate) fn claude_hook_status() -> Result<RuntimeHookStatus, String> {
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let paths = ClaudeHookPaths::new(&home);
-    reject_symlinks(&paths)?;
-    let settings = load_settings(&paths.settings)?;
+    reject_claude_hook_symlinks(&paths)?;
+    let settings = load_claude_settings(&paths.settings)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     let status = hook_config::inspect_modes(
         &settings,
-        &desired_handler(&executable, FailurePolicy::Delegate)?,
-        &desired_handler(&executable, FailurePolicy::Block)?,
-        is_nah_handler,
-        is_fail_closed_handler,
+        &desired_claude_handler(&executable, FailurePolicy::Delegate)?,
+        &desired_claude_handler(&executable, FailurePolicy::Block)?,
+        is_nah_claude_handler,
+        is_fail_closed_claude_handler,
         "invalid-claude-hooks",
     )?;
     Ok(if remove_legacy(&mut settings.clone(), &home)? {
@@ -68,19 +69,19 @@ fn install_claude_hook(
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = ClaudeHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
-    let mut settings = load_settings(&paths.settings)?;
-    let desired = desired_handler(executable, policy)?;
+    let lock = acquire_hook_lock(&paths.lock, &CLAUDE_HOOK_LOCK_ERRORS)?;
+    reject_claude_hook_symlinks(&paths)?;
+    let mut settings = load_claude_settings(&paths.settings)?;
+    let desired = desired_claude_handler(executable, policy)?;
     let legacy = remove_legacy(&mut settings, home)?;
     if hook_config::add(
         &mut settings,
         desired,
-        is_nah_handler,
+        is_nah_claude_handler,
         "invalid-claude-hooks",
     )? || legacy
     {
-        save_settings(&paths.settings, &settings)?;
+        save_claude_settings(&paths.settings, &settings)?;
     }
     drop(lock);
     Ok(paths.settings)
@@ -88,13 +89,15 @@ fn install_claude_hook(
 
 fn uninstall_claude_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = ClaudeHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &CLAUDE_HOOK_LOCK_ERRORS)?;
+    reject_claude_hook_symlinks(&paths)?;
     if paths.settings.exists() {
-        let mut settings = load_settings(&paths.settings)?;
+        let mut settings = load_claude_settings(&paths.settings)?;
         let legacy = remove_legacy(&mut settings, home)?;
-        if hook_config::remove(&mut settings, is_nah_handler, "invalid-claude-hooks")? || legacy {
-            save_settings(&paths.settings, &settings)?;
+        if hook_config::remove(&mut settings, is_nah_claude_handler, "invalid-claude-hooks")?
+            || legacy
+        {
+            save_claude_settings(&paths.settings, &settings)?;
         }
     }
     drop(lock);
@@ -119,78 +122,35 @@ impl ClaudeHookPaths {
     }
 }
 
-fn lock(paths: &ClaudeHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-claude-hook-lock-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "claude-hook-lock-failed")?;
-    match std::fs::symlink_metadata(&paths.lock) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            return Err("claude-hook-lock-failed".into());
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return Err("claude-hook-lock-failed".into()),
-    }
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "claude-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "claude-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "claude-hook-lock-failed")?;
-    Ok(file)
+const CLAUDE_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-claude-hook-lock-path",
+    failed: "claude-hook-lock-failed",
+    permissions: "claude-hook-permissions-failed",
+};
+
+const CLAUDE_SETTINGS_READ_ERRORS: HookJsonReadErrorCodes = HookJsonReadErrorCodes {
+    read_failed: "claude-settings-read-failed",
+    invalid: "invalid-claude-settings",
+};
+
+fn load_claude_settings(path: &Path) -> Result<Value, String> {
+    reject_claude_settings_symlink(path)?;
+    read_hook_json_object(path, &CLAUDE_SETTINGS_READ_ERRORS)
 }
 
-fn load_settings(path: &Path) -> Result<Value, String> {
-    reject_symlink(path)?;
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Value::Object(Map::new()));
-        }
-        Err(_) => return Err("claude-settings-read-failed".into()),
-    };
-    let value: Value =
-        serde_json::from_reader(file).map_err(|_| "invalid-claude-settings".to_owned())?;
-    if !value.is_object() {
-        return Err("invalid-claude-settings".into());
-    }
-    Ok(value)
+const CLAUDE_SETTINGS_WRITE_ERRORS: HookFileWriteErrorCodes = HookFileWriteErrorCodes {
+    invalid_path: "invalid-claude-settings-path",
+    write_failed: "claude-settings-write-failed",
+    permissions: "claude-hook-permissions-failed",
+    sync_failed: "claude-hook-sync-failed",
+};
+
+fn save_claude_settings(path: &Path, settings: &Value) -> Result<(), String> {
+    reject_claude_settings_symlink(path)?;
+    write_hook_json_atomically(path, settings, &CLAUDE_SETTINGS_WRITE_ERRORS)
 }
 
-fn save_settings(path: &Path, settings: &Value) -> Result<(), String> {
-    reject_symlink(path)?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid-claude-settings-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "claude-settings-write-failed")?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "claude-settings-write-failed")?;
-    restrict_file_to_owner(temporary.as_file())
-        .map_err(|_| "claude-hook-permissions-failed".to_owned())?;
-    serde_json::to_writer_pretty(&mut temporary, settings)
-        .map_err(|_| "claude-settings-write-failed")?;
-    temporary
-        .write_all(b"\n")
-        .map_err(|_| "claude-settings-write-failed")?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "claude-settings-write-failed")?;
-    temporary
-        .persist(path)
-        .map_err(|_| "claude-settings-write-failed")?;
-    sync_parent_directory(parent).map_err(|_| "claude-hook-sync-failed".to_owned())
-}
-
-fn reject_symlink(path: &Path) -> Result<(), String> {
+fn reject_claude_settings_symlink(path: &Path) -> Result<(), String> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             Err("claude-settings-symlink-unsupported".into())
@@ -201,14 +161,14 @@ fn reject_symlink(path: &Path) -> Result<(), String> {
     }
 }
 
-fn reject_symlinks(paths: &ClaudeHookPaths) -> Result<(), String> {
+fn reject_claude_hook_symlinks(paths: &ClaudeHookPaths) -> Result<(), String> {
     for directory in &paths.directories {
-        reject_symlink(directory)?;
+        reject_claude_settings_symlink(directory)?;
     }
-    reject_symlink(&paths.settings)
+    reject_claude_settings_symlink(&paths.settings)
 }
 
-fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
+fn desired_claude_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
     let command = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -224,7 +184,7 @@ fn desired_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, St
     }))
 }
 
-fn is_nah_handler(handler: &Value) -> bool {
+fn is_nah_claude_handler(handler: &Value) -> bool {
     let Some(handler) = handler.as_object() else {
         return false;
     };
@@ -445,7 +405,7 @@ fn unquote_claude_word(quoted: &str) -> Option<String> {
     (!word.contains('\\') && word.replace('"', r#"\""#) == inner).then_some(word)
 }
 
-fn is_fail_closed_handler(handler: &Value) -> bool {
+fn is_fail_closed_claude_handler(handler: &Value) -> bool {
     handler
         .get("args")
         .and_then(Value::as_array)

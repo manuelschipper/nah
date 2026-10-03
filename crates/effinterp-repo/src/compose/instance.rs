@@ -1,6 +1,7 @@
-use super::{BoundCallable, Callbacks, Composition, Env, Walk, find_import, push_dependency};
+use super::accumulation::push_dependency;
+use super::{BoundCallable, Callbacks, Composition, CompositionWalk, InstanceEnv, find_import};
 use crate::linker::Resolution;
-use crate::module::{ModuleFile, Registry};
+use crate::module::{ModuleFile, ModuleRegistry};
 use effinterp_engine::{
     Assurance, CallEdge, CallableValue, ClassEntry, FunctionEntry, ObjectIdentity, ResolvedObject,
     SemanticValue, SemanticValueKind, TypeRef, ValueArgument, ValueOrigin, substitute_value,
@@ -50,7 +51,7 @@ pub(super) fn class_entry<'a>(file: &'a ModuleFile, name: &str) -> Option<&'a Cl
 }
 
 pub(super) fn resolve_exact_class(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     file: &ModuleFile,
     name: &str,
 ) -> Option<ResolvedObject> {
@@ -62,7 +63,7 @@ pub(super) fn resolve_exact_class(
 }
 
 pub(super) fn parameter_allows_instance(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     file: &ModuleFile,
     allowed: &[String],
     value: &ResolvedObject,
@@ -77,7 +78,7 @@ pub(super) fn parameter_allows_instance(
 }
 
 fn instance_is_class_or_subclass(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     value: &ResolvedObject,
     allowed: &ResolvedObject,
     seen: &mut HashSet<(String, String)>,
@@ -101,7 +102,7 @@ fn instance_is_class_or_subclass(
 }
 
 pub(super) fn returned_instance(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     file: &ModuleFile,
     name: &str,
     return_type: Option<&TypeRef>,
@@ -120,7 +121,7 @@ pub(super) fn returned_instance(
 }
 
 pub(super) fn returned_contract_instance(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     ty: &TypeRef,
 ) -> Option<ResolvedObject> {
     let TypeRef::Repo { file, name } = ty else {
@@ -146,9 +147,9 @@ pub(super) fn returned_contract_instance(
 /// A constructor-typed reference also resolves its attribute classes (from the
 /// constructor's instance-typed arguments), bounded by `depth`.
 pub(super) fn resolve_instance(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
-    env: &Env,
+    env: &InstanceEnv,
     value: &SemanticValue,
     depth: usize,
 ) -> Option<ResolvedObject> {
@@ -271,9 +272,9 @@ pub(super) fn resolve_instance(
 /// Resolve a call's instance-typed arguments in the caller's context, keeping
 /// their keyword-name/positional-index identification.
 pub(super) fn resolve_obj_args(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
-    env: &Env,
+    env: &InstanceEnv,
     arguments: &[ValueArgument],
     depth: usize,
 ) -> Vec<(Option<String>, usize, ResolvedObject)> {
@@ -317,9 +318,9 @@ pub(super) fn resolved_object_value(value: &ResolvedObject) -> SemanticValue {
 }
 
 pub(super) fn resolve_runtime_value(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
-    env: &Env,
+    env: &InstanceEnv,
     value: &SemanticValue,
 ) -> SemanticValue {
     let mut bindings = env.values.clone();
@@ -343,7 +344,7 @@ pub(super) fn resolve_runtime_value(
 /// `__init__`'s directly constructed attributes, plus parameter-stored
 /// attributes bound from the constructor's instance-typed arguments.
 pub(super) fn instance_attrs(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     inst: &ResolvedObject,
     ctor: &[(Option<String>, usize, ResolvedObject)],
 ) -> HashMap<String, ResolvedObject> {
@@ -417,7 +418,7 @@ pub(super) fn instance_attrs(
 }
 
 pub(super) fn instance_values(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     inst: &ResolvedObject,
     ctor: &[ValueArgument],
     depth: usize,
@@ -500,7 +501,8 @@ pub(super) fn instance_values(
         if call.callee.rsplit('.').next() != Some("__init__") {
             continue;
         }
-        let Some(base) = resolve_instance(registry, file, &Env::default(), receiver, depth + 1)
+        let Some(base) =
+            resolve_instance(registry, file, &InstanceEnv::default(), receiver, depth + 1)
         else {
             continue;
         };
@@ -562,7 +564,7 @@ pub(super) fn imports_function(
 }
 
 pub(super) fn receiver_matches_type(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     value: &ResolvedObject,
     expected: &str,
     seen: &mut HashSet<(String, String)>,
@@ -622,7 +624,11 @@ pub(super) fn receiver_matches_type(
     false
 }
 
-fn loader_imports_external(registry: &Registry, class_file: &ModuleFile, external: &str) -> bool {
+fn loader_imports_external(
+    registry: &ModuleRegistry,
+    class_file: &ModuleFile,
+    external: &str,
+) -> bool {
     registry.files.values().any(|loader| {
         loader
             .summary
@@ -638,9 +644,9 @@ fn loader_imports_external(registry: &Registry, class_file: &ModuleFile, externa
 }
 
 pub(super) fn value_from_ref(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
-    env: &Env,
+    env: &InstanceEnv,
     value: &SemanticValue,
 ) -> Option<ResolvedObject> {
     resolve_instance(registry, importer, env, value, 0).or_else(|| {
@@ -689,7 +695,7 @@ pub(super) fn instance_at(
 }
 
 pub(super) fn callback_target<'a>(
-    registry: &'a Registry,
+    registry: &'a ModuleRegistry,
     importer: &'a ModuleFile,
     function: &str,
 ) -> Option<(&'a ModuleFile, String)> {
@@ -709,7 +715,7 @@ pub(super) fn callback_target<'a>(
 }
 
 pub(super) fn bound_callable(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     value: &SemanticValue,
 ) -> Option<BoundCallable> {
@@ -768,11 +774,11 @@ pub(super) fn bound_callable(
 }
 
 pub(super) fn bind_constructor_results(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     target: &ModuleFile,
     class_name: &str,
     edge: &CallEdge,
-    env: &mut Env,
+    env: &mut InstanceEnv,
     out: &mut Composition,
 ) {
     let Some(value) = resolve_exact_class(registry, target, class_name) else {
@@ -782,11 +788,11 @@ pub(super) fn bind_constructor_results(
 }
 
 pub(super) fn bind_resolved_constructor(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     caller: &ModuleFile,
     mut value: ResolvedObject,
     edge: &CallEdge,
-    env: &mut Env,
+    env: &mut InstanceEnv,
     out: &mut Composition,
 ) {
     push_dependency(out, value.file.clone());
@@ -806,7 +812,7 @@ pub(super) fn bind_resolved_constructor(
 /// Positionals use the callee's declared parameter list; keywords use the
 /// keyword name. Imported values must resolve to one repository module.
 pub(super) fn bind_fn_args(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     caller: &ModuleFile,
     target: &ModuleFile,
     callee: &FunctionEntry,

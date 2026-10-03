@@ -13,7 +13,7 @@ use support::{activation, context, quiet_evidence};
 fn full_and_partial_coverage_both_delegate_when_no_guard_blocks() {
     let (_, policy) = context(&[], vec![], ProjectGuardDeclaration::Absent);
 
-    let full_decision = nah_policy::decide(
+    let full_decision = nah_policy::reduce_policy_decision(
         &quiet_evidence(),
         &nah_policy::ShippedGuards::new(),
         &Default::default(),
@@ -27,7 +27,7 @@ fn full_and_partial_coverage_both_delegate_when_no_guard_blocks() {
     assert_eq!(full_decision.reason(), "no guard blocked this call");
     assert!(full_decision.policy_attributions().is_empty());
 
-    let partial_decision = nah_policy::decide(
+    let partial_decision = nah_policy::reduce_policy_decision(
         &quiet_evidence(),
         &nah_policy::ShippedGuards::new(),
         &Default::default(),
@@ -43,7 +43,9 @@ fn full_and_partial_coverage_both_delegate_when_no_guard_blocks() {
 
 #[test]
 fn a_guard_witness_stands_beside_an_unrelated_gap() {
-    use nah_proto::effects::*;
+    use nah_proto::effects::{
+        CallId, Domain, EffectGap, GapCategory, GapId, GapPhase, GuardEvidence,
+    };
     let witnessed = support::quiet_evidence();
     let mut graph = witnessed.graph().clone();
     graph.gaps.push(EffectGap {
@@ -61,7 +63,7 @@ fn a_guard_witness_stands_beside_an_unrelated_gap() {
         ProjectGuardDeclaration::Absent,
     );
 
-    let core = nah_policy::decide(
+    let core = nah_policy::reduce_policy_decision(
         &evidence,
         &nah_policy::ShippedGuards::new(),
         &support::guard_matches(&["sys-power"]),
@@ -86,7 +88,7 @@ fn only_enabled_matched_guards_block_and_each_is_attributed() {
     let evidence = support::quiet_evidence();
     let decide = |enabled: &[(&str, bool)], matched: &[&'static str]| {
         let (_, policy) = context(enabled, vec![], ProjectGuardDeclaration::Absent);
-        nah_policy::decide(
+        nah_policy::reduce_policy_decision(
             &evidence,
             &nah_policy::ShippedGuards::new(),
             &support::guard_matches(matched),
@@ -159,7 +161,7 @@ fn validated_extensions_can_only_add_a_block() {
     )
     .unwrap();
     let decide = |responses: &[_]| {
-        nah_policy::decide(
+        nah_policy::reduce_policy_decision(
             &quiet_evidence(),
             &nah_policy::ShippedGuards::new(),
             &Default::default(),

@@ -37,7 +37,7 @@ impl CommandModel for Osascript {
         let mut i = 1;
         while let Some(word) = ctx.argv.get(i) {
             let Some(text) = word.as_literal() else {
-                boundary(
+                osascript_boundary(
                     builder,
                     model_node,
                     BoundaryClass::Unresolved,
@@ -53,7 +53,7 @@ impl CommandModel for Osascript {
                 break;
             }
             let Some((flag, attached)) = text.split_at_checked(2) else {
-                boundary(
+                osascript_boundary(
                     builder,
                     model_node,
                     BoundaryClass::Unresolved,
@@ -77,7 +77,7 @@ impl CommandModel for Osascript {
                 ("-s", Some(_)) => {}
                 ("-i", _) if attached.is_empty() => interactive = true,
                 _ => {
-                    boundary(
+                    osascript_boundary(
                         builder,
                         model_node,
                         BoundaryClass::Unresolved,
@@ -115,7 +115,7 @@ impl CommandModel for Osascript {
                 if file.is_some() { "file" } else { "stdin" },
                 Default::default(),
             );
-            boundary(
+            osascript_boundary(
                 builder,
                 model_node,
                 BoundaryClass::Unresolved,
@@ -164,7 +164,7 @@ impl CommandModel for Osascript {
                     }
                 }
                 if dynamic {
-                    boundary(
+                    osascript_boundary(
                         builder,
                         model_node,
                         BoundaryClass::Unresolved,
@@ -174,11 +174,11 @@ impl CommandModel for Osascript {
                 "AppleScript commands other than do shell script are not modeled"
             }
         };
-        boundary(builder, model_node, BoundaryClass::Unsupported, detail);
+        osascript_boundary(builder, model_node, BoundaryClass::Unsupported, detail);
     }
 }
 
-fn boundary(
+fn osascript_boundary(
     builder: &mut PlanBuilder,
     model_node: ProvenanceRef,
     class: BoundaryClass,

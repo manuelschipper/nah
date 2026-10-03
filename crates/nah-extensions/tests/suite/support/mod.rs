@@ -247,7 +247,10 @@ pub(crate) fn call_evidence(
     calls: &[(&[&str], Option<AbsolutePath>)],
 ) -> nah_proto::effects::GuardEvidence {
     use Knowledge::{Known, Unknown};
-    use nah_proto::effects::*;
+    use nah_proto::effects::{
+        CallId, CausalAvailability, EffectCall, EffectGraph, GuardEvidence, InvocationKind,
+        Knowledge, PayloadGroupId, PublicSelection,
+    };
     let calls = calls
         .iter()
         .enumerate()

@@ -7,7 +7,19 @@
 //! See [`redact_plan`] for the identifiers and scalar values that stay visible and
 //! the distinctions the redacted representation drops.
 
-use crate::*;
+use crate::{
+    Analysis, ArtifactEcosystem, ArtifactReference, AttrValue, Boundary, BoundaryClass,
+    BoundaryReason, BoundaryRef, ByteSpan, CalleeReference, CausalCardinality, CausalEdge,
+    CausalReason, Causality, Condition, ContainerStorage, Coverage, CoverageClaim, Domain, Effect,
+    EffectId, ExecutionAssurance, ExecutionContent, ExecutionEdge, ExecutionGraph, ExecutionInput,
+    ExecutionInputRole, ExecutionNode, ExecutionNodeRef, ExecutionPhase, ExecutionRealm,
+    ExecutionSelection, ExecutionSelector, ExecutionStreamRef, ExecutionStreamValue,
+    ExecutionStreams, KubernetesNamespace, Modality, NamespaceKind, OccurrenceId, OccurrenceKind,
+    OccurrenceNode, Operation, Plan, Port, ProvenanceKind, ProvenanceNode, ProvenanceRef,
+    REDACTED_LITERAL_HASH_DOMAIN, RequestAssurance, ResourceExpr, ResourceFamily, ResourceIdentity,
+    ResourceScope, ScopeDimension, ScopeEvidence, ScopeEvidenceKind, ScopeValue, Subject,
+    canonical_hash, stable_hash,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 

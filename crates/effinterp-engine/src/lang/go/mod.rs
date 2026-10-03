@@ -26,22 +26,22 @@ use crate::lang::frontend::{
 pub use model::go_external_effects;
 
 pub(crate) use model::go_callback_positions;
-use model::{endpoint, string_of};
+use model::string_of;
 use summary::{
-    BlockWrites, EscapedCallables, GoFunc, Imports, addressed_name, allocated_class,
+    BlockWrites, EscapedCallables, GoFunc, GoImports, addressed_name, allocated_class,
     assigned_outer_names, assignment_base_name, collect_funcs, collect_imports, compute_summaries,
     constructed_class, construction_site, declared_callable_names, declared_type_names,
     escaped_address_names, escaped_callables, field_types, function_locals, go_dispatch_contracts,
     init_names, is_callback_field, is_str_lit, literal_function_name, named_type, named_type_ref,
-    package_var_names, reassigned_names, returns_instances, unambiguous, unquote,
+    package_var_names, reassigned_names, returns_instances, unambiguous, unquote_go_string,
 };
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity, SqlConnection, SqlDialect, Subject,
+    Effect, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
+    Subject,
 };
 use gosyn::ast::{BlockStmt, DeclStmt, Declaration, Element, Expression, File, FuncLit, Statement};
 use gosyn::token::Operator;
@@ -50,16 +50,15 @@ use crate::builder::PlanBuilder;
 use crate::control_flow::{
     ControlCaps, ControlExit, ControlFact, ControlFlow, ControlStack, SiteFacts,
 };
-use crate::module_summary::{
-    CallEdge, ClassEntry, DispatchContract, DispatchSignature, FunctionEntry, ImportBinding,
-    ModuleSummary, StructField, call_results,
-};
+use crate::module_summary::{CallEdge, DispatchContract, call_results};
 use crate::nest::{Nest, Transition};
 use crate::paths::fs_resource_uses_cwd;
 use crate::resource_transfer::TransferBinding;
 use crate::summary::{Summary, bind_positional, substitute_resource_expr};
-use crate::value::{anchor_fs_text_concat, parse_url_endpoint, sink_typed_join, typed_concat};
-use crate::word::WordPart;
+use crate::value::{
+    anchor_fs_text_concat, sink_typed_join, typed_concat, unresolved_resource,
+    url_endpoint_resource,
+};
 use crate::{
     CallableValue, ObjectIdentity, ScopeKey, SemanticValue, SemanticValueKind, TypeRef,
     ValueArgument, ValueOrigin, join_branches, merge_arguments, positional_arguments,
@@ -69,8 +68,6 @@ use crate::{
 /// only a subset of Go's effect surface is modeled.
 const GO_DOMAINS: [&str; 4] = ["environment", "filesystem", "network", "process"];
 
-/// Default cap on AST call nodes visited when `max_go_nodes` is unset.
-use crate::limits::DEFAULT_MAX_GO_NODES;
 /// Summary fixpoint iterations before freezing (recursion terminates anyway).
 const MAX_SUMMARY_ITERS: usize = 5;
 /// Cap on effects/edges retained per summary.
@@ -172,7 +169,7 @@ impl Frontend for GoFrontend {
         let import_spans: Vec<_> = file
             .imports
             .iter()
-            .filter(|import| !crate::external::is_go_stdlib(&unquote(&import.path.value)))
+            .filter(|import| !crate::external::is_go_stdlib(&unquote_go_string(&import.path.value)))
             .map(control::import_span)
             .collect();
         {
@@ -183,7 +180,7 @@ impl Frontend for GoFrontend {
             });
         }
         let condition_source = effinterp_proto::ConditionSource::new(input.source);
-        let mut w = Walker {
+        let mut w = GoWalker {
             value_limits: nest.limits.value_limits(),
             source: input.source,
             condition_source: &condition_source,
@@ -241,7 +238,7 @@ impl Frontend for GoFrontend {
             control_applications: Vec::new(),
         };
         for import in &file.imports {
-            let path = unquote(&import.path.value);
+            let path = unquote_go_string(&import.path.value);
             if !crate::external::is_go_stdlib(&path) {
                 let node = w.node((
                     import.path.pos as u32,
@@ -341,7 +338,7 @@ impl Frontend for GoFrontend {
 // The walker: emits to the plan (execution) or collects into a summary.
 
 #[derive(Default)]
-struct Capture {
+struct GoSummaryCapture {
     control: ControlStack,
     flow: ControlFlow,
     call_sites: BTreeMap<crate::control_flow::Span, u32>,
@@ -362,7 +359,7 @@ enum Out<'a, 'b> {
         cwd_node: Option<ProvenanceRef>,
         depth: u64,
     },
-    Capture(&'a mut Capture),
+    Capture(&'a mut GoSummaryCapture),
 }
 
 /// The caller bindings one call may overwrite, split by how: storage handed to
@@ -385,7 +382,7 @@ impl CallWrites {
     }
 }
 
-struct Walker<'a, 'b> {
+struct GoWalker<'a, 'b> {
     value_limits: crate::ValueLimits,
     source: &'a str,
     condition_source: &'a effinterp_proto::ConditionSource,
@@ -395,7 +392,7 @@ struct Walker<'a, 'b> {
     /// step pool as the plan-emitting walk. Repository summary extraction has
     /// no plan budget and leaves this empty.
     analysis_budget: Option<(&'a mut PlanBuilder, &'b crate::nest::Budget)>,
-    imports: &'a Imports,
+    imports: &'a GoImports,
     funcs: &'a HashMap<String, GoFunc>,
     summaries: &'a HashMap<String, Summary>,
     params: HashMap<String, ResourceExpr>,
@@ -636,7 +633,7 @@ enum PackageValues {
     Declarations,
 }
 
-impl Walker<'_, '_> {
+impl GoWalker<'_, '_> {
     fn walk_var_initializers(&mut self, file: &File) {
         self.bind_package_state(file, PackageValues::Declarations);
         let variables: HashSet<_> = package_var_names(file).into_iter().collect();
@@ -838,12 +835,8 @@ impl Walker<'_, '_> {
                 .insert(name.clone(), ResourceExpr::Parameter { name: name.clone() });
             self.values
                 .insert(name.clone(), SemanticValue::parameter(&name));
-            self.channel_values.insert(
-                name.clone(),
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                },
-            );
+            self.channel_values
+                .insert(name.clone(), unresolved_resource("filesystem"));
             if let Some(typ) = types.get(&name) {
                 self.local_types.insert(name, typ.clone());
             }
@@ -986,12 +979,8 @@ impl Walker<'_, '_> {
                     if id.name == "_" {
                         continue;
                     }
-                    self.channel_values.insert(
-                        id.name.clone(),
-                        ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("filesystem"),
-                        },
-                    );
+                    self.channel_values
+                        .insert(id.name.clone(), unresolved_resource("filesystem"));
                     self.resource_values.remove(&id.name);
                     self.values.remove(&id.name);
                 }
@@ -1170,12 +1159,8 @@ impl Walker<'_, '_> {
                                 self.bind_local_name(&id.name);
                             }
                             if id.name != "_" {
-                                self.channel_values.insert(
-                                    id.name.clone(),
-                                    ResourceExpr::Unresolved {
-                                        family: ResourceFamily::new("filesystem"),
-                                    },
-                                );
+                                self.channel_values
+                                    .insert(id.name.clone(), unresolved_resource("filesystem"));
                                 self.resource_values.remove(&id.name);
                                 // The assign form rebinds a name that outlives
                                 // the loop, so it must stay in the value map to
@@ -1241,12 +1226,8 @@ impl Walker<'_, '_> {
                     let value = self.fs_arg(&send.value);
                     match self.channel_values.get(channel) {
                         Some(previous) if previous != &value => {
-                            self.channel_values.insert(
-                                channel.to_string(),
-                                ResourceExpr::Unresolved {
-                                    family: ResourceFamily::new("filesystem"),
-                                },
-                            );
+                            self.channel_values
+                                .insert(channel.to_string(), unresolved_resource("filesystem"));
                         }
                         None => {
                             self.channel_values.insert(channel.to_string(), value);
@@ -1399,17 +1380,17 @@ impl Walker<'_, '_> {
         // Iterative: left-deep `+` / `&&` spines overflow the process stack
         // before the node cap can fire. Nested calls still go through
         // walk_call, which is depth-bounded separately.
-        enum Work<'a> {
+        enum GoExprWork<'a> {
             Expr(&'a Expression),
             Push(&'a Expression, bool),
             Pop,
         }
         let initial_depth = self.conditions.len();
-        let mut stack = vec![Work::Expr(expr)];
+        let mut stack = vec![GoExprWork::Expr(expr)];
         while let Some(work) = stack.pop() {
             let expr = match work {
-                Work::Expr(expr) => expr,
-                Work::Push(origin, positive) => {
+                GoExprWork::Expr(expr) => expr,
+                GoExprWork::Push(origin, positive) => {
                     let (start, end) = expression_pos(origin);
                     self.push_condition(effinterp_proto::Condition::from_source_with_digest(
                         self.source,
@@ -1423,7 +1404,7 @@ impl Walker<'_, '_> {
                     ));
                     continue;
                 }
-                Work::Pop => {
+                GoExprWork::Pop => {
                     self.conditions.pop();
                     continue;
                 }
@@ -1434,31 +1415,31 @@ impl Walker<'_, '_> {
             }
             match expr {
                 Expression::Call(call) => self.walk_call(call),
-                Expression::Paren(p) => stack.push(Work::Expr(&p.expr)),
+                Expression::Paren(p) => stack.push(GoExprWork::Expr(&p.expr)),
                 Expression::Operation(op) => {
                     if let Some(y) = &op.y {
                         if matches!(op.op, Operator::AndAnd | Operator::OrOr) {
-                            stack.push(Work::Pop);
-                            stack.push(Work::Expr(y));
-                            stack.push(Work::Push(&op.x, op.op == Operator::AndAnd));
+                            stack.push(GoExprWork::Pop);
+                            stack.push(GoExprWork::Expr(y));
+                            stack.push(GoExprWork::Push(&op.x, op.op == Operator::AndAnd));
                         } else {
-                            stack.push(Work::Expr(y));
+                            stack.push(GoExprWork::Expr(y));
                         }
                     }
-                    stack.push(Work::Expr(&op.x));
+                    stack.push(GoExprWork::Expr(&op.x));
                 }
-                Expression::Star(s) => stack.push(Work::Expr(&s.right)),
+                Expression::Star(s) => stack.push(GoExprWork::Expr(&s.right)),
                 Expression::Index(i) => {
-                    stack.push(Work::Expr(&i.index));
-                    stack.push(Work::Expr(&i.left));
+                    stack.push(GoExprWork::Expr(&i.index));
+                    stack.push(GoExprWork::Expr(&i.left));
                 }
                 Expression::IndexList(i) => {
                     for index in i.indices.iter().rev() {
-                        stack.push(Work::Expr(index));
+                        stack.push(GoExprWork::Expr(index));
                     }
-                    stack.push(Work::Expr(&i.left));
+                    stack.push(GoExprWork::Expr(&i.left));
                 }
-                Expression::TypeAssert(t) => stack.push(Work::Expr(&t.left)),
+                Expression::TypeAssert(t) => stack.push(GoExprWork::Expr(&t.left)),
                 Expression::CompositeLit(cl) => {
                     self.record_inline_construction(expr);
                     self.walk_literal_value(&cl.val, 0);
@@ -1891,7 +1872,7 @@ impl Walker<'_, '_> {
     fn value_of(&self, expr: &Expression) -> Option<SemanticValue> {
         match expr {
             Expression::BasicLit(literal) if is_str_lit(literal) => {
-                Some(SemanticValue::literal(unquote(&literal.value)))
+                Some(SemanticValue::literal(unquote_go_string(&literal.value)))
             }
             Expression::Ident(ident) => self.values.get(&ident.name).cloned().or_else(|| {
                 if self.named_func(&ident.name).is_some() {
@@ -2000,7 +1981,7 @@ impl Walker<'_, '_> {
                     && is_str_lit(key)
                     && let SemanticValueKind::Collection { properties, .. } = &value.kind
                 {
-                    return properties.get(&unquote(&key.value)).cloned();
+                    return properties.get(&unquote_go_string(&key.value)).cloned();
                 }
                 let index = match &*index.index {
                     Expression::BasicLit(literal) => literal.value.parse::<usize>().ok()?,
@@ -2157,9 +2138,7 @@ impl Walker<'_, '_> {
                     .last_mut()
                     .and_then(|scope| scope.get_mut(right_name))
             {
-                binding.channel_value = Some(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                });
+                binding.channel_value = Some(unresolved_resource("filesystem"));
             }
             self.widen_escaped_channel(right);
             self.widen_escaped_channel(left);
@@ -2181,12 +2160,8 @@ impl Walker<'_, '_> {
             if fresh_channel_expression(right) {
                 self.channel_values.remove(left);
             } else if computed_channel_expression(right) {
-                self.channel_values.insert(
-                    left.to_string(),
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    },
-                );
+                self.channel_values
+                    .insert(left.to_string(), unresolved_resource("filesystem"));
             } else {
                 self.channel_values.remove(left);
             }
@@ -2201,9 +2176,7 @@ impl Walker<'_, '_> {
             {
                 channel_name(&operation.x).and_then(|channel| {
                     if !self.local_vars.contains(channel) {
-                        Some(ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("filesystem"),
-                        })
+                        Some(unresolved_resource("filesystem"))
                     } else {
                         self.channel_values.get(channel).cloned()
                     }
@@ -3787,9 +3760,7 @@ impl Walker<'_, '_> {
             }
             self.widen_channels_in_block(&body, 0);
             for value in self.channel_values.values_mut() {
-                *value = ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                };
+                *value = unresolved_resource("filesystem");
             }
         }
         if self.collect_edges {
@@ -3979,12 +3950,8 @@ impl Walker<'_, '_> {
         }
         match expr {
             Expression::Ident(ident) => {
-                self.channel_values.insert(
-                    ident.name.clone(),
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    },
-                );
+                self.channel_values
+                    .insert(ident.name.clone(), unresolved_resource("filesystem"));
             }
             Expression::Paren(paren) => self.widen_escaped_channel_at(&paren.expr, depth + 1),
             Expression::Operation(operation)
@@ -4291,7 +4258,7 @@ impl Walker<'_, '_> {
         match expr {
             Expression::BasicLit(lit) if is_str_lit(lit) => ResourceExpr::Concrete {
                 identity: ResourceIdentity::FsPath {
-                    path: unquote(&lit.value),
+                    path: unquote_go_string(&lit.value),
                 },
             },
             Expression::Ident(id) => match self.params.get(&id.name) {
@@ -4328,9 +4295,7 @@ impl Walker<'_, '_> {
                             },
                         )
                     })
-                    .unwrap_or(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    }),
+                    .unwrap_or(unresolved_resource("filesystem")),
             },
             Expression::Selector(selector) => {
                 if let Expression::Ident(receiver) = &*selector.x
@@ -4351,18 +4316,14 @@ impl Walker<'_, '_> {
                 }
                 self.value_of(expr)
                     .map(|value| value.lower_resource_for_domain("filesystem"))
-                    .unwrap_or(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    })
+                    .unwrap_or(unresolved_resource("filesystem"))
             }
             Expression::Paren(p) => self.fs_arg(&p.expr),
             Expression::Operation(operation)
                 if operation.op == Operator::Arrow && operation.y.is_none() =>
             {
                 self.received_resource(expr)
-                    .unwrap_or(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    })
+                    .unwrap_or(unresolved_resource("filesystem"))
             }
             // String concatenation is typed by the filesystem sink.
             Expression::Operation(operation)
@@ -4398,20 +4359,16 @@ impl Walker<'_, '_> {
                         return sink_typed_join(parts, "filesystem");
                     }
                 }
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                }
+                unresolved_resource("filesystem")
             }
-            _ => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            },
+            _ => unresolved_resource("filesystem"),
         }
     }
 
     fn network_arg(&self, expr: &Expression) -> ResourceExpr {
         match expr {
             Expression::BasicLit(literal) if is_str_lit(literal) => {
-                endpoint(&unquote(&literal.value))
+                url_endpoint_resource(&unquote_go_string(&literal.value))
             }
             Expression::Paren(paren) => self.network_arg(&paren.expr),
             Expression::Operation(operation)
@@ -4428,7 +4385,7 @@ impl Walker<'_, '_> {
             _ => self
                 .value_of(expr)
                 .and_then(|value| match value.kind {
-                    SemanticValueKind::Literal(value) => Some(endpoint(&value)),
+                    SemanticValueKind::Literal(value) => Some(url_endpoint_resource(&value)),
                     SemanticValueKind::Join(_) => {
                         Some(sink_typed_join(vec![value.lower_resource()], "network"))
                     }
@@ -4438,16 +4395,14 @@ impl Walker<'_, '_> {
                     }
                     _ => None,
                 })
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                }),
+                .unwrap_or(unresolved_resource("network")),
         }
     }
 
     fn concatenation_part(&self, expr: &Expression, domain: &str) -> ResourceExpr {
         match expr {
             Expression::BasicLit(literal) if is_str_lit(literal) => ResourceExpr::Literal {
-                value: unquote(&literal.value),
+                value: unquote_go_string(&literal.value),
             },
             Expression::Paren(paren) => self.concatenation_part(&paren.expr, domain),
             Expression::Operation(operation)
@@ -4472,9 +4427,7 @@ impl Walker<'_, '_> {
                     .and_then(string_of)
                     .filter(|name| !name.is_empty())
                     .map(|name| ResourceExpr::Environment { name })
-                    .unwrap_or(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("environment"),
-                    })
+                    .unwrap_or(unresolved_resource("environment"))
             }
             _ if domain == "filesystem" => self.fs_arg(expr),
             _ => self
@@ -4493,9 +4446,7 @@ impl Walker<'_, '_> {
                     }
                     _ => None,
                 })
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("value"),
-                }),
+                .unwrap_or(unresolved_resource("value")),
         }
     }
 

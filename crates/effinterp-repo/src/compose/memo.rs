@@ -1,8 +1,9 @@
-use super::budget::{check_composition_depth, reserve_effect};
-use super::{
-    Composition, Dispatch, Walk, push_coalesced_boundary, push_coverage, push_dependency,
-    replay_summary_transfers,
+use super::accumulation::{
+    boundary_key, push_bound_composed_effect, push_coalesced_boundary, push_coverage,
+    push_dependency, replay_summary_transfers,
 };
+use super::budget::{check_composition_depth, reserve_effect};
+use super::{Composition, CompositionWalk, ReceiverContext};
 use crate::dispatch::DispatchVia;
 use crate::module::ModuleFile;
 use effinterp_engine::{
@@ -384,11 +385,11 @@ fn memo_value(bytes: &mut Vec<u8>, value: &SemanticValue) {
 }
 
 pub(super) fn function_memo_key(
-    walk: &Walk<'_>,
+    walk: &CompositionWalk<'_>,
     target: &ModuleFile,
     fn_name: &str,
     bindings: &HashMap<String, SemanticValue>,
-    dispatch: &Dispatch,
+    dispatch: &ReceiverContext,
     inline_only: bool,
 ) -> MemoKey {
     let mut arguments = Vec::new();
@@ -479,7 +480,7 @@ pub(super) fn memoized_walk(
             .iter()
             .map(|boundary| {
                 let paths = out.memo_boundaries[checkpoint.boundaries].paths
-                    [&super::boundary_key(boundary)]
+                    [&boundary_key(boundary)]
                     .iter()
                     .cloned()
                     .collect();
@@ -554,7 +555,7 @@ pub(super) fn replay_memoized_walk(out: &mut Composition, path: &[String], memo:
         }
         rebase_memo_dispatch(&mut effect.via_dispatch, &memo.base_path, path);
         let before = out.occurrence_effects.len();
-        super::push_bound_composed_effect(out, effect);
+        push_bound_composed_effect(out, effect);
         slots.push((out.occurrence_effects.len() > before).then_some(before));
     }
     replay_summary_transfers(out, &memo.transfers, &slots);

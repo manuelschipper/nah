@@ -7,8 +7,7 @@ use effinterp_proto::{
     Effect, ExecutionAssurance, ExecutionContent, ExecutionEdgeKind, ExecutionInputReason,
     ExecutionInputRole, ExecutionPhase, ExecutionRealm, ExecutionSelection, ExecutionSelector,
     Fact, Modality, ObservationOutcome, ObservationQuery, ObservationRefusal, Operation, PathKind,
-    Port, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity,
-    SourceDialect, Subject,
+    Port, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity, SourceDialect, Subject,
 };
 
 use crate::SourcePurpose;
@@ -16,6 +15,7 @@ use crate::builder::PlanBuilder;
 use crate::models::{InvocationCtx, ModelBindingEnd, ModelCausalBinding};
 use crate::nest::{SourceResolution, Transition};
 use crate::paths::executable_identity;
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 use effinterp_model_schema::EffectSelection;
 
@@ -434,9 +434,7 @@ pub(crate) fn symbolic_expr(word: &Word, family: &str) -> ResourceExpr {
             WordPart::Env(name) => ResourceExpr::Environment { name: name.clone() },
             WordPart::Value(value) => value.clone(),
             WordPart::Glob(_) | WordPart::Union(_) | WordPart::Unknown => {
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new(family),
-                }
+                unresolved_resource(family)
             }
         })
         .collect::<Vec<_>>();
@@ -775,9 +773,7 @@ pub(crate) fn physical_directory(
         },
         CoverageLevel::Partial,
     );
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("filesystem"),
-    }
+    unresolved_resource("filesystem")
 }
 
 /// What the host shows at a path a `cd` may enter.
@@ -1025,9 +1021,7 @@ pub(crate) fn follow_parent_links(
         },
         CoverageLevel::Partial,
     );
-    *resource = ResourceExpr::Unresolved {
-        family: ResourceFamily::new("filesystem"),
-    };
+    *resource = unresolved_resource("filesystem");
     true
 }
 
@@ -1080,6 +1074,27 @@ pub(crate) fn content_read_effect(
         execution: effinterp_proto::ExecutionNodeRef(0),
         provenance,
     })
+}
+
+/// The model-application provenance node of a handwritten model: the `source`
+/// its grammar was reviewed against, over the model node and every argument.
+/// Analysis never fetches that source.
+pub(crate) fn reviewed_source_node(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    node: ProvenanceRef,
+    source: &str,
+) -> ProvenanceRef {
+    let mut provenance = vec![node];
+    for index in 1..ctx.argv.len() {
+        provenance.push(arg_node(builder, ctx, index as u32));
+    }
+    builder.node(
+        ProvenanceKind::ModelApplication {
+            model: source.into(),
+        },
+        &provenance,
+    )
 }
 
 /// Provenance node for one argv position of this invocation.
@@ -1256,9 +1271,7 @@ pub(crate) fn code_execution_resource(ctx: &InvocationCtx) -> ResourceExpr {
         Some(name) if !name.is_empty() => ResourceExpr::Concrete {
             identity: executable_identity(name, ctx.cwd),
         },
-        _ => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("process"),
-        },
+        _ => unresolved_resource("process"),
     }
 }
 
@@ -1462,15 +1475,9 @@ mod tests {
                     ResourceExpr::Environment {
                         name: "HOST".into(),
                     },
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("network"),
-                    },
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("network"),
-                    },
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("network"),
-                    },
+                    unresolved_resource("network"),
+                    unresolved_resource("network"),
+                    unresolved_resource("network"),
                 ],
             }
         );

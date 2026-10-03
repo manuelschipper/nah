@@ -75,7 +75,7 @@ pub(super) fn current_project() -> (Option<String>, Vec<String>) {
             ],
         )
         .ok()?;
-        let observation = nah_observe::fulfill(&request).ok()?;
+        let observation = nah_observe::fulfill_observation_request(&request).ok()?;
         Some(match observation.project_guard_declaration().ok()? {
             ProjectGuardDeclaration::Present { names } => names.clone(),
             ProjectGuardDeclaration::Absent

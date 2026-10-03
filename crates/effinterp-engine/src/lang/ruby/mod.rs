@@ -24,24 +24,21 @@ mod control;
 mod load_path;
 mod model;
 
+use crate::lang::depth::ruby_nesting_exceeds;
 use crate::lang::frontend::{
-    Frontend, FrontendInput, MAX_CALLBACK_VALUES, MAX_WALK_DEPTH, ParseFailure, ParseOutcome,
-    WalkOutcome,
+    Frontend, FrontendInput, MAX_WALK_DEPTH, ParseFailure, ParseOutcome, WalkOutcome,
 };
+use crate::value::{fs_path_resource, unresolved_resource};
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CausalAssurance, CoverageLevel, Domain,
-    Effect, ExecutionRealm, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceFamily, ResourceIdentity, Subject,
+    Effect, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity, Subject,
 };
 use lib_ruby_parser::Node;
-use lib_ruby_parser::{
-    Parser, ParserOptions,
-    nodes::{Index, Send},
-};
+use lib_ruby_parser::{Parser, ParserOptions, nodes::Send};
 
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::control_flow::{ControlExit, ControlFact, ControlStack, Requirements, SiteFacts};
@@ -49,18 +46,19 @@ use crate::module_summary::{CallEdge, ClassEntry, FunctionEntry, ImportBinding, 
 use crate::nest::{Nest, Transition, word_resource};
 use crate::paths::fs_resource_uses_cwd;
 use crate::resource_transfer::TransferBinding;
-use crate::summary::{Summary, bind_positional, has_text_concat, substitute_resource_expr};
-use crate::value::{bind_arguments, parse_url_endpoint, sink_typed_join};
+use crate::summary::{
+    Summary, bind_positional, contains_unresolved, has_text_concat, substitute_resource_expr,
+};
+use crate::value::bind_arguments;
 use crate::word::{Word, WordPart};
 use crate::{
     CallableValue, ObjectIdentity, ScopeKey, SemanticValue, SemanticValueKind, ValueArgument,
 };
 use model::{
-    Modeled, Scope, apply_live_assign, assigned_proc, candidate_limit_boundary, constant_env,
-    contains_unresolved, effect, env_index_read, env_key, exe, fs_path, guarded_ruby_children,
-    invoked_procs, literal_str, model, network_sink, passed_procs, poison_boundary,
-    poisoned_send_reference, push_proc, resolve, spawn_of_parts, unresolved_fs, value_arguments,
-    yielded_argument_sets,
+    RubyModelScope, RubyModeledSend, apply_live_assign, assigned_proc, candidate_limit_boundary,
+    constant_env, effect, env_index_read, env_key, exe, guarded_ruby_children, invoked_procs,
+    literal_str, model, network_sink, passed_procs, poison_boundary, poisoned_send_reference,
+    push_proc, resolve, spawn_of_parts, value_arguments, yielded_argument_sets,
 };
 
 const DOMAINS: [&str; 4] = ["environment", "filesystem", "network", "process"];
@@ -88,12 +86,6 @@ fn parse(source: &str) -> Option<Box<Node>> {
         ..Default::default()
     };
     Parser::new(source.as_bytes(), options).do_parse().ast
-}
-
-/// Whether Ruby source nests deeper than the walk limit anywhere; see
-/// [`crate::lang::depth::ruby_nesting_exceeds`].
-fn ruby_nesting_exceeds(source: &str) -> bool {
-    crate::lang::depth::ruby_nesting_exceeds(source)
 }
 
 /// lib-ruby-parser rejects a final `=end` without a trailing newline even
@@ -238,7 +230,7 @@ struct ProcDef {
 /// A file's definitions: methods (qualified and bare keys, first definition
 /// wins) and the classes/modules that declare them.
 #[derive(Default)]
-struct Ctx {
+struct RubyFileContext {
     literal_builtins: bool,
     exception_builtins: bool,
     source_digest: String,
@@ -262,7 +254,7 @@ struct Ctx {
     load_path: load_path::LoadPathEvidence,
 }
 
-impl Ctx {
+impl RubyFileContext {
     fn def(&self, key: &str) -> Option<&RDef> {
         self.exact_defs
             .iter()
@@ -351,11 +343,11 @@ enum LocalTy {
 /// or module contributing a [`ClassEntry`]. Nesting uses the innermost
 /// constant name (`ColorLS::Flags` registers as `Flags`), matching how call
 /// edges name their heads.
-fn collect(node: &Node, ctx: &mut Ctx) {
+fn collect_definitions(node: &Node, ctx: &mut RubyFileContext) {
     collect_at(node, ctx, 0);
 }
 
-fn collect_at(node: &Node, ctx: &mut Ctx, depth: u32) {
+fn collect_at(node: &Node, ctx: &mut RubyFileContext, depth: u32) {
     if depth >= MAX_WALK_DEPTH {
         return;
     }
@@ -414,7 +406,7 @@ fn collect_at(node: &Node, ctx: &mut Ctx, depth: u32) {
 fn collect_class_body_at(
     node: &Node,
     entry: &mut ClassEntry,
-    ctx: &mut Ctx,
+    ctx: &mut RubyFileContext,
     depth: u32,
     hidden: bool,
     internal: bool,
@@ -534,7 +526,7 @@ fn collect_class_body_at(
 fn collect_constant(
     assignment: &lib_ruby_parser::nodes::Casgn,
     owner: Option<&str>,
-    ctx: &mut Ctx,
+    ctx: &mut RubyFileContext,
 ) {
     let Some(value) = assignment.value.as_deref() else {
         return;
@@ -554,8 +546,8 @@ fn collect_constant(
 
 fn constant_resource(node: &Node) -> Option<ResourceExpr> {
     match node {
-        Node::Str(string) => Some(fs_path(&string.value.to_string_lossy())),
-        Node::Dstr(string) => literal_parts(&string.parts).map(|value| fs_path(&value)),
+        Node::Str(string) => Some(fs_path_resource(&string.value.to_string_lossy())),
+        Node::Dstr(string) => literal_parts(&string.parts).map(|value| fs_path_resource(&value)),
         Node::Send(send)
             if send.recv.as_deref().and_then(constant_path).as_deref() == Some("File")
                 && send.method_name == "join"
@@ -564,7 +556,7 @@ fn constant_resource(node: &Node) -> Option<ResourceExpr> {
             let parts = send
                 .args
                 .iter()
-                .map(|argument| literal_str(argument).map(|value| fs_path(&value)))
+                .map(|argument| literal_str(argument).map(|value| fs_path_resource(&value)))
                 .collect::<Option<Vec<_>>>()?;
             Some(ResourceExpr::Join { parts })
         }
@@ -591,7 +583,7 @@ fn is_skipped_command(name: &str) -> bool {
 /// <param>` and `@attr = Cls.new(...)` / `@attr ||= Cls.new(...)` (including
 /// `begin`/`end` values), plus locals forwarded into the ivar. Attribute
 /// names are stored without the `@`, matching `SelfAttr` receivers.
-fn collect_attr_types(class: &str, entry: &mut ClassEntry, ctx: &Ctx) {
+fn collect_attr_types(class: &str, entry: &mut ClassEntry, ctx: &RubyFileContext) {
     for i in 0..ctx.defs.len() {
         let (params, body, def_class) = {
             let d = &ctx.defs[i];
@@ -725,7 +717,7 @@ fn record_ivar_named(
 /// After every class is collected: mark command-table and template-base
 /// methods, inherit command lists through same-file bases, and infer method
 /// return classes from constructor/ivar bodies.
-fn finish_collect(ctx: &mut Ctx) {
+fn finish_collect(ctx: &mut RubyFileContext) {
     let names: Vec<String> = ctx.classes.iter().map(|c| c.name.clone()).collect();
     for name in &names {
         if !ctx.command_dsl.contains(name) && !is_template_class(ctx, name) {
@@ -742,7 +734,7 @@ fn finish_collect(ctx: &mut Ctx) {
     infer_all_returns(ctx);
 }
 
-fn is_template_class(ctx: &Ctx, name: &str) -> bool {
+fn is_template_class(ctx: &RubyFileContext, name: &str) -> bool {
     last_seg(name) == "Base"
         || ctx
             .classes
@@ -750,7 +742,7 @@ fn is_template_class(ctx: &Ctx, name: &str) -> bool {
             .any(|c| c.name == name && c.bases.iter().any(|b| last_seg(b) == "Base"))
 }
 
-fn inherit_commands(ctx: &mut Ctx) {
+fn inherit_commands(ctx: &mut RubyFileContext) {
     for _ in 0..16 {
         let mut changed = false;
         let snapshot: Vec<(String, Vec<String>)> = ctx
@@ -794,7 +786,7 @@ fn inherit_commands(ctx: &mut Ctx) {
     }
 }
 
-fn infer_all_returns(ctx: &mut Ctx) {
+fn infer_all_returns(ctx: &mut RubyFileContext) {
     let mut returns = HashMap::new();
     let empty = ClassEntry::default();
     for d in &ctx.defs {
@@ -979,7 +971,7 @@ fn type_name(path: &str, enclosing: Option<&str>) -> String {
     }
 }
 
-fn unmodeled_receiver_call(send: &Send, ctx: &Ctx) -> Option<String> {
+fn unmodeled_receiver_call(send: &Send, ctx: &RubyFileContext) -> Option<String> {
     if load_path::inert_call(send)
         || ctx
             .load_path
@@ -1120,7 +1112,7 @@ fn formatted_arguments(args: &[Node]) -> Option<Vec<&Node>> {
 }
 
 /// A backtick's span, with whether a value holds its bytes verbatim.
-type HeldCapture = ((usize, usize), bool);
+type RubyHeldCapture = ((usize, usize), bool);
 
 /// The backtick spans and local names whose bytes an expression's value
 /// carries. Only forms that keep the text pass them on: interpolation,
@@ -1129,7 +1121,7 @@ type HeldCapture = ((usize, usize), bool);
 /// output does not carry its bytes. Each source is paired with whether its
 /// bytes reach the value verbatim; a format this reading cannot follow may or
 /// may not print them.
-fn capture_sources(node: &Node) -> (Vec<HeldCapture>, Vec<(String, bool)>) {
+fn capture_sources(node: &Node) -> (Vec<RubyHeldCapture>, Vec<(String, bool)>) {
     let mut spans = Vec::new();
     let mut locals = Vec::new();
     let mut stack = vec![(node, true)];
@@ -1241,7 +1233,7 @@ fn qualified_class_definitions(root: &Node) -> Vec<(String, String)> {
     definitions
 }
 
-fn collect_exact(node: &Node, namespace: Option<&str>, ctx: &mut Ctx, depth: u32) {
+fn collect_exact(node: &Node, namespace: Option<&str>, ctx: &mut RubyFileContext, depth: u32) {
     if depth >= MAX_WALK_DEPTH {
         return;
     }
@@ -1289,7 +1281,12 @@ fn collect_exact(node: &Node, namespace: Option<&str>, ctx: &mut Ctx, depth: u32
     }
 }
 
-fn collect_exact_class_body(node: &Node, entry: &mut ClassEntry, ctx: &mut Ctx, depth: u32) {
+fn collect_exact_class_body(
+    node: &Node,
+    entry: &mut ClassEntry,
+    ctx: &mut RubyFileContext,
+    depth: u32,
+) {
     if depth >= MAX_WALK_DEPTH {
         return;
     }
@@ -1381,7 +1378,7 @@ impl Frontend for RubyFrontend {
                 }
             }
         }
-        let mut ctx = Ctx {
+        let mut ctx = RubyFileContext {
             literal_builtins: literal_builtins(root, MAX_INLINE_DEPTH),
             exception_builtins: exception_builtins(root, input.source.len()),
             source_digest: effinterp_proto::stable_hash(
@@ -1390,10 +1387,10 @@ impl Frontend for RubyFrontend {
             ),
             guards: ruby_guard_regions(root, input.source),
             load_path: load_path::extract(root),
-            ..Ctx::default()
+            ..RubyFileContext::default()
         };
         for stmt in top_statements(root) {
-            collect(stmt, &mut ctx);
+            collect_definitions(stmt, &mut ctx);
             collect_exact(stmt, None, &mut ctx, 0);
         }
         ctx.rake_dsl = has_rake_dsl(root);
@@ -1441,7 +1438,7 @@ impl Frontend for RubyFrontend {
         builder.control_enter(input.source, false, |graph| {
             control::build(graph, &statements, ctx.exception_builtins)
         });
-        let mut w = Walker {
+        let mut w = RubyWalker {
             source: input.source,
             builder,
             nest,
@@ -1537,7 +1534,7 @@ fn has_rake_dsl(node: &Node) -> bool {
 }
 
 pub(super) fn summarize_ast(source: &str, root: &Node) -> ModuleSummary {
-    let mut ctx = Ctx {
+    let mut ctx = RubyFileContext {
         literal_builtins: literal_builtins(root, MAX_INLINE_DEPTH),
         exception_builtins: exception_builtins(root, source.len()),
         source_digest: effinterp_proto::stable_hash(
@@ -1546,10 +1543,10 @@ pub(super) fn summarize_ast(source: &str, root: &Node) -> ModuleSummary {
         ),
         guards: ruby_guard_regions(root, source),
         load_path: load_path::extract(root),
-        ..Ctx::default()
+        ..RubyFileContext::default()
     };
     for stmt in top_statements(root) {
-        collect(stmt, &mut ctx);
+        collect_definitions(stmt, &mut ctx);
         collect_exact(stmt, None, &mut ctx, 0);
     }
     ctx.rake_dsl = has_rake_dsl(root);
@@ -1661,7 +1658,7 @@ pub(super) fn summarize_ast(source: &str, root: &Node) -> ModuleSummary {
 /// Thor turns each public method in a command-table class into a callback at
 /// class-definition time. Keep the class receiver on every registration so
 /// repository composition can require the same class identity at dispatch.
-fn command_registration_edges(ctx: &Ctx) -> Vec<CallEdge> {
+fn command_registration_edges(ctx: &RubyFileContext) -> Vec<CallEdge> {
     let mut out = Vec::new();
     for class in &ctx.classes {
         let Some(methods) = ctx.commands.get(&class.name) else {
@@ -1915,22 +1912,27 @@ static CAPTURE_SOURCE: &str = "ruby capture";
 
 /// Effects/boundaries/calls captured while summarizing a method body.
 #[derive(Clone, Default)]
-struct Capture {
+struct RubySummaryCapture {
     effects: Vec<Effect>,
     /// Transfer pairings among `effects`, by slot.
     transfers: Vec<TransferBinding>,
     boundaries: Vec<Boundary>,
     calls: Vec<CallEdge>,
-    spawns: Vec<(Modeled, Option<effinterp_proto::Condition>)>,
+    spawns: Vec<(RubyModeledSend, Option<effinterp_proto::Condition>)>,
     /// What the body guarantees over `effects` slots, when it was walked.
     control: Option<Requirements>,
     control_flow: crate::control_flow::ControlFlow,
 }
 
 /// Summarize a body with its parameters bound to symbolic Parameter nodes.
-fn capture(body: Option<&Node>, params: &[String], class: Option<&str>, ctx: &Ctx) -> Capture {
+fn capture(
+    body: Option<&Node>,
+    params: &[String],
+    class: Option<&str>,
+    ctx: &RubyFileContext,
+) -> RubySummaryCapture {
     let _walk = crate::limits::summary_walk();
-    let mut cap = Capture::default();
+    let mut cap = RubySummaryCapture::default();
     let Some(node) = body else {
         return cap;
     };
@@ -1972,11 +1974,11 @@ fn capture_into(
     body: &Node,
     env: &HashMap<String, ResourceExpr>,
     class: Option<&str>,
-    ctx: &Ctx,
+    ctx: &RubyFileContext,
     stack: &mut Vec<String>,
     nodes_left: &mut u64,
     control: &mut ControlStack,
-    cap: &mut Capture,
+    cap: &mut RubySummaryCapture,
 ) {
     let statements = top_statements(body);
     control.enter(
@@ -1989,7 +1991,7 @@ fn capture_into(
         control::summary_caps(),
         |graph| control::build(graph, &statements, ctx.exception_builtins),
     );
-    let mut c = Cap {
+    let mut c = RubyCaptureWalker {
         cap,
         env: env.clone(),
         class,
@@ -2022,11 +2024,11 @@ fn capture_into(
 
 /// Capture-mode walker: collects a method's parameterized effects and edges
 /// without a live plan.
-struct Cap<'a> {
-    cap: &'a mut Capture,
+struct RubyCaptureWalker<'a> {
+    cap: &'a mut RubySummaryCapture,
     env: HashMap<String, ResourceExpr>,
     class: Option<&'a str>,
-    ctx: &'a Ctx,
+    ctx: &'a RubyFileContext,
     /// Locals typed by a direct constructor (`x = Cls.new(...)`).
     vars: HashMap<String, Vec<String>>,
     /// Locals bound to a class (`engine_class = Foo::Bar`).
@@ -2045,7 +2047,7 @@ struct Cap<'a> {
     control: &'a mut ControlStack,
 }
 
-impl Cap<'_> {
+impl RubyCaptureWalker<'_> {
     fn stmt(&mut self, node: &Node) {
         // Iterative: left-deep `+` / `&&` / Send spines overflow the process
         // stack before the node cap can fire.
@@ -2285,7 +2287,7 @@ impl Cap<'_> {
     }
 
     fn send_modeled(&mut self, s: &Send) -> SendControl {
-        let scope = Scope {
+        let scope = RubyModelScope {
             env: &self.env,
             cwd: None,
             class: self.class,
@@ -2296,7 +2298,7 @@ impl Cap<'_> {
             remote_bodies: &self.remote_bodies,
         };
         match model(s, &scope) {
-            Modeled::Effects {
+            RubyModeledSend::Effects {
                 effects,
                 transfers,
                 boundary,
@@ -2317,12 +2319,12 @@ impl Cap<'_> {
                     .extend(transfers.into_iter().map(|binding| binding.shifted(base)));
                 SendControl::modeled(s)
             }
-            Modeled::LiteralEval(_) => {
+            RubyModeledSend::LiteralEval(_) => {
                 // Captures cannot transfer the eval lexical scope to a nested source.
                 self.cap.boundaries.push(model::dyn_boundary("eval"));
                 SendControl::Unknown
             }
-            Modeled::RemoteEval(url) => {
+            RubyModeledSend::RemoteEval(url) => {
                 let base = self.cap.effects.len() as u32;
                 self.cap.effects.extend(model::remote_eval_effects(url));
                 self.cap
@@ -2331,7 +2333,7 @@ impl Cap<'_> {
                 self.cap.boundaries.push(model::dyn_boundary("eval"));
                 SendControl::Unknown
             }
-            Modeled::DecodedEval => {
+            RubyModeledSend::DecodedEval => {
                 let base = self.cap.effects.len() as u32;
                 let (decode, execution) = model::decoded_eval_effects();
                 self.cap.effects.extend([decode, execution]);
@@ -2341,13 +2343,13 @@ impl Cap<'_> {
                 self.cap.boundaries.push(model::dyn_boundary("eval"));
                 SendControl::Unknown
             }
-            Modeled::Boundary(b) => {
+            RubyModeledSend::Boundary(b) => {
                 self.cap.boundaries.push(b);
                 SendControl::Unknown
             }
-            spawned @ (Modeled::ShellSpawn { .. }
-            | Modeled::ExecSpawn { .. }
-            | Modeled::SpawnUnresolved(_)) => {
+            spawned @ (RubyModeledSend::ShellSpawn { .. }
+            | RubyModeledSend::ExecSpawn { .. }
+            | RubyModeledSend::SpawnUnresolved(_)) => {
                 self.spawned(spawned);
                 // The launched command's occurrences are not summary slots.
                 match SendControl::spawn(s) {
@@ -2355,7 +2357,7 @@ impl Cap<'_> {
                     other => other,
                 }
             }
-            Modeled::Calls(edges) => {
+            RubyModeledSend::Calls(edges) => {
                 let mut applied = Vec::with_capacity(edges.len());
                 for edge in edges {
                     applied.push(self.inline_local(&edge, s));
@@ -2370,7 +2372,7 @@ impl Cap<'_> {
                     _ => SendControl::Unknown,
                 }
             }
-            Modeled::None => {
+            RubyModeledSend::None => {
                 if let Some(callee) = unmodeled_receiver_call(s, self.ctx) {
                     self.cap.boundaries.push(Boundary {
                         reason: BoundaryReason::UNRESOLVED_CALL,
@@ -2416,10 +2418,12 @@ impl Cap<'_> {
     /// A subprocess inside a summarized method: recorded as a process.exec
     /// effect on the summary (the nested command is not composed here — the
     /// executable name is kept when statically known).
-    fn spawned(&mut self, m: Modeled) {
+    fn spawned(&mut self, m: RubyModeledSend) {
         if matches!(
             m,
-            Modeled::ShellSpawn { .. } | Modeled::ExecSpawn { .. } | Modeled::SpawnUnresolved(_)
+            RubyModeledSend::ShellSpawn { .. }
+                | RubyModeledSend::ExecSpawn { .. }
+                | RubyModeledSend::SpawnUnresolved(_)
         ) {
             self.cap.spawns.push((m, None));
         }
@@ -2462,7 +2466,7 @@ impl Cap<'_> {
             self.class,
             self.ctx,
         ));
-        let mut inner = Capture::default();
+        let mut inner = RubySummaryCapture::default();
         let mut inner_env = constant_env(self.ctx, class.as_deref());
         inner_env.extend(
             params
@@ -2567,7 +2571,7 @@ impl Cap<'_> {
 
 /// The same-file def a call edge resolves to, if any: a qualified or bare
 /// callee defined here, or the constructor of a locally defined class.
-fn local_key(ctx: &Ctx, edge: &CallEdge) -> Option<String> {
+fn local_key(ctx: &RubyFileContext, edge: &CallEdge) -> Option<String> {
     if let Some(ObjectIdentity::Class { name, .. }) = edge.receiver_identity() {
         if edge.callee == *name {
             let init = format!("{name}.__init__");
@@ -2594,7 +2598,7 @@ fn local_key(ctx: &Ctx, edge: &CallEdge) -> Option<String> {
     ctx.def(&edge.callee).map(|_| edge.callee.clone())
 }
 
-fn local_method(ctx: &Ctx, class: &str, method: &str) -> Option<String> {
+fn local_method(ctx: &RubyFileContext, class: &str, method: &str) -> Option<String> {
     let mut seen = HashSet::new();
     let mut stack = vec![class.to_string()];
     while let Some(name) = stack.pop() {
@@ -2619,7 +2623,7 @@ fn local_method(ctx: &Ctx, class: &str, method: &str) -> Option<String> {
     None
 }
 
-fn local_base(ctx: &Ctx, owner: &str, base: &str) -> String {
+fn local_base(ctx: &RubyFileContext, owner: &str, base: &str) -> String {
     if base.contains("::") {
         return base.to_string();
     }
@@ -2657,7 +2661,7 @@ fn resource_bindings(
         .collect()
 }
 
-fn class_ivar_names(ctx: &Ctx, class: &str) -> HashSet<String> {
+fn class_ivar_names(ctx: &RubyFileContext, class: &str) -> HashSet<String> {
     let mut names = HashSet::new();
     if let Some(definition) = ctx.def(&format!("{class}.initialize"))
         && let Some(body) = &definition.body
@@ -2683,7 +2687,7 @@ fn constructor_instance(
     caller_env: &HashMap<String, ResourceExpr>,
     cwd: Option<&str>,
     enclosing: Option<&str>,
-    ctx: &Ctx,
+    ctx: &RubyFileContext,
 ) -> Option<HashMap<String, ResourceExpr>> {
     let Node::Send(send) = node else {
         return None;
@@ -2731,7 +2735,7 @@ fn instance_bindings(
     env: &HashMap<String, ResourceExpr>,
     cwd: Option<&str>,
     enclosing: Option<&str>,
-    ctx: &Ctx,
+    ctx: &RubyFileContext,
 ) -> HashMap<String, ResourceExpr> {
     match send.recv.as_deref() {
         Some(Node::Lvar(local)) => instances.get(&local.name).cloned().unwrap_or_default(),
@@ -2756,7 +2760,7 @@ fn rendered_bindings(bindings: &HashMap<String, ResourceExpr>) -> String {
 fn unresolved_instance_parameters(resource: &mut ResourceExpr) {
     match resource {
         ResourceExpr::Parameter { name } if name.starts_with('@') => {
-            *resource = unresolved_fs();
+            *resource = unresolved_resource("filesystem");
         }
         ResourceExpr::Join { parts } => {
             for part in parts {
@@ -2801,7 +2805,7 @@ fn store_binding(
 ) {
     let conflict = guarded && env.get(name).is_some_and(|current| current != &value);
     if conflict || contains_unresolved(&value) {
-        env.insert(name.to_string(), unresolved_fs());
+        env.insert(name.to_string(), unresolved_resource("filesystem"));
         poisoned.insert(name.to_string());
     } else {
         env.insert(name.to_string(), value);
@@ -2840,7 +2844,7 @@ fn remove_assignment_bindings(
 }
 
 /// Live-plan walker for module execution.
-struct Walker<'a> {
+struct RubyWalker<'a> {
     source: &'a str,
     builder: &'a mut PlanBuilder,
     nest: &'a Nest<'a>,
@@ -2848,7 +2852,7 @@ struct Walker<'a> {
     cwd_node: Option<ProvenanceRef>,
     scope: Option<ProvenanceRef>,
     depth: u64,
-    ctx: &'a Ctx,
+    ctx: &'a RubyFileContext,
     env: HashMap<String, ResourceExpr>,
     vars: HashMap<String, Vec<String>>,
     class_refs: HashMap<String, String>,
@@ -2859,7 +2863,7 @@ struct Walker<'a> {
     poisoned: HashSet<String>,
     procs: HashMap<String, Vec<ProcDef>>,
     active_procs: HashSet<usize>,
-    captures: HashMap<String, Rc<Capture>>,
+    captures: HashMap<String, Rc<RubySummaryCapture>>,
     applications: HashMap<String, HashSet<String>>,
     nodes_left: u64,
     truncated: bool,
@@ -2893,7 +2897,7 @@ struct Walker<'a> {
     >,
     /// Backtick spans whose output a local holds, each with whether the local
     /// holds those bytes verbatim.
-    capture_locals: HashMap<String, Vec<HeldCapture>>,
+    capture_locals: HashMap<String, Vec<RubyHeldCapture>>,
     /// Local assignments a reached `begin … end while`/`until` body's first
     /// iteration reaches, by start offset. The body runs at least once, so a
     /// `true` one replaces the output a local held; a `false` one sits in a
@@ -2902,7 +2906,7 @@ struct Walker<'a> {
     post_loop_assignments: HashMap<usize, bool>,
 }
 
-impl Walker<'_> {
+impl RubyWalker<'_> {
     fn follow_root(&mut self, key: &str) {
         let Some(definition) = self.ctx.def(key) else {
             return;
@@ -3374,7 +3378,7 @@ impl Walker<'_> {
     }
 
     fn send_modeled(&mut self, s: &Send) -> SendControl {
-        let scope = Scope {
+        let scope = RubyModelScope {
             env: &self.env,
             cwd: self.cwd,
             class: None,
@@ -3387,7 +3391,7 @@ impl Walker<'_> {
         let begin = s.expression_l.begin;
         let end = s.expression_l.end;
         match model(s, &scope) {
-            Modeled::Effects {
+            RubyModeledSend::Effects {
                 effects,
                 transfers,
                 boundary: unknown,
@@ -3413,7 +3417,7 @@ impl Walker<'_> {
                 crate::summary::replay_transfers(self.builder, &transfers, &slots);
                 SendControl::modeled(s)
             }
-            Modeled::LiteralEval(source) => {
+            RubyModeledSend::LiteralEval(source) => {
                 let site = self.span(begin, end);
                 self.nest.nest(
                     self.builder,
@@ -3441,7 +3445,7 @@ impl Walker<'_> {
                 self.procs.clear();
                 SendControl::Unknown
             }
-            Modeled::DecodedEval => {
+            RubyModeledSend::DecodedEval => {
                 let (decode, execution) = model::decoded_eval_effects();
                 let slots = [
                     self.emit_applying(decode, begin, end, Some("ruby/base64@v0")),
@@ -3457,7 +3461,7 @@ impl Walker<'_> {
                 self.builder.boundary(boundary);
                 SendControl::Unknown
             }
-            Modeled::RemoteEval(url) => {
+            RubyModeledSend::RemoteEval(url) => {
                 let slots: Vec<Option<u32>> = model::remote_eval_effects(url)
                     .into_iter()
                     .map(|e| self.emit(e, begin, end))
@@ -3473,7 +3477,7 @@ impl Walker<'_> {
                 SendControl::Unknown
             }
             // A require this launch followed by path is composed, not opaque.
-            Modeled::Boundary(_)
+            RubyModeledSend::Boundary(_)
                 if extract_imports(&Node::Send(s.clone()), true)
                     .first()
                     .is_some_and(|import| {
@@ -3489,18 +3493,18 @@ impl Walker<'_> {
             {
                 SendControl::Unknown
             }
-            Modeled::Boundary(mut b) => {
+            RubyModeledSend::Boundary(mut b) => {
                 b.provenance.push(self.span(begin, end));
                 self.builder.boundary(b);
                 SendControl::Unknown
             }
-            spawned @ (Modeled::ShellSpawn { .. }
-            | Modeled::ExecSpawn { .. }
-            | Modeled::SpawnUnresolved(_)) => {
+            spawned @ (RubyModeledSend::ShellSpawn { .. }
+            | RubyModeledSend::ExecSpawn { .. }
+            | RubyModeledSend::SpawnUnresolved(_)) => {
                 self.spawned(spawned, begin, end, false);
                 SendControl::spawn(s)
             }
-            Modeled::Calls(edges) => {
+            RubyModeledSend::Calls(edges) => {
                 let mut applied: Vec<Option<SiteFacts>> =
                     edges.iter().map(|edge| self.follow(edge, s)).collect();
                 match (applied.len(), applied.pop()) {
@@ -3508,7 +3512,7 @@ impl Walker<'_> {
                     _ => SendControl::Unknown,
                 }
             }
-            Modeled::None => {
+            RubyModeledSend::None => {
                 if let Some(callee) = unmodeled_receiver_call(s, self.ctx) {
                     let arguments = model::value_arguments(&s.args, &self.env, self.cwd);
                     let site = self.span(begin, end);
@@ -3550,7 +3554,7 @@ impl Walker<'_> {
     /// name-only) executable.
     fn spawn_guarded(
         &mut self,
-        spawn: Modeled,
+        spawn: RubyModeledSend,
         mut condition: Option<effinterp_proto::Condition>,
         begin: usize,
         end: usize,
@@ -3570,11 +3574,10 @@ impl Walker<'_> {
 
     /// `captured` spawns return their stdout to the program as a value, as
     /// backticks do, so it does not reach the program's own stdout.
-    fn spawned(&mut self, m: Modeled, begin: usize, end: usize, captured: bool) {
+    fn spawned(&mut self, m: RubyModeledSend, begin: usize, end: usize, captured: bool) {
         let stdout = match &m {
-            Modeled::ShellSpawn { stdout, .. } | Modeled::ExecSpawn { stdout, .. } => {
-                stdout.clone()
-            }
+            RubyModeledSend::ShellSpawn { stdout, .. }
+            | RubyModeledSend::ExecSpawn { stdout, .. } => stdout.clone(),
             _ => None,
         };
         let child = self.builder.next_execution();
@@ -3589,7 +3592,7 @@ impl Walker<'_> {
             None => transition,
         };
         match m {
-            Modeled::ShellSpawn { source, cwd, .. } => {
+            RubyModeledSend::ShellSpawn { source, cwd, .. } => {
                 let node = self.span(begin, end);
                 let cwd_path = resource_cwd_path(&cwd).or_else(|| self.cwd.map(str::to_string));
                 match resource_command_text(&source) {
@@ -3647,7 +3650,7 @@ impl Walker<'_> {
                     }
                 }
             }
-            Modeled::ExecSpawn { argv, cwd, .. } => {
+            RubyModeledSend::ExecSpawn { argv, cwd, .. } => {
                 let node = self.span(begin, end);
                 let words: Vec<Word> = argv
                     .iter()
@@ -3678,7 +3681,7 @@ impl Walker<'_> {
                     self.depth,
                 );
             }
-            Modeled::SpawnUnresolved(argv0) => {
+            RubyModeledSend::SpawnUnresolved(argv0) => {
                 self.emit(
                     effect("process.exec", exe(argv0.as_deref()), false),
                     begin,
@@ -4054,7 +4057,7 @@ impl Walker<'_> {
             if let Some(cwd) = self.cwd {
                 effect.resource = substitute_resource_expr(
                     &effect.resource,
-                    &HashMap::from([("cwd".to_string(), fs_path(cwd))]),
+                    &HashMap::from([("cwd".to_string(), fs_path_resource(cwd))]),
                 );
             }
         }
@@ -4075,7 +4078,7 @@ impl Walker<'_> {
             return resource;
         }
         match effinterp_proto::normalize_resource(resource, effinterp_proto::PathPlatform::Posix) {
-            ResourceExpr::Literal { value } => fs_path(&value),
+            ResourceExpr::Literal { value } => fs_path_resource(&value),
             resource => resource,
         }
     }
@@ -4179,18 +4182,21 @@ fn resource_cwd_path(cwd: &Option<ResourceExpr>) -> Option<String> {
     cwd.as_ref().and_then(resource_command_text)
 }
 
-fn substitute_modeled_spawn(spawn: Modeled, bindings: &HashMap<String, ResourceExpr>) -> Modeled {
+fn substitute_modeled_spawn(
+    spawn: RubyModeledSend,
+    bindings: &HashMap<String, ResourceExpr>,
+) -> RubyModeledSend {
     match spawn {
-        Modeled::ShellSpawn {
+        RubyModeledSend::ShellSpawn {
             source,
             cwd,
             stdout,
-        } => Modeled::ShellSpawn {
+        } => RubyModeledSend::ShellSpawn {
             source: substitute_resource_expr(&source, bindings),
             cwd: cwd.map(|cwd| substitute_resource_expr(&cwd, bindings)),
             stdout: stdout.map(|stdout| substitute_resource_expr(&stdout, bindings)),
         },
-        Modeled::ExecSpawn { argv, cwd, stdout } => Modeled::ExecSpawn {
+        RubyModeledSend::ExecSpawn { argv, cwd, stdout } => RubyModeledSend::ExecSpawn {
             argv: argv
                 .into_iter()
                 .map(|word| substitute_resource_expr(&word, bindings))
@@ -4202,18 +4208,18 @@ fn substitute_modeled_spawn(spawn: Modeled, bindings: &HashMap<String, ResourceE
     }
 }
 
-fn materialize_ruby_spawn(spawn: &Modeled) -> Effect {
+fn materialize_ruby_spawn(spawn: &RubyModeledSend) -> Effect {
     let resource = match spawn {
-        Modeled::ShellSpawn { source, .. } => resource_command_text(source)
+        RubyModeledSend::ShellSpawn { source, .. } => resource_command_text(source)
             .as_deref()
             .map(model::shell_exe)
             .unwrap_or_else(|| exe(None)),
-        Modeled::ExecSpawn { argv, .. } => argv
+        RubyModeledSend::ExecSpawn { argv, .. } => argv
             .first()
             .and_then(resource_command_text)
             .map(|name| exe(Some(&name)))
             .unwrap_or_else(|| exe(None)),
-        Modeled::SpawnUnresolved(argv0) => exe(argv0.as_deref()),
+        RubyModeledSend::SpawnUnresolved(argv0) => exe(argv0.as_deref()),
         _ => exe(None),
     };
     effect("process.exec", resource, false)

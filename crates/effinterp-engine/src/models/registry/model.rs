@@ -1,6 +1,34 @@
 //! Declarative command models and behavior application.
 
-use super::*;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::LazyLock;
+
+use effinterp_model_schema::{
+    AttributeDeclaration, BehaviorDeclaration, BindingEndDeclaration, CommandDeclaration,
+    EffectSourceDeclaration, NestedSourceFrom, ResourceDeclaration, SubcommandDeclaration,
+    ValueDeclaration,
+};
+use effinterp_proto::{
+    AttrValue, Boundary, BoundaryClass, BoundaryReason, CausalAssurance, Domain, Effect,
+    ExecutionEdgeKind, ExecutionRealm, Operation, ProvenanceRef, ResourceExpr, ResourceIdentity,
+};
+
+use crate::builder::PlanBuilder;
+use crate::models::{CommandModel, InvocationCtx, ModelBindingEnd, ModelCausalBinding};
+use crate::nest::{Transition, word_resource};
+use crate::resource_transfer::TransferBinding;
+use crate::word::{Word, WordPart};
+
+use super::compile::{leak_string, leak_strings};
+use super::invocation::{
+    ParsedInvocation, classify_path_or_url, nested_source_subject, resource_values,
+    value_environment_provenance_names, value_flag_names,
+};
+use super::literals::{attached_boolean_value, audited_short_boolean_value};
+use super::validate::{
+    behavior_domains, collect_command_flags, command_behaviors, command_domains, resource_family,
+    resource_uses_ambient_cwd,
+};
 
 #[derive(Clone)]
 pub(super) enum CommandData {

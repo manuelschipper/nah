@@ -7,7 +7,7 @@ use rustpython_parser::ast::{self, Constant, Expr, Ranged, Stmt, UnaryOp};
 use rustpython_parser::text_size::TextRange;
 use rustpython_parser::{Mode, Parse, Tok, lexer::lex};
 
-use super::resolve::{Imports, str_literal};
+use super::resolve::{PythonImportNames, str_literal};
 
 pub(super) enum ArgumentVector {
     /// The command-line words after the program name.
@@ -21,7 +21,7 @@ pub(super) enum ArgumentVector {
 /// The vector the call passes. `launch` is the launch's `sys.argv`, with
 /// the script at `launch[0]`, when every word is literal.
 pub(super) fn argument_vector(
-    imports: &Imports,
+    imports: &PythonImportNames,
     source: &str,
     call: &ast::ExprCall,
     launch: Option<Vec<String>>,
@@ -107,7 +107,7 @@ pub(super) fn argument_vector(
     ArgumentVector::Known(argv.into_iter().skip(1).collect())
 }
 
-fn is_argv(imports: &Imports, expr: &Expr) -> bool {
+fn is_argv(imports: &PythonImportNames, expr: &Expr) -> bool {
     imports.resolve_callee(expr).as_deref() == Some("sys.argv")
 }
 
@@ -146,7 +146,7 @@ impl Write {
 }
 
 struct Scan<'a, 'b> {
-    imports: &'a Imports,
+    imports: &'a PythonImportNames,
     call: TextRange,
     /// The dispatch call's argument when it spells `sys.argv`.
     argument: Option<TextRange>,

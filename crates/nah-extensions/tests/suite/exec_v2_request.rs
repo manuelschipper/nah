@@ -49,7 +49,10 @@ printf '%s\n' '{"block":true,"reason":"counted"}'"#,
     );
     let evidence = fixture.evidence.clone();
     use Knowledge::{Known, Unknown};
-    use nah_proto::effects::*;
+    use nah_proto::effects::{
+        Bound, EffectResource, GuardEvidence, Knowledge, Realm, ResourceDetails, ResourceId,
+        ResourceIdentity, ResourceKind, Selection,
+    };
     let mut graph = evidence.graph().clone();
     let identity = ResourceIdentity {
         kind: ResourceKind::Process,
@@ -80,7 +83,10 @@ printf '%s\n' '{"block":true,"reason":"counted"}'"#,
         ("different-private-body-two", "one"),
         ("different-private-body-two", "two"),
     ] {
-        use nah_proto::observation::*;
+        use nah_proto::observation::{
+            EnvObservation, Observation, ObservationFact, ObservationQuery, ObservationValue,
+            Observed,
+        };
         let mut facts = fixture.observation.facts().to_vec();
         facts.push(
             ObservationFact::new(

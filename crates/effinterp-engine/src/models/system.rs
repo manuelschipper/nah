@@ -10,10 +10,11 @@ use crate::models::common::{
 use crate::models::{CommandModel, InvocationCtx};
 use crate::nest::{Transition, word_resource};
 use crate::paths::resolve_fs_word_with_cwd;
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity, Subject,
+    ProvenanceRef, ResourceExpr, ResourceIdentity, Subject,
 };
 
 pub(crate) const SERVICE_START: &str = "system.service_start";
@@ -485,7 +486,7 @@ pub(crate) fn powershell_power(
             &[node],
         );
         let mut attributes = Attrs::new();
-        text(&mut attributes, "action", action);
+        text_attr(&mut attributes, "action", action);
         system_change(&mut attributes, true, false, false, false, false);
         super::infrastructure::emit_with_attributes(
             builder,
@@ -517,10 +518,10 @@ fn powershell_literal(word: &str) -> Option<&str> {
     (!text.is_empty()).then_some(text)
 }
 
-fn flag(attributes: &mut Attrs, name: &str) {
+fn flag_attr(attributes: &mut Attrs, name: &str) {
     attributes.insert(name.into(), AttrValue::Bool(true));
 }
-fn text(attributes: &mut Attrs, name: &str, value: &str) {
+fn text_attr(attributes: &mut Attrs, name: &str, value: &str) {
     attributes.insert(name.into(), AttrValue::String(value.into()));
 }
 fn system_change(
@@ -611,11 +612,9 @@ fn unit(manager: &str, word: &Word) -> ResourceExpr {
                 name: name.into(),
             },
         })
-        .unwrap_or_else(|| ResourceExpr::Unresolved {
-            family: ResourceFamily::new("system"),
-        })
+        .unwrap_or_else(|| unresolved_resource("system"))
 }
-pub(crate) fn unmodeled_subcommand(builder: &mut PlanBuilder, node: ProvenanceRef) {
+fn system_unmodeled_subcommand(builder: &mut PlanBuilder, node: ProvenanceRef) {
     fs_full_no_spawn(builder);
     builder.boundary(Boundary {
         reason: BoundaryReason::UNMODELED_SUBCOMMAND,
@@ -703,7 +702,7 @@ impl CommandModel for System {
                             systemctl_operands.push((index, word));
                             continue;
                         }
-                        unmodeled_subcommand(builder, node);
+                        system_unmodeled_subcommand(builder, node);
                         return;
                     };
                     if let Some(option) = pending.take() {
@@ -785,7 +784,7 @@ impl CommandModel for System {
                                     | "--stdin"
                             )
                         {
-                            unmodeled_subcommand(builder, node);
+                            system_unmodeled_subcommand(builder, node);
                             return;
                         }
                     } else {
@@ -793,7 +792,7 @@ impl CommandModel for System {
                     }
                 }
                 if pending.is_some() {
-                    unmodeled_subcommand(builder, node);
+                    system_unmodeled_subcommand(builder, node);
                     return;
                 }
                 let option = |names: &[&str]| {
@@ -837,10 +836,10 @@ impl CommandModel for System {
                 }
                 let operands = systemctl_operands;
                 if has("--user") {
-                    flag(&mut attributes, "user_scope");
+                    flag_attr(&mut attributes, "user_scope");
                 }
                 if has("--runtime") {
-                    flag(&mut attributes, "runtime");
+                    flag_attr(&mut attributes, "runtime");
                 }
                 let verb = operands
                     .first()
@@ -862,27 +861,27 @@ impl CommandModel for System {
                     "emergency",
                 ];
                 if has("--global") && (POWER_VERBS.contains(&verb) || verb == "isolate") {
-                    unmodeled_subcommand(builder, node);
+                    system_unmodeled_subcommand(builder, node);
                     return;
                 }
                 // --when schedules a shutdown instead of starting it now; only
                 // the shutdown verbs take it.
                 let when = option(&["--when"]);
                 if when.is_some() && !matches!(verb, "poweroff" | "reboot" | "halt" | "kexec") {
-                    unmodeled_subcommand(builder, node);
+                    system_unmodeled_subcommand(builder, node);
                     return;
                 }
                 if POWER_VERBS.contains(&verb) {
                     match when {
                         Some("show") => return,
                         Some("" | "cancel") => {
-                            flag(&mut attributes, "cancel");
+                            flag_attr(&mut attributes, "cancel");
                             system_change(&mut attributes, false, true, false, false, false);
                         }
                         _ => {
-                            text(&mut attributes, "action", verb);
+                            text_attr(&mut attributes, "action", verb);
                             if let Some(when) = when {
-                                text(&mut attributes, "when", when);
+                                text_attr(&mut attributes, "when", when);
                             }
                             system_change(&mut attributes, true, false, false, false, false);
                         }
@@ -899,7 +898,7 @@ impl CommandModel for System {
                     return;
                 }
                 if (option(&["--drop-in"]).is_some() || has("--stdin")) && verb != "edit" {
-                    unmodeled_subcommand(builder, node);
+                    system_unmodeled_subcommand(builder, node);
                     return;
                 }
                 // The unit-file commands change which units the boot and the
@@ -912,7 +911,7 @@ impl CommandModel for System {
                     "stop" | "kill" => &[SERVICE_STOP],
                     "restart" | "reload-or-restart" | "try-restart" => &[SERVICE_RESTART],
                     "reload" => {
-                        flag(&mut attributes, "reload");
+                        flag_attr(&mut attributes, "reload");
                         &[SERVICE_RESTART]
                     }
                     "enable" => &[SERVICE_ENABLE],
@@ -920,7 +919,7 @@ impl CommandModel for System {
                     "reenable" => &[SERVICE_DISABLE, SERVICE_ENABLE],
                     "preset" | "preset-all" => {
                         if verb == "preset-all" && !units.is_empty() {
-                            unmodeled_subcommand(builder, node);
+                            system_unmodeled_subcommand(builder, node);
                             return;
                         }
                         match option(&["--preset-mode"]) {
@@ -931,35 +930,35 @@ impl CommandModel for System {
                         }
                     }
                     "mask" => {
-                        flag(&mut attributes, "mask");
+                        flag_attr(&mut attributes, "mask");
                         &[SERVICE_DISABLE]
                     }
                     // Revert also removes a unit's mask with its overrides.
                     "unmask" | "revert" | "link" => {
-                        flag(&mut attributes, verb);
+                        flag_attr(&mut attributes, verb);
                         &[SERVICE_ENABLE]
                     }
                     "set-default" => {
                         if units.len() != 1 {
-                            unmodeled_subcommand(builder, node);
+                            system_unmodeled_subcommand(builder, node);
                             return;
                         }
-                        flag(&mut attributes, "default");
+                        flag_attr(&mut attributes, "default");
                         &[SERVICE_ENABLE]
                     }
                     // TARGET UNIT...: TARGET pulls each UNIT in when it starts.
                     "add-wants" | "add-requires" => {
                         if units.len() < 2 {
-                            unmodeled_subcommand(builder, node);
+                            system_unmodeled_subcommand(builder, node);
                             return;
                         }
                         let target = units.remove(0).1;
                         let Some(target) = target.as_literal() else {
-                            unmodeled_subcommand(builder, node);
+                            system_unmodeled_subcommand(builder, node);
                             return;
                         };
-                        text(&mut attributes, "dependency", &verb[4..]);
-                        text(&mut attributes, "target", target);
+                        text_attr(&mut attributes, "dependency", &verb[4..]);
+                        text_attr(&mut attributes, "target", target);
                         &[SERVICE_ENABLE]
                     }
                     // `edit --stdin` writes the new contents without an editor.
@@ -1021,12 +1020,12 @@ impl CommandModel for System {
                             Some(name) => format!("{name}.conf"),
                         };
                         if units.is_empty() || has("--full") && units.len() != 1 {
-                            unmodeled_subcommand(builder, node);
+                            system_unmodeled_subcommand(builder, node);
                             return;
                         }
                         for (i, w) in &units {
                             let Some(name) = w.as_literal() else {
-                                unmodeled_subcommand(builder, node);
+                                system_unmodeled_subcommand(builder, node);
                                 continue;
                             };
                             // --full replaces a copy of the whole unit file.
@@ -1056,7 +1055,7 @@ impl CommandModel for System {
                     }
                     "isolate" => {
                         let mut isolate = attributes.clone();
-                        flag(&mut isolate, "isolate");
+                        flag_attr(&mut isolate, "isolate");
                         system_change(&mut isolate, true, false, false, false, false);
                         arg_effect(
                             builder,
@@ -1072,7 +1071,7 @@ impl CommandModel for System {
                     "status" | "show" | "cat" | "daemon-reload" | "daemon-reexec" => return,
                     v if v.starts_with("list-") || v.starts_with("is-") => return,
                     _ => {
-                        unmodeled_subcommand(builder, node);
+                        system_unmodeled_subcommand(builder, node);
                         return;
                     }
                 };
@@ -1081,7 +1080,7 @@ impl CommandModel for System {
                         .iter()
                         .any(|op| !matches!(*op, SERVICE_ENABLE | SERVICE_DISABLE))
                 {
-                    unmodeled_subcommand(builder, node);
+                    system_unmodeled_subcommand(builder, node);
                     return;
                 }
                 let now = has("--now")
@@ -1167,7 +1166,7 @@ impl CommandModel for System {
                     w.as_literal()
                         .is_some_and(|value| value.starts_with('-') && value != "-")
                 }) {
-                    unmodeled_subcommand(builder, node);
+                    system_unmodeled_subcommand(builder, node);
                     return;
                 }
                 let op = match ctx.argv.get(2).and_then(Word::as_literal) {
@@ -1175,12 +1174,12 @@ impl CommandModel for System {
                     Some("stop") => SERVICE_STOP,
                     Some("restart") => SERVICE_RESTART,
                     Some("reload") => {
-                        flag(&mut attributes, "reload");
+                        flag_attr(&mut attributes, "reload");
                         SERVICE_RESTART
                     }
                     Some("status") => return,
                     _ => {
-                        unmodeled_subcommand(builder, node);
+                        system_unmodeled_subcommand(builder, node);
                         return;
                     }
                 };
@@ -1193,7 +1192,7 @@ impl CommandModel for System {
             }
             "init" | "telinit" => match ctx.argv.get(1).and_then(Word::as_literal) {
                 Some(v @ ("0" | "6")) => {
-                    text(
+                    text_attr(
                         &mut attributes,
                         "action",
                         if v == "0" { "poweroff" } else { "reboot" },
@@ -1207,10 +1206,10 @@ impl CommandModel for System {
                         .get(1)
                         .is_some_and(|word| word.as_literal().is_none())
                     {
-                        unmodeled_subcommand(builder, node);
+                        system_unmodeled_subcommand(builder, node);
                     }
 
-                    flag(&mut attributes, "isolate");
+                    flag_attr(&mut attributes, "isolate");
                     system_change(&mut attributes, true, false, false, false, false);
                     arg_effect(
                         builder,
@@ -1233,7 +1232,7 @@ impl CommandModel for System {
                 let mut halt = false;
                 for word in ctx.argv.iter().skip(1) {
                     let Some(value) = word.as_literal() else {
-                        unmodeled_subcommand(builder, node);
+                        system_unmodeled_subcommand(builder, node);
                         return;
                     };
                     if after_options || !value.starts_with('-') || value == "-" {
@@ -1246,7 +1245,7 @@ impl CommandModel for System {
                         continue;
                     }
                     if !valid_power_option(command, value) {
-                        unmodeled_subcommand(builder, node);
+                        system_unmodeled_subcommand(builder, node);
                         return;
                     }
                     if value == "--help" || value == "--version" {
@@ -1278,15 +1277,15 @@ impl CommandModel for System {
                     return;
                 }
                 if command != "shutdown" && !power_operands.is_empty() {
-                    unmodeled_subcommand(builder, node);
+                    system_unmodeled_subcommand(builder, node);
                     return;
                 }
                 if command == "shutdown" {
                     if cancel {
-                        flag(&mut attributes, "cancel");
+                        flag_attr(&mut attributes, "cancel");
                         system_change(&mut attributes, false, true, false, false, false);
                     } else {
-                        text(
+                        text_attr(
                             &mut attributes,
                             "action",
                             if reboot {
@@ -1299,14 +1298,14 @@ impl CommandModel for System {
                         );
                         let time = power_operands.first().copied().unwrap_or("+1");
                         if !power_operands.is_empty() && !valid_shutdown_time(time) {
-                            unmodeled_subcommand(builder, node);
+                            system_unmodeled_subcommand(builder, node);
                             return;
                         }
-                        text(&mut attributes, "when", time);
+                        text_attr(&mut attributes, "when", time);
                         system_change(&mut attributes, true, false, false, false, false);
                     }
                 } else {
-                    text(&mut attributes, "action", command);
+                    text_attr(&mut attributes, "action", command);
                     system_change(&mut attributes, true, false, false, false, false);
                 }
                 arg_effect(builder, ctx, node, 0, POWER, host(), attributes);

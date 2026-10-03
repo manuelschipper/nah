@@ -7,7 +7,7 @@ use nah_proto::decision::{DecisionOutput, ExitCode, Verdict};
 use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::dispatch::{current_timestamp_rfc3339, decision_id, run_decide_for_runtime};
 use crate::runtime::{FailurePolicy, Runtime};
@@ -249,6 +249,48 @@ pub(crate) fn unavailable_feedback(
         )
     } else {
         format!("{}; id {id}", unavailable.reason())
+    })
+}
+
+/// Writes one hook reply as a single JSON line on stdout; a failed write is ignored because the
+/// runtime has no other channel to hear about it.
+pub(crate) fn write_hook_reply_line<W: Write>(stdout: &mut W, value: Value) {
+    let _ = serde_json::to_writer(&mut *stdout, &value);
+    let _ = writeln!(stdout);
+}
+
+/// The blocking reply for the runtimes whose plugin reads a
+/// `{"block":..,"evaluation_failed":..}` object (Amp, OpenClaw, OpenCode, Pi and
+/// Prime Agent) when Nah could not decide; `None` when the failure policy
+/// delegates. See [`unavailable_feedback`] for the reason text and recording.
+pub(crate) fn unavailable_plugin_reply(
+    failure_policy: FailurePolicy,
+    runtime: Runtime,
+    unavailable: IntegrationUnavailable,
+) -> Option<Value> {
+    unavailable_feedback(failure_policy, runtime, unavailable).map(
+        |reason| json!({"block":true,"reason":format!("nah - {reason}"),"evaluation_failed":true}),
+    )
+}
+
+/// The reply that hands a call back to its runtime, for the same plugin
+/// runtimes as [`unavailable_plugin_reply`].
+pub(crate) fn delegated_plugin_reply(evaluation_failed: bool) -> Value {
+    json!({"block": false, "evaluation_failed": evaluation_failed})
+}
+
+/// Denies a call Nah could not decide for the runtimes that read the reason
+/// from stderr and block on exit status 2 (Factory Droid and Kiro). Returns
+/// that status, or `None` when the failure policy delegates.
+pub(crate) fn deny_unavailable_on_stderr<E: Write>(
+    stderr: &mut E,
+    failure_policy: FailurePolicy,
+    runtime: Runtime,
+    unavailable: IntegrationUnavailable,
+) -> Option<u8> {
+    unavailable_feedback(failure_policy, runtime, unavailable).map(|reason| {
+        let _ = writeln!(stderr, "nah - {reason}");
+        2
     })
 }
 

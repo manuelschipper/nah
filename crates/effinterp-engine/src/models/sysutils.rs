@@ -6,7 +6,7 @@
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, ObservationOutcome,
     ObservationQuery, PathFact, PathKind, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceFamily, ResourceIdentity,
+    ResourceIdentity,
 };
 
 use super::archive::extraction_target;
@@ -17,6 +17,7 @@ use crate::models::common::{
     program_input_attrs, program_output_attrs, unrecognized_arguments_boundary,
 };
 use crate::models::{CommandModel, InvocationCtx, ModelCausalBinding};
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 pub(super) fn sysutils_models() -> Vec<Box<dyn CommandModel>> {
@@ -1455,9 +1456,7 @@ impl CommandModel for Kill {
                 }
             } else {
                 // A numeric pid is not a name we can resolve to an executable.
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("process"),
-                }
+                unresolved_resource("process")
             };
             arg_effect(
                 builder,
@@ -2901,19 +2900,19 @@ fn chattr_number(text: &str) -> bool {
 fn setfacl_operations<'a>(
     scanned: &crate::models::args::Scanned<'a>,
 ) -> Vec<(u32, &'a Word, bool, bool)> {
-    enum Event<'s, 'a> {
+    enum SetfaclEvent<'s, 'a> {
         Flag(&'s crate::models::args::Flag<'a>),
         File(u32, &'a Word),
     }
-    let mut events: Vec<(u32, Event<'_, 'a>)> = scanned
+    let mut events: Vec<(u32, SetfaclEvent<'_, 'a>)> = scanned
         .flags
         .iter()
-        .map(|flag| (flag.index, Event::Flag(flag)))
+        .map(|flag| (flag.index, SetfaclEvent::Flag(flag)))
         .chain(
             scanned
                 .operands
                 .iter()
-                .map(|(index, operand)| (*index, Event::File(*index, operand))),
+                .map(|(index, operand)| (*index, SetfaclEvent::File(*index, operand))),
         )
         .collect();
     // Stable, so options clustered in one word keep their order.
@@ -2923,7 +2922,7 @@ fn setfacl_operations<'a>(
     let (mut collected, mut granted, mut saw_files) = (false, false, false);
     for (_, event) in events {
         match event {
-            Event::Flag(flag) => {
+            SetfaclEvent::Flag(flag) => {
                 if std::mem::take(&mut saw_files) {
                     collected = false;
                     granted = false;
@@ -2949,7 +2948,7 @@ fn setfacl_operations<'a>(
                     _ => {}
                 }
             }
-            Event::File(index, operand) => {
+            SetfaclEvent::File(index, operand) => {
                 if !collected {
                     break;
                 }

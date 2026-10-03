@@ -1,16 +1,10 @@
 use super::{CommandModel, InvocationCtx, common::arg_node};
+use crate::value::unresolved_resource;
 use crate::{SourcePurpose, builder::PlanBuilder, nest::SourceResolution, word::Word};
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, Domain, Effect, ExecutionNodeRef,
-    ExecutionRealm, Modality, Operation, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity,
+    ExecutionRealm, Modality, Operation, ProvenanceRef, ResourceExpr, ResourceIdentity,
 };
-
-pub(super) fn unknown(family: &str) -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new(family),
-    }
-}
 
 pub(super) fn gap(
     builder: &mut PlanBuilder,
@@ -471,7 +465,12 @@ pub(super) fn read_input(
         });
     }
     if file.as_literal().is_some_and(|path| path.contains("://")) {
-        emit(builder, provenance, "network.request", unknown("network"));
+        emit(
+            builder,
+            provenance,
+            "network.request",
+            unresolved_resource("network"),
+        );
         gap(
             builder,
             provenance,
@@ -542,14 +541,14 @@ pub(super) fn parse_data(
 ) -> Result<Vec<serde_json::Value>, ()> {
     use serde_json::{Map, Value};
     use yaml_rust2::parser::{Event, Parser};
-    enum Frame {
+    enum YamlFrame {
         Array(Vec<Value>),
         Object(Map<String, Value>, Option<String>),
     }
-    fn insert(stack: &mut [Frame], docs: &mut Vec<Value>, value: Value) -> Result<(), ()> {
+    fn insert(stack: &mut [YamlFrame], docs: &mut Vec<Value>, value: Value) -> Result<(), ()> {
         match stack.last_mut() {
-            Some(Frame::Array(items)) => items.push(value),
-            Some(Frame::Object(map, key)) => {
+            Some(YamlFrame::Array(items)) => items.push(value),
+            Some(YamlFrame::Object(map, key)) => {
                 if let Some(key) = key.take() {
                     if map.insert(key, value).is_some() {
                         return Err(());
@@ -595,12 +594,12 @@ pub(super) fn parse_data(
                 };
                 insert(&mut stack, &mut docs, scalar)?
             }
-            Event::SequenceStart(_, None) => stack.push(Frame::Array(Vec::new())),
-            Event::MappingStart(_, None) => stack.push(Frame::Object(Map::new(), None)),
+            Event::SequenceStart(_, None) => stack.push(YamlFrame::Array(Vec::new())),
+            Event::MappingStart(_, None) => stack.push(YamlFrame::Object(Map::new(), None)),
             Event::SequenceEnd | Event::MappingEnd => {
                 let value = match stack.pop().ok_or(())? {
-                    Frame::Array(items) => Value::Array(items),
-                    Frame::Object(map, None) => Value::Object(map),
+                    YamlFrame::Array(items) => Value::Array(items),
+                    YamlFrame::Object(map, None) => Value::Object(map),
                     _ => return Err(()),
                 };
                 insert(&mut stack, &mut docs, value)?;
@@ -1670,11 +1669,13 @@ impl CommandModel for Infrastructure {
                                             configuration_root: Box::new(root_expr.clone()),
                                             workspace: Box::new(
                                                 ctx.environment_value("TF_WORKSPACE")
-                                                    .unwrap_or_else(|| unknown("value")),
+                                                    .unwrap_or_else(|| {
+                                                        unresolved_resource("value")
+                                                    }),
                                             ),
                                             address: Some(format!("{resource_type}.{name}")),
                                             resource_type: Some(resource_type),
-                                            instance: Box::new(unknown("value")),
+                                            instance: Box::new(unresolved_resource("value")),
                                         },
                                     };
                                     for operation in operations {
@@ -1736,11 +1737,11 @@ impl CommandModel for Infrastructure {
                     configuration_root: Box::new(root_expr.clone()),
                     workspace: Box::new(
                         ctx.environment_value("TF_WORKSPACE")
-                            .unwrap_or_else(|| unknown("value")),
+                            .unwrap_or_else(|| unresolved_resource("value")),
                     ),
                     resource_type: None,
                     address: None,
-                    instance: Box::new(unknown("value")),
+                    instance: Box::new(unresolved_resource("value")),
                 },
             };
             if *operation == "cloud.resource.delete" && whole_stack_destroy {

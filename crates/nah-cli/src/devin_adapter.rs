@@ -8,9 +8,13 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::adapter_fields::runtime_field_names_covered;
+use crate::adapter_fields::{
+    runtime_field_names_covered, tool_input_non_empty_string, tool_input_object, tool_input_string,
+};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
+
+const INVALID_DEVIN_TOOL_INPUT: &str = "invalid-devin-tool-input";
 
 #[derive(Deserialize)]
 struct DevinHookInput {
@@ -33,7 +37,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         {
             Ok(Some(input)) => project_dir
                 .ok_or_else(|| "devin-project-dir-unavailable".to_owned())
-                .and_then(|cwd| normalize(input, cwd)),
+                .and_then(|cwd| normalize_devin_hook_input(input, cwd)),
             Ok(None) => return 0,
             Err(error) => Err(error.to_string()),
         };
@@ -44,7 +48,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     match decision {
         HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
             let feedback = hook_adapter::feedback(&decision);
-            deny(stdout, &feedback);
+            write_devin_deny_reply(stdout, &feedback);
             let _ = writeln!(stderr, "nah - {feedback}");
             if decision.guard_block_incomplete() {
                 let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
@@ -58,7 +62,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             0
         }
         HookOutcome::IrrelevantEvent => 0,
-        HookOutcome::MalformedInput => deny_unavailable(
+        HookOutcome::MalformedInput => deny_unavailable_on_devin_stdout(
             stdout,
             stderr,
             failure_policy,
@@ -66,22 +70,24 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         )
         .unwrap_or(0),
         HookOutcome::EvaluationUnavailable(kind) => {
-            deny_unavailable(stdout, stderr, failure_policy, kind).unwrap_or_else(|| {
-                let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
-                0
-            })
+            deny_unavailable_on_devin_stdout(stdout, stderr, failure_policy, kind).unwrap_or_else(
+                || {
+                    let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                    0
+                },
+            )
         }
     }
 }
 
-fn deny_unavailable<W: Write, E: Write>(
+fn deny_unavailable_on_devin_stdout<W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
     failure_policy: FailurePolicy,
     unavailable: hook_adapter::IntegrationUnavailable,
 ) -> Option<u8> {
     hook_adapter::unavailable_feedback(failure_policy, Runtime::Devin, unavailable).map(|reason| {
-        deny(stdout, &reason);
+        write_devin_deny_reply(stdout, &reason);
         let _ = writeln!(stderr, "nah - {reason}");
         2
     })
@@ -94,7 +100,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize(
+    normalize_devin_hook_input(
         DevinHookInput {
             hook_event_name: "PreToolUse".into(),
             tool_name: tool_name.into(),
@@ -105,12 +111,12 @@ pub(crate) fn normalize_call(
     )
 }
 
-fn normalize(input: DevinHookInput, cwd: &str) -> Result<ToolCallInput, String> {
+fn normalize_devin_hook_input(input: DevinHookInput, cwd: &str) -> Result<ToolCallInput, String> {
     let original_input = input.tool_input.clone();
     if input.hook_event_name != "PreToolUse" {
         return Err("invalid-devin-hook-event".into());
     }
-    let lowered = lower(&input.tool_name, &input.tool_input);
+    let lowered = lower_devin_tool(&input.tool_name, &input.tool_input);
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
             tool,
@@ -124,46 +130,52 @@ fn normalize(input: DevinHookInput, cwd: &str) -> Result<ToolCallInput, String> 
         .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(tool_name: &'a str, tool_input: &Value) -> Result<(&'a str, Value), String> {
+fn lower_devin_tool<'a>(
+    tool_name: &'a str,
+    tool_input: &Value,
+) -> Result<(&'a str, Value), String> {
     Ok(match tool_name {
         "exec" => {
-            let object = object(tool_input)?;
-            ("Bash", json!({"command": string(object, "command")?}))
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
+            (
+                "Bash",
+                json!({"command": tool_input_string(object, "command", INVALID_DEVIN_TOOL_INPUT)?}),
+            )
         }
         "read" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
             (
                 "Read",
-                json!({"file_path": non_empty(object, "file_path")?}),
+                json!({"file_path": tool_input_non_empty_string(object, "file_path", INVALID_DEVIN_TOOL_INPUT)?}),
             )
         }
         "write" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
             (
                 "Write",
                 json!({
-                    "file_path": non_empty(object, "file_path")?,
-                    "content": string(object, "content")?
+                    "file_path": tool_input_non_empty_string(object, "file_path", INVALID_DEVIN_TOOL_INPUT)?,
+                    "content": tool_input_string(object, "content", INVALID_DEVIN_TOOL_INPUT)?
                 }),
             )
         }
         "edit" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
             let mut normalized = json!({
-                "file_path": non_empty(object, "file_path")?,
-                "old_string": string(object, "old_string")?,
-                "new_string": string(object, "new_string")?
+                "file_path": tool_input_non_empty_string(object, "file_path", INVALID_DEVIN_TOOL_INPUT)?,
+                "old_string": tool_input_string(object, "old_string", INVALID_DEVIN_TOOL_INPUT)?,
+                "new_string": tool_input_string(object, "new_string", INVALID_DEVIN_TOOL_INPUT)?
             });
             if let Some(replace_all) = object.get("replace_all") {
                 if !replace_all.is_boolean() {
-                    return Err("invalid-devin-tool-input".into());
+                    return Err(INVALID_DEVIN_TOOL_INPUT.into());
                 }
                 normalized["replace_all"] = replace_all.clone();
             }
             ("Edit", normalized)
         }
         "grep" => {
-            let object = object(tool_input)?;
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
             let mut normalized = json!({"pattern": aliased_string(object, "pattern", "query")?});
             if let Some(path) = aliased_optional(object, "path", "file_path")? {
                 normalized["path"] = json!(path);
@@ -171,36 +183,14 @@ fn lower<'a>(tool_name: &'a str, tool_input: &Value) -> Result<(&'a str, Value),
             ("Grep", normalized)
         }
         "glob" => {
-            let object = object(tool_input)?;
-            let mut normalized = json!({"pattern": non_empty(object, "pattern")?});
+            let object = tool_input_object(tool_input, INVALID_DEVIN_TOOL_INPUT)?;
+            let mut normalized = json!({"pattern": tool_input_non_empty_string(object, "pattern", INVALID_DEVIN_TOOL_INPUT)?});
             if let Some(path) = aliased_optional(object, "path", "file_path")? {
                 normalized["path"] = json!(path);
             }
             ("Glob", normalized)
         }
         _ => (tool_name, tool_input.clone()),
-    })
-}
-
-fn object(input: &Value) -> Result<&Map<String, Value>, String> {
-    input
-        .as_object()
-        .ok_or_else(|| "invalid-devin-tool-input".to_owned())
-}
-
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-devin-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        (!value.is_empty())
-            .then_some(value)
-            .ok_or_else(|| "invalid-devin-tool-input".to_owned())
     })
 }
 
@@ -216,7 +206,7 @@ fn aliased_string(object: &Map<String, Value>, left: &str, right: &str) -> Resul
         {
             Ok(value.clone())
         }
-        _ => Err("invalid-devin-tool-input".into()),
+        _ => Err(INVALID_DEVIN_TOOL_INPUT.into()),
     }
 }
 
@@ -233,16 +223,15 @@ fn aliased_optional(
             Ok((!value.is_empty()).then(|| value.clone()))
         }
         (None, None) => Ok(None),
-        _ => Err("invalid-devin-tool-input".into()),
+        _ => Err(INVALID_DEVIN_TOOL_INPUT.into()),
     }
 }
 
-fn deny<W: Write>(stdout: &mut W, reason: &str) {
-    let _ = serde_json::to_writer(
-        &mut *stdout,
-        &json!({"decision":"block","reason":format!("nah - {reason}")}),
+fn write_devin_deny_reply<W: Write>(stdout: &mut W, reason: &str) {
+    hook_adapter::write_hook_reply_line(
+        stdout,
+        json!({"decision":"block","reason":format!("nah - {reason}")}),
     );
-    let _ = writeln!(stdout);
 }
 
 #[cfg(test)]
@@ -250,7 +239,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(
+        normalize_devin_hook_input(
             DevinHookInput {
                 hook_event_name: "PreToolUse".into(),
                 tool_name: tool_name.into(),
@@ -317,7 +306,7 @@ mod tests {
         assert_eq!(opaque.input(), &json!({"title":"bug"}));
 
         let input = json!({"pattern":"one","query":"two"});
-        let call = normalize(
+        let call = normalize_devin_hook_input(
             DevinHookInput {
                 hook_event_name: "PreToolUse".into(),
                 tool_name: "grep".into(),

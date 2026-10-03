@@ -2,7 +2,7 @@
 //! canonicalize host paths.
 
 use super::HostIntegrityClass;
-use super::lexical_path::{comparison_key, contains, join, same_path};
+use super::lexical_path::{comparison_key, join_lexical_path, lexically_contains, same_path};
 use super::pattern::pattern_reaches;
 use crate::action::{FilesystemOperation, pattern_bound};
 use crate::ctx::{AbsolutePath, Platform};
@@ -75,7 +75,7 @@ fn requested_identity(requested: &str, home: &AbsolutePath, platform: Platform) 
         .strip_prefix("~/")
         .or_else(|| requested.strip_prefix("~\\"))
     {
-        Some(join(home.as_str(), relative, platform))
+        Some(join_lexical_path(home.as_str(), relative, platform))
     } else if AbsolutePath::new(platform, requested).is_ok() {
         Some(requested.to_owned())
     } else {
@@ -93,7 +93,7 @@ fn auth_identity_path(
     for entry in [".ssh/authorized_keys"] {
         if catalog_entry_matches(
             path,
-            &join(home.as_str(), entry, platform),
+            &join_lexical_path(home.as_str(), entry, platform),
             false,
             platform,
             pattern,
@@ -105,7 +105,7 @@ fn auth_identity_path(
     for entry in [".ssh/authorized_keys.d"] {
         if catalog_entry_matches(
             path,
-            &join(home.as_str(), entry, platform),
+            &join_lexical_path(home.as_str(), entry, platform),
             true,
             platform,
             pattern,
@@ -200,7 +200,7 @@ fn shell_profile_path(
         .any(|entry| {
             catalog_entry_matches(
                 path,
-                &join(home.as_str(), entry, platform),
+                &join_lexical_path(home.as_str(), entry, platform),
                 false,
                 platform,
                 pattern,
@@ -210,7 +210,7 @@ fn shell_profile_path(
         || home_directories.into_iter().any(|entry| {
             catalog_entry_matches(
                 path,
-                &join(home.as_str(), entry, platform),
+                &join_lexical_path(home.as_str(), entry, platform),
                 true,
                 platform,
                 pattern,
@@ -236,7 +236,7 @@ fn startup_persistence_path(
     if home_files.into_iter().any(|entry| {
         catalog_entry_matches(
             path,
-            &join(home.as_str(), entry, platform),
+            &join_lexical_path(home.as_str(), entry, platform),
             false,
             platform,
             pattern,
@@ -245,7 +245,7 @@ fn startup_persistence_path(
     }) || home_directories.into_iter().any(|entry| {
         catalog_entry_matches(
             path,
-            &join(home.as_str(), entry, platform),
+            &join_lexical_path(home.as_str(), entry, platform),
             true,
             platform,
             pattern,
@@ -370,7 +370,7 @@ fn catalog_entry_matches(
     let path = comparison_key(path, platform);
     let entry = comparison_key(entry, platform);
     if if directory {
-        contains(&entry, &path, platform)
+        lexically_contains(&entry, &path, platform)
     } else {
         same_path(&entry, &path, platform)
     } {
@@ -378,7 +378,7 @@ fn catalog_entry_matches(
     }
     if removal == Removal::Tree
         && !same_path(&path, &entry, platform)
-        && contains(&path, &entry, platform)
+        && lexically_contains(&path, &entry, platform)
     {
         return true;
     }
@@ -406,5 +406,5 @@ fn catalog_entry_matches(
         && !entry.strip_prefix(&bound).is_some_and(|suffix| {
             wildcard_starts_component && suffix.trim_start_matches('/').starts_with('.')
         });
-    reaches_entry || directory && contains(&entry, &bound, platform)
+    reaches_entry || directory && lexically_contains(&entry, &bound, platform)
 }

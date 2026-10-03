@@ -1,8 +1,9 @@
+use crate::value::unresolved_resource;
 use std::collections::BTreeMap;
 
 use effinterp_proto::{AttrValue, ResourceExpr};
 
-use super::{env_resource, filesystem_sink, network_sink, unresolved};
+use super::{env_resource, filesystem_sink, network_sink};
 
 // ---- shared JDK model ----
 
@@ -44,8 +45,20 @@ pub(super) fn model_ops(
     recv_res: ResourceExpr,
     args: &[ResourceExpr],
 ) -> Option<Vec<ModeledOp>> {
-    let arg0 = || filesystem_sink(args.first().cloned().unwrap_or(unresolved("filesystem")));
-    let arg1 = || filesystem_sink(args.get(1).cloned().unwrap_or(unresolved("filesystem")));
+    let arg0 = || {
+        filesystem_sink(
+            args.first()
+                .cloned()
+                .unwrap_or(unresolved_resource("filesystem")),
+        )
+    };
+    let arg1 = || {
+        filesystem_sink(
+            args.get(1)
+                .cloned()
+                .unwrap_or(unresolved_resource("filesystem")),
+        )
+    };
     Some(match (recv, name) {
         // java.nio.file.Files
         ("Files", "delete" | "deleteIfExists") => vec![("filesystem.delete", arg0(), None)],
@@ -147,7 +160,13 @@ pub(super) fn model_ops(
 
 /// Modeled effectful JDK object creations: `new FileInputStream(p)` reads.
 pub(super) fn model_creation(ty: &str, args: &[ResourceExpr]) -> Option<Vec<ModeledOp>> {
-    let arg0 = || filesystem_sink(args.first().cloned().unwrap_or(unresolved("filesystem")));
+    let arg0 = || {
+        filesystem_sink(
+            args.first()
+                .cloned()
+                .unwrap_or(unresolved_resource("filesystem")),
+        )
+    };
     Some(match ty {
         "FileInputStream" | "FileReader" => vec![("filesystem.read", arg0(), None)],
         "FileOutputStream" | "FileWriter" => vec![("filesystem.write", arg0(), None)],
@@ -155,7 +174,7 @@ pub(super) fn model_creation(ty: &str, args: &[ResourceExpr]) -> Option<Vec<Mode
             ("filesystem.read", arg0(), None),
             ("filesystem.write", arg0(), None),
         ],
-        "Socket" => vec![("network.request", unresolved("network"), None)],
+        "Socket" => vec![("network.request", unresolved_resource("network"), None)],
         _ => return None,
     })
 }

@@ -9,11 +9,13 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    adapter_fields::runtime_field_names_covered,
+    adapter_fields::{runtime_field_names_covered, tool_input_non_empty_string, tool_input_string},
     commands::quote_posix_shell_word,
     hook_adapter, live_state,
     runtime::{FailurePolicy, Runtime},
 };
+
+const INVALID_CLINE_TOOL_INPUT: &str = "invalid-cline-tool-input";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,7 +40,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
-    run_for_platform(
+    run_cline_for_platform(
         stdin,
         stdout,
         stderr,
@@ -47,7 +49,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     )
 }
 
-fn run_for_platform<R: Read, W: Write, E: Write>(
+fn run_cline_for_platform<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
@@ -67,7 +69,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
         }
         Err(error) => Err(error.to_string()),
     };
-    let request = input.and_then(|input| normalize_for_platform(input, platform));
+    let request = input.and_then(|input| normalize_cline_hook_input_for_platform(input, platform));
     let output = match request {
         Ok(request) => {
             match hook_adapter::decide_input(request, stderr, Runtime::Cline, failure_policy) {
@@ -80,7 +82,7 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
                     )
                 }
                 hook_adapter::HookOutcome::Decision(decision) => {
-                    delegated(decision.evaluation_failed())
+                    cline_delegated_reply(decision.evaluation_failed())
                 }
                 hook_adapter::HookOutcome::IrrelevantEvent => return 0,
                 hook_adapter::HookOutcome::MalformedInput => hook_adapter::unavailable_feedback(
@@ -88,10 +90,16 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
                     Runtime::Cline,
                     hook_adapter::IntegrationUnavailable::MalformedInput,
                 )
-                .map_or_else(|| delegated(false), |reason| cancel(&reason, false)),
+                .map_or_else(
+                    || cline_delegated_reply(false),
+                    |reason| cancel(&reason, false),
+                ),
                 hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
                     hook_adapter::unavailable_feedback(failure_policy, Runtime::Cline, kind)
-                        .map_or_else(|| delegated(true), |reason| cancel(&reason, false))
+                        .map_or_else(
+                            || cline_delegated_reply(true),
+                            |reason| cancel(&reason, false),
+                        )
                 }
             }
         }
@@ -100,10 +108,12 @@ fn run_for_platform<R: Read, W: Write, E: Write>(
             Runtime::Cline,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
-        .map_or_else(|| delegated(false), |reason| cancel(&reason, false)),
+        .map_or_else(
+            || cline_delegated_reply(false),
+            |reason| cancel(&reason, false),
+        ),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
 }
 
@@ -115,7 +125,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize_for_platform(
+    normalize_cline_hook_input_for_platform(
         ClineHookInput {
             hook_name: "PreToolUse".into(),
             task_id: "nah-test".into(),
@@ -130,11 +140,11 @@ pub(crate) fn normalize_call(
 }
 
 #[cfg(test)]
-fn normalize(input: ClineHookInput) -> Result<ToolCallInput, String> {
-    normalize_for_platform(input, live_state::host_platform())
+fn normalize_cline_hook_input(input: ClineHookInput) -> Result<ToolCallInput, String> {
+    normalize_cline_hook_input_for_platform(input, live_state::host_platform())
 }
 
-fn normalize_for_platform(
+fn normalize_cline_hook_input_for_platform(
     input: ClineHookInput,
     platform: Platform,
 ) -> Result<ToolCallInput, String> {
@@ -155,7 +165,7 @@ fn normalize_for_platform(
         .and_then(|path| path.to_str().map(str::to_owned))
         .ok_or_else(|| "cline-hook-cwd-unavailable".to_owned())?;
     AbsolutePath::new(platform, cwd.clone()).map_err(|_| "invalid-cline-hook-cwd")?;
-    if unsupported_shell(&input.pre_tool_use.tool_name, platform) {
+    if cline_unsupported_shell(&input.pre_tool_use.tool_name, platform) {
         return ToolCallInput::new(
             SchemaVersion::V1,
             "ClineWindowsShell",
@@ -171,9 +181,9 @@ fn normalize_for_platform(
         .pre_tool_use
         .parameters
         .as_object()
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())
         .and_then(|parameters| {
-            lower(
+            lower_cline_tool(
                 &input.pre_tool_use.tool_name,
                 &input.pre_tool_use.parameters,
                 parameters,
@@ -203,7 +213,7 @@ fn normalize_for_platform(
     .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_cline_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     parameters: &Map<String, Value>,
@@ -212,7 +222,7 @@ fn lower<'a>(
     Ok(match tool_name {
         "execute_command" => (
             "Bash",
-            json!({"command": non_empty(parameters, "command")?}),
+            json!({"command": tool_input_non_empty_string(parameters, "command", INVALID_CLINE_TOOL_INPUT)?}),
         ),
         "run_commands" => ("Bash", json!({"command": command_parameters(parameters)?})),
         "read_file" => (
@@ -231,20 +241,20 @@ fn lower<'a>(
             "Write",
             json!({
                 "file_path":non_empty_alias(parameters, &["path", "file_path"])?,
-                "content":string(parameters, "content")?
+                "content":tool_input_string(parameters, "content", INVALID_CLINE_TOOL_INPUT)?
             }),
         ),
         "replace_in_file" => (
             "Write",
             json!({
                 "file_path":non_empty_alias(parameters, &["path", "file_path"])?,
-                "content":string(parameters, "diff")?
+                "content":tool_input_string(parameters, "diff", INVALID_CLINE_TOOL_INPUT)?
             }),
         ),
         "editor" => {
-            let path = non_empty(parameters, "path")?;
-            let new_text = string(parameters, "new_text")?;
-            match optional_string(parameters, "old_text")? {
+            let path = tool_input_non_empty_string(parameters, "path", INVALID_CLINE_TOOL_INPUT)?;
+            let new_text = tool_input_string(parameters, "new_text", INVALID_CLINE_TOOL_INPUT)?;
+            match tool_input_nullable_string(parameters, "old_text")? {
                 Some(old_text) => (
                     "Edit",
                     json!({"file_path":path,"old_string":old_text,"new_string":new_text}),
@@ -254,12 +264,12 @@ fn lower<'a>(
         }
         "apply_patch" => (
             "apply_patch",
-            json!({"command":non_empty(parameters, "input")?}),
+            json!({"command":tool_input_non_empty_string(parameters, "input", INVALID_CLINE_TOOL_INPUT)?}),
         ),
         "search_files" => (
             "Grep",
             json!({
-                "path":non_empty(parameters, "path")?,
+                "path":tool_input_non_empty_string(parameters, "path", INVALID_CLINE_TOOL_INPUT)?,
                 "pattern":string_alias(parameters, &["regex", "pattern"])?
             }),
         ),
@@ -271,14 +281,15 @@ fn lower<'a>(
                 ("Grep", json!({"path":cwd,"pattern":queries[0]}))
             }
         }
-        "list_files" | "list_code_definition_names" => {
-            ("Ls", json!({"path":non_empty(parameters, "path")?}))
-        }
+        "list_files" | "list_code_definition_names" => (
+            "Ls",
+            json!({"path":tool_input_non_empty_string(parameters, "path", INVALID_CLINE_TOOL_INPUT)?}),
+        ),
         _ => (tool_name, tool_input.clone()),
     })
 }
 
-fn unsupported_shell(tool: &str, platform: Platform) -> bool {
+fn cline_unsupported_shell(tool: &str, platform: Platform) -> bool {
     platform == Platform::Windows && matches!(tool, "execute_command" | "run_commands")
 }
 
@@ -289,48 +300,36 @@ fn decoded(value: &Value) -> Value {
         .unwrap_or_else(|| value.clone())
 }
 
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        if value.is_empty() {
-            Err("invalid-cline-tool-input".into())
-        } else {
-            Ok(value)
-        }
-    })
-}
-
 fn string_alias(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
     names
         .iter()
         .find_map(|name| object.get(*name).and_then(Value::as_str))
         .map(str::to_owned)
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())
 }
 
 fn non_empty_alias(object: &Map<String, Value>, names: &[&str]) -> Result<String, String> {
     string_alias(object, names).and_then(|value| {
         if value.is_empty() {
-            Err("invalid-cline-tool-input".into())
+            Err(INVALID_CLINE_TOOL_INPUT.into())
         } else {
             Ok(value)
         }
     })
 }
 
-fn optional_string(object: &Map<String, Value>, name: &str) -> Result<Option<String>, String> {
+/// Reads an optional string tool input field that Cline may send as null. A
+/// missing field, null and the string `"null"` are all `None`; an empty string
+/// is kept.
+fn tool_input_nullable_string(
+    object: &Map<String, Value>,
+    name: &str,
+) -> Result<Option<String>, String> {
     match object.get(name) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(value)) if value == "null" => Ok(None),
         Some(Value::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Err("invalid-cline-tool-input".into()),
+        Some(_) => Err(INVALID_CLINE_TOOL_INPUT.into()),
     }
 }
 
@@ -338,7 +337,7 @@ fn strings(object: &Map<String, Value>, name: &str) -> Result<Vec<String>, Strin
     let value = object
         .get(name)
         .map(decoded)
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
     match value {
         Value::String(value) if !value.is_empty() => Ok(vec![value]),
         Value::Array(values) if !values.is_empty() => values
@@ -348,24 +347,24 @@ fn strings(object: &Map<String, Value>, name: &str) -> Result<Vec<String>, Strin
                     .as_str()
                     .filter(|value| !value.is_empty())
                     .map(str::to_owned)
-                    .ok_or_else(|| "invalid-cline-tool-input".to_owned())
+                    .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())
             })
             .collect(),
-        _ => Err("invalid-cline-tool-input".into()),
+        _ => Err(INVALID_CLINE_TOOL_INPUT.into()),
     }
 }
 
 fn commands(value: Option<&Value>) -> Result<String, String> {
     let value = value
         .map(decoded)
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
     let values = match value {
         Value::Array(values) if !values.is_empty() => values,
         value => vec![value],
     };
     values
         .iter()
-        .map(command)
+        .map(cline_command_text)
         .collect::<Result<Vec<_>, _>>()
         .map(|commands| commands.join("; "))
 }
@@ -377,38 +376,38 @@ fn command_parameters(object: &Map<String, Value>) -> Result<String, String> {
     let program = object
         .get("command")
         .or_else(|| object.get("cmd"))
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
     let Some(args) = object.get("args") else {
         return commands(Some(program));
     };
     let mut structured = Map::new();
     structured.insert("command".into(), decoded(program));
     structured.insert("args".into(), decoded(args));
-    command(&Value::Object(structured))
+    cline_command_text(&Value::Object(structured))
 }
 
-fn command(value: &Value) -> Result<String, String> {
+fn cline_command_text(value: &Value) -> Result<String, String> {
     match value {
         Value::String(value) if !value.is_empty() => Ok(value.clone()),
         Value::Object(object) => {
-            let command = non_empty(object, "command")?;
+            let command = tool_input_non_empty_string(object, "command", INVALID_CLINE_TOOL_INPUT)?;
             let Some(args) = object.get("args") else {
                 return Ok(command);
             };
             let args = decoded(args);
             let args = args
                 .as_array()
-                .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+                .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
             args.iter().try_fold(command, |mut command, argument| {
                 let argument = argument
                     .as_str()
-                    .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+                    .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
                 command.push(' ');
                 command.push_str(&quote_posix_shell_word(argument));
                 Ok(command)
             })
         }
-        _ => Err("invalid-cline-tool-input".into()),
+        _ => Err(INVALID_CLINE_TOOL_INPUT.into()),
     }
 }
 
@@ -418,7 +417,7 @@ fn read_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
         .or_else(|| object.get("paths"))
         .or_else(|| object.get("file_paths"))
         .map(decoded)
-        .ok_or_else(|| "invalid-cline-tool-input".to_owned())?;
+        .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())?;
     let values = match value {
         Value::Array(values) if !values.is_empty() => values,
         value => vec![value],
@@ -428,12 +427,12 @@ fn read_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
         .map(|value| match value {
             Value::String(path) if !path.is_empty() => Ok(path.clone()),
             Value::Object(object) => non_empty_alias(object, &["path", "file_path", "filePath"]),
-            _ => Err("invalid-cline-tool-input".into()),
+            _ => Err(INVALID_CLINE_TOOL_INPUT.into()),
         })
         .collect()
 }
 
-fn delegated(evaluation_failed: bool) -> Value {
+fn cline_delegated_reply(evaluation_failed: bool) -> Value {
     if evaluation_failed {
         json!({
             "cancel":false,
@@ -463,7 +462,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, parameters: Value) -> ToolCallInput {
-        normalize(ClineHookInput {
+        normalize_cline_hook_input(ClineHookInput {
             hook_name: "PreToolUse".into(),
             task_id: "task-1".into(),
             workspace_roots: vec![
@@ -583,7 +582,7 @@ mod tests {
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
             assert_eq!(
-                run_for_platform(
+                run_cline_for_platform(
                     &mut stdin,
                     &mut stdout,
                     &mut stderr,
@@ -601,8 +600,8 @@ mod tests {
     #[test]
     fn dialect_boundary_preserves_unix_shell_and_native_tools() {
         for platform in [Platform::Linux, Platform::Macos] {
-            assert!(!unsupported_shell("execute_command", platform));
-            assert!(!unsupported_shell("run_commands", platform));
+            assert!(!cline_unsupported_shell("execute_command", platform));
+            assert!(!cline_unsupported_shell("run_commands", platform));
         }
         for tool in [
             "read_file",
@@ -612,7 +611,7 @@ mod tests {
             "search_files",
             "list_files",
         ] {
-            assert!(!unsupported_shell(tool, Platform::Windows), "{tool}");
+            assert!(!cline_unsupported_shell(tool, Platform::Windows), "{tool}");
         }
     }
 
@@ -627,7 +626,7 @@ mod tests {
             ("apply_patch", json!({"input":""})),
         ] {
             let input = parameters.clone();
-            let call = normalize(ClineHookInput {
+            let call = normalize_cline_hook_input(ClineHookInput {
                 hook_name: "PreToolUse".into(),
                 task_id: "task-1".into(),
                 workspace_roots: vec![
@@ -642,7 +641,7 @@ mod tests {
                 },
             })
             .unwrap();
-            let expected = if cfg!(windows) && unsupported_shell(name, Platform::Windows) {
+            let expected = if cfg!(windows) && cline_unsupported_shell(name, Platform::Windows) {
                 "ClineWindowsShell"
             } else {
                 name

@@ -4,39 +4,9 @@
 //! composer.json autoload map.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
-use std::{
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
-
-static NEXT_TEMP_REPO: AtomicU64 = AtomicU64::new(0);
-
-fn temp_repo(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-    let nonce = NEXT_TEMP_REPO.fetch_add(1, Ordering::Relaxed);
-    let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("{tag}-{}-{nonce}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    for (rel, content) in files {
-        let path = root.join(rel);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, content).unwrap();
-    }
-    root
-}
-
-fn display(effect: &effinterp_proto::EffectFact) -> String {
-    effinterp_proto::display_resource(&effect.resource)
-}
-
-fn origin(effect: &effinterp_proto::EffectFact) -> &str {
-    effect
-        .origin
-        .as_ref()
-        .map(|origin| origin.source_file.as_str())
-        .unwrap_or("")
-}
+use crate::support::{display, origin, temp_repo};
 
 #[test]
 fn extensionless_bin_reaches_psr4_layout_class() {
@@ -62,7 +32,11 @@ fn extensionless_bin_reaches_psr4_layout_class() {
             .any(|e| e.entrypoint.id == "bin/tool"),
         "extensionless php shebang is an entrypoint"
     );
-    let report = reach(&idx, &Selector::parse("fs:/tmp/from-run").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/tmp/from-run").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload

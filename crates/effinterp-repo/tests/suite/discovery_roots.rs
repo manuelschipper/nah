@@ -9,13 +9,7 @@ use std::path::Path;
 use effinterp_repo::{IndexLimits, build_index};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
-fn ids(root: &Path) -> Vec<String> {
-    build_index(root, IndexLimits::default())
-        .entrypoints
-        .iter()
-        .map(|e| e.entrypoint.id.clone())
-        .collect()
-}
+use crate::{live, support::ids};
 
 #[test]
 fn string_and_comment_mains_are_not_entrypoints() {
@@ -42,7 +36,7 @@ fn string_and_comment_mains_are_not_entrypoints() {
             ),
         ],
     );
-    let ids = ids(&root);
+    let ids = ids(&live(&root));
     assert!(!ids.contains(&"glue.rs".to_string()), "glue.rs: {ids:?}");
     assert!(!ids.contains(&"gen.go".to_string()), "gen.go: {ids:?}");
     assert!(!ids.contains(&"basic.py".to_string()), "basic.py: {ids:?}");
@@ -58,7 +52,7 @@ fn go_test_file_with_string_main_is_not_an_entrypoint() {
             "package git\n\nvar generated = `package main\nfunc main() {}\n`\n\nfunc TestX() {}\n",
         )],
     );
-    let ids = ids(&root);
+    let ids = ids(&live(&root));
     assert!(
         !ids.contains(&"internal/git/command_test.go".to_string()),
         "command_test.go: {ids:?}"
@@ -75,7 +69,7 @@ fn python_under_test_tree_even_with_shebang_is_not_an_entrypoint() {
             "#!/usr/bin/env python3\nimport os\nif __name__ == \"__main__\":\n    os.remove(\"/tmp/x\")\n",
         )],
     );
-    let ids = ids(&root);
+    let ids = ids(&live(&root));
     assert!(
         !ids.contains(&"tests/data/case.py".to_string()),
         "file under tests/ is not a program: {ids:?}"
@@ -92,7 +86,7 @@ fn ordinary_php_class_is_not_an_entrypoint() {
             "<?php\nnamespace Foo;\nclass Status404 { public function code() { return 404; } }\n",
         )],
     );
-    let ids = ids(&root);
+    let ids = ids(&live(&root));
     assert!(
         !ids.contains(&"src/Foo/Status404.php".to_string()),
         "a plain PHP class is not a program: {ids:?}"
@@ -120,7 +114,7 @@ fn real_execution_roots_are_still_discovered() {
             ),
         ],
     );
-    let ids = ids(&root);
+    let ids = ids(&live(&root));
     assert!(
         ids.contains(&"cmd/app/main.go".to_string()),
         "real func main: {ids:?}"
@@ -170,7 +164,7 @@ fn non_root_paths_and_libraries_do_not_become_execution_roots() {
             ("lib/base.rb", "# __FILE__\ndef name\n  $0\nend\n"),
         ],
     );
-    let mut actual = ids(&root);
+    let mut actual = ids(&live(&root));
     actual.sort();
     assert_eq!(
         actual,
@@ -428,13 +422,13 @@ def handler():
         "roots-registration-identity-moved",
         &[("a:api.py", source), ("other.py", source)],
     );
-    assert_eq!(ids, self::ids(&moved));
+    assert_eq!(ids, self::ids(&live(&moved)));
     std::fs::write(
         moved.join("a:api.py"),
         format!("# unrelated comment\n{source}"),
     )
     .unwrap();
-    assert_eq!(ids, self::ids(&moved));
+    assert_eq!(ids, self::ids(&live(&moved)));
 
     let mut limits = IndexLimits::default();
     limits.engine.insert("max_python_nodes".into(), 1);
@@ -991,7 +985,7 @@ fn python_fire_and_raise_execution_roots() {
             ("library.py", "import fire\ndef main():\n    fire.Fire()\n"),
         ],
     );
-    let found = ids(&root);
+    let found = ids(&live(&root));
     for file in ["fire.py", "bare.py", "raise.py"] {
         assert!(found.contains(&file.to_string()), "{found:?}");
     }

@@ -1,16 +1,16 @@
-use super::lex::{Seg, Span, WordTok};
+use super::lex::{Seg, ShellSpan, WordTok};
 
 pub(super) enum BraceExpansion {
     /// One element when nothing expands.
     Words(Vec<WordTok>),
-    Unsupported(Span),
+    Unsupported(ShellSpan),
     /// The count is computed before expanded words are allocated.
     Overflow {
         produced: usize,
     },
 }
 
-enum Node {
+enum BraceNode {
     Atom(Seg),
     Concat(Vec<usize>),
     List(Vec<usize>),
@@ -23,21 +23,21 @@ enum Node {
 }
 
 struct Tree {
-    nodes: Vec<Node>,
+    nodes: Vec<BraceNode>,
     sizes: Vec<usize>,
 }
 
 impl Tree {
-    fn add(&mut self, node: Node) -> usize {
+    fn add(&mut self, node: BraceNode) -> usize {
         let size = match &node {
-            Node::Atom(_) => 1,
-            Node::Concat(parts) => parts
+            BraceNode::Atom(_) => 1,
+            BraceNode::Concat(parts) => parts
                 .iter()
                 .fold(1usize, |n, &p| n.saturating_mul(self.sizes[p])),
-            Node::List(parts) => parts
+            BraceNode::List(parts) => parts
                 .iter()
                 .fold(0usize, |n, &p| n.saturating_add(self.sizes[p])),
-            Node::Sequence { .. } => unreachable!(),
+            BraceNode::Sequence { .. } => unreachable!(),
         };
         let id = self.nodes.len();
         self.nodes.push(node);
@@ -46,7 +46,7 @@ impl Tree {
     }
 }
 
-fn literal(text: impl Into<String>) -> Seg {
+fn literal_seg(text: impl Into<String>) -> Seg {
     Seg::Literal {
         text: text.into(),
         quoted: false,
@@ -63,7 +63,7 @@ fn character(seg: &Seg) -> Option<char> {
     }
 }
 
-fn sequence(body: &[Seg]) -> Result<Option<(Node, usize)>, ()> {
+fn sequence(body: &[Seg]) -> Result<Option<(BraceNode, usize)>, ()> {
     let mut fields = Vec::new();
     let mut start = 0;
     let mut i = 0;
@@ -129,7 +129,7 @@ fn sequence(body: &[Seg]) -> Result<Option<(Node, usize)>, ()> {
     };
     let size = usize::try_from((end - start).abs() / step + 1).unwrap_or(usize::MAX);
     Ok(Some((
-        Node::Sequence {
+        BraceNode::Sequence {
             start,
             step: if end < start { -step } else { step },
             width,
@@ -155,7 +155,7 @@ pub(super) fn expand(tok: &WordTok, cap: usize) -> BraceExpansion {
             Seg::Literal {
                 text,
                 quoted: false,
-            } => atoms.extend(text.chars().map(|c| literal(c.to_string()))),
+            } => atoms.extend(text.chars().map(|c| literal_seg(c.to_string()))),
             _ => atoms.push(seg.clone()),
         }
     }
@@ -193,13 +193,13 @@ pub(super) fn expand(tok: &WordTok, cap: usize) -> BraceExpansion {
                 if parts.len() > 1 {
                     let alternatives = parts
                         .into_iter()
-                        .map(|part| tree.add(Node::Concat(part)))
+                        .map(|part| tree.add(BraceNode::Concat(part)))
                         .collect();
-                    tree.add(Node::List(alternatives))
+                    tree.add(BraceNode::List(alternatives))
                 } else {
                     let sequence = if parts[0]
                         .iter()
-                        .all(|&id| matches!(tree.nodes[id], Node::Atom(_)))
+                        .all(|&id| matches!(tree.nodes[id], BraceNode::Atom(_)))
                     {
                         sequence(&atoms[open + 1..i])
                     } else {
@@ -217,10 +217,10 @@ pub(super) fn expand(tok: &WordTok, cap: usize) -> BraceExpansion {
                             let mut parts = parts.into_iter().next().unwrap();
                             let nested = parts
                                 .iter()
-                                .any(|&id| !matches!(tree.nodes[id], Node::Atom(_)));
+                                .any(|&id| !matches!(tree.nodes[id], BraceNode::Atom(_)));
                             let sequence_shaped = parts.windows(3).any(|window| {
                                 window[..2].iter().all(|&id| {
-                                    matches!(&tree.nodes[id], Node::Atom(seg) if character(seg) == Some('.'))
+                                    matches!(&tree.nodes[id], BraceNode::Atom(seg) if character(seg) == Some('.'))
                                 })
                             });
                             if nested && sequence_shaped {
@@ -231,28 +231,28 @@ pub(super) fn expand(tok: &WordTok, cap: usize) -> BraceExpansion {
                                     .iter()
                                     .any(|seg| character(seg) == Some(','))
                                 {
-                                    tree.add(Node::Concat(parts))
+                                    tree.add(BraceNode::Concat(parts))
                                 } else {
                                     let literal_parts = atoms[open..=i]
                                         .iter()
-                                        .map(|seg| tree.add(Node::Atom(seg.clone())))
+                                        .map(|seg| tree.add(BraceNode::Atom(seg.clone())))
                                         .collect();
-                                    tree.add(Node::Concat(literal_parts))
+                                    tree.add(BraceNode::Concat(literal_parts))
                                 }
                             } else {
-                                parts.insert(0, tree.add(Node::Atom(literal("{"))));
-                                parts.push(tree.add(Node::Atom(literal("}"))));
-                                tree.add(Node::Concat(parts))
+                                parts.insert(0, tree.add(BraceNode::Atom(literal_seg("{"))));
+                                parts.push(tree.add(BraceNode::Atom(literal_seg("}"))));
+                                tree.add(BraceNode::Concat(parts))
                             }
                         }
                     }
                 }
             }
-            _ => tree.add(Node::Atom(atom.clone())),
+            _ => tree.add(BraceNode::Atom(atom.clone())),
         };
         frames.last_mut().unwrap().1.last_mut().unwrap().push(node);
     }
-    let root = tree.add(Node::Concat(frames.pop().unwrap().1.pop().unwrap()));
+    let root = tree.add(BraceNode::Concat(frames.pop().unwrap().1.pop().unwrap()));
     let produced = tree.sizes[root];
     if produced > cap {
         return BraceExpansion::Overflow { produced };
@@ -263,9 +263,9 @@ pub(super) fn expand(tok: &WordTok, cap: usize) -> BraceExpansion {
     while let Some((mut pending, mut segs)) = work.pop() {
         while let Some(id) = pending.pop() {
             match &tree.nodes[id] {
-                Node::Atom(seg) => segs.push(seg.clone()),
-                Node::Concat(parts) => pending.extend(parts.iter().rev()),
-                Node::List(parts) => {
+                BraceNode::Atom(seg) => segs.push(seg.clone()),
+                BraceNode::Concat(parts) => pending.extend(parts.iter().rev()),
+                BraceNode::List(parts) => {
                     for &part in parts.iter().skip(1).rev() {
                         let mut branch = pending.clone();
                         branch.push(part);
@@ -273,7 +273,7 @@ pub(super) fn expand(tok: &WordTok, cap: usize) -> BraceExpansion {
                     }
                     pending.push(parts[0]);
                 }
-                Node::Sequence {
+                BraceNode::Sequence {
                     start,
                     step,
                     width,
@@ -288,7 +288,7 @@ pub(super) fn expand(tok: &WordTok, cap: usize) -> BraceExpansion {
                                 quoted: true,
                             };
                         }
-                        literal(if *letters {
+                        literal_seg(if *letters {
                             (value as u8 as char).to_string()
                         } else {
                             format!("{value:0width$}")

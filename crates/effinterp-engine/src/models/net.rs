@@ -5,7 +5,7 @@
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, Modality, Operation, ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity,
+    Effect, Modality, Operation, ProvenanceRef, ResourceExpr, ResourceIdentity,
 };
 
 use std::collections::BTreeMap;
@@ -19,7 +19,7 @@ use crate::models::common::{
 };
 use crate::models::{CommandModel, InvocationCtx};
 use crate::resource_transfer::TransferBinding;
-use crate::value::parse_url_endpoint;
+use crate::value::{parse_url_endpoint, unresolved_resource};
 use crate::word::{Word, WordPart};
 
 pub(super) fn network_models() -> Vec<Box<dyn CommandModel>> {
@@ -94,9 +94,7 @@ fn names_stdout(value: Option<&str>) -> bool {
 fn endpoint_expr(word: &Word) -> ResourceExpr {
     match word.as_literal().and_then(transfer_endpoint) {
         Some(identity) => ResourceExpr::Concrete { identity },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        },
+        None => unresolved_resource("network"),
     }
 }
 
@@ -141,9 +139,7 @@ fn local_file_effect(
     let resource = if path.starts_with('/') && !path.contains(['%', '?', '#']) {
         ctx.resolve_fs_word(&word)
     } else {
-        ResourceExpr::Unresolved {
-            family: ResourceFamily::new("filesystem"),
-        }
+        unresolved_resource("filesystem")
     };
     let (operation, attributes) = if uploading {
         ("filesystem.write", program_output_attrs())
@@ -1334,9 +1330,7 @@ impl CommandModel for Curl {
                     .unwrap_or_else(|| Word::literal("."));
                 let base = match url_basename(url) {
                     Some(_) => ctx.resolve_fs_word(&dest_word),
-                    None => ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    },
+                    None => unresolved_resource("filesystem"),
                 };
                 let dest = curl_download_destination(builder, base, remote_header_name, no_clobber);
                 let written = fs_arg_effect(
@@ -1909,9 +1903,7 @@ impl CommandModel for Wget {
                 model_node,
                 index,
                 "network.download",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                },
+                unresolved_resource("network"),
                 Default::default(),
             );
             builder.boundary(Boundary {
@@ -2116,9 +2108,7 @@ fn socket_session(argv: &[Word]) -> Result<Option<SocketSession>, &'static str> 
                 ],
             },
         },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        },
+        None => unresolved_resource("network"),
     };
     Ok(Some(SocketSession {
         index,
@@ -2227,9 +2217,7 @@ impl CommandModel for Netcat {
         );
         // A listener's local bind address does not identify its future peer.
         let peer = if session.listen {
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            }
+            unresolved_resource("network")
         } else {
             session.endpoint
         };
@@ -2300,9 +2288,7 @@ impl CommandModel for Netcat {
                                 value: session.protocol.into(),
                             }
                         } else {
-                            ResourceExpr::Unresolved {
-                                family: ResourceFamily::new("value"),
-                            }
+                            unresolved_resource("value")
                         };
                         (name.to_string(), Some(value))
                     })
@@ -2844,9 +2830,7 @@ fn socat_endpoint_parts(value: &Word) -> Option<(Vec<WordPart>, String)> {
 
 fn socat_endpoint(value: &Word, protocol: &str, listen: bool) -> Option<ResourceExpr> {
     if listen {
-        return Some(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        });
+        return Some(unresolved_resource("network"));
     }
     let (host, port) = socat_endpoint_parts(value)?;
     let port = port.parse::<u16>().ok().filter(|port| *port != 0)?;
@@ -3313,9 +3297,7 @@ fn socat_end_effects(
             }
             // A listener's bind address does not identify its future peer.
             let peer = if *listen {
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                }
+                unresolved_resource("network")
             } else {
                 resource.clone()
             };

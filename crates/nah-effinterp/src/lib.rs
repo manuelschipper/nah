@@ -2,7 +2,7 @@
 
 mod annotate;
 mod bridge;
-mod observe;
+mod observation_request;
 mod plan_view;
 // Recognizes runtime-CLI identity over the shared label classifiers.
 pub mod runtime_cli;
@@ -16,17 +16,17 @@ mod path_observation;
 #[allow(clippy::disallowed_types)]
 mod source_observation;
 
+pub use {annotate::annotate_plan_effects, observation_request::plan_observation_request};
 pub use {
     bridge::{
         AdapterRefusal, EvidenceBudget, GapOwner, ObservedHost, Projection, RefusalKind,
         SelectedInput, ShippedGuardPolicy, SourceLanguage, observed_environment, observed_host,
-        plan_evidence, project,
+        plan_evidence, project_guard_evidence,
     },
     source_observation::{
         DeclaredSource, DeclaredSourceObservations, SourceObservation, SourceProvider,
     },
 };
-pub use {observe::request, plan_view::annotate};
 
 pub fn producer_identity() -> &'static str {
     env!("NAH_EFFINTERP_PRODUCER_IDENTITY")

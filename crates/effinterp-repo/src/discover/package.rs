@@ -1,6 +1,21 @@
-use super::*;
+use std::collections::BTreeMap;
+use std::path::Path;
 
-pub(super) fn package_scripts(ctx: &mut Ctx, relpath: &str, content: &str, cwd: Option<&str>) {
+use effinterp_proto::{SourceDialect, Subject};
+
+use super::{
+    Entrypoint, EntrypointCrawl, EntrypointEvidence, EntrypointKind, LaunchEdge, SpanSegment,
+    is_non_root_path, join_rel_path,
+};
+use crate::CRAWL_SKIP_DIRS;
+use crate::index::SkipCategory;
+
+pub(super) fn package_scripts(
+    ctx: &mut EntrypointCrawl,
+    relpath: &str,
+    content: &str,
+    cwd: Option<&str>,
+) {
     let Ok(json) = serde_json::from_str::<serde_json::Value>(content) else {
         ctx.skip(
             relpath.to_string(),
@@ -167,11 +182,11 @@ fn utf8_len(byte: u8) -> usize {
 /// The span segments of the JSON string whose opening quote is at `start`:
 /// verbatim runs map 1:1 into the host file; an escape maps its decoded bytes
 /// to the backslash's offset.
-fn json_string_segments(b: &[u8], start: usize) -> Vec<SpanSeg> {
-    let mut segs: Vec<SpanSeg> = Vec::new();
+fn json_string_segments(b: &[u8], start: usize) -> Vec<SpanSegment> {
+    let mut segs: Vec<SpanSegment> = Vec::new();
     let mut src = 0u32;
     let mut i = start + 1;
-    let mut run = SpanSeg {
+    let mut run = SpanSegment {
         src: 0,
         host: (start + 1) as u32,
         len: 0,
@@ -187,14 +202,14 @@ fn json_string_segments(b: &[u8], start: usize) -> Vec<SpanSeg> {
                     segs.push(run);
                 }
                 let decoded = ch.len_utf8() as u32;
-                segs.push(SpanSeg {
+                segs.push(SpanSegment {
                     src,
                     host: i as u32,
                     len: decoded,
                 });
                 src += decoded;
                 i += raw;
-                run = SpanSeg {
+                run = SpanSegment {
                     src,
                     host: i as u32,
                     len: 0,
@@ -216,7 +231,12 @@ fn json_string_segments(b: &[u8], start: usize) -> Vec<SpanSeg> {
 
 /// Discover literal `target:` rules. The engine's Make command model owns
 /// recipe selection and execution semantics for these entrypoints.
-pub(super) fn makefile_targets(ctx: &mut Ctx, relpath: &str, content: &str, cwd: Option<&str>) {
+pub(super) fn makefile_targets(
+    ctx: &mut EntrypointCrawl,
+    relpath: &str,
+    content: &str,
+    cwd: Option<&str>,
+) {
     let mut seen = std::collections::BTreeSet::new();
     for (index, line) in content.lines().enumerate() {
         if let Some(target) = rule_target(line) {
@@ -308,7 +328,7 @@ fn read_tsconfig_dirs(root: &Path) -> TsDirs {
 /// or a workspace package (changesets: `bin.js` `import('@pkg/cli')` whose
 /// export is `dist/index.mjs`, built from `src/index.ts`). Both map back to
 /// the source file that produces the artifact via [`built_to_source`].
-pub(super) fn package_bin_entrypoints(ctx: &mut Ctx, root: &Path) -> Vec<LaunchEdge> {
+pub(super) fn package_bin_entrypoints(ctx: &mut EntrypointCrawl, root: &Path) -> Vec<LaunchEdge> {
     let packages = crate::module::js_packages::collect_js_packages(root, &mut |path| {
         crate::canonical_repo_path(root, path)
             .is_some_and(|path| ctx.manifest.iter().any(|input| input.path == path))
@@ -623,7 +643,7 @@ fn find_stem(dir: &Path, rel: &str, stem: &str, exts: &[&str], depth: u32, out: 
             continue;
         }
         if ft.is_dir() {
-            if SKIP_DIRS.contains(&name.as_str()) || is_non_root_path(&name, &name) {
+            if CRAWL_SKIP_DIRS.contains(&name.as_str()) || is_non_root_path(&name, &name) {
                 continue;
             }
             find_stem(
@@ -648,7 +668,7 @@ fn find_stem(dir: &Path, rel: &str, stem: &str, exts: &[&str], depth: u32, out: 
 /// Register a JS/TS source file as a bin-program entrypoint (unless some other
 /// mechanism already claimed its id).
 fn add_js_source_entrypoint(
-    ctx: &mut Ctx,
+    ctx: &mut EntrypointCrawl,
     root: &Path,
     relpath: &str,
     evidence_file: &str,
@@ -700,7 +720,7 @@ fn add_js_source_entrypoint(
 /// `[options.entry_points] console_scripts`. Each `pkg.mod:func` spec roots
 /// at the module's file (src/ layout included) with `func` as the entry
 /// function the script runner calls after import.
-pub(super) fn python_entry_point_scripts(ctx: &mut Ctx, root: &Path) {
+pub(super) fn python_entry_point_scripts(ctx: &mut EntrypointCrawl, root: &Path) {
     let mut specs: Vec<(String, String, u32)> = Vec::new();
     if let Ok(text) = std::fs::read_to_string(root.join("pyproject.toml")) {
         specs.extend(
@@ -1021,7 +1041,7 @@ fn python_module_file(root: &Path, module: &str) -> Option<String> {
 }
 
 pub(super) fn python_module_program(
-    ctx: &Ctx,
+    ctx: &EntrypointCrawl,
     root: &Path,
     cwd: &str,
     module: &str,

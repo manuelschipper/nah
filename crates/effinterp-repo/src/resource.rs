@@ -118,13 +118,13 @@ impl RealmFilter {
 /// - `remote:<endpoint>/` — a remote host reached over the network.
 /// - `chroot/` — under a changed filesystem root.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Selector {
+pub struct ResourceSelector {
     pub realm: RealmFilter,
     pub family: String,
     pub needle: String,
 }
 
-impl Selector {
+impl ResourceSelector {
     pub fn parse(input: &str) -> Result<Self, String> {
         // A realm qualifier is a leading segment before the first `/` that is
         // itself not part of the `family:needle` (which uses `:` then a path).
@@ -299,7 +299,7 @@ fn domain_family(domain: &str) -> &'static str {
 }
 
 /// Lower a selector to typed protocol operands; unsupported families stay unknown.
-impl Selector {
+impl ResourceSelector {
     pub fn scope_set(&self) -> Option<effinterp_proto::ScopeSet> {
         use effinterp_proto::{Field, PortField, ResourcePattern, ScopeSet, TextField};
         let n = &self.needle;
@@ -537,17 +537,6 @@ impl RealmFilter {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn parse_requires_family_and_value() {
-        assert!(Selector::parse("db:public.users").is_ok());
-        assert!(Selector::parse("nocolon").is_err());
-        assert!(Selector::parse("fs:").is_err());
-    }
-}
-
 /// The fixed, collision-free human selector form for a database identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DatabaseIdentitySelector {
@@ -667,4 +656,15 @@ fn scoped_selector_from_needle(needle: &str) -> Option<ScopeNeedle> {
     let selector: ScopeNeedle = serde_json::from_slice(&bytes).ok()?;
     selector.identity.scope()?;
     effinterp_proto::selector_identity_is_valid(&selector.identity).then_some(selector)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn parse_requires_family_and_value() {
+        assert!(ResourceSelector::parse("db:public.users").is_ok());
+        assert!(ResourceSelector::parse("nocolon").is_err());
+        assert!(ResourceSelector::parse("fs:").is_err());
+    }
 }

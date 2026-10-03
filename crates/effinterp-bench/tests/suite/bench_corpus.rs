@@ -7,8 +7,10 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use effinterp_bench::bench::corpus::{BENCH_MANIFEST_SCHEMA, load_bench, read_bench_manifest};
-use effinterp_bench::nah::corpus::corpus_digest;
+use effinterp_bench::invocation::corpus::{
+    INVOCATION_MANIFEST_SCHEMA, load_invocation_rows, read_invocation_manifest,
+};
+use effinterp_bench::nah::corpus::fixture_corpus_digest;
 
 const MAX_BYTES: u64 = 30 * 1024 * 1024;
 const SECRETS: &[&str] = &[
@@ -37,9 +39,9 @@ fn corpus_matches_manifest_and_leaks_nothing() {
         eprintln!("skipped: {} has no MANIFEST.json yet", dir.display());
         return;
     }
-    let manifest = read_bench_manifest(&dir).unwrap();
-    assert_eq!(manifest.schema, BENCH_MANIFEST_SCHEMA);
-    assert_eq!(manifest.corpus_digest, corpus_digest(&dir).unwrap());
+    let manifest = read_invocation_manifest(&dir).unwrap();
+    assert_eq!(manifest.schema, INVOCATION_MANIFEST_SCHEMA);
+    assert_eq!(manifest.corpus_digest, fixture_corpus_digest(&dir).unwrap());
 
     let mut bytes = 0;
     let mut listing = BTreeSet::new();
@@ -84,7 +86,7 @@ fn corpus_matches_manifest_and_leaks_nothing() {
         }
     }
 
-    let rows = load_bench(&dir).unwrap();
+    let rows = load_invocation_rows(&dir).unwrap();
     let mut ids = BTreeSet::new();
     for row in &rows {
         assert!(ids.insert(row.id.clone()), "duplicate id {}", row.id);
@@ -117,7 +119,7 @@ fn corpus_matches_manifest_and_leaks_nothing() {
 // A session refresh must not reset correctness regression comparisons.
 #[test]
 fn session_refresh_preserves_correctness_scope() {
-    use effinterp_bench::bench::corpus::correctness_digest;
+    use effinterp_bench::invocation::corpus::correctness_digest;
     let dir = tempfile::tempdir().unwrap();
     for name in ["FIXTURES.json", "adversarial.jsonl", "swe.jsonl"] {
         fs::write(dir.path().join(name), name).unwrap();

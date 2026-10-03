@@ -29,7 +29,7 @@ pub(super) fn build_program(
     program: &Program<'_>,
     readonly_writes: &Option<HashSet<u32>>,
 ) {
-    let mut builder = Builder::new(graph, readonly_writes);
+    let mut builder = JsControlFlowBuilder::new(graph, readonly_writes);
     for statement in &program.body {
         if let Some(loaded) = module_load_span(statement) {
             builder.at = builder.graph.site(builder.at, span(loaded), true);
@@ -48,7 +48,7 @@ pub(super) fn build_function(
     body: &FunctionBody<'_>,
     readonly_writes: &Option<HashSet<u32>>,
 ) {
-    let mut builder = Builder::new(graph, readonly_writes);
+    let mut builder = JsControlFlowBuilder::new(graph, readonly_writes);
     for parameter in &params.items {
         if let Some(initializer) = &parameter.initializer {
             builder.optional(|builder| builder.visit_expression(initializer));
@@ -71,7 +71,7 @@ pub(super) fn module_load_span(statement: &Statement<'_>) -> Option<Span> {
     }
 }
 
-struct Builder<'g> {
+struct JsControlFlowBuilder<'g> {
     graph: &'g mut Graph,
     readonly_writes: &'g Option<HashSet<u32>>,
     at: Frontier,
@@ -94,7 +94,7 @@ fn non_empty_array(expression: &Expression<'_>) -> bool {
             && array.elements.iter().all(|element| element.is_expression()))
 }
 
-impl<'g> Builder<'g> {
+impl<'g> JsControlFlowBuilder<'g> {
     fn new(graph: &'g mut Graph, readonly_writes: &'g Option<HashSet<u32>>) -> Self {
         graph.enable_exceptions();
         if readonly_writes.is_none() {
@@ -171,7 +171,7 @@ impl<'g> Builder<'g> {
     }
 }
 
-impl<'a> Visit<'a> for Builder<'_> {
+impl<'a> Visit<'a> for JsControlFlowBuilder<'_> {
     fn visit_statement(&mut self, it: &Statement<'a>) {
         if self.at.is_none() || module_load_span(it).is_some() {
             return;

@@ -1,4 +1,21 @@
-use super::*;
+use std::collections::{HashMap, HashSet};
+
+use effinterp_proto::{
+    AttrValue, Boundary, BoundaryClass, BoundaryReason, Effect, Modality, Operation, ResourceExpr,
+    ResourceIdentity,
+};
+use syn::Expr;
+
+use crate::summary::substitute_resource_expr;
+use crate::value::{unresolved_resource, url_endpoint_resource};
+use crate::word::{Word, WordPart};
+use crate::{SemanticValue, SemanticValueKind, substitute_value};
+
+use super::{
+    Resolver, RustValueFacts, child_exprs, closure_expr,
+    command_method_preserves_executable_and_argv, expr_key, is_rust_branch, mutated_base_ident,
+    path_segments, rust_path_literal, simple_boundary, single_ident, str_lit,
+};
 
 // ---------------------------------------------------------------------------
 // Effect model
@@ -407,7 +424,7 @@ pub(super) struct RustSinkResolution {
 
 pub(super) fn resolve_rust_sink(
     expr: &Expr,
-    facts: &ValueFacts,
+    facts: &RustValueFacts,
     env: &HashMap<String, ResourceExpr>,
     fallback: ResourceExpr,
     domain: RustSinkDomain,
@@ -449,13 +466,11 @@ pub(super) fn resolve_rust_command_cwd(
 }
 
 fn lower_rust_sink_value(value: &SemanticValue, domain: RustSinkDomain) -> ResourceExpr {
-    let unresolved = || ResourceExpr::Unresolved {
-        family: ResourceFamily::new(domain.name()),
-    };
+    let unresolved = || unresolved_resource(domain.name());
     match &value.kind {
         SemanticValueKind::Literal(value) => match domain {
             RustSinkDomain::Filesystem => crate::paths::resolve_fs_path(value, None),
-            RustSinkDomain::Network => parse_endpoint(value),
+            RustSinkDomain::Network => url_endpoint_resource(value),
             RustSinkDomain::NetworkAddress => parse_socket_addr(value),
         },
         SemanticValueKind::Path {
@@ -463,7 +478,7 @@ fn lower_rust_sink_value(value: &SemanticValue, domain: RustSinkDomain) -> Resou
             ..
         } => match domain {
             RustSinkDomain::Filesystem => crate::paths::resolve_fs_path(value, None),
-            RustSinkDomain::Network => parse_endpoint(value),
+            RustSinkDomain::Network => url_endpoint_resource(value),
             RustSinkDomain::NetworkAddress => parse_socket_addr(value),
         },
         SemanticValueKind::Parameter(name) | SemanticValueKind::Symbol(name) => {
@@ -480,7 +495,7 @@ fn lower_rust_sink_value(value: &SemanticValue, domain: RustSinkDomain) -> Resou
             ) && let Some(value) = rust_joined_literals(parts)
             {
                 return match domain {
-                    RustSinkDomain::Network => parse_endpoint(&value),
+                    RustSinkDomain::Network => url_endpoint_resource(&value),
                     RustSinkDomain::NetworkAddress => parse_socket_addr(&value),
                     RustSinkDomain::Filesystem => unreachable!(),
                 };
@@ -659,7 +674,7 @@ pub(super) fn rust_sink_detail(expr: &Expr, give_up: RustSinkGiveUp, domain: &st
 
 pub(super) fn resolve_rust_env_name(
     arg: &Expr,
-    facts: &ValueFacts,
+    facts: &RustValueFacts,
     env: &HashMap<String, ResourceExpr>,
     value_limits: crate::ValueLimits,
 ) -> String {
@@ -688,7 +703,7 @@ pub(super) fn arg_resource(expr: &Expr, params: &HashSet<String>) -> ResourceExp
             syn::Lit::Str(s) => ResourceExpr::Concrete {
                 identity: ResourceIdentity::FsPath { path: s.value() },
             },
-            _ => unresolved_fs(),
+            _ => unresolved_resource("filesystem"),
         },
         Expr::Reference(r) => arg_resource(&r.expr, params),
         Expr::Path(p) => {
@@ -697,23 +712,23 @@ pub(super) fn arg_resource(expr: &Expr, params: &HashSet<String>) -> ResourceExp
             {
                 return ResourceExpr::Parameter { name };
             }
-            unresolved_fs()
+            unresolved_resource("filesystem")
         }
         Expr::Field(field) => {
             let Expr::Path(base) = field.base.as_ref() else {
-                return unresolved_fs();
+                return unresolved_resource("filesystem");
             };
             let Some("self") = single_ident(&base.path).as_deref() else {
-                return unresolved_fs();
+                return unresolved_resource("filesystem");
             };
             let syn::Member::Named(name) = &field.member else {
-                return unresolved_fs();
+                return unresolved_resource("filesystem");
             };
             let name = format!("self.{name}");
             if params.contains(&name) {
                 ResourceExpr::Parameter { name }
             } else {
-                unresolved_fs()
+                unresolved_resource("filesystem")
             }
         }
         Expr::MethodCall(m) => {
@@ -730,7 +745,7 @@ pub(super) fn arg_resource(expr: &Expr, params: &HashSet<String>) -> ResourceExp
                 "as_ref" | "as_path" | "clone" | "to_path_buf" | "to_owned" => {
                     arg_resource(&m.receiver, params)
                 }
-                _ => unresolved_fs(),
+                _ => unresolved_resource("filesystem"),
             }
         }
         Expr::Call(c) => {
@@ -741,9 +756,9 @@ pub(super) fn arg_resource(expr: &Expr, params: &HashSet<String>) -> ResourceExp
             {
                 return arg_resource(a, params);
             }
-            unresolved_fs()
+            unresolved_resource("filesystem")
         }
-        _ => unresolved_fs(),
+        _ => unresolved_resource("filesystem"),
     }
 }
 
@@ -799,9 +814,7 @@ pub(super) fn git_resource(expr: &Expr, params: &HashSet<String>, field: &str) -
             identity: ResourceIdentity::FsPath { .. }
         }
     ) {
-        return ResourceExpr::Unresolved {
-            family: ResourceFamily::new("git"),
-        };
+        return unresolved_resource("git");
     }
     let (worktree, git_dir) = match field {
         "worktree" => (Some(Box::new(resource)), None),
@@ -829,9 +842,7 @@ pub(super) fn command_effect(argv: &[Word]) -> Effect {
         Some(argv0) if !argv0.is_empty() => ResourceExpr::Concrete {
             identity: crate::paths::executable_identity(argv0, None),
         },
-        _ => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("process"),
-        },
+        _ => unresolved_resource("process"),
     };
     base_effect("process.exec", resource)
 }
@@ -919,9 +930,7 @@ pub(super) fn semantic_word(value: &SemanticValue) -> Word {
 
 pub(super) fn env_effect_struct(operation: &str, name: String) -> Effect {
     let resource = if name.is_empty() {
-        ResourceExpr::Unresolved {
-            family: ResourceFamily::new("environment"),
-        }
+        unresolved_resource("environment")
     } else {
         ResourceExpr::Concrete {
             identity: ResourceIdentity::EnvironmentVariable { name },
@@ -932,7 +941,7 @@ pub(super) fn env_effect_struct(operation: &str, name: String) -> Effect {
 
 pub(super) fn net_effect_struct(arg: &Expr, params: &HashSet<String>) -> Effect {
     let resource = match str_lit(arg) {
-        Some(url) => parse_endpoint(&url),
+        Some(url) => url_endpoint_resource(&url),
         None => symbolic_net(arg, params),
     };
     base_effect("network.request", resource)
@@ -959,9 +968,9 @@ fn symbolic_net(arg: &Expr, params: &HashSet<String>) -> ResourceExpr {
         Expr::Reference(r) => symbolic_net(&r.expr, params),
         Expr::Path(p) => match single_ident(&p.path) {
             Some(name) if params.contains(&name) => ResourceExpr::Parameter { name },
-            _ => unresolved_net(),
+            _ => unresolved_resource("network"),
         },
-        _ => unresolved_net(),
+        _ => unresolved_resource("network"),
     }
 }
 
@@ -977,7 +986,7 @@ fn parse_socket_addr(addr: &str) -> ResourceExpr {
         _ => (addr.to_string(), None),
     };
     if host.is_empty() {
-        return unresolved_net();
+        return unresolved_resource("network");
     }
     ResourceExpr::Concrete {
         identity: ResourceIdentity::NetworkEndpoint {
@@ -986,23 +995,5 @@ fn parse_socket_addr(addr: &str) -> ResourceExpr {
             port,
             path: None,
         },
-    }
-}
-
-fn parse_endpoint(url: &str) -> ResourceExpr {
-    parse_url_endpoint(url)
-        .map(|identity| ResourceExpr::Concrete { identity })
-        .unwrap_or_else(unresolved_net)
-}
-
-fn unresolved_fs() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("filesystem"),
-    }
-}
-
-fn unresolved_net() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("network"),
     }
 }

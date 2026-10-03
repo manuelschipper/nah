@@ -7,7 +7,6 @@
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use effinterp_proto as p;
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform, PolicyCtx};
 use nah_proto::effect_annotation::EffectAnnotation;
 use nah_proto::observation::{
@@ -33,21 +32,21 @@ enum BoundaryClass {
     Unsupported,
 }
 
-impl From<p::BoundaryClass> for BoundaryClass {
-    fn from(value: p::BoundaryClass) -> Self {
+impl From<effinterp_proto::BoundaryClass> for BoundaryClass {
+    fn from(value: effinterp_proto::BoundaryClass) -> Self {
         match value {
-            p::BoundaryClass::Unmodeled => Self::Unmodeled,
-            p::BoundaryClass::Unresolved => Self::Unresolved,
-            p::BoundaryClass::Limit => Self::Limit,
-            p::BoundaryClass::ParseFailure => Self::ParseFailure,
-            p::BoundaryClass::Unsupported => Self::Unsupported,
+            effinterp_proto::BoundaryClass::Unmodeled => Self::Unmodeled,
+            effinterp_proto::BoundaryClass::Unresolved => Self::Unresolved,
+            effinterp_proto::BoundaryClass::Limit => Self::Limit,
+            effinterp_proto::BoundaryClass::ParseFailure => Self::ParseFailure,
+            effinterp_proto::BoundaryClass::Unsupported => Self::Unsupported,
         }
     }
 }
 
 pub(crate) struct IndexedResource<'a> {
-    pub(crate) expression: &'a p::ResourceExpr,
-    pub(crate) realm: &'a p::ExecutionRealm,
+    pub(crate) expression: &'a effinterp_proto::ResourceExpr,
+    pub(crate) realm: &'a effinterp_proto::ExecutionRealm,
 }
 
 pub(crate) struct AuthorityContext {
@@ -141,14 +140,14 @@ impl AuthorityContext {
 struct EffectIndex {
     exact: BTreeMap<String, Vec<usize>>,
     family: BTreeMap<String, Vec<usize>>,
-    executions: BTreeMap<p::ExecutionNodeRef, Vec<usize>>,
+    executions: BTreeMap<effinterp_proto::ExecutionNodeRef, Vec<usize>>,
 }
 
 impl EffectIndex {
-    fn new(plan: &p::Plan) -> Self {
+    fn new(plan: &effinterp_proto::Plan) -> Self {
         let mut exact = BTreeMap::<String, Vec<usize>>::new();
         let mut family = BTreeMap::<String, Vec<usize>>::new();
-        let mut executions = BTreeMap::<p::ExecutionNodeRef, Vec<usize>>::new();
+        let mut executions = BTreeMap::<effinterp_proto::ExecutionNodeRef, Vec<usize>>::new();
         for (index, effect) in plan.effects.iter().enumerate() {
             let operation = effect.operation.as_str();
             exact.entry(operation.to_owned()).or_default().push(index);
@@ -176,13 +175,14 @@ impl EffectIndex {
 struct ResourceIndex<'a> {
     resources: Vec<IndexedResource<'a>>,
     effects: Vec<ResourceId>,
-    occurrences: BTreeMap<p::OccurrenceId, ResourceId>,
+    occurrences: BTreeMap<effinterp_proto::OccurrenceId, ResourceId>,
 }
 
 impl<'a> ResourceIndex<'a> {
-    fn new(plan: &'a p::Plan) -> Self {
+    fn new(plan: &'a effinterp_proto::Plan) -> Self {
         let mut resources = Vec::new();
-        let mut add = |expression: &'a p::ResourceExpr, realm: &'a p::ExecutionRealm| {
+        let mut add = |expression: &'a effinterp_proto::ResourceExpr,
+                       realm: &'a effinterp_proto::ExecutionRealm| {
             let id = ResourceId(resources.len() as u32);
             resources.push(IndexedResource { expression, realm });
             id
@@ -204,16 +204,19 @@ impl<'a> ResourceIndex<'a> {
         }
         for boundary in &plan.boundaries {
             if let Some(expression) = &boundary.affected_resource {
-                add(expression, &p::ExecutionRealm::Host);
+                add(expression, &effinterp_proto::ExecutionRealm::Host);
             }
         }
         let mut occurrences = BTreeMap::new();
         if let Some(graph) = &plan.causality.graph {
             for node in &graph.nodes {
                 let expression = match &node.occurrence {
-                    p::OccurrenceKind::Value { value } => Some(value),
-                    p::OccurrenceKind::ResourceInteraction { resource, .. } => Some(resource),
-                    p::OccurrenceKind::Port { .. } | p::OccurrenceKind::Boundary { .. } => None,
+                    effinterp_proto::OccurrenceKind::Value { value } => Some(value),
+                    effinterp_proto::OccurrenceKind::ResourceInteraction { resource, .. } => {
+                        Some(resource)
+                    }
+                    effinterp_proto::OccurrenceKind::Port { .. }
+                    | effinterp_proto::OccurrenceKind::Boundary { .. } => None,
                 };
                 if let Some(expression) = expression {
                     occurrences.insert(node.id.clone(), add(expression, &node.realm));
@@ -229,14 +232,14 @@ impl<'a> ResourceIndex<'a> {
 }
 
 pub(crate) struct ExecutionBinding<'a> {
-    node: &'a p::ExecutionNode,
-    pub(crate) cwd: Option<&'a p::ResourceExpr>,
-    pub(crate) environment: &'a BTreeMap<String, Option<p::ResourceExpr>>,
-    pub(crate) realm: &'a p::ExecutionRealm,
+    node: &'a effinterp_proto::ExecutionNode,
+    pub(crate) cwd: Option<&'a effinterp_proto::ResourceExpr>,
+    pub(crate) environment: &'a BTreeMap<String, Option<effinterp_proto::ResourceExpr>>,
+    pub(crate) realm: &'a effinterp_proto::ExecutionRealm,
 }
 
 impl std::ops::Deref for ExecutionBinding<'_> {
-    type Target = p::ExecutionNode;
+    type Target = effinterp_proto::ExecutionNode;
 
     fn deref(&self) -> &Self::Target {
         self.node
@@ -249,7 +252,7 @@ struct ExecutionIndex<'a> {
 }
 
 impl<'a> ExecutionIndex<'a> {
-    fn new(plan: &'a p::Plan) -> Self {
+    fn new(plan: &'a effinterp_proto::Plan) -> Self {
         let bindings = plan
             .execution_graph
             .nodes
@@ -280,7 +283,7 @@ struct BoundaryIndex {
 }
 
 impl BoundaryIndex {
-    fn new(plan: &p::Plan) -> Self {
+    fn new(plan: &effinterp_proto::Plan) -> Self {
         let mut class = BTreeMap::<BoundaryClass, Vec<usize>>::new();
         let mut domain = BTreeMap::<String, Vec<usize>>::new();
         for (index, boundary) in plan.boundaries.iter().enumerate() {
@@ -294,24 +297,26 @@ impl BoundaryIndex {
 }
 
 struct CausalIndex {
-    nodes: BTreeMap<p::OccurrenceId, usize>,
+    nodes: BTreeMap<effinterp_proto::OccurrenceId, usize>,
     operations: BTreeMap<String, Vec<usize>>,
-    executions: BTreeMap<p::ExecutionNodeRef, Vec<usize>>,
-    outgoing: BTreeMap<p::OccurrenceId, Vec<usize>>,
-    incoming: BTreeMap<p::OccurrenceId, Vec<usize>>,
+    executions: BTreeMap<effinterp_proto::ExecutionNodeRef, Vec<usize>>,
+    outgoing: BTreeMap<effinterp_proto::OccurrenceId, Vec<usize>>,
+    incoming: BTreeMap<effinterp_proto::OccurrenceId, Vec<usize>>,
 }
 
 impl CausalIndex {
-    fn new(plan: &p::Plan) -> Self {
+    fn new(plan: &effinterp_proto::Plan) -> Self {
         let mut nodes = BTreeMap::new();
         let mut operations = BTreeMap::<String, Vec<usize>>::new();
-        let mut executions = BTreeMap::<p::ExecutionNodeRef, Vec<usize>>::new();
-        let mut outgoing = BTreeMap::<p::OccurrenceId, Vec<usize>>::new();
-        let mut incoming = BTreeMap::<p::OccurrenceId, Vec<usize>>::new();
+        let mut executions = BTreeMap::<effinterp_proto::ExecutionNodeRef, Vec<usize>>::new();
+        let mut outgoing = BTreeMap::<effinterp_proto::OccurrenceId, Vec<usize>>::new();
+        let mut incoming = BTreeMap::<effinterp_proto::OccurrenceId, Vec<usize>>::new();
         if let Some(graph) = &plan.causality.graph {
             for (index, node) in graph.nodes.iter().enumerate() {
                 nodes.insert(node.id.clone(), index);
-                if let p::OccurrenceKind::ResourceInteraction { operation, .. } = &node.occurrence {
+                if let effinterp_proto::OccurrenceKind::ResourceInteraction { operation, .. } =
+                    &node.occurrence
+                {
                     operations
                         .entry(operation.as_str().to_owned())
                         .or_default()
@@ -336,20 +341,8 @@ impl CausalIndex {
     }
 }
 
-/// The annotation of every plan effect, in plan order, as a projection of the
-/// plan records it.
-pub fn annotate(
-    plan: &p::Plan,
-    observation: &Observation,
-    ctx: &Ctx,
-    self_protection: &SelfProtectionProjection,
-) -> Result<Vec<EffectAnnotation>, nah_proto::ctx::CtxError> {
-    let view = PlanView::new(plan, observation, ctx, self_protection)?;
-    Ok(view.annotations())
-}
-
 pub(crate) struct PlanView<'a> {
-    plan: &'a p::Plan,
+    plan: &'a effinterp_proto::Plan,
     observation: &'a Observation,
     authority: AuthorityContext,
     effects: EffectIndex,
@@ -363,7 +356,7 @@ pub(crate) struct PlanView<'a> {
 
 impl<'a> PlanView<'a> {
     pub(crate) fn new(
-        plan: &'a p::Plan,
+        plan: &'a effinterp_proto::Plan,
         observation: &'a Observation,
         context: &'a Ctx,
         self_protection: &SelfProtectionProjection,
@@ -440,7 +433,7 @@ impl<'a> PlanView<'a> {
             debug_assert!(self.causality.operations.values().flatten().all(|index| {
                 matches!(
                     graph.nodes[*index].occurrence,
-                    p::OccurrenceKind::ResourceInteraction { .. }
+                    effinterp_proto::OccurrenceKind::ResourceInteraction { .. }
                 )
             }));
             if let Some(edge) = graph.edges.first() {
@@ -451,7 +444,7 @@ impl<'a> PlanView<'a> {
         }
     }
 
-    pub(crate) fn plan(&self) -> &'a p::Plan {
+    pub(crate) fn plan(&self) -> &'a effinterp_proto::Plan {
         self.plan
     }
 
@@ -459,7 +452,10 @@ impl<'a> PlanView<'a> {
         &self.authority
     }
 
-    pub(crate) fn effects_exact(&self, operation: &str) -> impl Iterator<Item = &'a p::Effect> {
+    pub(crate) fn effects_exact(
+        &self,
+        operation: &str,
+    ) -> impl Iterator<Item = &'a effinterp_proto::Effect> {
         self.effects
             .exact
             .get(operation)
@@ -468,7 +464,7 @@ impl<'a> PlanView<'a> {
             .map(|index| &self.plan.effects[*index])
     }
 
-    pub(crate) fn effects(&self) -> impl Iterator<Item = (usize, &'a p::Effect)> {
+    pub(crate) fn effects(&self) -> impl Iterator<Item = (usize, &'a effinterp_proto::Effect)> {
         self.plan.effects.iter().enumerate()
     }
 
@@ -492,8 +488,8 @@ impl<'a> PlanView<'a> {
 
     pub(crate) fn effects_for_execution(
         &self,
-        execution: p::ExecutionNodeRef,
-    ) -> impl Iterator<Item = &'a p::Effect> {
+        execution: effinterp_proto::ExecutionNodeRef,
+    ) -> impl Iterator<Item = &'a effinterp_proto::Effect> {
         self.effects
             .executions
             .get(&execution)
@@ -510,11 +506,14 @@ impl<'a> PlanView<'a> {
         &self.resources.resources[id.0 as usize]
     }
 
-    pub(crate) fn occurrence_resource_id(&self, id: &p::OccurrenceId) -> Option<ResourceId> {
+    pub(crate) fn occurrence_resource_id(
+        &self,
+        id: &effinterp_proto::OccurrenceId,
+    ) -> Option<ResourceId> {
         self.resources.occurrences.get(id).copied()
     }
 
-    pub(crate) fn execution(&self, id: p::ExecutionNodeRef) -> &ExecutionBinding<'a> {
+    pub(crate) fn execution(&self, id: effinterp_proto::ExecutionNodeRef) -> &ExecutionBinding<'a> {
         &self.executions.bindings[id.0 as usize]
     }
 
@@ -522,33 +521,40 @@ impl<'a> PlanView<'a> {
         self.executions.bindings.iter().enumerate()
     }
 
-    pub(crate) fn matcher_bindings(&self) -> BTreeMap<p::ExecutionNodeRef, p::Bindings> {
+    pub(crate) fn matcher_bindings(
+        &self,
+    ) -> BTreeMap<effinterp_proto::ExecutionNodeRef, effinterp_proto::Bindings> {
         self.executions()
             .map(|(index, execution)| {
-                let mut bindings = p::Bindings::from_subject(&execution.subject);
+                let mut bindings = effinterp_proto::Bindings::from_subject(&execution.subject);
                 bindings.platform = if self.authority.platform() == Platform::Windows {
-                    p::PathPlatform::Windows
+                    effinterp_proto::PathPlatform::Windows
                 } else {
-                    p::PathPlatform::Posix
+                    effinterp_proto::PathPlatform::Posix
                 };
-                (p::ExecutionNodeRef(index as u32), bindings)
+                (effinterp_proto::ExecutionNodeRef(index as u32), bindings)
             })
             .collect()
     }
 
-    pub(crate) fn parent_edge(&self, id: p::ExecutionNodeRef) -> Option<&'a p::ExecutionEdge> {
+    pub(crate) fn parent_edge(
+        &self,
+        id: effinterp_proto::ExecutionNodeRef,
+    ) -> Option<&'a effinterp_proto::ExecutionEdge> {
         self.executions.parent_edges[id.0 as usize]
             .map(|index| &self.plan.execution_graph.edges[index])
     }
 
-    pub(crate) fn boundaries(&self) -> impl Iterator<Item = (usize, &'a p::Boundary)> {
+    pub(crate) fn boundaries(
+        &self,
+    ) -> impl Iterator<Item = (usize, &'a effinterp_proto::Boundary)> {
         self.plan.boundaries.iter().enumerate()
     }
 
     pub(crate) fn boundaries_in_domain(
         &self,
         domain: &str,
-    ) -> impl Iterator<Item = &'a p::Boundary> {
+    ) -> impl Iterator<Item = &'a effinterp_proto::Boundary> {
         self.boundaries
             .domain
             .get(domain)
@@ -557,7 +563,10 @@ impl<'a> PlanView<'a> {
             .map(|index| &self.plan.boundaries[*index])
     }
 
-    pub(crate) fn causal_node(&self, id: &p::OccurrenceId) -> Option<&'a p::OccurrenceNode> {
+    pub(crate) fn causal_node(
+        &self,
+        id: &effinterp_proto::OccurrenceId,
+    ) -> Option<&'a effinterp_proto::OccurrenceNode> {
         let graph = self.plan.causality.graph.as_ref()?;
         self.causality
             .nodes
@@ -567,8 +576,8 @@ impl<'a> PlanView<'a> {
 
     pub(crate) fn occurrences_for_execution(
         &self,
-        execution: p::ExecutionNodeRef,
-    ) -> impl Iterator<Item = &'a p::OccurrenceNode> {
+        execution: effinterp_proto::ExecutionNodeRef,
+    ) -> impl Iterator<Item = &'a effinterp_proto::OccurrenceNode> {
         self.plan.causality.graph.iter().flat_map(move |graph| {
             self.causality
                 .executions
@@ -581,8 +590,8 @@ impl<'a> PlanView<'a> {
 
     pub(crate) fn outgoing_edges(
         &self,
-        id: &p::OccurrenceId,
-    ) -> impl Iterator<Item = &'a p::CausalEdge> {
+        id: &effinterp_proto::OccurrenceId,
+    ) -> impl Iterator<Item = &'a effinterp_proto::CausalEdge> {
         self.plan.causality.graph.iter().flat_map(move |graph| {
             self.causality
                 .outgoing
@@ -618,11 +627,11 @@ impl<'a> PlanView<'a> {
             .collect()
     }
 
-    pub(crate) fn annotate_synthetic(&self, effect: &p::Effect) -> EffectAnnotation {
+    pub(crate) fn annotate_synthetic(&self, effect: &effinterp_proto::Effect) -> EffectAnnotation {
         self.compute_annotation(effect)
     }
 
-    fn compute_annotation(&self, effect: &p::Effect) -> EffectAnnotation {
+    fn compute_annotation(&self, effect: &effinterp_proto::Effect) -> EffectAnnotation {
         if !effect.realm.is_host() {
             return EffectAnnotation::default();
         }
@@ -631,7 +640,7 @@ impl<'a> PlanView<'a> {
                 let (_, label) = crate::annotate::annotate_path_relation(
                     self.plan,
                     effect,
-                    crate::observe::observation_bound(&effect.resource)
+                    crate::observation_request::observation_bound(&effect.resource)
                         .and_then(|(path, _)| self.observed_path(&path)),
                     self.authority.observed_roots(),
                     crate::annotate::PathLabelContext {

@@ -1,8 +1,8 @@
 //! Property/fuzz test for reverse-query selector parsing. A fixed-seed LCG
-//! feeds thousands of adversarial strings to `Selector::parse`, which must
+//! feeds thousands of adversarial strings to `ResourceSelector::parse`, which must
 //! never panic (only ever Ok or Err) and must be deterministic.
 
-use effinterp_repo::Selector;
+use effinterp_repo::ResourceSelector;
 
 struct Rng(u64);
 impl Rng {
@@ -86,13 +86,13 @@ fn selector_parse_never_panics_and_is_deterministic() {
     let mut rng = Rng::new(0x5E1EC709);
     for i in 0..20_000u64 {
         let input = gen_selector(&mut rng);
-        let a = std::panic::catch_unwind(|| Selector::parse(&input));
+        let a = std::panic::catch_unwind(|| ResourceSelector::parse(&input));
         let a = match a {
             Ok(r) => r,
             Err(_) => panic!("PANIC parsing selector {input:?} at iteration {i}"),
         };
         // Deterministic: parsing the same string twice agrees.
-        let b = Selector::parse(&input);
+        let b = ResourceSelector::parse(&input);
         assert_eq!(a.is_ok(), b.is_ok(), "nondeterministic parse of {input:?}");
     }
 }

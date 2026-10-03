@@ -29,9 +29,9 @@ use super::expectations::{
 };
 use super::isolate::{IsolateRequest, IsolateStatus, isolate_child_process};
 use super::resource_mix;
-use crate::bench::max_rss_kb;
-use crate::bench::score::round4;
-use crate::bench::tiers::{Bucket, bucket_reasons};
+use crate::invocation::max_rss_kb;
+use crate::invocation::score::round4;
+use crate::invocation::tiers::{Bucket, bucket_reasons};
 
 pub const REPOS_DIR: &str = "bench/repos";
 pub const CHILD_TIMEOUT: Duration = Duration::from_secs(300);
@@ -184,7 +184,7 @@ pub struct ReposSection {
 }
 
 /// blake3 over `corpus.toml`, then every expectation file in sorted path order.
-pub fn corpus_digest(dir: &Path) -> std::io::Result<String> {
+pub fn repos_corpus_digest(dir: &Path) -> std::io::Result<String> {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&fs::read(dir.join("corpus.toml"))?);
     let mut files = fs::read_dir(dir.join("expectations"))?
@@ -446,7 +446,7 @@ pub fn score_repos(
 ) -> Result<ReposSection, String> {
     let manifest = load_manifest(dir)?;
     let corpus_digest =
-        corpus_digest(dir).map_err(|e| format!("cannot digest {}: {e}", dir.display()))?;
+        repos_corpus_digest(dir).map_err(|e| format!("cannot digest {}: {e}", dir.display()))?;
     if unlock_hidden.is_some() && !only.is_empty() {
         return Err("--unlock-hidden needs a full run so the unlock is recorded".to_string());
     }

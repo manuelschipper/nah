@@ -1,10 +1,22 @@
 //! Modeled effects for Go standard-library and selected external APIs.
 
-use super::*;
-use crate::nest::{Transition, word_resource};
-use crate::word::Word;
+use std::collections::HashSet;
 
-impl Walker<'_, '_> {
+use effinterp_proto::{
+    Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, Modality, Operation,
+    ProvenanceRef, ResourceExpr, ResourceIdentity, SqlConnection, SqlDialect, Subject,
+};
+use gosyn::ast::Expression;
+
+use crate::value::unresolved_resource;
+use crate::word::{Word, WordPart};
+use crate::{SemanticValue, SemanticValueKind};
+
+use super::summary::{is_str_lit, unquote_go_string};
+use super::{GoWalker, Out};
+use crate::nest::{Transition, word_resource};
+
+impl GoWalker<'_, '_> {
     pub(super) fn model_call(
         &mut self,
         path: &str,
@@ -38,9 +50,7 @@ impl Walker<'_, '_> {
             // CreateTemp(dir, pattern): a fresh temp file, path never literal.
             ("os", _, "CreateTemp") => self.emit(
                 "filesystem.write",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                },
+                unresolved_resource("filesystem"),
                 &[],
                 node,
             ),
@@ -154,12 +164,10 @@ impl Walker<'_, '_> {
         attrs: &[(&str, bool)],
         node: ProvenanceRef,
     ) -> Option<u32> {
-        let resource =
-            args.get(index)
-                .map(|a| self.fs_arg(a))
-                .unwrap_or(ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                });
+        let resource = args
+            .get(index)
+            .map(|a| self.fs_arg(a))
+            .unwrap_or(unresolved_resource("filesystem"));
         self.emit_slot(op, resource, attrs, node)
     }
 
@@ -178,9 +186,7 @@ impl Walker<'_, '_> {
             Some(name) if !name.is_empty() => ResourceExpr::Concrete {
                 identity: ResourceIdentity::EnvironmentVariable { name },
             },
-            _ => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("environment"),
-            },
+            _ => unresolved_resource("environment"),
         };
         self.emit(op, resource, &[], node);
     }
@@ -197,17 +203,13 @@ impl Walker<'_, '_> {
                             string_of(argument)
                                 .or_else(|| self.literal_value(argument))
                                 .map(|value| ResourceExpr::Literal { value })
-                                .unwrap_or(ResourceExpr::Unresolved {
-                                    family: ResourceFamily::new("process_argument"),
-                                })
+                                .unwrap_or(unresolved_resource("process_argument"))
                         })
                         .collect(),
                     cwd: None,
                 },
             },
-            _ => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("process"),
-            },
+            _ => unresolved_resource("process"),
         };
         self.emit("process.exec", resource, &[], node);
     }
@@ -263,9 +265,7 @@ impl Walker<'_, '_> {
         let resource = args
             .get(url_index)
             .map(|url| self.network_arg(url))
-            .unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            });
+            .unwrap_or(unresolved_resource("network"));
         // Post sends a body; NewRequest's verb (arg 0, if literal) decides
         // between a request and an upload the same way. Everything else
         // (Get/Head) is a plain request.
@@ -298,9 +298,7 @@ impl Walker<'_, '_> {
             .as_deref()
             .map(|address| network_endpoint(network.as_deref(), address))
             .or_else(|| args.get(address_index).map(|value| self.network_arg(value)))
-            .unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            });
+            .unwrap_or(unresolved_resource("network"));
         self.emit(operation, resource, &[], node);
         if operation == "network.listen"
             && let Some(socket) = unix_socket_file(network.as_deref(), address.as_deref())
@@ -446,18 +444,10 @@ pub(crate) fn go_callback_positions(path: &str, method: &str) -> &'static [usize
 /// The literal string value of an expression, if it is a string literal.
 pub(super) fn string_of(expr: &Expression) -> Option<String> {
     match expr {
-        Expression::BasicLit(lit) if is_str_lit(lit) => Some(unquote(&lit.value)),
+        Expression::BasicLit(lit) if is_str_lit(lit) => Some(unquote_go_string(&lit.value)),
         Expression::Paren(p) => string_of(&p.expr),
         _ => None,
     }
-}
-
-pub(super) fn endpoint(url: &str) -> ResourceExpr {
-    parse_url_endpoint(url)
-        .map(|identity| ResourceExpr::Concrete { identity })
-        .unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        })
 }
 
 /// The socket file a `net.Listen` bind creates. A unix network creates the
@@ -475,9 +465,7 @@ pub(super) fn unix_socket_file(
                 path: path.to_string(),
             },
         }),
-        _ => Some(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("filesystem"),
-        }),
+        _ => Some(unresolved_resource("filesystem")),
     }
 }
 
@@ -535,9 +523,7 @@ pub fn go_external_effects(
         let resource = address
             .as_deref()
             .map(|address| network_endpoint(network.as_deref(), address))
-            .unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            });
+            .unwrap_or(unresolved_resource("network"));
         let mut effects = vec![go_effect(
             if matches!(member, "Listen" | "ListenPacket") {
                 "network.listen"
@@ -588,12 +574,7 @@ pub fn go_external_effects(
             ),
             SemanticValueKind::Environment(name) => (format!("${name}"), None, true),
             _ => {
-                effects.push(go_effect(
-                    "process.exec",
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("process"),
-                    },
-                ));
+                effects.push(go_effect("process.exec", unresolved_resource("process")));
                 continue;
             }
         };
@@ -608,9 +589,7 @@ pub fn go_external_effects(
                 || shell_from_environment
                 || !matches!(command, ResourceExpr::Literal { .. }))
         {
-            *command = ResourceExpr::Unresolved {
-                family: ResourceFamily::new("process_command"),
-            };
+            *command = unresolved_resource("process_command");
         }
         effects.push(go_effect(
             "process.exec",

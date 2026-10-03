@@ -12,7 +12,7 @@ use effinterp_proto::{Subject, content_digest};
 
 use crate::FactoryError;
 use crate::fixture_evidence::{projected_fixture_json, read_fact_assertion_fixture};
-use crate::model_directory::{canonical_json, model_json_paths, read, write};
+use crate::model_directory::{model_json_paths, pretty_model_json, read, write};
 use crate::model_normalization::normalized_promoted;
 
 /// Recompute promoted identities and repin their evidence together. Every
@@ -50,7 +50,7 @@ pub fn repin_directory(directory: &Path, evidence: Option<&Path>) -> Result<(), 
         .collect::<Result<Vec<_>, FactoryError>>()?;
     let sources = documents
         .iter()
-        .map(canonical_json)
+        .map(pretty_model_json)
         .collect::<Result<Vec<_>, _>>()?;
     let refs = sources.iter().map(String::as_str).collect::<Vec<_>>();
     let registry =
@@ -148,7 +148,10 @@ pub fn repin_directory(directory: &Path, evidence: Option<&Path>) -> Result<(), 
                 FixtureDeclaration::Registry { .. } => {}
             }
         }
-        write(&directory.join(path), canonical_json(document)?.as_bytes())?;
+        write(
+            &directory.join(path),
+            pretty_model_json(document)?.as_bytes(),
+        )?;
     }
     if let (Some(path), Some(source)) = (evidence, evidence_source) {
         write(path, source.as_bytes())?;

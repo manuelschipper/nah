@@ -9,7 +9,7 @@
 
 use effinterp_engine::Assurance;
 use effinterp_proto::{CoverageLevel, ResourceExpr, ResourceIdentity, display_resource_with_scope};
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 use crate::support::antecedent_origins;
@@ -51,7 +51,7 @@ fn workspace_bin_resolves_lib_crate_by_package_name() {
     let idx = build_index(&root, IndexLimits::default());
     let report = reach(
         &idx,
-        &Selector::parse("fs:/var/lib-crate.lock").unwrap(),
+        &ResourceSelector::parse("fs:/var/lib-crate.lock").unwrap(),
         None,
     );
     let hit = report
@@ -1004,7 +1004,7 @@ fn impl_method_dispatch_through_constructor_typed_receiver() {
         ("fs:/etc/app.conf", "filesystem.read"),
         ("fs:/var/app.lock", "filesystem.delete"),
     ] {
-        let report = reach(&idx, &Selector::parse(selector).unwrap(), None);
+        let report = reach(&idx, &ResourceSelector::parse(selector).unwrap(), None);
         assert!(
             report
                 .payload
@@ -1092,7 +1092,11 @@ fn trait_method_cardinality_sets_assurance() {
         &files(false),
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/ext-a").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/ext-a").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -1377,7 +1381,11 @@ fn bin_macro_reaches_lib_path_uumain() {
         ids.iter().any(|id| id == "src/main.rs"),
         "bin! file is a program entry: {ids:?}"
     );
-    let report = reach(&idx, &Selector::parse("fs:/var/tool.lock").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/tool.lock").unwrap(),
+        None,
+    );
     let hit = report
         .payload
         .as_reach()
@@ -1481,7 +1489,11 @@ fn match_arm_constructor_reaches_impl_and_reexport() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/listed-dir").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/listed-dir").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -1536,7 +1548,7 @@ fn reexport_hub_resolves_type_to_defining_file() {
         ("fs:/var/listed", "filesystem.read"),
         ("fs:/var/dir", "filesystem.read"),
     ] {
-        let report = reach(&idx, &Selector::parse(selector).unwrap(), None);
+        let report = reach(&idx, &ResourceSelector::parse(selector).unwrap(), None);
         assert!(
             report
                 .payload
@@ -1616,7 +1628,7 @@ fn renamed_import_assoc_fn_does_not_recurse_into_local_type() {
     );
     let idx = build_index(&root, IndexLimits::default());
     for selector in ["fs:/var/opts", "fs:/var/theme"] {
-        let report = reach(&idx, &Selector::parse(selector).unwrap(), None);
+        let report = reach(&idx, &ResourceSelector::parse(selector).unwrap(), None);
         assert!(
             report
                 .payload
@@ -1671,7 +1683,11 @@ fn associated_constructor_types_cross_file_receiver() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/wiped").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/wiped").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -1766,7 +1782,7 @@ fn workspace_crate_root_extern_crate_alias_composes() {
     let idx = build_index(&root, IndexLimits::default());
     let report = reach(
         &idx,
-        &Selector::parse("fs:/var/hostname.lock").unwrap(),
+        &ResourceSelector::parse("fs:/var/hostname.lock").unwrap(),
         None,
     );
     assert!(
@@ -1817,7 +1833,7 @@ fn workspace_crate_root_use_alias_composes() {
     let idx = build_index(&root, IndexLimits::default());
     let report = reach(
         &idx,
-        &Selector::parse("fs:/var/hostname-use.lock").unwrap(),
+        &ResourceSelector::parse("fs:/var/hostname-use.lock").unwrap(),
         None,
     );
     assert!(
@@ -1878,7 +1894,11 @@ fn uv_main_alias_in_unsafe_reaches_lib() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/uv.lock").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/uv.lock").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -1962,7 +1982,7 @@ fn workspace_crate_root_alias_typed_receiver_composes() {
     let idx = build_index(&root, IndexLimits::default());
     let report = reach(
         &idx,
-        &Selector::parse("fs:/var/builder.lock").unwrap(),
+        &ResourceSelector::parse("fs:/var/builder.lock").unwrap(),
         None,
     );
     assert!(
@@ -2021,7 +2041,11 @@ fn main_macro_reaches_workspace_crate_entry() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/app.lock").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/app.lock").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload

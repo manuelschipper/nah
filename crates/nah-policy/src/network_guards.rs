@@ -8,7 +8,7 @@ use nah_proto::labels::host_script::mixes_scripts;
 
 use crate::guard_evaluation::{Qualification, QueryQualifier};
 use crate::registry::{GuardClause, GuardDefinition, GuardFamily};
-use crate::shared_queries::family;
+use crate::shared_queries::resource_family;
 
 /// Any network operation on an endpoint at a position the invocation can
 /// reach, `||` fallbacks included, whose host has a mixed-script label.
@@ -24,7 +24,7 @@ pub(crate) fn lookalike_host() -> GuardDefinition {
             query: Query::new(Assertion::Effect {
                 selector: Selector {
                     operation: OperationMatch::Family("network".into()),
-                    resource: family("net"),
+                    resource: resource_family("net"),
                     attributes: Vec::new(),
                     request_assurance: None,
                     condition: Some(ConditionPredicate::Complete),

@@ -12,6 +12,7 @@ use crate::nest::Nest;
 use crate::paths::{
     resolve_literal_tool_path, resolve_literal_tool_path_under_root, resolve_literal_tool_pattern,
 };
+use crate::value::unresolved_resource;
 
 const FILESYSTEM: &str = "filesystem";
 const MAX_FILE_EDIT_BATCH: usize = 64;
@@ -101,9 +102,7 @@ pub(crate) fn analyze_tool_call(
                 tool_argument_in_domain(builder, "path", "network"),
                 tool_argument_in_domain(builder, "direction", "network"),
             ];
-            let remote = ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("net"),
-            };
+            let remote = unresolved_resource("net");
             let network_slot = add_network_effect(
                 builder,
                 direction.1,

@@ -1,4 +1,8 @@
-use super::*;
+use std::path::Path;
+
+use effinterp_proto::{SourceDialect, Subject};
+
+use super::{Entrypoint, EntrypointCrawl, EntrypointEvidence, EntrypointKind};
 
 pub(super) fn could_have_shebang(name: &str, path: &Path) -> bool {
     // Extensionless files or common script extensions may carry a shebang.
@@ -17,7 +21,7 @@ pub(super) fn could_have_shebang(name: &str, path: &Path) -> bool {
 }
 
 pub(super) fn push_shell_file(
-    ctx: &mut Ctx,
+    ctx: &mut EntrypointCrawl,
     relpath: &str,
     source: String,
     source_cwd: String,
@@ -44,7 +48,12 @@ pub(super) fn push_shell_file(
     });
 }
 
-pub(super) fn shebang_file(ctx: &mut Ctx, relpath: &str, content: &str, source_cwd: String) {
+pub(super) fn shebang_file(
+    ctx: &mut EntrypointCrawl,
+    relpath: &str,
+    content: &str,
+    source_cwd: String,
+) {
     let Some(first) = content.lines().next() else {
         return;
     };

@@ -20,7 +20,7 @@ use crate::builder::PlanBuilder;
 use crate::models::{
     CurlFlowOutput, ModelBindingEnd, ModelCausalBinding, curl_flow_info, wget_flow_info,
 };
-use crate::resource_transfer::TransferBinding;
+use crate::resource_transfer::{TransferBinding, condition_requires_short_circuit_success};
 use crate::word::Word;
 use effinterp_model_schema::EffectSelection;
 
@@ -419,7 +419,7 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
                 (spec.effect_start..spec.effect_end)
                     .filter(|effect| builder.effect_has_argument(*effect as usize, argument as u32))
                     .map(|effect| {
-                        binding(
+                        port_binding(
                             BindEnd::Port(Port::Arg(argument as u32)),
                             BindEnd::Effect(effect),
                             CausalAssurance::Conservative,
@@ -447,7 +447,7 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
                     _ => None,
                 };
                 if let Some((source, sink)) = pair {
-                    bindings.push(binding(
+                    bindings.push(port_binding(
                         BindEnd::Effect(source),
                         BindEnd::Effect(sink),
                         CausalAssurance::Exact,
@@ -503,7 +503,7 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
                 let operand = builder.pending_flow_stage(FlowStage {
                     execution: spec.execution,
                     effects: vec![effect],
-                    bindings: vec![binding(from, to, CausalAssurance::Exact)],
+                    bindings: vec![port_binding(from, to, CausalAssurance::Exact)],
                     provenance: spec.span_node.into_iter().collect(),
                 }) as u32;
                 let value = FlowRef {
@@ -1073,7 +1073,7 @@ fn spawn_stdout_bindings(
                 && builder.effect_operation(*index as usize) == Some("process.exec")
         })
         .map(|spawn| {
-            binding(
+            port_binding(
                 BindEnd::Effect(spawn),
                 BindEnd::Port(Port::Stdout),
                 CausalAssurance::Conservative,
@@ -1091,7 +1091,7 @@ fn redirect_bindings(fd: &HashMap<Descriptor, Dest>) -> Vec<PortBinding> {
         ..
     }) = fd.get(&Descriptor::Number(0))
     {
-        b.push(binding(
+        b.push(port_binding(
             BindEnd::Effect(*effect),
             BindEnd::Port(Port::Stdin),
             CausalAssurance::Exact,
@@ -1105,7 +1105,7 @@ fn redirect_bindings(fd: &HashMap<Descriptor, Dest>) -> Vec<PortBinding> {
             ..
         }) = fd.get(&Descriptor::Number(descriptor))
         {
-            b.push(binding(
+            b.push(port_binding(
                 BindEnd::Port(port),
                 BindEnd::Effect(*effect),
                 CausalAssurance::Exact,
@@ -1115,7 +1115,7 @@ fn redirect_bindings(fd: &HashMap<Descriptor, Dest>) -> Vec<PortBinding> {
     b
 }
 
-fn binding(from: BindEnd, to: BindEnd, assurance: CausalAssurance) -> PortBinding {
+fn port_binding(from: BindEnd, to: BindEnd, assurance: CausalAssurance) -> PortBinding {
     PortBinding {
         assurance,
         from,
@@ -1227,7 +1227,7 @@ fn command_bindings_for_stage(builder: &PlanBuilder, spec: &StageSpec) -> Vec<Po
             && builder.effect_operation(write as usize) == Some("filesystem.write")
             && builder.effect_execution_command(write as usize) == Some("tee")
         {
-            b.push(binding(
+            b.push(port_binding(
                 BindEnd::Port(Port::Stdin),
                 BindEnd::Effect(write),
                 CausalAssurance::Conservative,
@@ -1247,7 +1247,7 @@ fn command_bindings_for_stage(builder: &PlanBuilder, spec: &StageSpec) -> Vec<Po
                         Some("set" | "export" | "declare" | "typeset")
                     ))
         {
-            b.push(binding(
+            b.push(port_binding(
                 BindEnd::Effect(index),
                 BindEnd::Port(Port::Stdout),
                 CausalAssurance::Conservative,
@@ -1330,7 +1330,11 @@ fn declarative_bindings(
         let to = binding_ends(builder, start, end, &declaration.to);
         for from in &from {
             for to in &to {
-                bindings.push(binding(from.clone(), to.clone(), declaration.assurance));
+                bindings.push(port_binding(
+                    from.clone(),
+                    to.clone(),
+                    declaration.assurance,
+                ));
             }
         }
     }
@@ -1463,7 +1467,7 @@ fn curl_bindings(
             for upload in routed_responses.iter().copied().filter(|effect| {
                 builder.effect_operation(*effect as usize) == Some("network.upload")
             }) {
-                b.push(binding(
+                b.push(port_binding(
                     BindEnd::Effect(read),
                     BindEnd::Effect(upload),
                     assurance,
@@ -1477,7 +1481,7 @@ fn curl_bindings(
             .copied()
             .filter(|effect| builder.effect_operation(*effect as usize) == Some("network.upload"))
         {
-            b.push(binding(
+            b.push(port_binding(
                 BindEnd::Port(Port::Stdin),
                 BindEnd::Effect(upload),
                 assurance,
@@ -1513,7 +1517,7 @@ fn curl_bindings(
                     .iter()
                     .find(|write| builder.effect_has_argument(**write as usize, argument))
                 {
-                    b.push(binding(
+                    b.push(port_binding(
                         BindEnd::Effect(response),
                         BindEnd::Effect(*write),
                         assurance,
@@ -1525,7 +1529,7 @@ fn curl_bindings(
                     builder.effect_provenance(**write as usize)
                         == builder.effect_provenance(response as usize)
                 }) {
-                    b.push(binding(
+                    b.push(port_binding(
                         BindEnd::Effect(response),
                         BindEnd::Effect(*write),
                         assurance,
@@ -1533,7 +1537,7 @@ fn curl_bindings(
                 }
             }
             CurlFlowOutput::Stdout => {
-                b.push(binding(
+                b.push(port_binding(
                     BindEnd::Effect(response),
                     BindEnd::Port(Port::Stdout),
                     assurance,
@@ -1577,7 +1581,7 @@ fn wget_bindings(
             .copied()
             .filter(|effect| builder.effect_operation(*effect as usize) == Some("network.upload"))
         {
-            b.push(binding(
+            b.push(port_binding(
                 BindEnd::Port(Port::Arg(argument)),
                 BindEnd::Effect(upload),
                 assurance,
@@ -1601,7 +1605,7 @@ fn wget_bindings(
             .copied()
             .filter(|effect| builder.effect_operation(*effect as usize) == Some("network.download"))
         {
-            b.push(binding(
+            b.push(port_binding(
                 BindEnd::Effect(download),
                 BindEnd::Port(Port::Stdout),
                 assurance,
@@ -1614,7 +1618,7 @@ fn wget_bindings(
             .copied()
             .filter(|effect| builder.effect_operation(*effect as usize) == Some("network.upload"))
         {
-            b.push(binding(
+            b.push(port_binding(
                 BindEnd::Port(Port::Stdin),
                 BindEnd::Effect(upload),
                 assurance,
@@ -1644,7 +1648,7 @@ fn bind_network_request_sources(
             for upload in requests.iter().copied().filter(|effect| {
                 builder.effect_operation(*effect as usize) == Some("network.upload")
             }) {
-                bindings.push(binding(
+                bindings.push(port_binding(
                     BindEnd::Effect(read),
                     BindEnd::Effect(upload),
                     assurance,
@@ -1654,7 +1658,7 @@ fn bind_network_request_sources(
     }
     for argument in header_arguments {
         for request in requests {
-            bindings.push(binding(
+            bindings.push(port_binding(
                 BindEnd::Port(Port::Arg(*argument)),
                 BindEnd::Effect(*request),
                 assurance,
@@ -1685,7 +1689,7 @@ fn code_execution_bindings(
         match builder.effect_string_attribute(execution as usize, "source") {
             Some("stdin") => {
                 bindings.push(pass(Port::Stdin, Port::Code, assurance));
-                bindings.push(binding(
+                bindings.push(port_binding(
                     BindEnd::Port(Port::Code),
                     BindEnd::Effect(execution),
                     assurance,
@@ -1721,7 +1725,7 @@ fn code_execution_bindings(
                                 .has_unique_direct_main_input(requester, resource, provenance),
                             _ => false,
                         };
-                    bindings.push(binding(
+                    bindings.push(port_binding(
                         BindEnd::Effect(read),
                         BindEnd::Effect(execution),
                         if exact {
@@ -1781,7 +1785,7 @@ pub(crate) fn stdout_producer_bindings(
         (start..end)
             .filter(|index| environment_stdout_effect(builder, *index))
             .map(|index| {
-                binding(
+                port_binding(
                     BindEnd::Effect(index),
                     BindEnd::Port(Port::Stdout),
                     CausalAssurance::Conservative,
@@ -2760,7 +2764,7 @@ pub(crate) fn build_causality(
                 }
             }
         }
-        let Some(path) = concrete_fs_path(effect) else {
+        let Some(path) = effect_fs_path(effect) else {
             if matches!(
                 effect.operation.as_str(),
                 "filesystem.create" | "filesystem.delete" | "filesystem.move" | "filesystem.write"
@@ -2798,7 +2802,7 @@ pub(crate) fn build_causality(
                         && target.realm == effect.realm
                         && target.execution == effect.execution
                         && target.condition.is_none()
-                        && concrete_fs_path(target).is_some()
+                        && effect_fs_path(target).is_some()
                         && transfer_bindings
                             .iter()
                             .filter(|binding| binding.destination as usize == destination)
@@ -2817,7 +2821,7 @@ pub(crate) fn build_causality(
                 fifo_paths.retain(|_, (_, evidence)| {
                     let latest = &effects[*evidence.last().unwrap()];
                     latest.realm != effect.realm
-                        || !concrete_fs_path(latest)
+                        || !effect_fs_path(latest)
                             .is_some_and(|known| known == path || fs_path_contains(path, known))
                 });
                 if effect.operation.as_str() == "filesystem.create"
@@ -3004,8 +3008,8 @@ pub(crate) fn build_causality(
             let exact_stored_read = previous_effect.operation.as_str() == "filesystem.write"
                 && effect.operation.as_str() == "filesystem.read"
                 && previous_effect.realm == effect.realm
-                && concrete_fs_path(previous_effect)
-                    .zip(concrete_fs_path(effect))
+                && effect_fs_path(previous_effect)
+                    .zip(effect_fs_path(effect))
                     .is_some_and(|(written, read)| written == read)
                 && transfer_bindings.iter().any(|binding| {
                     binding.destination as usize == previous
@@ -3030,10 +3034,10 @@ pub(crate) fn build_causality(
                     {
                         return false;
                     }
-                    let Some(written) = concrete_fs_path(previous_effect) else {
+                    let Some(written) = effect_fs_path(previous_effect) else {
                         return true;
                     };
-                    concrete_fs_path(candidate).is_none_or(|path| {
+                    effect_fs_path(candidate).is_none_or(|path| {
                         path == written
                             || fs_path_contains(path, written)
                             || fs_path_contains(written, path)
@@ -3085,7 +3089,7 @@ pub(crate) fn build_causality(
             written_patterns.push((index, glob));
             continue;
         }
-        let Some(path) = concrete_fs_path(effect) else {
+        let Some(path) = effect_fs_path(effect) else {
             continue;
         };
         if effect.operation.0 == "filesystem.read" {
@@ -3192,9 +3196,9 @@ pub(crate) fn build_causality(
         effect.operation.as_str() == "filesystem.write"
             && effect.request_assurance == effinterp_proto::RequestAssurance::Exact
             && effect.condition.is_none()
-            && concrete_fs_path(effect).is_some()
+            && effect_fs_path(effect).is_some()
     }) {
-        let Some(writer_path) = concrete_fs_path(source) else {
+        let Some(writer_path) = effect_fs_path(source) else {
             continue;
         };
         let Some(writer_node) = effect_nodes.get(writer).and_then(Option::as_ref) else {
@@ -3220,12 +3224,12 @@ pub(crate) fn build_causality(
                     effect.operation.as_str() == "filesystem.read"
                         && effect.realm == source.realm
                         && effect.condition.is_none()
-                        && concrete_fs_path(effect)
+                        && effect_fs_path(effect)
                             .is_some_and(|path| fs_path_contains(path, writer_path))
                 })
         {
             let replaced = effects[writer + 1..reader].iter().any(|effect| {
-                let Some(path) = concrete_fs_path(effect) else {
+                let Some(path) = effect_fs_path(effect) else {
                     return false;
                 };
                 let overlaps =
@@ -3572,29 +3576,6 @@ fn branch_path(condition: Option<&effinterp_proto::Condition>) -> Vec<Branch> {
         .collect()
 }
 
-fn condition_requires_short_circuit_success(
-    condition: Option<&effinterp_proto::Condition>,
-    span: effinterp_proto::ByteSpan,
-) -> bool {
-    match condition {
-        Some(effinterp_proto::Condition::Atom { atom }) => {
-            atom.origin.kind == effinterp_proto::ConditionKind::ShortCircuit
-                && atom.origin.span == span
-                && atom.polarity == Some(true)
-        }
-        Some(effinterp_proto::Condition::All { conditions }) => conditions
-            .iter()
-            .any(|condition| condition_requires_short_circuit_success(Some(condition), span)),
-        Some(effinterp_proto::Condition::Any { conditions }) => {
-            !conditions.is_empty()
-                && conditions.iter().all(|condition| {
-                    condition_requires_short_circuit_success(Some(condition), span)
-                })
-        }
-        Some(effinterp_proto::Condition::Widened) | None => false,
-    }
-}
-
 /// The occurrences that may hold the current state of one resource, tracked
 /// across the branch constructs the effects sit in.
 #[derive(Default)]
@@ -3767,7 +3748,7 @@ fn observed_fifo_paths(
     paths
 }
 
-fn concrete_fs_path(effect: &Effect) -> Option<&str> {
+fn effect_fs_path(effect: &Effect) -> Option<&str> {
     match &effect.resource {
         ResourceExpr::Concrete {
             identity: effinterp_proto::ResourceIdentity::FsPath { path },

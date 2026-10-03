@@ -1,10 +1,22 @@
-use super::*;
+use std::collections::HashSet;
+
+use effinterp_engine::{
+    Assurance, DispatchStyle, ExternalCall, ResolvedObject, classify_java_call,
+};
+use effinterp_proto::BoundaryReason;
+
+use super::{
+    Linker, Resolution, bounded_dispatch, dedup_targets, dispatch_contract, excluded_dispatch_file,
+    instance, resolve_common_method, resolve_method_in_class, resolve_standard_callee,
+    standard_class_candidates,
+};
+use crate::module::{ModuleFile, ModuleRegistry};
 
 pub(crate) struct JavaLinker;
 
 fn java_implements_contract(
     linker: &dyn Linker,
-    reg: &Registry,
+    reg: &ModuleRegistry,
     file: &ModuleFile,
     class: &str,
     contract_file: &str,
@@ -51,7 +63,7 @@ fn java_implements_contract(
 
 fn java_dispatch_targets<'a>(
     linker: &dyn Linker,
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     inst: &ResolvedObject,
     method: &str,
 ) -> Resolution<'a> {
@@ -105,7 +117,7 @@ fn java_dispatch_targets<'a>(
 impl Linker for JavaLinker {
     fn resolve_callee<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         callee: &str,
     ) -> Resolution<'a> {
@@ -137,7 +149,7 @@ impl Linker for JavaLinker {
 
     fn class_candidates<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         name: &str,
     ) -> Vec<(ResolvedObject, Assurance)> {
@@ -146,7 +158,7 @@ impl Linker for JavaLinker {
 
     fn resolve_method<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         inst: &ResolvedObject,
         method: &str,
     ) -> Resolution<'a> {
@@ -159,7 +171,7 @@ impl Linker for JavaLinker {
 
     fn classify_external(
         &self,
-        _reg: &Registry,
+        _reg: &ModuleRegistry,
         module: &str,
         member: &str,
         _arity: Option<usize>,
@@ -169,7 +181,7 @@ impl Linker for JavaLinker {
 
     fn classify_import(
         &self,
-        _reg: &Registry,
+        _reg: &ModuleRegistry,
         _file: &ModuleFile,
         _spec: &str,
     ) -> Option<ExternalCall> {
@@ -178,7 +190,7 @@ impl Linker for JavaLinker {
 
     fn execution_roots<'a>(
         &self,
-        _reg: &'a Registry,
+        _reg: &'a ModuleRegistry,
         _file: &'a ModuleFile,
     ) -> Vec<(&'a ModuleFile, Option<&'a str>)> {
         Vec::new()

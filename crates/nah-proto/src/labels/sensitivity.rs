@@ -1,7 +1,7 @@
 //! Classifies how sensitive a path is; it does not canonicalize host paths.
 
-use super::lexical_path::fold;
-use super::{Sensitivity, contains, selects};
+use super::lexical_path::fold_path_spelling;
+use super::{Sensitivity, lexically_contains, selects_known_path};
 use crate::ctx::{AbsolutePath, Platform};
 
 /// Classifies how sensitive a target path is, reading both the requested word
@@ -118,7 +118,7 @@ pub fn sensitivity(
         || private_key_basename(target.as_str(), platform, pattern)
         || [requested, target.as_str()]
             .iter()
-            .any(|path| selects("/Library/Keychains", path, platform, pattern))
+            .any(|path| selects_known_path("/Library/Keychains", path, platform, pattern))
     {
         return Sensitivity::KeyMaterial;
     }
@@ -136,7 +136,7 @@ pub fn sensitivity(
                 "/etc/rancher/k3s/k3s.yaml",
             ]
             .iter()
-            .any(|entry| selects(entry, path, platform, pattern))
+            .any(|entry| selects_known_path(entry, path, platform, pattern))
         })
     {
         return Sensitivity::CredentialSecret;
@@ -169,8 +169,8 @@ pub fn sensitivity(
         || matches_home_path(requested, home, OTHER_HOME_PATHS, platform, pattern)
         || matches_home_path(target.as_str(), home, OTHER_HOME_PATHS, platform, pattern)
         || OTHER_SYSTEM_PATHS.iter().any(|entry| {
-            selects(entry, requested, platform, pattern)
-                || selects(entry, target.as_str(), platform, pattern)
+            selects_known_path(entry, requested, platform, pattern)
+                || selects_known_path(entry, target.as_str(), platform, pattern)
         })
     {
         return Sensitivity::OtherSensitive;
@@ -191,7 +191,7 @@ fn credential_basename(path: &str, platform: Platform, pattern: bool) -> bool {
     let basename = basename(path, platform);
     [".netrc", ".git-credentials"]
         .iter()
-        .any(|entry| selects(entry, &basename, platform, pattern))
+        .any(|entry| selects_known_path(entry, &basename, platform, pattern))
 }
 
 /// The default SSH private-key names, wherever the file lives. Like
@@ -200,7 +200,7 @@ fn private_key_basename(path: &str, platform: Platform, pattern: bool) -> bool {
     let basename = basename(path, platform);
     ["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"]
         .iter()
-        .any(|entry| selects(entry, &basename, platform, pattern))
+        .any(|entry| selects_known_path(entry, &basename, platform, pattern))
 }
 
 /// Names that usually hold key or credential material but are common enough in
@@ -215,7 +215,7 @@ fn credential_material_basename(path: &str, platform: Platform, pattern: bool) -
     let basename = basename(path, platform);
     ["credentials", "kubeconfig", "terraform.tfstate"]
         .iter()
-        .any(|entry| selects(entry, &basename, platform, pattern))
+        .any(|entry| selects_known_path(entry, &basename, platform, pattern))
         || [".key", ".pem", ".p12", ".pfx"]
             .iter()
             .any(|suffix| basename.ends_with(suffix))
@@ -223,7 +223,7 @@ fn credential_material_basename(path: &str, platform: Platform, pattern: bool) -
 }
 
 fn basename(path: &str, platform: Platform) -> String {
-    let path = fold(path, platform);
+    let path = fold_path_spelling(path, platform);
     path.rsplit('/').next().unwrap_or(&path).to_owned()
 }
 
@@ -231,7 +231,7 @@ fn configuration_basename(path: &str, platform: Platform, pattern: bool) -> bool
     let basename = basename(path, platform);
     [".npmrc", "terraform.tfvars"]
         .iter()
-        .any(|entry| selects(entry, &basename, platform, pattern))
+        .any(|entry| selects_known_path(entry, &basename, platform, pattern))
 }
 
 fn matches_home_path(
@@ -245,7 +245,7 @@ fn matches_home_path(
     entries.iter().any(|entry| {
         home_relative
             .as_deref()
-            .is_some_and(|relative| selects(entry, relative, platform, pattern))
+            .is_some_and(|relative| selects_known_path(entry, relative, platform, pattern))
             || matches_home_glob(path, home.as_str(), entry, platform)
     })
 }
@@ -285,7 +285,7 @@ fn container_runtime_auth(path: &str, platform: Platform) -> bool {
         .is_some_and(|(user, relative)| !user.is_empty() && relative == "containers/auth.json")
 }
 
-/// Like `lexical_path::fold`, but turns `\` into `/` on every platform, so a
+/// Like `lexical_path::fold_path_spelling`, but turns `\` into `/` on every platform, so a
 /// POSIX spelling such as `/home/me/.ssh\id_rsa` still reaches the home
 /// credential rules. `fold` keeps that backslash as part of a name there, and
 /// the credential guards would stop matching it.
@@ -345,7 +345,7 @@ fn environment_basename(path: &str, platform: Platform, pattern: bool) -> bool {
     dotted_environment
         || [".env", ".pypirc", ".pgpass", ".boto"]
             .iter()
-            .any(|entry| selects(entry, &basename, platform, pattern))
+            .any(|entry| selects_known_path(entry, &basename, platform, pattern))
 }
 
 /// Expands the enumerated alternatives of a bounded pattern's final component.
@@ -422,7 +422,7 @@ fn matches_home_glob(path: &str, home: &str, suffix: &str, platform: Platform) -
         return false;
     }
     let tail = tail.trim_start_matches('/');
-    contains(&suffix, tail, platform)
+    lexically_contains(&suffix, tail, platform)
 }
 
 #[cfg(test)]

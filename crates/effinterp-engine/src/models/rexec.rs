@@ -24,7 +24,7 @@ pub(crate) fn apply(
                 let Some(source) = option.value.as_ref() else {
                     return;
                 };
-                nest(builder, ctx, model_node, source);
+                nest_r_source(builder, ctx, model_node, source);
                 ran_source = true;
             }
             "-f" | "--file" => {
@@ -82,7 +82,7 @@ pub(crate) fn apply(
     }
 }
 
-fn nest(
+fn nest_r_source(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,

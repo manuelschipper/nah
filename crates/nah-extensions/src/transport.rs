@@ -54,7 +54,10 @@ pub(crate) struct ExecutionOutput {
     pub(crate) stderr: Option<String>,
 }
 
-pub(crate) fn execute(extension: &ExtensionBundle, request: &impl Serialize) -> ExecutionOutput {
+pub(crate) fn execute_extension_process(
+    extension: &ExtensionBundle,
+    request: &impl Serialize,
+) -> ExecutionOutput {
     let activation = extension.projection().clone();
     let mut command = Command::new(extension.run());
     command

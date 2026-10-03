@@ -78,7 +78,7 @@ pub(super) fn analyze(
         builder.note_deadline();
         return;
     }
-    let mut walk = Walk {
+    let mut walk = CmdWalk {
         nest,
         cwd,
         node,
@@ -103,7 +103,7 @@ pub(super) fn nested(
     node: ProvenanceRef,
     depth: u32,
 ) -> bool {
-    let mut walk = Walk {
+    let mut walk = CmdWalk {
         nest,
         cwd,
         node,
@@ -114,7 +114,7 @@ pub(super) fn nested(
     walk.understood
 }
 
-struct Walk<'a> {
+struct CmdWalk<'a> {
     nest: &'a Nest<'a>,
     cwd: Option<&'a str>,
     node: ProvenanceRef,
@@ -122,7 +122,7 @@ struct Walk<'a> {
     understood: bool,
 }
 
-impl Walk<'_> {
+impl CmdWalk<'_> {
     fn line(&mut self, builder: &mut PlanBuilder, source: &str) {
         let (commands, partial) = commands(source);
         if partial {
@@ -161,13 +161,13 @@ impl Walk<'_> {
     fn apply(&mut self, builder: &mut PlanBuilder, line: &Line) -> Result<(), String> {
         for redirect in &line.redirects {
             match redirect.operation {
-                Redirection::Read => {
+                CmdRedirection::Read => {
                     self.effect(builder, "filesystem.read", &redirect.target, &[])?
                 }
-                Redirection::Write => {
+                CmdRedirection::Write => {
                     self.effect(builder, "filesystem.write", &redirect.target, &[])?
                 }
-                Redirection::Append => self.effect(
+                CmdRedirection::Append => self.effect(
                     builder,
                     "filesystem.write",
                     &redirect.target,
@@ -256,8 +256,8 @@ impl Walk<'_> {
                     word.0
                         .iter()
                         .map(|part| match part {
-                            Part::Text(text) => crate::word::WordPart::Literal(text.clone()),
-                            Part::Env(name) => crate::word::WordPart::Env(name.clone()),
+                            CmdWordPart::Text(text) => crate::word::WordPart::Literal(text.clone()),
+                            CmdWordPart::Env(name) => crate::word::WordPart::Env(name.clone()),
                         })
                         .collect(),
                 )
@@ -279,11 +279,11 @@ impl Walk<'_> {
         &mut self,
         builder: &mut PlanBuilder,
         executable: &str,
-        operands: &[Word],
+        operands: &[CmdWord],
     ) -> Result<(), String> {
         let arguments = operands
             .iter()
-            .map(Word::text)
+            .map(CmdWord::text)
             .collect::<Option<Vec<_>>>()
             .ok_or("cmd PowerShell invocation has a symbolic argument")?;
         // PowerShell's own command-line parameters accept an unambiguous
@@ -327,7 +327,7 @@ impl Walk<'_> {
     /// `mklink /h LINK TARGET` gives the target's file a second name, so it
     /// keeps the same metadata source and exact relation as `ln`. The symbolic
     /// link and junction forms stay outside the grammar.
-    fn mklink(&mut self, builder: &mut PlanBuilder, operands: &[Word]) -> Result<(), String> {
+    fn mklink(&mut self, builder: &mut PlanBuilder, operands: &[CmdWord]) -> Result<(), String> {
         let (link, target) = match operands {
             [switch, link, target]
                 if switch
@@ -349,7 +349,7 @@ impl Walk<'_> {
     fn each(
         &mut self,
         builder: &mut PlanBuilder,
-        operands: &[Word],
+        operands: &[CmdWord],
         operation: &str,
         recursive: bool,
     ) -> Result<(), String> {
@@ -371,7 +371,7 @@ impl Walk<'_> {
         &mut self,
         builder: &mut PlanBuilder,
         operation: &str,
-        word: &Word,
+        word: &CmdWord,
         attributes: &[(&str, bool)],
     ) -> Result<Option<u32>, String> {
         let resource = self.resource(word)?;
@@ -403,14 +403,14 @@ impl Walk<'_> {
 
     /// The text that names the operand's provider: the operand itself when it
     /// is rooted, otherwise the working directory it resolves against.
-    fn provider(&self, word: &Word) -> Option<String> {
+    fn provider(&self, word: &CmdWord) -> Option<String> {
         match word.text() {
             Some(text) if text.starts_with('/') || windows_provider(&text) => Some(text),
             _ => self.cwd.map(str::to_string),
         }
     }
 
-    fn resource(&self, word: &Word) -> Result<ResourceExpr, String> {
+    fn resource(&self, word: &CmdWord) -> Result<ResourceExpr, String> {
         let provider = self.provider(word);
         // A UNC operand names a share on another host, and the canonical path
         // form keeps no host of its own, so that provider stays open.
@@ -453,10 +453,10 @@ impl Walk<'_> {
                     .0
                     .iter()
                     .map(|part| match part {
-                        Part::Text(text) => ResourceExpr::Literal {
+                        CmdWordPart::Text(text) => ResourceExpr::Literal {
                             value: text.clone(),
                         },
-                        Part::Env(name) => ResourceExpr::Environment { name: name.clone() },
+                        CmdWordPart::Env(name) => ResourceExpr::Environment { name: name.clone() },
                     })
                     .collect(),
             }),
@@ -467,10 +467,10 @@ impl Walk<'_> {
     /// environment and recording each expansion as an environment read.
     fn words(&mut self, builder: &mut PlanBuilder, source: &str) -> Result<Line, String> {
         let mut line = Line::default();
-        let mut current = Word::default();
+        let mut current = CmdWord::default();
         let mut started = false;
         let mut quoted = false;
-        let mut pending: Option<Redirection> = None;
+        let mut pending: Option<CmdRedirection> = None;
         let mut rest = source;
         while let Some(character) = rest.chars().next() {
             rest = &rest[character.len_utf8()..];
@@ -516,17 +516,17 @@ impl Walk<'_> {
                         rest = &rest[1..];
                     }
                     if started {
-                        push(&mut line, &mut current, &mut started, &mut pending);
+                        push_word(&mut line, &mut current, &mut started, &mut pending);
                     }
                     pending = Some(match (character, append) {
-                        ('<', _) => Redirection::Read,
-                        (_, true) => Redirection::Append,
-                        _ => Redirection::Write,
+                        ('<', _) => CmdRedirection::Read,
+                        (_, true) => CmdRedirection::Append,
+                        _ => CmdRedirection::Write,
                     });
                 }
                 character if character.is_whitespace() => {
                     if started {
-                        push(&mut line, &mut current, &mut started, &mut pending);
+                        push_word(&mut line, &mut current, &mut started, &mut pending);
                     }
                 }
                 // A trailing stream selector belongs to the redirection.
@@ -543,7 +543,7 @@ impl Walk<'_> {
             return Err("cmd quoted argument is unterminated".into());
         }
         if started {
-            push(&mut line, &mut current, &mut started, &mut pending);
+            push_word(&mut line, &mut current, &mut started, &mut pending);
         }
         if pending.is_some() {
             return Err("cmd redirection has no target".into());
@@ -555,7 +555,7 @@ impl Walk<'_> {
     fn expand(
         &mut self,
         builder: &mut PlanBuilder,
-        word: &mut Word,
+        word: &mut CmdWord,
         rest: &mut &str,
     ) -> Result<(), String> {
         let name_end = rest
@@ -594,8 +594,8 @@ impl Walk<'_> {
         // The supplied environment is not a proven inventory, so a name it
         // does not carry stays symbolic rather than expanding to nothing.
         match self.nest.environment_value(&name) {
-            Some(ResourceExpr::Literal { value }) => word.0.push(Part::Text(value)),
-            _ => word.0.push(Part::Env(name)),
+            Some(ResourceExpr::Literal { value }) => word.0.push(CmdWordPart::Text(value)),
+            _ => word.0.push(CmdWordPart::Env(name)),
         }
         Ok(())
     }
@@ -648,7 +648,12 @@ fn commands(source: &str) -> (Vec<&str>, bool) {
     (commands, partial)
 }
 
-fn push(line: &mut Line, word: &mut Word, started: &mut bool, pending: &mut Option<Redirection>) {
+fn push_word(
+    line: &mut Line,
+    word: &mut CmdWord,
+    started: &mut bool,
+    pending: &mut Option<CmdRedirection>,
+) {
     let word = std::mem::take(word);
     *started = false;
     match pending.take() {
@@ -662,7 +667,7 @@ fn push(line: &mut Line, word: &mut Word, started: &mut bool, pending: &mut Opti
 
 /// Split switches from operands. A `/` word is a switch only when it names one
 /// letter, optionally with a `:value`; any other `/` word is a path operand.
-fn switches(words: &[Word], accepted: &[&str]) -> Result<(bool, Vec<Word>), String> {
+fn switches(words: &[CmdWord], accepted: &[&str]) -> Result<(bool, Vec<CmdWord>), String> {
     let mut recursive = false;
     let mut operands = Vec::new();
     for word in words {
@@ -689,7 +694,7 @@ fn switches(words: &[Word], accepted: &[&str]) -> Result<(bool, Vec<Word>), Stri
 }
 
 /// `ren` names its target inside the source entry's directory.
-fn sibling(source: &Word, target: &Word) -> Result<Word, String> {
+fn sibling(source: &CmdWord, target: &CmdWord) -> Result<CmdWord, String> {
     let (source, target) = match (source.text(), target.text()) {
         (Some(source), Some(target)) => (source, target),
         _ => return Err("cmd rename operands are not recoverable strings".into()),
@@ -700,7 +705,7 @@ fn sibling(source: &Word, target: &Word) -> Result<Word, String> {
     let parent = source
         .rfind(['/', '\\'])
         .ok_or("cmd rename source has no directory")?;
-    Ok(Word(vec![Part::Text(format!(
+    Ok(CmdWord(vec![CmdWordPart::Text(format!(
         "{}{target}",
         &source[..parent + 1]
     ))]))
@@ -715,35 +720,35 @@ fn windows_provider(text: &str) -> bool {
 
 #[derive(Default)]
 struct Line {
-    words: Vec<Word>,
+    words: Vec<CmdWord>,
     redirects: Vec<Redirect>,
 }
 
 struct Redirect {
-    operation: Redirection,
-    target: Word,
+    operation: CmdRedirection,
+    target: CmdWord,
 }
 
-enum Redirection {
+enum CmdRedirection {
     Read,
     Write,
     Append,
 }
 
 #[derive(Default, Clone)]
-struct Word(Vec<Part>);
+struct CmdWord(Vec<CmdWordPart>);
 
 #[derive(Clone)]
-enum Part {
+enum CmdWordPart {
     Text(String),
     Env(String),
 }
 
-impl Word {
+impl CmdWord {
     fn push(&mut self, character: char) {
         match self.0.last_mut() {
-            Some(Part::Text(text)) => text.push(character),
-            _ => self.0.push(Part::Text(character.to_string())),
+            Some(CmdWordPart::Text(text)) => text.push(character),
+            _ => self.0.push(CmdWordPart::Text(character.to_string())),
         }
     }
 
@@ -751,8 +756,8 @@ impl Word {
         self.0
             .iter()
             .map(|part| match part {
-                Part::Text(text) => Some(text.as_str()),
-                Part::Env(_) => None,
+                CmdWordPart::Text(text) => Some(text.as_str()),
+                CmdWordPart::Env(_) => None,
             })
             .collect()
     }

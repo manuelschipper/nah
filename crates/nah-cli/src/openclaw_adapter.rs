@@ -8,10 +8,15 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::adapter_fields::runtime_field_names_covered;
+use crate::adapter_fields::{
+    runtime_field_names_covered, tool_input_non_empty_string, tool_input_optional_non_empty_string,
+    tool_input_string, tool_input_text_edits,
+};
 use crate::code_input::{CodeInput, CodeIntake};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
+
+const INVALID_OPENCLAW_TOOL_INPUT: &str = "invalid-openclaw-tool-input";
 
 #[derive(Deserialize)]
 struct OpenClawHookInput {
@@ -34,7 +39,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
 ) -> u8 {
     let request = serde_json::from_reader::<_, OpenClawHookInput>(stdin)
         .map_err(|error| error.to_string())
-        .and_then(normalize);
+        .and_then(normalize_openclaw_hook_input);
     let output = match request {
         Ok((request, code)) => {
             match hook_adapter::decide_input(
@@ -54,34 +59,27 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     json!({"block":false,"evaluation_failed":decision.evaluation_failed()})
                 }
                 HookOutcome::IrrelevantEvent => return 0,
-                HookOutcome::MalformedInput => unavailable(
+                HookOutcome::MalformedInput => hook_adapter::unavailable_plugin_reply(
                     failure_policy,
+                    Runtime::OpenClaw,
                     hook_adapter::IntegrationUnavailable::MalformedInput,
                 )
-                .unwrap_or_else(|| delegated(false)),
+                .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
                 HookOutcome::EvaluationUnavailable(kind) => {
-                    { unavailable(failure_policy, kind) }.unwrap_or_else(|| delegated(true))
+                    hook_adapter::unavailable_plugin_reply(failure_policy, Runtime::OpenClaw, kind)
                 }
+                .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(true)),
             }
         }
-        Err(_) => unavailable(
+        Err(_) => hook_adapter::unavailable_plugin_reply(
             failure_policy,
+            Runtime::OpenClaw,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
-        .unwrap_or_else(|| delegated(false)),
+        .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
-}
-
-fn unavailable(
-    failure_policy: FailurePolicy,
-    unavailable: hook_adapter::IntegrationUnavailable,
-) -> Option<Value> {
-    hook_adapter::unavailable_feedback(failure_policy, Runtime::OpenClaw, unavailable).map(
-        |reason| json!({"block":true,"reason":format!("nah - {reason}"),"evaluation_failed":true}),
-    )
 }
 
 /// The tool call `run` hands the pipeline for this OpenClaw tool call.
@@ -91,7 +89,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<(ToolCallInput, Option<CodeInput>), String> {
-    normalize(OpenClawHookInput {
+    normalize_openclaw_hook_input(OpenClawHookInput {
         tool_name: tool_name.into(),
         tool_input,
         cwd: cwd.into(),
@@ -101,7 +99,9 @@ pub(crate) fn normalize_call(
     })
 }
 
-fn normalize(input: OpenClawHookInput) -> Result<(ToolCallInput, Option<CodeInput>), String> {
+fn normalize_openclaw_hook_input(
+    input: OpenClawHookInput,
+) -> Result<(ToolCallInput, Option<CodeInput>), String> {
     let original_input = input.tool_input.clone();
     let (lowered, code) = match crate::code_input::openclaw(
         &input.tool_name,
@@ -117,11 +117,13 @@ fn normalize(input: OpenClawHookInput) -> Result<(ToolCallInput, Option<CodeInpu
             input
                 .tool_input
                 .as_object()
-                .ok_or_else(|| "invalid-openclaw-tool-input".to_owned())
-                .and_then(|object| lower(&input.tool_name, &input.tool_input, object)),
+                .ok_or_else(|| INVALID_OPENCLAW_TOOL_INPUT.to_owned())
+                .and_then(|object| {
+                    lower_openclaw_tool(&input.tool_name, &input.tool_input, object)
+                }),
             None,
         ),
-        CodeIntake::Invalid => (Err("invalid-openclaw-tool-input".into()), None),
+        CodeIntake::Invalid => (Err(INVALID_OPENCLAW_TOOL_INPUT.into()), None),
     };
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
@@ -144,34 +146,40 @@ fn normalize(input: OpenClawHookInput) -> Result<(ToolCallInput, Option<CodeInpu
     .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_openclaw_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     object: &Map<String, Value>,
 ) -> Result<(&'a str, Value), String> {
     Ok(match tool_name {
-        "exec" => ("Bash", json!({"command": string(object, "command")?})),
-        "read" => ("Read", json!({"file_path": non_empty(object, "path")?})),
+        "exec" => (
+            "Bash",
+            json!({"command": tool_input_string(object, "command", INVALID_OPENCLAW_TOOL_INPUT)?}),
+        ),
+        "read" => (
+            "Read",
+            json!({"file_path": tool_input_non_empty_string(object, "path", INVALID_OPENCLAW_TOOL_INPUT)?}),
+        ),
         "write" => (
             "Write",
             json!({
-                "file_path":non_empty(object, "path")?,
-                "content":string(object, "content")?
+                "file_path":tool_input_non_empty_string(object, "path", INVALID_OPENCLAW_TOOL_INPUT)?,
+                "content":tool_input_string(object, "content", INVALID_OPENCLAW_TOOL_INPUT)?
             }),
         ),
         "edit" => (
             "Edit",
-            json!({"file_path":non_empty(object, "path")?,"edits":edits(object)?}),
+            json!({"file_path":tool_input_non_empty_string(object, "path", INVALID_OPENCLAW_TOOL_INPUT)?,"edits":tool_input_text_edits(object, INVALID_OPENCLAW_TOOL_INPUT)?}),
         ),
         "apply_patch" => (
             "apply_patch",
-            json!({"command":non_empty(object, "input")?}),
+            json!({"command":tool_input_non_empty_string(object, "input", INVALID_OPENCLAW_TOOL_INPUT)?}),
         ),
-        "grep" => ("Grep", search_input(object)?),
-        "find" => ("Find", search_input(object)?),
+        "grep" => ("Grep", openclaw_search_input(object)?),
+        "find" => ("Find", openclaw_search_input(object)?),
         "ls" => (
             "Ls",
-            json!({"path":optional_non_empty(object, "path")?.unwrap_or_else(|| ".".into())}),
+            json!({"path":tool_input_optional_non_empty_string(object, "path", INVALID_OPENCLAW_TOOL_INPUT)?.unwrap_or_else(|| ".".into())}),
         ),
         "process" => {
             reject_process_input(object)?;
@@ -181,53 +189,11 @@ fn lower<'a>(
     })
 }
 
-fn search_input(object: &Map<String, Value>) -> Result<Value, String> {
+fn openclaw_search_input(object: &Map<String, Value>) -> Result<Value, String> {
     Ok(json!({
-        "pattern":string(object, "pattern")?,
-        "path":optional_non_empty(object, "path")?.unwrap_or_else(|| ".".into())
+        "pattern":tool_input_string(object, "pattern", INVALID_OPENCLAW_TOOL_INPUT)?,
+        "path":tool_input_optional_non_empty_string(object, "path", INVALID_OPENCLAW_TOOL_INPUT)?.unwrap_or_else(|| ".".into())
     }))
-}
-
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-openclaw-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        (!value.is_empty())
-            .then_some(value)
-            .ok_or_else(|| "invalid-openclaw-tool-input".to_owned())
-    })
-}
-
-fn optional_non_empty(object: &Map<String, Value>, name: &str) -> Result<Option<String>, String> {
-    match object.get(name) {
-        Some(Value::String(value)) if !value.is_empty() => Ok(Some(value.clone())),
-        Some(Value::String(_)) | None => Ok(None),
-        Some(_) => Err("invalid-openclaw-tool-input".into()),
-    }
-}
-
-fn edits(object: &Map<String, Value>) -> Result<Value, String> {
-    let edits = object
-        .get("edits")
-        .and_then(Value::as_array)
-        .filter(|edits| !edits.is_empty())
-        .ok_or_else(|| "invalid-openclaw-tool-input".to_owned())?;
-    edits
-        .iter()
-        .all(|edit| {
-            edit.as_object().is_some_and(|edit| {
-                edit.get("oldText").is_some_and(Value::is_string)
-                    && edit.get("newText").is_some_and(Value::is_string)
-            })
-        })
-        .then(|| Value::Array(edits.clone()))
-        .ok_or_else(|| "invalid-openclaw-tool-input".to_owned())
 }
 
 fn reject_process_input(object: &Map<String, Value>) -> Result<(), String> {
@@ -236,12 +202,8 @@ fn reject_process_input(object: &Map<String, Value>) -> Result<(), String> {
         Some("write" | "send-keys" | "submit" | "paste") => {
             Err("unsupported-openclaw-process-input".into())
         }
-        _ => Err("invalid-openclaw-tool-input".into()),
+        _ => Err(INVALID_OPENCLAW_TOOL_INPUT.into()),
     }
-}
-
-fn delegated(evaluation_failed: bool) -> Value {
-    json!({"block":false,"evaluation_failed":evaluation_failed})
 }
 
 #[cfg(test)]
@@ -249,7 +211,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(OpenClawHookInput {
+        normalize_openclaw_hook_input(OpenClawHookInput {
             tool_name: tool_name.into(),
             tool_input,
             cwd: "/repo".into(),
@@ -299,7 +261,7 @@ mod tests {
             if let Some(restart_safe) = restart_safe {
                 original["restartSafe"] = json!(restart_safe);
             }
-            let code = normalize(OpenClawHookInput {
+            let code = normalize_openclaw_hook_input(OpenClawHookInput {
                 tool_name: "exec".into(),
                 tool_input: original.clone(),
                 cwd: "/repo".into(),
@@ -351,7 +313,7 @@ mod tests {
                 json!({"code":source,"command":source,"futureBehavior":"execute"}),
             ),
         ] {
-            let call = normalize(OpenClawHookInput {
+            let call = normalize_openclaw_hook_input(OpenClawHookInput {
                 tool_name: "exec".into(),
                 tool_input: input.clone(),
                 cwd: "/repo".into(),
@@ -374,7 +336,7 @@ mod tests {
     fn process_input_actions_stay_opaque() {
         for action in ["write", "send-keys", "submit", "paste"] {
             let input = json!({"action":action,"sessionId":"p1","data":"echo unsafe\n"});
-            let call = normalize(OpenClawHookInput {
+            let call = normalize_openclaw_hook_input(OpenClawHookInput {
                 tool_name: "process".into(),
                 tool_input: input.clone(),
                 cwd: "/repo".into(),
@@ -402,7 +364,7 @@ mod tests {
             ("find", json!({"pattern":"x","path":7})),
             ("ls", json!({"path":7})),
         ] {
-            let call = normalize(OpenClawHookInput {
+            let call = normalize_openclaw_hook_input(OpenClawHookInput {
                 tool_name: name.into(),
                 tool_input: input.clone(),
                 cwd: "/repo".into(),

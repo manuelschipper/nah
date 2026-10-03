@@ -2,11 +2,10 @@
 //! a shell command, visible source in a supported language, or a native tool
 //! call whose typed fields the engine models.
 
-use effinterp_proto as p;
-use nah_proto::effects as e;
+use nah_proto::effects;
 use nah_proto::tool::ToolCallInput;
 
-use super::{AdapterRefusal, RefusalKind, refusal};
+use super::{AdapterRefusal, RefusalKind, adapter_refusal};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SourceLanguage {
@@ -40,10 +39,10 @@ impl SelectedInput<'_> {
 
 /// The command text the operator approves for a shell or PowerShell tool call,
 /// as `plan_evidence` gave it to the engine; other subjects carry none.
-pub(super) fn command_text(subject: &p::Subject) -> Option<&str> {
+pub(super) fn command_text(subject: &effinterp_proto::Subject) -> Option<&str> {
     match subject {
-        p::Subject::Shell { source, .. } => Some(source),
-        p::Subject::Source {
+        effinterp_proto::Subject::Shell { source, .. } => Some(source),
+        effinterp_proto::Subject::Source {
             source, language, ..
         } if language == "powershell" => Some(source),
         _ => None,
@@ -51,9 +50,11 @@ pub(super) fn command_text(subject: &p::Subject) -> Option<&str> {
 }
 
 /// The engine's typed tool call for a native tool's input, refusing fields the model does not know.
-pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, AdapterRefusal> {
-    let unsupported = |code| refusal(root, RefusalKind::UnsupportedInput, code);
-    let invalid = || refusal(root, RefusalKind::InvalidInput, "native-fields");
+pub(super) fn native_subject(
+    root: &ToolCallInput,
+) -> Result<effinterp_proto::ToolCall, AdapterRefusal> {
+    let unsupported = |code| adapter_refusal(root, RefusalKind::UnsupportedInput, code);
+    let invalid = || adapter_refusal(root, RefusalKind::InvalidInput, "native-fields");
     let object = root.input().as_object().ok_or_else(invalid)?;
     let string = |key: &str| {
         object
@@ -85,17 +86,19 @@ pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, Adapte
         return Err(unsupported("native-options"));
     }
     Ok(match root.tool() {
-        "Delete" => p::ToolCall::FileDelete(p::FileDeleteArgs {
+        "Delete" => effinterp_proto::ToolCall::FileDelete(effinterp_proto::FileDeleteArgs {
             path: string("file_path")?,
         }),
-        "AmpUpload" => p::ToolCall::FileTransfer(p::FileTransferArgs {
+        "AmpUpload" => effinterp_proto::ToolCall::FileTransfer(effinterp_proto::FileTransferArgs {
             path: string("file_path")?,
-            direction: p::TransferDirection::Upload,
+            direction: effinterp_proto::TransferDirection::Upload,
         }),
-        "AmpDownload" => p::ToolCall::FileTransfer(p::FileTransferArgs {
-            path: string("file_path")?,
-            direction: p::TransferDirection::Download,
-        }),
+        "AmpDownload" => {
+            effinterp_proto::ToolCall::FileTransfer(effinterp_proto::FileTransferArgs {
+                path: string("file_path")?,
+                direction: effinterp_proto::TransferDirection::Download,
+            })
+        }
         "process" | "OpenClawProcess" => return Err(unsupported("process-control")),
         "Read" => {
             let offset = object
@@ -123,19 +126,19 @@ pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, Adapte
                             .ok_or_else(invalid)
                     })
                     .transpose()?;
-                Some(p::LineRange {
+                Some(effinterp_proto::LineRange {
                     start_line,
                     end_line,
                 })
             } else {
                 None
             };
-            p::ToolCall::FileRead(p::FileReadArgs {
+            effinterp_proto::ToolCall::FileRead(effinterp_proto::FileReadArgs {
                 path: string("file_path")?,
                 range,
             })
         }
-        "Write" => p::ToolCall::FileWrite(p::FileWriteArgs {
+        "Write" => effinterp_proto::ToolCall::FileWrite(effinterp_proto::FileWriteArgs {
             path: string("file_path")?,
             content: string("content")?,
         }),
@@ -161,7 +164,7 @@ pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, Adapte
                         {
                             return Err(unsupported("native-batch-edit-entry-options"));
                         }
-                        Ok(p::FileEditEntry {
+                        Ok(effinterp_proto::FileEditEntry {
                             old: edit
                                 .get("oldText")
                                 .and_then(|value| value.as_str())
@@ -175,7 +178,7 @@ pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, Adapte
                         })
                     })
                     .collect::<Result<Vec<_>, AdapterRefusal>>()?;
-                p::ToolCall::FileEditBatch(p::FileEditBatchArgs {
+                effinterp_proto::ToolCall::FileEditBatch(effinterp_proto::FileEditBatchArgs {
                     path: string("file_path")?,
                     edits,
                 })
@@ -185,7 +188,7 @@ pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, Adapte
                     Some(serde_json::Value::Bool(true)) => None,
                     _ => return Err(invalid()),
                 };
-                p::ToolCall::FileEdit(p::FileEditArgs {
+                effinterp_proto::ToolCall::FileEdit(effinterp_proto::FileEditArgs {
                     path: string("file_path")?,
                     old: string("old_string")?,
                     new: string("new_string")?,
@@ -193,14 +196,14 @@ pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, Adapte
                 })
             }
         }
-        "apply_patch" => p::ToolCall::FilePatch(p::FilePatchArgs {
-            format: p::PatchFormat::ApplyPatch,
+        "apply_patch" => effinterp_proto::ToolCall::FilePatch(effinterp_proto::FilePatchArgs {
+            format: effinterp_proto::PatchFormat::ApplyPatch,
             text: string("command")?,
         }),
-        "Ls" => p::ToolCall::FsList(p::FsListArgs {
+        "Ls" => effinterp_proto::ToolCall::FsList(effinterp_proto::FsListArgs {
             path: string("path")?,
         }),
-        "Glob" => p::ToolCall::FsGlob(p::FsGlobArgs {
+        "Glob" => effinterp_proto::ToolCall::FsGlob(effinterp_proto::FsGlobArgs {
             pattern: string("pattern")
                 .and_then(|pattern| (!pattern.is_empty()).then_some(pattern).ok_or_else(invalid))?,
             root: object
@@ -225,7 +228,7 @@ pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, Adapte
                         .ok_or_else(invalid)
                 })
                 .transpose()?;
-            p::ToolCall::FsGrep(p::FsGrepArgs {
+            effinterp_proto::ToolCall::FsGrep(effinterp_proto::FsGrepArgs {
                 pattern: string("pattern").and_then(|pattern| {
                     (!pattern.is_empty()).then_some(pattern).ok_or_else(invalid)
                 })?,
@@ -233,7 +236,7 @@ pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, Adapte
                 root: None,
             })
         }
-        "Find" => p::ToolCall::FsFind(p::FsFindArgs {
+        "Find" => effinterp_proto::ToolCall::FsFind(effinterp_proto::FsFindArgs {
             pattern: string("pattern")
                 .and_then(|pattern| (!pattern.is_empty()).then_some(pattern).ok_or_else(invalid))?,
             root: string("path")
@@ -248,7 +251,7 @@ pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, Adapte
                 })
                 .transpose()?,
         }),
-        _ => p::ToolCall::Unknown(p::UnknownToolArgs {
+        _ => effinterp_proto::ToolCall::Unknown(effinterp_proto::UnknownToolArgs {
             name: root.tool().to_owned(),
             args: root.input().clone(),
         }),
@@ -259,20 +262,20 @@ pub(super) fn native_subject(root: &ToolCallInput) -> Result<p::ToolCall, Adapte
 /// selected filesystem resource; they do not establish that file contents were
 /// consumed by another program, so they remain filesystem access facts rather
 /// than `ProgramInput` facts.
-pub(super) fn native_access_purpose(subject: &p::Subject) -> e::AccessPurpose {
+pub(super) fn native_access_purpose(subject: &effinterp_proto::Subject) -> effects::AccessPurpose {
     match subject {
-        p::Subject::ToolCall {
+        effinterp_proto::Subject::ToolCall {
             call:
-                p::ToolCall::FileRead(_)
-                | p::ToolCall::FileWrite(_)
-                | p::ToolCall::FileTransfer(_)
-                | p::ToolCall::FileEdit(_)
-                | p::ToolCall::FilePatch(_)
-                | p::ToolCall::FsGlob(_)
-                | p::ToolCall::FsGrep(_)
-                | p::ToolCall::FsList(_),
+                effinterp_proto::ToolCall::FileRead(_)
+                | effinterp_proto::ToolCall::FileWrite(_)
+                | effinterp_proto::ToolCall::FileTransfer(_)
+                | effinterp_proto::ToolCall::FileEdit(_)
+                | effinterp_proto::ToolCall::FilePatch(_)
+                | effinterp_proto::ToolCall::FsGlob(_)
+                | effinterp_proto::ToolCall::FsGrep(_)
+                | effinterp_proto::ToolCall::FsList(_),
             ..
-        } => e::AccessPurpose::Explicit,
-        _ => e::AccessPurpose::Unknown,
+        } => effects::AccessPurpose::Explicit,
+        _ => effects::AccessPurpose::Unknown,
     }
 }

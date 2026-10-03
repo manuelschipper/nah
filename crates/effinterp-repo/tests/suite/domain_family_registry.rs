@@ -4,7 +4,7 @@
 //! any future domain added without a family token.
 
 use effinterp_proto::{DOMAINS, selector_family};
-use effinterp_repo::Selector;
+use effinterp_repo::ResourceSelector;
 
 #[test]
 fn every_domain_maps_to_a_real_family_and_round_trips() {
@@ -16,7 +16,7 @@ fn every_domain_maps_to_a_real_family_and_round_trips() {
         );
         // The short family must parse as a selector and resolve back to this
         // exact domain (e.g. filesystem -> fs -> filesystem, cloud -> cloud).
-        let sel = Selector::parse(&format!("{fam}:x")).unwrap_or_else(|e| {
+        let sel = ResourceSelector::parse(&format!("{fam}:x")).unwrap_or_else(|e| {
             panic!("family {fam:?} for domain {domain:?} is not parseable: {e}")
         });
         assert_eq!(

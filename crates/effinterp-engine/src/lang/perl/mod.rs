@@ -14,15 +14,16 @@ use super::source_text::{nest_argv, nest_shell};
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::nest::{Nest, charge_analysis_bytes, charge_analysis_steps};
 use crate::resource_transfer::TransferBinding;
+use crate::value::unresolved_resource;
 
 #[derive(Clone, Default)]
-pub(crate) struct Imports {
+pub(crate) struct PerlImports {
     copy_loaded: bool,
     path_loaded: bool,
     names: BTreeSet<String>,
 }
 
-impl Imports {
+impl PerlImports {
     /// A `-MModule=a,b` or `-mModule` launcher option.
     fn add(&mut self, value: &str, import: bool) -> Result<(), String> {
         let (module, names) = value
@@ -111,7 +112,7 @@ impl From<&str> for PerlFailure {
     }
 }
 
-pub(crate) fn boundary(builder: &mut PlanBuilder, node: ProvenanceRef, detail: &str) {
+pub(crate) fn perl_boundary(builder: &mut PlanBuilder, node: ProvenanceRef, detail: &str) {
     builder.boundary(Boundary {
         reason: BoundaryReason::DYNAMIC_SOURCE,
         class: BoundaryClass::Unresolved,
@@ -134,7 +135,7 @@ pub(crate) fn analyze(
     source: &str,
     cwd: Option<&str>,
     scope: Option<ProvenanceRef>,
-    imports: &Imports,
+    imports: &PerlImports,
     depth: u64,
 ) {
     if source.len() as u64 > nest.limits.max_source_bytes {
@@ -288,7 +289,7 @@ pub(crate) fn analyze(
                 }
             }
             for detail in &refusals {
-                boundary(builder, node, detail);
+                perl_boundary(builder, node, detail);
             }
             if refusals.is_empty() {
                 for domain in ["filesystem", "process"] {
@@ -305,7 +306,7 @@ pub(crate) fn analyze(
         Err(PerlFailure::AnalysisSteps) => {
             builder.note_saturated_at("max_analysis_steps", None);
         }
-        Err(PerlFailure::Refused(detail)) => boundary(builder, node, &detail),
+        Err(PerlFailure::Refused(detail)) => perl_boundary(builder, node, &detail),
     }
 }
 
@@ -319,9 +320,7 @@ fn decoded_eval(builder: &mut PlanBuilder, node: ProvenanceRef) {
                 builder.current_execution_cwd(),
             ),
         },
-        None => ResourceExpr::Unresolved {
-            family: effinterp_proto::ResourceFamily::new("process"),
-        },
+        None => unresolved_resource("process"),
     };
     let model = builder.node(
         ProvenanceKind::ModelApplication {
@@ -372,7 +371,7 @@ fn decoded_eval(builder: &mut PlanBuilder, node: ProvenanceRef) {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-enum Token {
+enum PerlToken {
     Text(String),
     Name(String),
     Variable(String),
@@ -419,7 +418,7 @@ fn tokenize(
     source: &str,
     max_bytes: usize,
     env: &mut impl FnMut(&str) -> Option<String>,
-) -> Result<(Vec<Token>, Option<String>), PerlFailure> {
+) -> Result<(Vec<PerlToken>, Option<String>), PerlFailure> {
     if source.starts_with("#!") {
         return Err("Perl shebang switches can change inline execution semantics".into());
     }
@@ -450,9 +449,9 @@ fn tokenize(
                 Ok(Ok(text)) => {
                     string_bytes += text.len();
                     tokens.push(if c == '`' {
-                        Token::Command(text)
+                        PerlToken::Command(text)
                     } else {
-                        Token::Text(text)
+                        PerlToken::Text(text)
                     });
                 }
                 Ok(Err(detail)) => {
@@ -462,7 +461,7 @@ fn tokenize(
                             "Perl interpolated code may declare compile-time code or subs".into(),
                         );
                     }
-                    tokens.push(Token::Unknown(detail));
+                    tokens.push(PerlToken::Unknown(detail));
                 }
                 Err(PerlFailure::Refused(detail)) => break Some(detail),
                 Err(failure) => return Err(failure),
@@ -486,13 +485,13 @@ fn tokenize(
                 rest = &key[end + 1..];
                 if name.is_empty() || !name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
                 {
-                    tokens.push(Token::Unknown(
+                    tokens.push(PerlToken::Unknown(
                         "Perl environment key is not a literal name".into(),
                     ));
                     continue;
                 }
                 let Some(value) = env(name) else {
-                    tokens.push(Token::Unknown(format!(
+                    tokens.push(PerlToken::Unknown(format!(
                         "Perl environment value {name:?} is not supplied"
                     )));
                     continue;
@@ -501,7 +500,7 @@ fn tokenize(
                     return Err(PerlFailure::SourceBytes);
                 }
                 string_bytes += value.len();
-                tokens.push(Token::Text(value));
+                tokens.push(PerlToken::Text(value));
                 continue;
             }
             let end = rest
@@ -521,12 +520,12 @@ fn tokenize(
                     _ => 0,
                 };
                 rest = &rest[skip..];
-                tokens.push(Token::Unknown(
+                tokens.push(PerlToken::Unknown(
                     "Perl special or runtime-selected variable is not modeled".into(),
                 ));
                 continue;
             }
-            tokens.push(Token::Variable(rest[..end].into()));
+            tokens.push(PerlToken::Variable(rest[..end].into()));
             rest = &rest[end..];
         } else if c.is_ascii_alphabetic() || c == '_' {
             let end = rest
@@ -597,7 +596,7 @@ fn tokenize(
                     let Some((end, _)) = end else {
                         break Some("Perl qw word list is unterminated".into());
                     };
-                    tokens.push(Token::Words(
+                    tokens.push(PerlToken::Words(
                         body[..end].split_whitespace().map(str::to_string).collect(),
                     ));
                     rest = &body[end + close.len_utf8()..];
@@ -609,16 +608,16 @@ fn tokenize(
                     ));
                 }
             }
-            tokens.push(Token::Name(name.into()));
+            tokens.push(PerlToken::Name(name.into()));
         } else if c.is_ascii_digit() {
             let end = rest
                 .find(|c: char| !c.is_ascii_digit())
                 .unwrap_or(rest.len());
-            tokens.push(Token::Number(rest[..end].into()));
+            tokens.push(PerlToken::Number(rest[..end].into()));
             rest = &rest[end..];
         } else if rest.starts_with("//") {
             // Only defined-or; a lone slash may start a pattern.
-            tokens.extend([Token::Punct('/'), Token::Punct('/')]);
+            tokens.extend([PerlToken::Punct('/'), PerlToken::Punct('/')]);
             rest = &rest[2..];
         } else if matches!(
             c,
@@ -647,7 +646,7 @@ fn tokenize(
                 | '^'
         ) || (c == '<' && !rest.starts_with("<<"))
         {
-            tokens.push(Token::Punct(c));
+            tokens.push(PerlToken::Punct(c));
             rest = &rest[1..];
         } else {
             break Some(format!(
@@ -663,9 +662,9 @@ fn tokenize(
         let mut complete = 0;
         for (index, token) in tokens.iter().enumerate() {
             match token {
-                Token::Punct('{') => depth += 1,
-                Token::Punct('}') => depth -= 1,
-                Token::Punct(';') if depth == 0 => complete = index + 1,
+                PerlToken::Punct('{') => depth += 1,
+                PerlToken::Punct('}') => depth -= 1,
+                PerlToken::Punct(';') if depth == 0 => complete = index + 1,
                 _ => {}
             }
         }
@@ -885,22 +884,27 @@ const MAX_CALL_DEPTH: u32 = 8;
 /// Logical operators and statement modifiers nest at most this deep.
 const MAX_NESTING: u32 = 64;
 
-enum Statement<'t> {
-    Sub(&'t str, &'t [Token]),
-    Simple(&'t [Token]),
+enum PerlStatement<'t> {
+    Sub(&'t str, &'t [PerlToken]),
+    Simple(&'t [PerlToken]),
 }
 
 /// Split tokens into `;`-terminated statements and named `sub NAME { ... }`
 /// definitions. Any other brace stays inside its statement and is refused there.
-fn statements(tokens: &[Token]) -> Result<Vec<Statement<'_>>, String> {
+fn statements(tokens: &[PerlToken]) -> Result<Vec<PerlStatement<'_>>, String> {
     let mut statements = Vec::new();
     let mut i = 0;
     while i < tokens.len() {
-        if let [Token::Name(sub), Token::Name(name), Token::Punct('{'), ..] = &tokens[i..]
+        if let [
+            PerlToken::Name(sub),
+            PerlToken::Name(name),
+            PerlToken::Punct('{'),
+            ..,
+        ] = &tokens[i..]
             && sub == "sub"
         {
             let close = i + 2 + matching_brace(&tokens[i + 2..])?;
-            statements.push(Statement::Sub(name, &tokens[i + 3..close]));
+            statements.push(PerlStatement::Sub(name, &tokens[i + 3..close]));
             i = close + 1;
             continue;
         }
@@ -908,11 +912,11 @@ fn statements(tokens: &[Token]) -> Result<Vec<Statement<'_>>, String> {
         let mut end = i;
         while end < tokens.len() {
             match tokens[end] {
-                Token::Punct('{') => depth += 1,
-                Token::Punct('}') => {
+                PerlToken::Punct('{') => depth += 1,
+                PerlToken::Punct('}') => {
                     depth = depth.checked_sub(1).ok_or("Perl braces are unbalanced")?
                 }
-                Token::Punct(';') if depth == 0 => break,
+                PerlToken::Punct(';') if depth == 0 => break,
                 _ => {}
             }
             end += 1;
@@ -921,7 +925,7 @@ fn statements(tokens: &[Token]) -> Result<Vec<Statement<'_>>, String> {
             return Err("Perl braces are unbalanced".into());
         }
         if end > i {
-            statements.push(Statement::Simple(&tokens[i..end]));
+            statements.push(PerlStatement::Simple(&tokens[i..end]));
         }
         i = end + 1;
     }
@@ -929,12 +933,12 @@ fn statements(tokens: &[Token]) -> Result<Vec<Statement<'_>>, String> {
 }
 
 /// Index of the brace closing the one that opens `tokens`.
-fn matching_brace(tokens: &[Token]) -> Result<usize, String> {
+fn matching_brace(tokens: &[PerlToken]) -> Result<usize, String> {
     let mut depth = 0u32;
     for (index, token) in tokens.iter().enumerate() {
         match token {
-            Token::Punct('{') => depth += 1,
-            Token::Punct('}') => {
+            PerlToken::Punct('{') => depth += 1,
+            PerlToken::Punct('}') => {
                 depth -= 1;
                 if depth == 0 {
                     return Ok(index);
@@ -948,19 +952,19 @@ fn matching_brace(tokens: &[Token]) -> Result<usize, String> {
 
 /// `use strict`, `use warnings`, or a modeled module with an optional
 /// `qw(...)`, string or empty import list.
-fn use_statement(tokens: &[Token], imports: &mut Imports) -> Result<(), String> {
-    let [Token::Name(module), list @ ..] = tokens else {
+fn use_statement(tokens: &[PerlToken], imports: &mut PerlImports) -> Result<(), String> {
+    let [PerlToken::Name(module), list @ ..] = tokens else {
         return Err("Perl use statement names no module".into());
     };
     if matches!(module.as_str(), "strict" | "warnings") && list.is_empty() {
         return Ok(());
     }
-    if let [Token::Words(words)] = list {
+    if let [PerlToken::Words(words)] = list {
         let names = words.iter().map(String::as_str).collect::<Vec<_>>();
         return imports.import(module, Some(&names));
     }
     let list = match list {
-        [Token::Punct('('), inner @ .., Token::Punct(')')] => inner,
+        [PerlToken::Punct('('), inner @ .., PerlToken::Punct(')')] => inner,
         other => other,
     };
     if list.is_empty() {
@@ -969,8 +973,8 @@ fn use_statement(tokens: &[Token], imports: &mut Imports) -> Result<(), String> 
     let mut names = Vec::new();
     for token in list {
         match token {
-            Token::Name(name) | Token::Text(name) => names.push(name.as_str()),
-            Token::Punct(',') => {}
+            PerlToken::Name(name) | PerlToken::Text(name) => names.push(name.as_str()),
+            PerlToken::Punct(',') => {}
             _ => return Err("Perl use import list is not a literal name list".into()),
         }
     }
@@ -978,11 +982,11 @@ fn use_statement(tokens: &[Token], imports: &mut Imports) -> Result<(), String> 
 }
 
 struct Compiler<'a, 'e> {
-    imports: Imports,
+    imports: PerlImports,
     budget: &'a crate::nest::Budget,
     max_bytes: usize,
     env: &'e mut dyn FnMut(&str) -> Option<String>,
-    subs: BTreeMap<String, Vec<Token>>,
+    subs: BTreeMap<String, Vec<PerlToken>>,
     active_subs: BTreeSet<String>,
     variables: BTreeMap<String, String>,
     pending: Vec<Pending>,
@@ -1000,9 +1004,9 @@ struct Compiler<'a, 'e> {
 }
 
 fn program(
-    tokens: &[Token],
+    tokens: &[PerlToken],
     stop: Option<String>,
-    imports: &Imports,
+    imports: &PerlImports,
     budget: &crate::nest::Budget,
     max_bytes: usize,
     env: &mut dyn FnMut(&str) -> Option<String>,
@@ -1030,11 +1034,11 @@ fn program(
 impl Compiler<'_, '_> {
     /// Compile one unit (the program or an `eval` string). Named subs and `use`
     /// imports take effect at compile time, before any statement runs.
-    fn unit(&mut self, tokens: &[Token]) -> Result<(), PerlFailure> {
+    fn unit(&mut self, tokens: &[PerlToken]) -> Result<(), PerlFailure> {
         let statements = statements(tokens)?;
         for statement in &statements {
             match statement {
-                Statement::Sub(name, body) => {
+                PerlStatement::Sub(name, body) => {
                     if MODELED_NAMES.contains(name)
                         || self.imports.owns(name)
                         || self.subs.contains_key(*name)
@@ -1045,27 +1049,29 @@ impl Compiler<'_, '_> {
                     }
                     self.subs.insert((*name).to_string(), body.to_vec());
                 }
-                Statement::Simple([Token::Name(keyword), rest @ ..]) if keyword == "use" => {
+                PerlStatement::Simple([PerlToken::Name(keyword), rest @ ..])
+                    if keyword == "use" =>
+                {
                     use_statement(rest, &mut self.imports)?;
                 }
                 // `no` unimports at compile time; only pragmas are known inert.
-                Statement::Simple([Token::Name(keyword), rest @ ..]) if keyword == "no" => {
-                    if !matches!(rest, [Token::Name(pragma)] if matches!(pragma.as_str(), "strict" | "warnings"))
+                PerlStatement::Simple([PerlToken::Name(keyword), rest @ ..]) if keyword == "no" => {
+                    if !matches!(rest, [PerlToken::Name(pragma)] if matches!(pragma.as_str(), "strict" | "warnings"))
                     {
                         return Err(
                             "Perl no statement is outside the bounded literal grammar".into()
                         );
                     }
                 }
-                Statement::Simple(_) => {}
+                PerlStatement::Simple(_) => {}
             }
         }
         for statement in statements {
             match statement {
-                Statement::Simple([Token::Name(keyword), ..])
+                PerlStatement::Simple([PerlToken::Name(keyword), ..])
                     if matches!(keyword.as_str(), "use" | "no") => {}
-                Statement::Simple(statement) => self.run(statement)?,
-                Statement::Sub(..) => {}
+                PerlStatement::Simple(statement) => self.run(statement)?,
+                PerlStatement::Sub(..) => {}
             }
         }
         Ok(())
@@ -1074,7 +1080,7 @@ impl Compiler<'_, '_> {
     /// Compile one statement. A refused statement publishes nothing itself and
     /// leaves a boundary; the statements before it keep their effects. Only a
     /// statement that cannot change later facts lets compilation continue.
-    fn run(&mut self, statement: &[Token]) -> Result<(), PerlFailure> {
+    fn run(&mut self, statement: &[PerlToken]) -> Result<(), PerlFailure> {
         if self.halted {
             return Ok(());
         }
@@ -1090,7 +1096,7 @@ impl Compiler<'_, '_> {
 
     /// Compile an operand that may not run: a variable it binds has no known
     /// value afterwards.
-    fn maybe(&mut self, tokens: &[Token]) -> Result<(), PerlFailure> {
+    fn maybe(&mut self, tokens: &[PerlToken]) -> Result<(), PerlFailure> {
         let outer = self.variables.clone();
         self.conditional += 1;
         let result = self.run(tokens);
@@ -1105,9 +1111,9 @@ impl Compiler<'_, '_> {
     /// runs unless a constant first operand rules it out. Both `xor` operands run.
     fn logical(
         &mut self,
-        left: &[Token],
+        left: &[PerlToken],
         operator: &str,
-        right: &[Token],
+        right: &[PerlToken],
     ) -> Result<(), PerlFailure> {
         if self.nesting >= MAX_NESTING {
             return Err("Perl operator chain nests too deeply to model".into());
@@ -1120,9 +1126,9 @@ impl Compiler<'_, '_> {
 
     fn operands(
         &mut self,
-        left: &[Token],
+        left: &[PerlToken],
         operator: &str,
-        right: &[Token],
+        right: &[PerlToken],
     ) -> Result<(), PerlFailure> {
         // A statement modifier evaluates its condition first.
         let (first, then) = if matches!(operator, "if" | "unless") {
@@ -1131,12 +1137,12 @@ impl Compiler<'_, '_> {
             (left, right)
         };
         if operator == "xor" {
-            if constant(first).is_none() {
+            if constant_operand(first).is_none() {
                 self.run(first)?;
             }
             return self.run(then);
         }
-        let Some((defined, truth)) = constant(first) else {
+        let Some((defined, truth)) = constant_operand(first) else {
             self.run(first)?;
             return self.maybe(then);
         };
@@ -1148,36 +1154,36 @@ impl Compiler<'_, '_> {
         if runs { self.run(then) } else { Ok(()) }
     }
 
-    fn statement(&mut self, statement: &[Token]) -> Result<(), PerlFailure> {
+    fn statement(&mut self, statement: &[PerlToken]) -> Result<(), PerlFailure> {
         if !self.budget.try_charge_steps(statement.len() as u64) {
             return Err(PerlFailure::AnalysisSteps);
         }
         // A constant expression, including a short-circuit chain that stops
         // at a constant, does nothing.
-        if constant(statement).is_some() {
+        if constant_operand(statement).is_some() {
             return Ok(());
         }
         if let Some((left, operator, right)) = split(statement)
             && (operator.starts_with(char::is_alphabetic)
                 || call_end(left) == Some(left.len())
-                || constant(left).is_some())
+                || constant_operand(left).is_some())
         {
             return self.logical(left, operator, right);
         }
-        if statement.contains(&Token::Punct('{')) {
+        if statement.contains(&PerlToken::Punct('{')) {
             return Err(
                 "Perl block, hash or anonymous sub is outside the bounded literal grammar".into(),
             );
         }
         let budget = self.budget;
         let binding = statement
-            .strip_prefix(&[Token::Name("my".into())])
+            .strip_prefix(&[PerlToken::Name("my".into())])
             .unwrap_or(statement);
         match binding {
             [
-                Token::Variable(name),
-                Token::Punct('='),
-                Token::Command(command),
+                PerlToken::Variable(name),
+                PerlToken::Punct('='),
+                PerlToken::Command(command),
             ] => {
                 // The captured output is runtime data, never a literal.
                 self.variables.remove(name);
@@ -1187,21 +1193,22 @@ impl Compiler<'_, '_> {
                 });
                 return Ok(());
             }
-            [Token::Variable(name), Token::Punct('='), value] => {
-                let value = literal(std::slice::from_ref(value), &self.variables, budget)?;
+            [PerlToken::Variable(name), PerlToken::Punct('='), value] => {
+                let value =
+                    perl_literal_text(std::slice::from_ref(value), &self.variables, budget)?;
                 self.variables.insert(name.clone(), value);
                 return Ok(());
             }
             _ => {}
         }
-        if let [Token::Command(command)] = statement {
+        if let [PerlToken::Command(command)] = statement {
             self.pending.push(Pending::Shell {
                 command: command.clone(),
                 captured: true,
             });
             return Ok(());
         }
-        let Some(Token::Name(name)) = statement.first() else {
+        let Some(PerlToken::Name(name)) = statement.first() else {
             return Err(
                 "Perl statement is not a literal binding or supported filesystem call".into(),
             );
@@ -1212,10 +1219,12 @@ impl Compiler<'_, '_> {
         {
             self.statement(&statement[..end])?;
             let rest = &statement[end..];
-            if rest
-                .iter()
-                .all(|token| matches!(token, Token::Punct(_) | Token::Number(_) | Token::Text(_)))
-            {
+            if rest.iter().all(|token| {
+                matches!(
+                    token,
+                    PerlToken::Punct(_) | PerlToken::Number(_) | PerlToken::Text(_)
+                )
+            }) {
                 return Ok(());
             }
             return Err(format!(
@@ -1224,26 +1233,29 @@ impl Compiler<'_, '_> {
             .into());
         }
         let mut args = &statement[1..];
-        if args.first() == Some(&Token::Punct('(')) && args.last() == Some(&Token::Punct(')')) {
+        if args.first() == Some(&PerlToken::Punct('('))
+            && args.last() == Some(&PerlToken::Punct(')'))
+        {
             args = &args[1..args.len() - 1];
         }
         let args: Vec<_> = if args.is_empty() {
             Vec::new()
         } else {
-            args.split(|token| *token == Token::Punct(',')).collect()
+            args.split(|token| *token == PerlToken::Punct(','))
+                .collect()
         };
         if let Some(body) = self.subs.get(name).cloned() {
             return self.call(name, &body, &args);
         }
         if matches!(name.as_str(), "open" | "sysopen")
-            && let Some(Token::Variable(name)) = args.first().and_then(|arg| arg.last())
+            && let Some(PerlToken::Variable(name)) = args.first().and_then(|arg| arg.last())
         {
             // A filehandle replaces a scalar value; it is no longer a path.
             self.variables.remove(name);
         }
         let variables = &self.variables;
         let path = |i: usize| -> Result<String, PerlFailure> {
-            let path = literal(
+            let path = perl_literal_text(
                 args.get(i).ok_or("Perl call lacks a required path")?,
                 variables,
                 budget,
@@ -1273,9 +1285,11 @@ impl Compiler<'_, '_> {
                 "filesystem.delete",
                 path(0)?,
             ))),
-            "mkdir" if args.len() == 1 || (args.len() == 2 && numeric(args[1])) => effects.push(
-                Pending::Effect(PendingEffect::new("filesystem.create", path(0)?)),
-            ),
+            "mkdir" if args.len() == 1 || (args.len() == 2 && numeric_tokens(args[1])) => effects
+                .push(Pending::Effect(PendingEffect::new(
+                    "filesystem.create",
+                    path(0)?,
+                ))),
             // A mode the grammar cannot evaluate still leaves the change to
             // the established paths, so it is kept with a boundary. Only a
             // plain variable is known to change nothing else; any other
@@ -1284,11 +1298,11 @@ impl Compiler<'_, '_> {
             "chmod"
                 if args.len() >= 2
                     && balanced(args[0])
-                    && (numeric(args[0]) || !matches!(args[0], [Token::Number(_)])) =>
+                    && (numeric_tokens(args[0]) || !matches!(args[0], [PerlToken::Number(_)])) =>
             {
                 let paths = (1..args.len()).map(path).collect::<Result<Vec<_>, _>>()?;
                 let grants = match args[0] {
-                    [Token::Number(mode)] => crate::permission_mode::granted(
+                    [PerlToken::Number(mode)] => crate::permission_mode::granted(
                         crate::permission_mode::numeric(perl_number(mode)?),
                     )
                     .collect(),
@@ -1297,7 +1311,7 @@ impl Compiler<'_, '_> {
                             "Perl chmod mode is not a numeric literal, so the permissions it grants are unknown"
                                 .into(),
                         );
-                        if !matches!(mode, [Token::Variable(_)]) {
+                        if !matches!(mode, [PerlToken::Variable(_)]) {
                             self.halted = true;
                         }
                         Vec::new()
@@ -1347,7 +1361,7 @@ impl Compiler<'_, '_> {
                 effects.push(Pending::Effect(write));
             }
             "open" if matches!(args.len(), 2 | 3) && handle(args[0]) => {
-                let value = literal(args[1], variables, budget)?;
+                let value = perl_literal_text(args[1], variables, budget)?;
                 let (mode, path) = if args.len() == 3 {
                     (value.as_str(), path(2)?)
                 } else {
@@ -1397,13 +1411,13 @@ impl Compiler<'_, '_> {
                 }
             }
             "sysopen"
-                if (args.len() == 3 || (args.len() == 4 && numeric(args[3])))
+                if (args.len() == 3 || (args.len() == 4 && numeric_tokens(args[3])))
                     && handle(args[0]) =>
             {
                 let path = path(1)?;
                 let mut flags = BTreeSet::new();
-                for flag in args[2].split(|token| *token == Token::Punct('|')) {
-                    let [Token::Name(flag)] = flag else {
+                for flag in args[2].split(|token| *token == PerlToken::Punct('|')) {
+                    let [PerlToken::Name(flag)] = flag else {
                         return Err("Perl sysopen flags are runtime-selected".into());
                     };
                     if !flag.starts_with("O_") || !imports.owns(flag) {
@@ -1448,11 +1462,11 @@ impl Compiler<'_, '_> {
                     effects.push(Pending::Effect(delete));
                 }
             }
-            "truncate" if args.len() == 2 && numeric(args[1]) => effects.push(Pending::Effect(
-                PendingEffect::new("filesystem.write", path(0)?),
-            )),
+            "truncate" if args.len() == 2 && numeric_tokens(args[1]) => effects.push(
+                Pending::Effect(PendingEffect::new("filesystem.write", path(0)?)),
+            ),
             "system" | "exec" if args.len() == 1 => {
-                let command = literal(args[0], variables, budget)?;
+                let command = perl_literal_text(args[0], variables, budget)?;
                 effects.push(Pending::Shell {
                     command,
                     captured: false,
@@ -1461,7 +1475,7 @@ impl Compiler<'_, '_> {
             "system" | "exec" if args.len() > 1 => {
                 let argv = args
                     .iter()
-                    .map(|arg| literal(arg, variables, budget))
+                    .map(|arg| perl_literal_text(arg, variables, budget))
                     .collect::<Result<Vec<_>, _>>()?;
                 effects.push(Pending::Argv(argv));
             }
@@ -1474,7 +1488,7 @@ impl Compiler<'_, '_> {
                 self.halted = true;
             }
             "eval" if args.len() == 1 => {
-                let source = literal(args[0], variables, budget)?;
+                let source = perl_literal_text(args[0], variables, budget)?;
                 return self.eval(&source);
             }
             _ => {
@@ -1489,9 +1503,14 @@ impl Compiler<'_, '_> {
 
     /// Run a named sub's body. Its argument list must be literal, and any
     /// variable it rebinds is no longer a known literal afterwards.
-    fn call(&mut self, name: &str, body: &[Token], args: &[&[Token]]) -> Result<(), PerlFailure> {
+    fn call(
+        &mut self,
+        name: &str,
+        body: &[PerlToken],
+        args: &[&[PerlToken]],
+    ) -> Result<(), PerlFailure> {
         for arg in args {
-            literal(arg, &self.variables, self.budget)?;
+            perl_literal_text(arg, &self.variables, self.budget)?;
         }
         if self.depth >= MAX_CALL_DEPTH || !self.active_subs.insert(name.to_string()) {
             return Err(format!("Perl sub {name} recursion is not modeled").into());
@@ -1504,8 +1523,10 @@ impl Compiler<'_, '_> {
                 statements
                     .into_iter()
                     .try_for_each(|statement| match statement {
-                        Statement::Simple(statement) => self.run(statement),
-                        Statement::Sub(..) => Err("Perl nested named sub is not modeled".into()),
+                        PerlStatement::Simple(statement) => self.run(statement),
+                        PerlStatement::Sub(..) => {
+                            Err("Perl nested named sub is not modeled".into())
+                        }
                     })
             });
         self.depth -= 1;
@@ -1538,29 +1559,29 @@ impl Compiler<'_, '_> {
 }
 
 /// `decode_base64(...)` as imported from MIME::Base64, with one argument.
-fn decodes_base64(tokens: &[Token], imports: &Imports) -> bool {
+fn decodes_base64(tokens: &[PerlToken], imports: &PerlImports) -> bool {
     matches!(
         tokens,
-        [Token::Name(name), Token::Punct('('), argument @ .., Token::Punct(')')]
+        [PerlToken::Name(name), PerlToken::Punct('('), argument @ .., PerlToken::Punct(')')]
             if name == "decode_base64" && imports.owns(name) && balanced(argument)
-                && !argument.contains(&Token::Punct(','))
+                && !argument.contains(&PerlToken::Punct(','))
     )
 }
 
-fn literal(
-    tokens: &[Token],
+fn perl_literal_text(
+    tokens: &[PerlToken],
     variables: &BTreeMap<String, String>,
     budget: &crate::nest::Budget,
 ) -> Result<String, PerlFailure> {
     // A `.` concatenation of literal operands is itself literal.
     let mut value = String::new();
-    for operand in tokens.split(|token| *token == Token::Punct('.')) {
+    for operand in tokens.split(|token| *token == PerlToken::Punct('.')) {
         value.push_str(match operand {
-            [Token::Text(value)] => value,
-            [Token::Variable(name)] => variables
+            [PerlToken::Text(value)] => value,
+            [PerlToken::Variable(name)] => variables
                 .get(name)
                 .ok_or_else(|| format!("Perl variable ${name} has no literal binding"))?,
-            [Token::Unknown(detail)] => return Err(detail.clone().into()),
+            [PerlToken::Unknown(detail)] => return Err(detail.clone().into()),
             _ => return Err("Perl path or value is a runtime-selected expression".into()),
         });
     }
@@ -1573,12 +1594,12 @@ fn literal(
 
 /// Whether an argument's parentheses, brackets and braces balance. Arguments
 /// are split at every comma, so an unbalanced one spans a nested list.
-fn balanced(tokens: &[Token]) -> bool {
+fn balanced(tokens: &[PerlToken]) -> bool {
     let mut depth = 0_i32;
     for token in tokens {
         match token {
-            Token::Punct('(' | '[' | '{') => depth += 1,
-            Token::Punct(')' | ']' | '}') => depth -= 1,
+            PerlToken::Punct('(' | '[' | '{') => depth += 1,
+            PerlToken::Punct(')' | ']' | '}') => depth -= 1,
             _ => {}
         }
         if depth < 0 {
@@ -1594,22 +1615,22 @@ fn perl_number(value: &str) -> Result<u32, PerlFailure> {
     u32::from_str_radix(value, radix).map_err(|_| "Perl numeric literal is out of range".into())
 }
 
-fn numeric(tokens: &[Token]) -> bool {
-    matches!(tokens, [Token::Number(value)] if !value.starts_with('0') || value.bytes().all(|c| matches!(c, b'0'..=b'7')))
+fn numeric_tokens(tokens: &[PerlToken]) -> bool {
+    matches!(tokens, [PerlToken::Number(value)] if !value.starts_with('0') || value.bytes().all(|c| matches!(c, b'0'..=b'7')))
 }
 
 /// A lexical, scalar or bareword filehandle.
-fn handle(tokens: &[Token]) -> bool {
-    matches!(tokens, [Token::Variable(_) | Token::Name(_)])
-        || matches!(tokens, [Token::Name(my), Token::Variable(_)] if my == "my")
+fn handle(tokens: &[PerlToken]) -> bool {
+    matches!(tokens, [PerlToken::Variable(_) | PerlToken::Name(_)])
+        || matches!(tokens, [PerlToken::Name(my), PerlToken::Variable(_)] if my == "my")
 }
 
 /// Whether a refused statement leaves every later fact intact: output or
 /// closing a handle, or a `die`/`exit` that may not run, whose arguments are
 /// only literals and plain variables. An unconditional `die` or `exit` ends
 /// the program, unless an enclosing `eval` catches it.
-fn inert(statement: &[Token], conditional: bool) -> bool {
-    let [Token::Name(name), args @ ..] = statement else {
+fn inert(statement: &[PerlToken], conditional: bool) -> bool {
+    let [PerlToken::Name(name), args @ ..] = statement else {
         return false;
     };
     let output = matches!(name.as_str(), "print" | "say" | "warn" | "close");
@@ -1617,24 +1638,24 @@ fn inert(statement: &[Token], conditional: bool) -> bool {
         && args.iter().all(|token| {
             matches!(
                 token,
-                Token::Text(_)
-                    | Token::Number(_)
-                    | Token::Variable(_)
-                    | Token::Punct(',' | '(' | ')' | '.')
+                PerlToken::Text(_)
+                    | PerlToken::Number(_)
+                    | PerlToken::Variable(_)
+                    | PerlToken::Punct(',' | '(' | ')' | '.')
             )
         })
 }
 
 /// The end of the `name(...)` call that opens `tokens`.
-fn call_end(tokens: &[Token]) -> Option<usize> {
-    let [Token::Name(_), Token::Punct('('), ..] = tokens else {
+fn call_end(tokens: &[PerlToken]) -> Option<usize> {
+    let [PerlToken::Name(_), PerlToken::Punct('('), ..] = tokens else {
         return None;
     };
     let mut depth = 0u32;
     for (index, token) in tokens.iter().enumerate().skip(1) {
         match token {
-            Token::Punct('(') => depth += 1,
-            Token::Punct(')') => {
+            PerlToken::Punct('(') => depth += 1,
+            PerlToken::Punct(')') => {
                 depth -= 1;
                 if depth == 0 {
                     return Some(index + 1);
@@ -1652,18 +1673,18 @@ const MAX_CONSTANT_TOKENS: usize = 256;
 /// A constant operand's definedness and truth: a literal, an `xor` of
 /// constants, or a short-circuit chain that stops at a constant. The right operand is read only when it runs,
 /// so `1 or unlink(...)` is the constant `1`.
-fn constant(tokens: &[Token]) -> Option<(bool, bool)> {
+fn constant_operand(tokens: &[PerlToken]) -> Option<(bool, bool)> {
     match tokens {
-        [Token::Number(value)] => Some((true, value.bytes().any(|byte| byte != b'0'))),
-        [Token::Text(value)] => Some((true, !value.is_empty() && value != "0")),
-        [Token::Name(undef)] if undef == "undef" => Some((false, false)),
+        [PerlToken::Number(value)] => Some((true, value.bytes().any(|byte| byte != b'0'))),
+        [PerlToken::Text(value)] => Some((true, !value.is_empty() && value != "0")),
+        [PerlToken::Name(undef)] if undef == "undef" => Some((false, false)),
         _ if tokens.len() > MAX_CONSTANT_TOKENS => None,
         _ => {
             let (left, operator, right) = split(tokens)?;
-            let value = constant(left)?;
+            let value = constant_operand(left)?;
             if operator == "xor" {
                 // Both operands run; the result is defined.
-                return Some((true, value.1 != constant(right)?.1));
+                return Some((true, value.1 != constant_operand(right)?.1));
             }
             let stops = match operator {
                 "or" | "||" => value.1,
@@ -1671,7 +1692,11 @@ fn constant(tokens: &[Token]) -> Option<(bool, bool)> {
                 "//" => value.0,
                 _ => return None,
             };
-            if stops { Some(value) } else { constant(right) }
+            if stops {
+                Some(value)
+            } else {
+                constant_operand(right)
+            }
         }
     }
 }
@@ -1682,21 +1707,21 @@ fn constant(tokens: &[Token]) -> Option<(bool, bool)> {
 /// The split is structural: a symbolic operator binds tighter than a list
 /// operator or assignment, so a caller accepts it only after a whole call or a
 /// constant.
-fn split(statement: &[Token]) -> Option<(&[Token], &'static str, &[Token])> {
+fn split(statement: &[PerlToken]) -> Option<(&[PerlToken], &'static str, &[PerlToken])> {
     let mut last: [Option<(usize, &'static str)>; 5] = [None; 5];
     let mut depth = 0i64;
     for (index, token) in statement.iter().enumerate() {
         let found = match token {
-            Token::Punct('(' | '{') => {
+            PerlToken::Punct('(' | '{') => {
                 depth += 1;
                 None
             }
-            Token::Punct(')' | '}') => {
+            PerlToken::Punct(')' | '}') => {
                 depth -= 1;
                 None
             }
             _ if depth != 0 || index == 0 => None,
-            Token::Name(name) => match name.as_str() {
+            PerlToken::Name(name) => match name.as_str() {
                 "if" => Some((0, "if")),
                 "unless" => Some((0, "unless")),
                 "or" => Some((1, "or")),
@@ -1704,9 +1729,9 @@ fn split(statement: &[Token]) -> Option<(&[Token], &'static str, &[Token])> {
                 "and" => Some((2, "and")),
                 _ => None,
             },
-            Token::Punct(c @ ('|' | '/' | '&'))
-                if statement.get(index + 1) == Some(&Token::Punct(*c))
-                    && statement.get(index - 1) != Some(&Token::Punct(*c)) =>
+            PerlToken::Punct(c @ ('|' | '/' | '&'))
+                if statement.get(index + 1) == Some(&PerlToken::Punct(*c))
+                    && statement.get(index - 1) != Some(&PerlToken::Punct(*c)) =>
             {
                 match c {
                     '|' => Some((3, "||")),

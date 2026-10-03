@@ -1,3 +1,8 @@
+use super::accumulation::{
+    EffectOccurrenceKey, composed_effect_id, effect_evidence_key, push_composed_boundary,
+    push_composed_effect, push_composed_effect_slot, push_coverage, push_dependency,
+    replay_summary_transfers,
+};
 use super::budget::{all_domains, cap_depth, reserve_effect, widen};
 use super::instance::{
     bind_constructor_results, bind_fn_args, bind_function_arguments, bound_callable, class_entry,
@@ -7,17 +12,17 @@ use super::instance::{
 };
 use super::lifecycle::{module_binding_origin, rebase_lifecycle_origin};
 use super::memo::{function_memo_key, memo_checkpoint, memoized_walk, replay_memoized_walk};
+use super::module_execution::ensure_module_executed;
 use super::{
-    BoundCallable, BoundaryOccurrence, Composition, Dispatch, EffectOccurrence, Env, ResolvedCall,
-    ResolvedDecorator, Walk, apply_external_resolution, dispatch_is_exhaustive,
-    ensure_module_executed, follow, follow_dispatch, frontend_call_reference, is_constructor_fact,
-    push_composed_boundary, push_composed_effect, push_composed_effect_slot, push_coverage,
-    push_dependency, push_linker_boundary, push_specialized_process_effects, record_resolved_call,
-    record_unresolved_call, replay_summary_transfers,
+    BoundCallable, BoundaryOccurrence, Composition, CompositionWalk, EffectOccurrence, InstanceEnv,
+    ReceiverContext, ResolvedCall, ResolvedDecorator, apply_external_resolution,
+    dispatch_is_exhaustive, follow, follow_dispatch, frontend_call_reference, is_constructor_fact,
+    push_linker_boundary, push_specialized_process_effects, record_resolved_call,
+    record_unresolved_call,
 };
 use crate::launch::is_process_template;
 use crate::linker::Resolution;
-use crate::module::{ModuleFile, Registry};
+use crate::module::{ModuleFile, ModuleRegistry};
 use effinterp_engine::{
     Assurance, CallEdge, CallableValue, ExternalCall, ResolvedObject, SemanticValue,
     SemanticValueKind, ValueArgument, scope_rust_branch_groups, substitute_value,
@@ -35,12 +40,12 @@ use std::collections::{BTreeMap, HashMap};
 /// walked. After the walk, locals the caller binds from this call's result are
 /// typed via the callee's returned instances.
 pub(super) fn enter_function(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     caller: &ModuleFile,
     target: &ModuleFile,
     fn_name: &str,
     edge: &CallEdge,
-    dispatch: Dispatch,
+    dispatch: ReceiverContext,
     inline_only: bool,
 ) {
     enter_function_with_assurance(
@@ -55,11 +60,11 @@ pub(super) fn enter_function(
 }
 
 pub(super) fn enter_function_with_assurance(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     caller: &ModuleFile,
     destination: (&ModuleFile, &str),
     edge: &CallEdge,
-    dispatch: Dispatch,
+    dispatch: ReceiverContext,
     assurance: Assurance,
     inline_only: bool,
 ) {
@@ -80,17 +85,17 @@ pub(super) fn enter_function_with_assurance(
 pub(super) struct RecursiveGroup {
     occurrence_start: usize,
     bindings: HashMap<String, SemanticValue>,
-    effects: HashMap<super::EffectOccurrenceKey, EffectOccurrence>,
+    effects: HashMap<EffectOccurrenceKey, EffectOccurrence>,
     back_edge_path: Option<Vec<String>>,
 }
 
 fn enter_function_inner(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     caller: &ModuleFile,
     target: &ModuleFile,
     fn_name: &str,
     edge: &CallEdge,
-    dispatch: Dispatch,
+    dispatch: ReceiverContext,
     inline_only: bool,
 ) {
     use super::budget::{charge_compose_step, check_composition_depth};
@@ -195,7 +200,7 @@ fn enter_function_inner(
         effects.sort_by_key(|effect| {
             (
                 effect.source_file.clone(),
-                super::effect_evidence_key(&effect.effect),
+                effect_evidence_key(&effect.effect),
                 format!("{:?}", effect.via_dispatch),
             )
         });
@@ -204,9 +209,9 @@ fn enter_function_inner(
             effect.path = path.iter().cloned().chain(effect.path).collect();
             // The cache is a set of known facts, not another call site. A
             // concrete walk may already have emitted this recursive path.
-            let effect_key = super::EffectOccurrenceKey {
+            let effect_key = EffectOccurrenceKey {
                 source_file: effect.source_file.clone(),
-                effect: super::composed_effect_id(&effect.effect),
+                effect: composed_effect_id(&effect.effect),
                 via_dispatch: effect.via_dispatch.clone(),
             };
             if let Some(index) = walk.out.effect_positions.get(&effect_key.effect)
@@ -314,9 +319,9 @@ fn enter_function_inner(
                 .to_vec();
             effect.assurance = occurrence.assurance;
             effect.via_dispatch = occurrence.via_dispatch.clone();
-            let effect_key = super::EffectOccurrenceKey {
+            let effect_key = EffectOccurrenceKey {
                 source_file: effect.source_file.clone(),
-                effect: super::composed_effect_id(&effect.effect),
+                effect: composed_effect_id(&effect.effect),
                 via_dispatch: effect.via_dispatch.clone(),
             };
             if let Some(previous) = group.effects.get_mut(&effect_key) {
@@ -390,12 +395,12 @@ fn enter_function_inner(
 
 #[allow(clippy::too_many_arguments)]
 fn enter_function_round(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     caller: &ModuleFile,
     target: &ModuleFile,
     fn_name: &str,
     edge: &CallEdge,
-    dispatch: Dispatch,
+    dispatch: ReceiverContext,
     inline_only: bool,
     recursive_bindings: &HashMap<String, SemanticValue>,
 ) {
@@ -440,7 +445,7 @@ fn enter_function_round(
                             caller,
                             (init_file, &init_name),
                             edge,
-                            Dispatch {
+                            ReceiverContext {
                                 receiver: Some(inst.clone()),
                                 self_attrs: self_attrs.clone(),
                             },
@@ -653,10 +658,10 @@ fn enter_function_round(
     let required = walk.out.required;
     let accepts_throw = walk.out.accepts_throw;
     let requirements = if required {
-        super::control_requirements(
+        super::control_discharge::control_requirements(
             walk.registry,
             target,
-            &super::ControlOwner::Function(func.name.clone()),
+            &super::control_discharge::ControlOwner::Function(func.name.clone()),
             walk.out,
             &next_path,
         )
@@ -685,7 +690,7 @@ fn enter_function_round(
             .effects
             .iter()
             .enumerate()
-            .filter(|(_, effect)| seen.insert(super::effect_evidence_key(effect)))
+            .filter(|(_, effect)| seen.insert(effect_evidence_key(effect)))
             .collect::<Vec<_>>()
     };
     // The entrypoint's plan already carries this callable's effects, so no row
@@ -837,7 +842,7 @@ fn enter_function_round(
     }
 
     // Object parameters use the same argument vector as all other values.
-    let mut child_env = Env {
+    let mut child_env = InstanceEnv {
         receiver: dispatch.receiver,
         self_attrs: dispatch.self_attrs,
         params: HashMap::new(),
@@ -1160,7 +1165,7 @@ fn enter_function_round(
 }
 
 fn decorator_gate_opens(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     target: &ModuleFile,
     callee: &CalleeReference,
     out: &mut Composition,
@@ -1228,7 +1233,11 @@ fn decorator_gate_opens(
 /// enter each argument that names an unambiguous function of the calling file,
 /// so the registered callback's effects surface instead of vanishing behind
 /// the callee's boundary. Anything not a caller-local function never enters.
-pub(super) fn enter_fn_args(walk: &mut Walk<'_>, importer: &ModuleFile, edge: &CallEdge) {
+pub(super) fn enter_fn_args(
+    walk: &mut CompositionWalk<'_>,
+    importer: &ModuleFile,
+    edge: &CallEdge,
+) {
     if edge.lifecycle_registration || walk.registry.linker(importer.lang).callbacks_escape() {
         return;
     }
@@ -1238,7 +1247,7 @@ pub(super) fn enter_fn_args(walk: &mut Walk<'_>, importer: &ModuleFile, edge: &C
     walk.out.required = required;
 }
 
-fn enter_callback_args(walk: &mut Walk<'_>, importer: &ModuleFile, edge: &CallEdge) {
+fn enter_callback_args(walk: &mut CompositionWalk<'_>, importer: &ModuleFile, edge: &CallEdge) {
     // Direct callback passing (`asyncio.run(main)`, `atexit.register(f)`)
     // is invoked by the callee itself. Registrars are handled in follow_inner.
     for (_, callback) in edge.callback_arguments() {
@@ -1253,7 +1262,7 @@ fn enter_callback_args(walk: &mut Walk<'_>, importer: &ModuleFile, edge: &CallEd
                 importer,
                 callback,
                 &cb_edge,
-                Dispatch::default(),
+                ReceiverContext::default(),
                 false,
             );
             continue;
@@ -1280,7 +1289,7 @@ fn enter_callback_args(walk: &mut Walk<'_>, importer: &ModuleFile, edge: &CallEd
                 importer,
                 (target, &function),
                 &cb_edge,
-                Dispatch::default(),
+                ReceiverContext::default(),
                 assurance,
                 false,
             );
@@ -1289,7 +1298,7 @@ fn enter_callback_args(walk: &mut Walk<'_>, importer: &ModuleFile, edge: &CallEd
 }
 
 pub(super) fn follow_callable_value(
-    walk: &mut Walk<'_>,
+    walk: &mut CompositionWalk<'_>,
     importer: &ModuleFile,
     edge: &CallEdge,
     value: &SemanticValue,
@@ -1338,7 +1347,7 @@ pub(super) fn follow_callable_value(
                     target,
                     &function,
                     edge,
-                    Dispatch::default(),
+                    ReceiverContext::default(),
                     false,
                 );
                 record_resolved_call(walk.registry, importer, edge, walk.out);

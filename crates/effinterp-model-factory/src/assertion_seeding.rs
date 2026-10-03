@@ -18,7 +18,7 @@ use effinterp_proto::{Plan, ResourceExpr, ResourceIdentity, validate_plan};
 
 use crate::FactoryError;
 use crate::fixture_evidence::{evaluate_fact_case, plan_evaluator, read_projected_fixture};
-use crate::model_directory::{canonical_json, read, write};
+use crate::model_directory::{pretty_model_json, read, write};
 
 /// Replace a whole-plan fixture with mechanically seeded fact assertions for review.
 pub fn seed_assertions(fixture: &Path, document: Option<&Path>) -> Result<(), FactoryError> {
@@ -124,7 +124,7 @@ fn seed_assertion_fixture_json(
             detail: format!("case {case_index}: {detail}"),
         })?;
     }
-    canonical_json(&fixture)
+    pretty_model_json(&fixture)
 }
 
 fn is_generic_seed_operation(operation: &str) -> bool {

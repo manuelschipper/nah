@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use effinterp_proto::{
     CausalAssurance, CausalReason, OccurrenceKind, ResourceExpr, ResourceIdentity,
 };
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
+use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 use crate::{causal_path, plan_causality, typed_selector};
 
@@ -14,15 +15,7 @@ fn repo(tag: &str, source: &str) -> PathBuf {
 }
 
 fn repo_files(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(tag);
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    for (name, source) in files {
-        let path = root.join(name);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, source).unwrap();
-    }
-    root
+    repo_test_fixture(Path::new(env!("CARGO_TARGET_TMPDIR")), tag, files)
 }
 
 fn index(tag: &str, source: &str) -> effinterp_repo::RepoIndex {
@@ -72,7 +65,11 @@ fn typed_identity_queries_preserve_unknown_process_cwd() {
             .find(|row| row.operation.0 == operation)
             .unwrap_or_else(|| panic!("missing {operation}"));
         let selector = typed_selector(&row.resource);
-        let report = reach(&idx, &Selector::parse(&selector).unwrap(), Some(operation));
+        let report = reach(
+            &idx,
+            &ResourceSelector::parse(&selector).unwrap(),
+            Some(operation),
+        );
         if operation == "process.exec" {
             assert!(unknown_effects(&report).any(|hit| hit.fact.resource == row.resource));
             continue;
@@ -175,7 +172,11 @@ fn patterns_and_partial_human_selectors_return_membership_proofs() {
         "resource-possible",
         "#!/bin/sh\nrm /tmp/build-*\npsql -h db -d app -c 'UPDATE public.users SET x=1'\n",
     );
-    let pattern = reach(&idx, &Selector::parse("fs:/tmp/build-1").unwrap(), None);
+    let pattern = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/tmp/build-1").unwrap(),
+        None,
+    );
     assert!(
         pattern
             .payload
@@ -186,7 +187,7 @@ fn patterns_and_partial_human_selectors_return_membership_proofs() {
             .any(|hit| matches!(hit.matched, effinterp_proto::Match::Satisfied { .. }))
     );
 
-    let prefix = reach(&idx, &Selector::parse("fs:/tmp").unwrap(), None);
+    let prefix = reach(&idx, &ResourceSelector::parse("fs:/tmp").unwrap(), None);
     assert!(
         prefix
             .payload
@@ -206,7 +207,7 @@ fn patterns_and_partial_human_selectors_return_membership_proofs() {
         },
     };
     let selector = typed_selector(&exact);
-    let typed_pattern = reach(&idx, &Selector::parse(&selector).unwrap(), None);
+    let typed_pattern = reach(&idx, &ResourceSelector::parse(&selector).unwrap(), None);
     assert!(
         typed_pattern
             .payload
@@ -220,7 +221,11 @@ fn patterns_and_partial_human_selectors_return_membership_proofs() {
             })
     );
 
-    let partial = reach(&idx, &Selector::parse("db:public.users").unwrap(), None);
+    let partial = reach(
+        &idx,
+        &ResourceSelector::parse("db:public.users").unwrap(),
+        None,
+    );
     assert!(
         partial
             .payload
@@ -252,7 +257,7 @@ fn environment_and_git_queries_distinguish_exact_from_repository_scope() {
     } if name == "HOME"));
     let human = reach(
         &idx,
-        &Selector::parse("env:HOME").unwrap(),
+        &ResourceSelector::parse("env:HOME").unwrap(),
         Some("environment.read"),
     );
     assert!(human.payload.as_reach().unwrap().matches.iter().any(|hit| {
@@ -262,7 +267,7 @@ fn environment_and_git_queries_distinguish_exact_from_repository_scope() {
     let exact = typed_selector(&environment.resource);
     let exact = reach(
         &idx,
-        &Selector::parse(&exact).unwrap(),
+        &ResourceSelector::parse(&exact).unwrap(),
         Some("environment.read"),
     );
     assert!(exact.payload.as_reach().unwrap().matches.iter().any(|hit| {
@@ -299,7 +304,7 @@ fn environment_and_git_queries_distinguish_exact_from_repository_scope() {
     let repository = effinterp_proto::display_resource(&repository);
     let repository = reach(
         &idx,
-        &Selector::parse(&repository).unwrap(),
+        &ResourceSelector::parse(&repository).unwrap(),
         Some("git.worktree_discard"),
     );
     assert!(
@@ -320,7 +325,7 @@ fn environment_and_git_queries_distinguish_exact_from_repository_scope() {
     let exact = typed_selector(&git.resource);
     let exact = reach(
         &idx,
-        &Selector::parse(&exact).unwrap(),
+        &ResourceSelector::parse(&exact).unwrap(),
         Some("git.worktree_discard"),
     );
     assert!(exact.payload.as_reach().unwrap().matches.iter().any(|hit| {
@@ -356,7 +361,7 @@ fn symbolic_git_scope_stays_indeterminate_through_a_typed_selector() {
     let human = effinterp_proto::display_resource(&git.resource);
     let human = reach(
         &idx,
-        &Selector::parse(&human).unwrap(),
+        &ResourceSelector::parse(&human).unwrap(),
         Some("git.worktree_discard"),
     );
     assert!(
@@ -371,7 +376,7 @@ fn symbolic_git_scope_stays_indeterminate_through_a_typed_selector() {
     let exact = typed_selector(&git.resource);
     let exact = reach(
         &idx,
-        &Selector::parse(&exact).unwrap(),
+        &ResourceSelector::parse(&exact).unwrap(),
         Some("git.worktree_discard"),
     );
     assert!(unknown_effects(&exact).any(|hit| {
@@ -388,7 +393,7 @@ fn network_queries_discriminate_every_known_endpoint_field() {
     );
     let host = reach(
         &idx,
-        &Selector::parse("net:example.com").unwrap(),
+        &ResourceSelector::parse("net:example.com").unwrap(),
         Some("network.request"),
     );
     assert!(host.payload.as_reach().unwrap().matches.len() >= 2);
@@ -403,7 +408,7 @@ fn network_queries_discriminate_every_known_endpoint_field() {
 
     let exact_human = reach(
         &idx,
-        &Selector::parse("net:https://example.com:8443/a").unwrap(),
+        &ResourceSelector::parse("net:https://example.com:8443/a").unwrap(),
         Some("network.request"),
     );
     assert!(
@@ -465,7 +470,7 @@ fn labelled_database_queries_do_not_flatten_distinct_scope_positions() {
     let rendered = effinterp_proto::display_resource(&first.resource);
     let labelled = reach(
         &idx,
-        &Selector::parse(&rendered).unwrap(),
+        &ResourceSelector::parse(&rendered).unwrap(),
         Some("database.write"),
     );
     assert!(
@@ -486,7 +491,7 @@ fn labelled_database_queries_do_not_flatten_distinct_scope_positions() {
 
     let short = reach(
         &idx,
-        &Selector::parse("db:public.users").unwrap(),
+        &ResourceSelector::parse("db:public.users").unwrap(),
         Some("database.write"),
     );
     assert!(short.payload.as_reach().unwrap().matches.len() >= 2);
@@ -525,7 +530,7 @@ fn named_container_keeps_and_matches_its_image_identity() {
 
     let report = reach(
         &idx,
-        &Selector::parse("container:docker:web").unwrap(),
+        &ResourceSelector::parse("container:docker:web").unwrap(),
         Some("container.run"),
     );
     assert!(
@@ -557,7 +562,7 @@ fn named_container_keeps_and_matches_its_image_identity() {
 
     let copied_display = reach(
         &idx,
-        &Selector::parse(&typed_selector(&named.resource)).unwrap(),
+        &ResourceSelector::parse(&typed_selector(&named.resource)).unwrap(),
         Some("container.run"),
     );
     assert!(
@@ -594,7 +599,7 @@ fn executable_selector_matches_process_with_arguments() {
         .unwrap();
     let report = reach(
         &idx,
-        &Selector::parse("proc:rm").unwrap(),
+        &ResourceSelector::parse("proc:rm").unwrap(),
         Some("process.exec"),
     );
     assert!(
@@ -626,7 +631,11 @@ fn unknown_external_surfaces_cannot_produce_a_precise_network_negative() {
     ] {
         let root = repo_files(tag, &[("app.py", source)]);
         let idx = build_index(&root, IndexLimits::default());
-        let report = reach(&idx, &Selector::parse("net:example.com").unwrap(), None);
+        let report = reach(
+            &idx,
+            &ResourceSelector::parse("net:example.com").unwrap(),
+            None,
+        );
         assert!(
             report.payload.as_reach().unwrap().matches.is_empty(),
             "{source}"
@@ -702,7 +711,11 @@ fn unix_net_listen_reports_its_filesystem_socket() {
                     )
             })
     );
-    let report = reach(&idx, &Selector::parse("fs:/tmp/probe.sock").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/tmp/probe.sock").unwrap(),
+        None,
+    );
     assert!(
         report
             .payload
@@ -731,7 +744,7 @@ fn reverse_filesystem_query_matches_python_and_shell_environment_joins() {
     );
     let report = reach(
         &idx,
-        &Selector::parse("fs:$HOME/*").unwrap(),
+        &ResourceSelector::parse("fs:$HOME/*").unwrap(),
         Some("filesystem.delete"),
     );
     for entrypoint in ["clean.py", "clean.sh"] {
@@ -783,7 +796,7 @@ fn cross_file_path_is_canonical_and_round_trips_exactly() {
     let selector = typed_selector(&row.resource);
     let reverse = reach(
         &idx,
-        &Selector::parse(&selector).unwrap(),
+        &ResourceSelector::parse(&selector).unwrap(),
         Some("filesystem.read"),
     );
     assert!(
@@ -854,7 +867,7 @@ fn cross_file_process_argv_stays_generic_and_round_trips_exactly() {
     let selector = typed_selector(&row.resource);
     let reverse = reach(
         &idx,
-        &Selector::parse(&selector).unwrap(),
+        &ResourceSelector::parse(&selector).unwrap(),
         Some("process.exec"),
     );
     assert!(
@@ -928,7 +941,7 @@ pub fn get_pager() -> Result<Pager, ()> {
     let selector = typed_selector(&process(["-R", "-F"]));
     let reverse = reach(
         &index,
-        &Selector::parse(&selector).unwrap(),
+        &ResourceSelector::parse(&selector).unwrap(),
         Some("process.exec"),
     );
     assert!(
@@ -944,7 +957,7 @@ pub fn get_pager() -> Result<Pager, ()> {
     let selector = typed_selector(&process(["-F", "-R"]));
     let reverse = reach(
         &index,
-        &Selector::parse(&selector).unwrap(),
+        &ResourceSelector::parse(&selector).unwrap(),
         Some("process.exec"),
     );
     assert!(
@@ -1123,7 +1136,7 @@ fn unknown_process_argv_does_not_alias_a_literal_question_mark() {
     let selector = typed_selector(&literal.resource);
     let report = reach(
         &idx,
-        &Selector::parse(&selector).unwrap(),
+        &ResourceSelector::parse(&selector).unwrap(),
         Some("process.exec"),
     );
     assert!(unknown_effects(&report).any(|hit| {
@@ -1452,7 +1465,7 @@ fn filesystem_glob_queries_respect_segments_and_keep_exhaustion_uncertain() {
             let selector = typed_selector(&resource);
             let report = reach(
                 &idx,
-                &Selector::parse(&selector).unwrap(),
+                &ResourceSelector::parse(&selector).unwrap(),
                 Some("filesystem.read"),
             );
             assert_eq!(
@@ -1475,7 +1488,7 @@ fn filesystem_glob_queries_respect_segments_and_keep_exhaustion_uncertain() {
     let selector = typed_selector(&resource);
     let report = reach(
         &idx,
-        &Selector::parse(&selector).unwrap(),
+        &ResourceSelector::parse(&selector).unwrap(),
         Some("filesystem.delete"),
     );
     assert_eq!(unknown_effects(&report).count(), 1);
@@ -1487,7 +1500,7 @@ fn filesystem_glob_queries_respect_segments_and_keep_exhaustion_uncertain() {
     for (selector, expected) in [("fs:/tmp/*", 1), ("fs:/tmp/**", 3), ("fs:/work", 0)] {
         let report = reach(
             &idx,
-            &Selector::parse(selector).unwrap(),
+            &ResourceSelector::parse(selector).unwrap(),
             Some("filesystem.read"),
         );
         assert_eq!(
@@ -1500,7 +1513,7 @@ fn filesystem_glob_queries_respect_segments_and_keep_exhaustion_uncertain() {
         "resource-glob-limit",
         &format!("#!/bin/sh\ncat /tmp/{}\n", "a".repeat(1024)),
     );
-    let selector = Selector::parse(&format!("fs:/tmp/{}", "*a".repeat(1024))).unwrap();
+    let selector = ResourceSelector::parse(&format!("fs:/tmp/{}", "*a".repeat(1024))).unwrap();
     let report = reach(&idx, &selector, Some("filesystem.read"));
     assert_eq!(unknown_effects(&report).count(), 1);
     assert!(unknown_effects(&report).any(|hit| matches!(
@@ -1527,9 +1540,9 @@ fn scoped_queries_survive_incremental_updates() {
         .filter(|f| matches!(f.operation.domain(), "cloud" | "messaging"))
     {
         let selector = if fact.operation.0 == "cloud.object.delete" {
-            Selector::parse("obj:bucket").unwrap()
+            ResourceSelector::parse("obj:bucket").unwrap()
         } else {
-            Selector::parse(&typed_selector(&fact.resource)).unwrap()
+            ResourceSelector::parse(&typed_selector(&fact.resource)).unwrap()
         };
         let live = reach(&before, &selector, Some(fact.operation.as_str()));
         let matched = selector.match_effect(fact);
@@ -1550,7 +1563,7 @@ fn scoped_queries_survive_incremental_updates() {
             }
         }
     }
-    assert!(Selector::parse("cloud:@not-hex").is_err());
+    assert!(ResourceSelector::parse("cloud:@not-hex").is_err());
     let after_source = source
         .replace("--project one", "--project two")
         .replace("a:9092", "alias:9092");
@@ -1622,7 +1635,7 @@ fn infrastructure_selectors_preserve_scope_and_unresolved_target_evidence() {
         assert!(selectors.insert(selector.clone()));
         let report = reach(
             &index,
-            &Selector::parse(&selector).unwrap(),
+            &ResourceSelector::parse(&selector).unwrap(),
             Some(row.operation.as_str()),
         );
         assert!(unknown_effects(&report).any(|hit| hit.fact.resource == row.resource));
@@ -1677,7 +1690,7 @@ fn artifact_selectors_preserve_namespaces_across_incremental_and_saved_indexes()
     {
         let human = reach(
             &idx,
-            &Selector::parse("artifact:acme/api").unwrap(),
+            &ResourceSelector::parse("artifact:acme/api").unwrap(),
             Some("artifact.publish"),
         );
         assert!(
@@ -1697,7 +1710,7 @@ fn artifact_selectors_preserve_namespaces_across_incremental_and_saved_indexes()
             .iter()
             .find(|effect| effect.operation.domain() == "artifact")
             .unwrap();
-        let selector = Selector::parse(&typed_selector(&artifact.resource)).unwrap();
+        let selector = ResourceSelector::parse(&typed_selector(&artifact.resource)).unwrap();
         let result = reach(&idx, &selector, Some("artifact.publish"));
         for entrypoint in ["hub.sh", "hub-alias.sh"] {
             assert!(
@@ -1740,7 +1753,7 @@ fn artifact_selectors_preserve_namespaces_across_incremental_and_saved_indexes()
                 }),
             },
         };
-        let selector = Selector::parse(&typed_selector(&resource)).unwrap();
+        let selector = ResourceSelector::parse(&typed_selector(&resource)).unwrap();
         assert!(
             unknown_effects(&reach(&idx, &selector, Some("artifact.publish"))).any(|hit| hit
                 .fact
@@ -1751,7 +1764,7 @@ fn artifact_selectors_preserve_namespaces_across_incremental_and_saved_indexes()
     }
     for row in &artifacts {
         let selector = typed_selector(&row.resource);
-        let selector = Selector::parse(&selector).unwrap();
+        let selector = ResourceSelector::parse(&selector).unwrap();
         let result = reach(&idx, &selector, Some(row.operation.as_str()));
         if matches!(
             &row.resource,
@@ -1805,7 +1818,7 @@ fn artifact_selectors_preserve_namespaces_across_incremental_and_saved_indexes()
         .unwrap()
         .resource
         .clone();
-    let version_selector = Selector::parse(&typed_selector(&package)).unwrap();
+    let version_selector = ResourceSelector::parse(&typed_selector(&package)).unwrap();
     let version = reach(&idx, &version_selector, Some("artifact.delete"));
     assert!(version.payload.as_reach().unwrap().matches.is_empty());
     assert!(!unknown_effects(&version).any(|hit| hit.fact.entrypoint == "unpublish.sh"));
@@ -1816,7 +1829,7 @@ fn artifact_selectors_preserve_namespaces_across_incremental_and_saved_indexes()
     {
         *ecosystem = ArtifactEcosystem::Oci;
     }
-    let selector = Selector::parse(&typed_selector(&different)).unwrap();
+    let selector = ResourceSelector::parse(&typed_selector(&different)).unwrap();
     assert!(
         reach(&idx, &selector, Some("artifact.publish"))
             .payload

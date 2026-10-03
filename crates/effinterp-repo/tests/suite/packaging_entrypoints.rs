@@ -8,12 +8,7 @@
 use effinterp_repo::{IndexLimits, build_index, effects_of};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
-fn ids(idx: &effinterp_repo::RepoIndex) -> Vec<String> {
-    idx.entrypoints
-        .iter()
-        .map(|e| e.entrypoint.id.clone())
-        .collect()
-}
+use crate::support::ids;
 
 #[test]
 fn bin_target_missing_maps_through_tsconfig_to_source() {

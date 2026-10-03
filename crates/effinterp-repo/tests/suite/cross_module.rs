@@ -7,10 +7,12 @@
 use std::path::Path;
 
 use effinterp_repo::{
-    IndexLimits, RepoChange, Selector, apply_changes, build_index, effective_surface, effects_of,
-    reach,
+    IndexLimits, RepoChange, ResourceSelector, apply_changes, build_index, effective_surface,
+    effects_of, reach,
 };
 use effinterp_testkit::repo_fixture::repo_test_fixture;
+
+use crate::support::write_file;
 
 const APP_PY: &str = "#!/usr/bin/env python\nfrom util import wipe\ndef run():\n    wipe(\"/var/cache/app\", name)\nrun()\n";
 const UTIL_PY: &str =
@@ -44,7 +46,11 @@ fn headline_reverse_query_traces_across_files() {
         &[("app.py", APP_PY), ("util.py", UTIL_PY)],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
 
     let hit = report
         .payload
@@ -106,7 +112,11 @@ fn execution_surface_excludes_uncalled_cross_file_delete() {
     );
 
     // And the reverse query over /important finds no delete either.
-    let report = reach(&idx, &Selector::parse("fs:/important").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/important").unwrap(),
+        None,
+    );
     assert!(
         !report
             .payload
@@ -129,7 +139,11 @@ fn top_level_call_traces_across_files() {
         &[("app.py", APP_TOP), ("util.py", UTIL_PY)],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
     let hit = report
         .payload
         .as_reach()
@@ -722,12 +736,6 @@ fn filesystem_concatenation_preserves_environment_after_cross_file_substitution(
                 }
             ] if name == "HOME" && path.starts_with("/.cache/"))
     )));
-}
-
-fn write_file(root: &Path, rel: &str, content: &str) {
-    let path = root.join(rel);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, content).unwrap();
 }
 
 /// A canonical dump of every entrypoint's effective surface (direct + composed

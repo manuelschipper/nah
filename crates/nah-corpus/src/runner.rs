@@ -35,7 +35,11 @@ pub struct Reconciliation {
 
 /// Decides every case through the production engine path and reconciles it
 /// against the Expected-fail section of `ledger`, the text of `corpus/TRIAGE.md`.
-pub fn reconcile(cases: &[CorpusCase], fixtures: &FixtureRegistry, ledger: &str) -> Reconciliation {
+pub fn reconcile_triage_ledger(
+    cases: &[CorpusCase],
+    fixtures: &FixtureRegistry,
+    ledger: &str,
+) -> Reconciliation {
     let (expected_fail, mut ledger_errors) = expected_fail_ids(ledger);
     let case_ids = cases
         .iter()

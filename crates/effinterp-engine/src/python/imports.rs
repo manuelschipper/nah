@@ -17,18 +17,19 @@ use std::rc::Rc;
 
 use effinterp_proto::{
     ExecutionAssurance, ExecutionContent, ExecutionEdgeKind, ExecutionInputReason,
-    ExecutionSelection, ResourceExpr, ResourceIdentity, Subject,
+    ExecutionSelection, Subject,
 };
 use rustpython_parser::Parse;
 use rustpython_parser::ast::{self, Expr};
 use rustpython_parser::text_size::TextRange;
 
-use super::{DeferredSpawn, Walker};
+use super::{DeferredSpawn, PythonWalker};
 use crate::builder::PlanBuilder;
 use crate::external::is_python_stdlib;
 use crate::models::pyexec::python_search_path;
 use crate::nest::{Nest, SourceSearchObservation, Transition, source_refusal_reason};
 use crate::summary::Summary;
+use crate::value::fs_path_resource;
 use crate::{SourceNamespace, SourcePurpose, SourceRefusal, UnavailableReason};
 
 /// Observed import search facts for one launched Python program.
@@ -288,21 +289,13 @@ fn observe_candidates(
     }
 }
 
-fn fs_resource(path: &str) -> ResourceExpr {
-    ResourceExpr::Concrete {
-        identity: ResourceIdentity::FsPath {
-            path: path.to_string(),
-        },
-    }
-}
-
 /// Key under which an imported function's summary is applied, distinct from
 /// every same-file definition name.
 pub(super) fn imported_summary_key(canonical: &str) -> String {
     format!("import:{canonical}")
 }
 
-impl Walker<'_, '_> {
+impl PythonWalker<'_, '_> {
     /// Resolve an import for the invocation's search context. `Some(true)`
     /// means the module resolved to source, `Some(false)` that the import is
     /// traversed but did not resolve, and None that traversal does not apply.
@@ -400,7 +393,7 @@ impl Walker<'_, '_> {
                     .iter()
                     .map(|domain| effinterp_proto::Domain::new(*domain))
                     .collect(),
-                affected_resource: Some(fs_resource(&module.path)),
+                affected_resource: Some(fs_path_resource(&module.path)),
                 callee: Some(effinterp_proto::CalleeReference {
                     module: specifier.to_string(),
                     symbol: "__module_init__".to_string(),
@@ -421,12 +414,12 @@ impl Walker<'_, '_> {
             },
             &self.builder.current_execution_component(),
         );
-        input.selected = Some(fs_resource(&module.path));
+        input.selected = Some(fs_path_resource(&module.path));
         input.selection = ExecutionSelection::Search {
             candidates: module
                 .candidates
                 .iter()
-                .map(|path| fs_resource(path))
+                .map(|path| fs_path_resource(path))
                 .collect(),
             selected: Some(module.selected as u32),
         };
@@ -499,7 +492,7 @@ impl Walker<'_, '_> {
             content,
             &self.builder.current_execution_component(),
         );
-        input.selected = selected.map(|index| fs_resource(&candidates[index]));
+        input.selected = selected.map(|index| fs_path_resource(&candidates[index]));
         if selected.is_none() {
             input.assurance = ExecutionAssurance::Widened;
         }
@@ -507,7 +500,10 @@ impl Walker<'_, '_> {
         // relative import, or unobserved native-extension suffixes).
         if !candidates.is_empty() {
             input.selection = ExecutionSelection::Search {
-                candidates: candidates.iter().map(|path| fs_resource(path)).collect(),
+                candidates: candidates
+                    .iter()
+                    .map(|path| fs_path_resource(path))
+                    .collect(),
                 selected: selected.map(|index| index as u32),
             };
         }
@@ -626,7 +622,7 @@ impl Walker<'_, '_> {
         if self.nest.budget.timed_out() {
             return None;
         }
-        let (mut child, _) = Walker::for_execution(
+        let (mut child, _) = PythonWalker::for_execution(
             self.builder,
             self.nest,
             &module.source,

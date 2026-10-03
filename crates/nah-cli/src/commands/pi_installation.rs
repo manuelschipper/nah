@@ -1,16 +1,17 @@
 //! Installs and removes nah's global Pi tool-call extension.
 
-use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
 
 use crate::{live_state, runtime::FailurePolicy};
 
-use super::hook_paths::reject_hook_path_symlink;
+use super::hook_paths::{
+    HookFileWriteErrorCodes, HookLockErrorCodes, acquire_hook_lock, reject_hook_path_symlink,
+    write_hook_file_atomically,
+};
 use super::{RuntimeHookStatus, RuntimeMutation};
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
+use crate::private_files::sync_parent_directory;
 
 const MARKER: &str = "// Managed by nah.";
 
@@ -23,9 +24,9 @@ pub(crate) fn mutate_pi_hook(
         if install {
             let executable = std::env::current_exe()
                 .map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-            install_extension(&home, &executable, policy)
+            install_pi_extension(&home, &executable, policy)
         } else {
-            uninstall_extension(&home)
+            uninstall_pi_extension(&home)
         }
     })?;
     Ok(RuntimeMutation::new(
@@ -40,7 +41,7 @@ pub(crate) fn pi_hook_status() -> Result<RuntimeHookStatus, String> {
     let platform = live_state::host_platform();
     let home = live_state::home(platform)?;
     let paths = PiHookPaths::new(&home);
-    reject_symlinks(&paths)?;
+    reject_pi_hook_symlinks(&paths)?;
     let bytes = match std::fs::read(&paths.extension) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -48,15 +49,15 @@ pub(crate) fn pi_hook_status() -> Result<RuntimeHookStatus, String> {
         }
         Err(_) => return Err("pi-extension-read-failed".into()),
     };
-    if !owned(&bytes) {
+    if !is_owned_pi_extension(&bytes) {
         return Err("pi-extension-not-owned".into());
     }
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     Ok(
-        if bytes == extension(&executable, FailurePolicy::Delegate)?.as_bytes() {
+        if bytes == pi_extension_source(&executable, FailurePolicy::Delegate)?.as_bytes() {
             RuntimeHookStatus::WiringCurrent
-        } else if bytes == extension(&executable, FailurePolicy::Block)?.as_bytes() {
+        } else if bytes == pi_extension_source(&executable, FailurePolicy::Block)?.as_bytes() {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
             let strict = bytes
@@ -80,27 +81,29 @@ pub(crate) fn pi_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![PiHookPaths::new(&home).extension])
 }
 
-fn install_extension(
+fn install_pi_extension(
     home: &AbsolutePath,
     executable: &Path,
     policy: FailurePolicy,
 ) -> Result<PathBuf, String> {
     let paths = PiHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &PI_HOOK_LOCK_ERRORS)?;
+    reject_pi_hook_symlinks(&paths)?;
     let parent = paths
         .extension
         .parent()
         .ok_or_else(|| "invalid-pi-extension-path".to_owned())?;
     std::fs::create_dir_all(parent).map_err(|_| "pi-extension-write-failed")?;
-    reject_symlinks(&paths)?;
-    let desired = extension(executable, policy)?;
+    reject_pi_hook_symlinks(&paths)?;
+    let desired = pi_extension_source(executable, policy)?;
     match std::fs::read(&paths.extension) {
         Ok(bytes) if bytes == desired.as_bytes() => {}
-        Ok(bytes) if owned(&bytes) => save(&paths.extension, desired.as_bytes())?,
+        Ok(bytes) if is_owned_pi_extension(&bytes) => {
+            save_pi_extension(&paths.extension, desired.as_bytes())?
+        }
         Ok(_) => return Err("pi-extension-not-owned".into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            save(&paths.extension, desired.as_bytes())?;
+            save_pi_extension(&paths.extension, desired.as_bytes())?;
         }
         Err(_) => return Err("pi-extension-read-failed".into()),
     }
@@ -108,12 +111,12 @@ fn install_extension(
     Ok(paths.extension)
 }
 
-fn uninstall_extension(home: &AbsolutePath) -> Result<PathBuf, String> {
+fn uninstall_pi_extension(home: &AbsolutePath) -> Result<PathBuf, String> {
     let paths = PiHookPaths::new(home);
-    let lock = lock(&paths)?;
-    reject_symlinks(&paths)?;
+    let lock = acquire_hook_lock(&paths.lock, &PI_HOOK_LOCK_ERRORS)?;
+    reject_pi_hook_symlinks(&paths)?;
     match std::fs::read(&paths.extension) {
-        Ok(bytes) if owned(&bytes) => {
+        Ok(bytes) if is_owned_pi_extension(&bytes) => {
             std::fs::remove_file(&paths.extension).map_err(|_| "pi-extension-remove-failed")?;
             if let Some(parent) = paths.extension.parent() {
                 sync_parent_directory(parent).map_err(|_| "pi-extension-sync-failed".to_owned())?;
@@ -162,58 +165,32 @@ impl PiHookPaths {
     }
 }
 
-fn lock(paths: &PiHookPaths) -> Result<File, String> {
-    let parent = paths
-        .lock
-        .parent()
-        .ok_or_else(|| "invalid-pi-hook-lock-path".to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| "pi-hook-lock-failed")?;
-    reject_hook_path_symlink(&paths.lock, "pi-hook-lock-failed")?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options
-        .open(&paths.lock)
-        .map_err(|_| "pi-hook-lock-failed")?;
-    restrict_file_to_owner(&file).map_err(|_| "pi-hook-permissions-failed".to_owned())?;
-    file.lock().map_err(|_| "pi-hook-lock-failed")?;
-    Ok(file)
-}
+const PI_HOOK_LOCK_ERRORS: HookLockErrorCodes = HookLockErrorCodes {
+    invalid_path: "invalid-pi-hook-lock-path",
+    failed: "pi-hook-lock-failed",
+    permissions: "pi-hook-permissions-failed",
+};
 
-fn reject_symlinks(paths: &PiHookPaths) -> Result<(), String> {
+fn reject_pi_hook_symlinks(paths: &PiHookPaths) -> Result<(), String> {
     for directory in &paths.checked_directories {
         reject_hook_path_symlink(directory, "pi-extension-symlink-unsupported")?;
     }
     reject_hook_path_symlink(&paths.extension, "pi-extension-symlink-unsupported")
 }
 
-fn save(path: &Path, bytes: &[u8]) -> Result<(), String> {
+const PI_EXTENSION_WRITE_ERRORS: HookFileWriteErrorCodes = HookFileWriteErrorCodes {
+    invalid_path: "invalid-pi-extension-path",
+    write_failed: "pi-extension-write-failed",
+    permissions: "pi-extension-permissions-failed",
+    sync_failed: "pi-extension-sync-failed",
+};
+
+fn save_pi_extension(path: &Path, bytes: &[u8]) -> Result<(), String> {
     reject_hook_path_symlink(path, "pi-extension-symlink-unsupported")?;
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid-pi-extension-path".to_owned())?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|_| "pi-extension-write-failed")?;
-    restrict_file_to_owner(temporary.as_file())
-        .map_err(|_| "pi-extension-permissions-failed".to_owned())?;
-    temporary
-        .write_all(bytes)
-        .map_err(|_| "pi-extension-write-failed")?;
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|_| "pi-extension-write-failed")?;
-    temporary
-        .persist(path)
-        .map_err(|_| "pi-extension-write-failed")?;
-    sync_parent_directory(parent).map_err(|_| "pi-extension-sync-failed".to_owned())
+    write_hook_file_atomically(path, bytes, &PI_EXTENSION_WRITE_ERRORS)
 }
 
-fn extension(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
+fn pi_extension_source(executable: &Path, policy: FailurePolicy) -> Result<String, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
@@ -320,7 +297,7 @@ module.exports = function nahPiExtension(pi) {{
     ))
 }
 
-fn owned(bytes: &[u8]) -> bool {
+fn is_owned_pi_extension(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(bytes);
     text.starts_with(MARKER) && text.contains(r#"["hook", "pi", "run""#)
 }

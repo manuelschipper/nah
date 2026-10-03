@@ -79,7 +79,7 @@ pub(super) fn analyze(
         builder.note_deadline();
         return;
     }
-    let mut walk = Walk {
+    let mut walk = JuliaWalk {
         nest,
         cwd,
         node,
@@ -97,7 +97,7 @@ pub(super) fn analyze(
     }
 }
 
-struct Walk<'a> {
+struct JuliaWalk<'a> {
     nest: &'a Nest<'a>,
     cwd: Option<&'a str>,
     node: ProvenanceRef,
@@ -111,7 +111,7 @@ struct Walk<'a> {
     understood: bool,
 }
 
-impl Walk<'_> {
+impl JuliaWalk<'_> {
     /// Stops at the first construct outside the grammar so no statement after
     /// an unexplained one is claimed.
     fn program(&mut self, builder: &mut PlanBuilder, source: &str) {
@@ -207,7 +207,7 @@ impl Walk<'_> {
         Ok(())
     }
 
-    fn apply(&mut self, builder: &mut PlanBuilder, call: &Call) -> Result<(), String> {
+    fn apply(&mut self, builder: &mut PlanBuilder, call: &JuliaCall) -> Result<(), String> {
         if let Some(body) = self.functions.get(&call.callee).cloned() {
             if !call.arguments.is_empty() {
                 return Err(format!("julia call to {} has arguments", call.callee));
@@ -314,7 +314,7 @@ impl Walk<'_> {
         &mut self,
         builder: &mut PlanBuilder,
         operation: &str,
-        value: &Value,
+        value: &JuliaValue,
         attributes: &[(&str, bool)],
     ) -> Result<(), String> {
         let Some(resource) = self.resource(builder, value) else {
@@ -338,12 +338,12 @@ impl Walk<'_> {
         Ok(())
     }
 
-    fn text(&mut self, builder: &mut PlanBuilder, value: &Value) -> Option<String> {
+    fn text(&mut self, builder: &mut PlanBuilder, value: &JuliaValue) -> Option<String> {
         let mut text = String::new();
         for part in &value.0 {
             match part {
-                Part::Text(literal) => text.push_str(literal),
-                Part::Env(name) => match self.env(builder, name) {
+                JuliaValuePart::Text(literal) => text.push_str(literal),
+                JuliaValuePart::Env(name) => match self.env(builder, name) {
                     Some(ResourceExpr::Literal { value }) => text.push_str(&value),
                     _ => return None,
                 },
@@ -352,14 +352,14 @@ impl Walk<'_> {
         Some(text)
     }
 
-    fn resource(&mut self, builder: &mut PlanBuilder, value: &Value) -> Option<ResourceExpr> {
+    fn resource(&mut self, builder: &mut PlanBuilder, value: &JuliaValue) -> Option<ResourceExpr> {
         let mut parts = Vec::new();
         for part in &value.0 {
             match part {
-                Part::Text(literal) => parts.push(ResourceExpr::Literal {
+                JuliaValuePart::Text(literal) => parts.push(ResourceExpr::Literal {
                     value: literal.clone(),
                 }),
-                Part::Env(name) => parts.push(
+                JuliaValuePart::Env(name) => parts.push(
                     self.env(builder, name)
                         .unwrap_or(ResourceExpr::Environment { name: name.clone() }),
                 ),
@@ -423,20 +423,20 @@ impl Walk<'_> {
     }
 }
 
-struct Call {
+struct JuliaCall {
     callee: String,
-    arguments: Vec<Argument>,
+    arguments: Vec<JuliaArgument>,
 }
 
-struct Argument {
+struct JuliaArgument {
     keyword: Option<String>,
     /// Raw text, kept for keyword comparisons that are not path values.
     raw: String,
-    value: Option<Value>,
+    value: Option<JuliaValue>,
 }
 
-impl Call {
-    fn positional(&self) -> Vec<&Value> {
+impl JuliaCall {
+    fn positional(&self) -> Vec<&JuliaValue> {
         self.arguments
             .iter()
             .filter(|argument| argument.keyword.is_none())
@@ -452,9 +452,9 @@ impl Call {
     }
 }
 
-struct Value(Vec<Part>);
+struct JuliaValue(Vec<JuliaValuePart>);
 
-enum Part {
+enum JuliaValuePart {
     Text(String),
     Env(String),
 }
@@ -611,7 +611,7 @@ fn command_literal(literal: &str) -> Result<Vec<String>, String> {
 
 /// Parse one statement as `name(arguments)`. Julia's keyword arguments follow
 /// either a `;` inside the call or a `name=` prefix.
-fn call(statement: &str) -> Result<Call, String> {
+fn call(statement: &str) -> Result<JuliaCall, String> {
     let statement = statement.trim();
     let open = statement.find('(').ok_or("julia statement is not a call")?;
     let callee = statement[..open].trim();
@@ -653,13 +653,13 @@ fn call(statement: &str) -> Result<Call, String> {
             _ => (None, argument.clone()),
         };
         let value = value(&raw).ok();
-        parsed.push(Argument {
+        parsed.push(JuliaArgument {
             keyword,
             raw,
             value,
         });
     }
-    Ok(Call {
+    Ok(JuliaCall {
         callee: callee.to_string(),
         arguments: parsed,
     })
@@ -728,21 +728,21 @@ fn split(source: &str) -> Result<Vec<(char, String)>, String> {
 
 /// A value is a `*` product of string literals, `ENV[...]` reads, `homedir()`,
 /// and `joinpath`/`expanduser` compositions of those.
-fn value(source: &str) -> Result<Value, String> {
+fn value(source: &str) -> Result<JuliaValue, String> {
     let mut parts = Vec::new();
     for term in product(source)? {
         let term = term.trim();
         if term.starts_with('"') {
             parts.extend(interpolated(term)?);
         } else if let Some(name) = env_index(term)? {
-            parts.push(Part::Env(name));
+            parts.push(JuliaValuePart::Env(name));
         } else if term == "homedir()" {
-            parts.push(Part::Env("HOME".into()));
+            parts.push(JuliaValuePart::Env("HOME".into()));
         } else if let Some(inner) = arguments(term, "joinpath")? {
             let mut first = true;
             for (_, argument) in split(&inner)? {
                 if !first {
-                    parts.push(Part::Text("/".into()));
+                    parts.push(JuliaValuePart::Text("/".into()));
                 }
                 first = false;
                 parts.extend(value(&argument)?.0);
@@ -756,21 +756,21 @@ fn value(source: &str) -> Result<Value, String> {
             ));
         }
     }
-    parts.retain(|part| !matches!(part, Part::Text(text) if text.is_empty()));
+    parts.retain(|part| !matches!(part, JuliaValuePart::Text(text) if text.is_empty()));
     if parts.is_empty() {
         return Err("julia value is empty".into());
     }
-    Ok(Value(parts))
+    Ok(JuliaValue(parts))
 }
 
 /// `expanduser` is the only Julia path function that resolves a leading `~`.
-fn expanded(mut parts: Vec<Part>) -> Vec<Part> {
-    if let Some(Part::Text(first)) = parts.first_mut()
+fn expanded(mut parts: Vec<JuliaValuePart>) -> Vec<JuliaValuePart> {
+    if let Some(JuliaValuePart::Text(first)) = parts.first_mut()
         && let Some(tail) = first.strip_prefix('~')
         && (tail.is_empty() || tail.starts_with('/'))
     {
         *first = tail.to_string();
-        parts.insert(0, Part::Env("HOME".into()));
+        parts.insert(0, JuliaValuePart::Env("HOME".into()));
     }
     parts
 }
@@ -840,7 +840,7 @@ fn product(source: &str) -> Result<Vec<String>, String> {
 
 /// Decode one Julia string literal, keeping `$(ENV["NAME"])` interpolations as
 /// environment parts. Any other interpolation is not recoverable.
-fn interpolated(literal: &str) -> Result<Vec<Part>, String> {
+fn interpolated(literal: &str) -> Result<Vec<JuliaValuePart>, String> {
     let body = literal
         .strip_prefix('"')
         .and_then(|rest| rest.strip_suffix('"'))
@@ -858,8 +858,8 @@ fn interpolated(literal: &str) -> Result<Vec<Part>, String> {
             if !name.starts_with('"') {
                 return Err("julia ENV name is not a literal".into());
             }
-            parts.push(Part::Text(std::mem::take(&mut current)));
-            parts.push(Part::Env(unescape(name)?));
+            parts.push(JuliaValuePart::Text(std::mem::take(&mut current)));
+            parts.push(JuliaValuePart::Env(unescape(name)?));
             rest = inner.1;
             continue;
         }
@@ -900,13 +900,13 @@ fn interpolated(literal: &str) -> Result<Vec<Part>, String> {
             other => return Err(format!("julia escape \\{other} is not modeled")),
         }
     }
-    parts.push(Part::Text(current));
+    parts.push(JuliaValuePart::Text(current));
     Ok(parts)
 }
 
 fn unescape(literal: &str) -> Result<String, String> {
     match interpolated(literal)?.as_slice() {
-        [Part::Text(text)] => Ok(text.clone()),
+        [JuliaValuePart::Text(text)] => Ok(text.clone()),
         _ => Err("julia interpolated string is not a literal here".into()),
     }
 }

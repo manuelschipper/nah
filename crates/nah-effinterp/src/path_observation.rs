@@ -8,7 +8,7 @@ use effinterp_proto::{
     Plan, ProvenanceKind, valid_observation_outcome, valid_observation_query,
 };
 use nah_proto::ctx::AbsolutePath;
-use nah_proto::observation::{Observed, PathKind as HostKind};
+use nah_proto::observation::{self, Observed};
 
 /// Every named host entry is admitted for metadata only. Source-byte admission
 /// remains independently owned by SourceResolver, including external link targets.
@@ -87,25 +87,25 @@ impl ObservationResolver for HostPathObservations {
             Observed::Error { .. } => refused(ObservationRefusal::Unobserved),
             Observed::Ok { value } => ObservationOutcome::Path(PathFact {
                 entry: value.resolved().as_str().to_owned(),
-                kind: path_kind(value.kind()),
+                kind: path_kind_from_observation(value.kind()),
                 followed: match value.realpath() {
                     Some(target) => Fact::Known(PathTarget {
                         path: target.as_str().to_owned(),
-                        kind: if value.kind() == HostKind::Symlink {
-                            value.target_kind().map(path_kind).map_or(
+                        kind: if value.kind() == observation::PathKind::Symlink {
+                            value.target_kind().map(path_kind_from_observation).map_or(
                                 Fact::Unavailable(ObservationRefusal::Unobserved),
                                 Fact::Known,
                             )
                         } else {
-                            Fact::Known(path_kind(value.kind()))
+                            Fact::Known(path_kind_from_observation(value.kind()))
                         },
                     }),
                     None => Fact::Unavailable(ObservationRefusal::Unobserved),
                 },
                 // Asked only of what names a file: only a file can be what a
                 // command search selects.
-                executable: (value.kind() == HostKind::File
-                    || value.target_kind() == Some(HostKind::File))
+                executable: (value.kind() == observation::PathKind::File
+                    || value.target_kind() == Some(observation::PathKind::File))
                 .then(|| nah_observe::observe_executable(value.resolved().as_str()))
                 .flatten(),
             }),
@@ -114,21 +114,21 @@ impl ObservationResolver for HostPathObservations {
     }
 }
 
-fn path_kind(kind: HostKind) -> PathKind {
+fn path_kind_from_observation(kind: observation::PathKind) -> PathKind {
     match kind {
-        HostKind::Missing => PathKind::Missing,
-        HostKind::File => PathKind::File,
-        HostKind::Directory => PathKind::Directory,
-        HostKind::Symlink => PathKind::Symlink,
-        HostKind::Fifo => PathKind::Fifo,
-        HostKind::Other => PathKind::Other,
+        observation::PathKind::Missing => PathKind::Missing,
+        observation::PathKind::File => PathKind::File,
+        observation::PathKind::Directory => PathKind::Directory,
+        observation::PathKind::Symlink => PathKind::Symlink,
+        observation::PathKind::Fifo => PathKind::Fifo,
+        observation::PathKind::Other => PathKind::Other,
     }
 }
 
 /// The engine records the answer actually used, including its own stale/limit
 /// refusals and late-answer rejection. Keep that authoritative manifest rather
 /// than a second log of answers the engine may have rejected.
-pub(crate) fn manifest(plan: &Plan) -> Vec<ProvenanceKind> {
+pub(crate) fn host_observation_manifest(plan: &Plan) -> Vec<ProvenanceKind> {
     plan.provenance
         .iter()
         .filter_map(|node| match &node.kind {
@@ -152,7 +152,7 @@ pub(crate) fn manifest(plan: &Plan) -> Vec<ProvenanceKind> {
 /// Without path queries the first error is returned. A first call that succeeds
 /// but does not bind to its request is an error, with no recovery. Every call
 /// reuses the original request ID.
-pub(crate) fn fulfill<F>(
+pub(crate) fn fulfill_from_observation_manifest<F>(
     request: &nah_proto::observation::ObservationRequest,
     manifest: &[ProvenanceKind],
     platform: nah_proto::ctx::Platform,
@@ -190,7 +190,7 @@ where
                     let value = if answers.any(|answer| answer != first) {
                         None
                     } else if let ObservationOutcome::Path(fact) = first {
-                        crate::observe::recorded_path(fact, platform)
+                        crate::observation_request::recorded_path(fact, platform)
                     } else {
                         None
                     };

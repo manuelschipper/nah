@@ -76,9 +76,11 @@ pub use subject::{
     PatchFormat, SourceDialect, SqlConnection, SqlDialect, Subject, ToolCall, TransferDirection,
     UnknownToolArgs,
 };
+pub use validate::repo_query::{
+    RepoQueryParseError, RepoQueryValidationError, from_repo_query_json, validate_repo_query,
+};
 pub use validate::{
-    RepoQueryParseError, RepoQueryValidationError, SubjectValidationError, ValidationError,
-    from_repo_query_json, validate_effect_resource, validate_plan, validate_repo_query,
+    SubjectValidationError, ValidationError, validate_effect_resource, validate_plan,
     validate_subject,
 };
 
@@ -117,6 +119,8 @@ pub use satisfies::{
     RELATION_WORK_LIMIT, RelationRequest, Scope, ScopeSet, satisfies, scope_intersects,
 };
 
+/// Validate a filesystem glob pattern against the glob grammar without
+/// matching it. Failures are reported as a [`MatchReason`].
 pub fn validate_glob(pattern: &str) -> Result<(), MatchReason> {
     glob::validate_glob(pattern).map_err(|error| match error {
         glob::GlobError::InvalidPattern => MatchReason::InvalidInput,
@@ -124,6 +128,10 @@ pub fn validate_glob(pattern: &str) -> Result<(), MatchReason> {
     })
 }
 
+/// Match a whole filesystem path against a glob pattern. Ordinary wildcards
+/// stay inside one path segment and exclude a leading `.`; a whole-segment
+/// `**` includes hidden descendants. Exceeding the match budget is
+/// [`MatchReason::Limit`], never a silent `false`.
 pub fn glob_match(pattern: &str, text: &str) -> Result<bool, MatchReason> {
     glob::glob_match(pattern, text).map_err(|error| match error {
         glob::GlobError::InvalidPattern => MatchReason::InvalidInput,

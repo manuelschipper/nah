@@ -746,7 +746,7 @@ pub fn load_corpus(dir: &Path) -> std::io::Result<Vec<CaseLoad>> {
 }
 
 /// Content identity of FIXTURES.json followed by the sorted corpus JSONL bytes.
-pub fn corpus_digest(dir: &Path) -> std::io::Result<String> {
+pub fn fixture_corpus_digest(dir: &Path) -> std::io::Result<String> {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&fs::read(dir.join("FIXTURES.json"))?);
     for path in corpus_family_files(dir)? {

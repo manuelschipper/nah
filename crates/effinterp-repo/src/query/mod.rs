@@ -20,14 +20,11 @@ use effinterp_proto::{
     ProvenanceDag, ProvenanceEdge, ProvenanceEdgeKind, RepoQueryEnvelope, ResolutionAssurance,
     ResourceExpr, SourceEvidence,
 };
-use effinterp_proto::{BoundaryRow, EffectsReport, Indeterminate, ReachHit, ReachReport};
 use serde::Serialize;
 
 use crate::dispatch::DispatchVia;
 use crate::index::RepoIndex;
-use crate::resource::Selector;
-use crate::surface::{EffectiveEffect, ProvStep, effective_surface};
-use effinterp_proto::Match;
+use crate::surface::{EffectiveEffect, ProvenanceStep, effective_surface};
 
 mod effects;
 mod reach;
@@ -378,12 +375,12 @@ impl<'a> EnvelopeBuilder<'a> {
         id
     }
 
-    fn steps(&mut self, steps: &[ProvStep]) -> Vec<OccurrenceId> {
+    fn steps(&mut self, steps: &[ProvenanceStep]) -> Vec<OccurrenceId> {
         let mut previous: Option<OccurrenceId> = None;
         let mut duplicate_ordinals = BTreeMap::new();
         for step in steps {
             let (origin, span, semantic_kind, evidence, edge_kind) = match step {
-                ProvStep::SourceInput { path, digest } => {
+                ProvenanceStep::SourceInput { path, digest } => {
                     let origin = origin_file(self.index, path);
                     if self.index.dependency_manifest.source_digest(origin) != Some(digest.as_str())
                     {
@@ -401,10 +398,10 @@ impl<'a> EnvelopeBuilder<'a> {
                 }
                 // Repository analysis supplies no observation channel, and the
                 // repository provenance vocabulary has no host-fact kind.
-                ProvStep::HostContext { .. }
-                | ProvStep::ToolArgument { .. }
-                | ProvStep::HostObservation { .. } => continue,
-                ProvStep::SourceSpan { file, start, end } => (
+                ProvenanceStep::HostContext { .. }
+                | ProvenanceStep::ToolArgument { .. }
+                | ProvenanceStep::HostObservation { .. } => continue,
+                ProvenanceStep::SourceSpan { file, start, end } => (
                     origin_file(self.index, file),
                     ByteSpan {
                         start: *start,
@@ -419,7 +416,7 @@ impl<'a> EnvelopeBuilder<'a> {
                     },
                     ProvenanceEdgeKind::DerivedFrom,
                 ),
-                ProvStep::Argument { file, index } => (
+                ProvenanceStep::Argument { file, index } => (
                     origin_file(self.index, file),
                     ByteSpan { start: 0, end: 0 },
                     "argument",
@@ -428,7 +425,7 @@ impl<'a> EnvelopeBuilder<'a> {
                     },
                     ProvenanceEdgeKind::DerivedFrom,
                 ),
-                ProvStep::ModelApplication {
+                ProvenanceStep::ModelApplication {
                     file,
                     declaration_id,
                     declaration_digest,
@@ -442,7 +439,7 @@ impl<'a> EnvelopeBuilder<'a> {
                     },
                     ProvenanceEdgeKind::AppliesModel,
                 ),
-                ProvStep::Execution { file, node, origin } => {
+                ProvenanceStep::Execution { file, node, origin } => {
                     let nested_origin = origin.as_deref().and_then(|origin| {
                         let candidate = origin_file(self.index, origin);
                         self.index
@@ -464,7 +461,7 @@ impl<'a> EnvelopeBuilder<'a> {
                         ProvenanceEdgeKind::Calls,
                     )
                 }
-                ProvStep::Entrypoint { file, function } => (
+                ProvenanceStep::Entrypoint { file, function } => (
                     origin_file(self.index, file),
                     ByteSpan { start: 0, end: 0 },
                     "entrypoint",
@@ -476,7 +473,7 @@ impl<'a> EnvelopeBuilder<'a> {
                     },
                     ProvenanceEdgeKind::DerivedFrom,
                 ),
-                ProvStep::CrossFile { from, into } => {
+                ProvenanceStep::CrossFile { from, into } => {
                     let into_origin = origin_file(self.index, into);
                     let from_origin = origin_file(self.index, from);
                     let into_known = self
@@ -584,7 +581,7 @@ impl<'a> EnvelopeBuilder<'a> {
         Some(identity)
     }
 
-    fn path_steps(&self, path: &[String]) -> Vec<ProvStep> {
+    fn path_steps(&self, path: &[String]) -> Vec<ProvenanceStep> {
         let source_path: Vec<String> = path
             .iter()
             .filter(|label| {
@@ -605,7 +602,7 @@ impl<'a> EnvelopeBuilder<'a> {
                 label
                     .strip_prefix("argument:")
                     .and_then(|index| index.parse().ok())
-                    .map(|index| ProvStep::Argument {
+                    .map(|index| ProvenanceStep::Argument {
                         file: file.clone(),
                         index,
                     })
@@ -734,7 +731,7 @@ impl<'a> EnvelopeBuilder<'a> {
                     .source_digest(&entry.entrypoint.source_file)
                     .is_some()
             })
-            .map(|entry| ProvStep::Entrypoint {
+            .map(|entry| ProvenanceStep::Entrypoint {
                 file: entry.entrypoint.source_file.clone(),
                 function: None,
             })
@@ -1076,11 +1073,11 @@ impl<'a> EnvelopeBuilder<'a> {
     }
 }
 
-fn cross_file_steps_for_protocol(index: &RepoIndex, path: &[String]) -> Vec<ProvStep> {
+fn cross_file_steps_for_protocol(index: &RepoIndex, path: &[String]) -> Vec<ProvenanceStep> {
     if path.len() < 2 {
         return path
             .iter()
-            .map(|file| ProvStep::Entrypoint {
+            .map(|file| ProvenanceStep::Entrypoint {
                 file: origin_file(index, file).to_string(),
                 function: crate::surface::split_source_label(index, file)
                     .1
@@ -1089,7 +1086,7 @@ fn cross_file_steps_for_protocol(index: &RepoIndex, path: &[String]) -> Vec<Prov
             .collect();
     }
     path.windows(2)
-        .map(|pair| ProvStep::CrossFile {
+        .map(|pair| ProvenanceStep::CrossFile {
             from: pair[0].clone(),
             into: pair[1].clone(),
         })

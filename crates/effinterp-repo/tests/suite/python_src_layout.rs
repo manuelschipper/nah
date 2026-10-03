@@ -11,6 +11,8 @@ use std::path::Path;
 use effinterp_repo::{IndexLimits, build_index, effects_of};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
+use crate::support::deletes;
+
 fn env_reads(root: &Path, entry: &str) -> Vec<(String, String)> {
     let idx = build_index(root, IndexLimits::default());
     let report = effects_of(&idx, entry).expect("entry analyzed");
@@ -21,29 +23,6 @@ fn env_reads(root: &Path, entry: &str) -> Vec<(String, String)> {
         .effects
         .iter()
         .filter(|e| e.operation.as_str() == "environment.read")
-        .map(|e| {
-            (
-                effinterp_proto::display_resource_with_scope(&e.resource),
-                e.origin
-                    .as_ref()
-                    .expect("effect origin")
-                    .source_file
-                    .clone(),
-            )
-        })
-        .collect()
-}
-
-fn deletes(root: &Path, entry: &str) -> Vec<(String, String)> {
-    let idx = build_index(root, IndexLimits::default());
-    let report = effects_of(&idx, entry).expect("entry analyzed");
-    report
-        .payload
-        .as_effects()
-        .unwrap()
-        .effects
-        .iter()
-        .filter(|e| e.operation.as_str() == "filesystem.delete")
         .map(|e| {
             (
                 effinterp_proto::display_resource_with_scope(&e.resource),

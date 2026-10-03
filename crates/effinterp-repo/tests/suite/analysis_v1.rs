@@ -6,7 +6,7 @@ use effinterp_proto::{
     AnalysisStatus, ExecutionAssurance, PartialReason, REPO_QUERY_SCHEMA_V1, RepoQueryEnvelope,
     RepoQueryValidationError, Subject, display_resource, from_repo_query_json, validate_repo_query,
 };
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 use crate::{origin_effects, plan_causality, plan_execution};
@@ -60,7 +60,7 @@ fn a_narrowed_boundary_still_backs_the_coverage_it_reports() {
         )],
     );
     let live = build_index(&root, IndexLimits::default());
-    let selector = Selector::parse("proc:beta").unwrap();
+    let selector = ResourceSelector::parse("proc:beta").unwrap();
     let report = reach(&live, &selector, None);
     assert_ne!(
         report
@@ -129,7 +129,7 @@ fn every_query_envelope_binds_the_index_snapshot() {
         assert_eq!(report.snapshot_id, live.fingerprint);
         checked(&report);
     }
-    let selector = Selector::parse("fs:/tmp/cache").unwrap();
+    let selector = ResourceSelector::parse("fs:/tmp/cache").unwrap();
     let report = reach(&live, &selector, Some("delete"));
     assert_eq!(report.snapshot_id, live.fingerprint);
     checked(&report);
@@ -171,7 +171,7 @@ fn realistic_protocol_payloads_are_canonical_and_valid() {
         2
     );
 
-    let process_reach = reach(&index, &Selector::parse("proc:*").unwrap(), None);
+    let process_reach = reach(&index, &ResourceSelector::parse("proc:*").unwrap(), None);
     let reached_resources: Vec<_> = process_reach
         .payload
         .as_reach()
@@ -247,7 +247,7 @@ fn nondirectory_root_reports_a_canonical_partial_path() {
             .any(|skip| skip.path == ".effinterp-root")
     );
 
-    let report = reach(&index, &Selector::parse("fs:/**").unwrap(), None);
+    let report = reach(&index, &ResourceSelector::parse("fs:/**").unwrap(), None);
     assert!(matches!(&report.status, AnalysisStatus::Partial { reasons }
         if reasons.iter().any(|reason| matches!(reason,
             PartialReason::UnanalyzedInput { path, .. } if path == ".effinterp-root"))));
@@ -334,7 +334,11 @@ fn reach_retains_distinct_indeterminate_boundaries() {
         )],
     );
     let index = build_index(&root, IndexLimits::default());
-    let report = reach(&index, &Selector::parse("fs:/tmp/target").unwrap(), None);
+    let report = reach(
+        &index,
+        &ResourceSelector::parse("fs:/tmp/target").unwrap(),
+        None,
+    );
 
     checked(&report);
     assert_eq!(report.payload.as_reach().unwrap().indeterminate.len(), 2);
@@ -364,7 +368,11 @@ fn indeterminate_entrypoints_use_compact_json_order() {
         ],
     );
     let index = build_index(&root, IndexLimits::default());
-    let report = reach(&index, &Selector::parse("fs:/tmp/target").unwrap(), None);
+    let report = reach(
+        &index,
+        &ResourceSelector::parse("fs:/tmp/target").unwrap(),
+        None,
+    );
     let entrypoints: Vec<_> = report
         .payload
         .as_reach()
@@ -457,14 +465,18 @@ fn fact_ids_are_the_stable_handle_across_query_families() {
     }
     assert_eq!(delete.occurrences, 2);
     // Reach reuses the same fact rather than re-describing it.
-    let reach_row = reach(&index, &Selector::parse("fs:/tmp/cache").unwrap(), None)
-        .payload
-        .into_reach()
-        .unwrap()
-        .matches
-        .into_iter()
-        .find(|hit| hit.fact.fact_id == delete.fact_id)
-        .expect("the reach match is the same fact");
+    let reach_row = reach(
+        &index,
+        &ResourceSelector::parse("fs:/tmp/cache").unwrap(),
+        None,
+    )
+    .payload
+    .into_reach()
+    .unwrap()
+    .matches
+    .into_iter()
+    .find(|hit| hit.fact.fact_id == delete.fact_id)
+    .expect("the reach match is the same fact");
     assert_eq!(&reach_row.fact, delete);
 }
 
@@ -694,7 +706,7 @@ fn crawl_limits_bind_snapshot_and_skip_saturation_stays_partial() {
     assert!(capped.skipped.is_empty());
     assert!(capped.skips_truncated);
 
-    let report = reach(&capped, &Selector::parse("fs:/**").unwrap(), None);
+    let report = reach(&capped, &ResourceSelector::parse("fs:/**").unwrap(), None);
     assert!(matches!(&report.status, AnalysisStatus::Partial { reasons }
         if reasons.iter().any(|reason| matches!(reason,
             PartialReason::LimitReached { limit, .. } if limit == "crawl.max_skips"))));

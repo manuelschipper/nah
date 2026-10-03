@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::SKIP_DIRS;
+use crate::CRAWL_SKIP_DIRS;
 
 pub(super) const JS_BUILD_DIRS: [&str; 5] = ["build", "dist", "lib", "out", "output"];
 
@@ -51,7 +51,7 @@ pub(crate) fn collect_js_packages(
             let Ok(ft) = entry.file_type() else { continue };
             if ft.is_dir() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if SKIP_DIRS.contains(&name.as_str())
+                if CRAWL_SKIP_DIRS.contains(&name.as_str())
                     || matches!(
                         name.as_str(),
                         "tests" | "testdata" | "fixtures" | "examples" | "dist" | "build"

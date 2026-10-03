@@ -2,17 +2,18 @@
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryRef, BoundaryScope, CoverageLevel,
-    Domain, ExecutionAssurance, ExecutionEdgeKind, ExecutionRealm, ProvenanceKind, ProvenanceRef,
-    ResourceExpr, ResourceFamily, ResourceIdentity,
+    Domain, ExecutionAssurance, ExecutionEdgeKind, ExecutionRealm, ProvenanceRef, ResourceExpr,
+    ResourceIdentity,
 };
 
 use crate::builder::PlanBuilder;
 use crate::models::args::{Flag, FlagSpec, Scanned, scan};
 use crate::models::common::{
-    Attrs, arg_effect, arg_node, environment_input, fs_arg_effect, program_input_attrs,
+    Attrs, arg_effect, environment_input, fs_arg_effect, program_input_attrs, reviewed_source_node,
 };
 use crate::models::{CommandModel, InvocationCtx};
 use crate::nest::{Transition, word_resource};
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 const DOMAINS: &[&str] = &["environment", "filesystem", "cloud", "network", "process"];
@@ -25,7 +26,7 @@ const BORG2_SOURCE: &str =
 const KOPIA_SOURCE: &str = "https://kopia.io/docs/reference/command-line/common/snapshot-delete/";
 const PGBACKREST_SOURCE: &str = "https://pgbackrest.org/command.html";
 
-pub(super) fn models() -> Vec<Box<dyn CommandModel>> {
+pub(super) fn backup_models() -> Vec<Box<dyn CommandModel>> {
     vec![
         Box::new(Borg),
         Box::new(Restic),
@@ -36,7 +37,7 @@ pub(super) fn models() -> Vec<Box<dyn CommandModel>> {
     ]
 }
 
-fn boundary(builder: &mut PlanBuilder, node: ProvenanceRef, detail: &str) -> BoundaryRef {
+fn backup_boundary(builder: &mut PlanBuilder, node: ProvenanceRef, detail: &str) -> BoundaryRef {
     let reference = builder.boundary(Boundary {
         reason: BoundaryReason::MODEL_COVERAGE,
         class: BoundaryClass::Unmodeled,
@@ -96,24 +97,6 @@ fn reviewed_boundary(builder: &mut PlanBuilder, node: ProvenanceRef, detail: &st
     )
 }
 
-fn reviewed(
-    builder: &mut PlanBuilder,
-    ctx: &InvocationCtx,
-    node: ProvenanceRef,
-    source: &str,
-) -> ProvenanceRef {
-    let mut parents = vec![node];
-    for index in 1..ctx.argv.len() {
-        parents.push(arg_node(builder, ctx, index as u32));
-    }
-    builder.node(
-        ProvenanceKind::ModelApplication {
-            model: source.into(),
-        },
-        &parents,
-    )
-}
-
 // pflag boolean options accept attached values; occurrence alone is not truth.
 fn boolean(ctx: &InvocationCtx, scanned: &Scanned, names: &[&str]) -> Option<bool> {
     let mut value = false;
@@ -147,7 +130,7 @@ fn valid_options(ctx: &InvocationCtx, scanned: &Scanned, spec: &FlagSpec, bools:
         })
 }
 
-fn value<'a>(scanned: &'a Scanned, names: &[&str]) -> Option<&'a str> {
+fn scanned_option_value<'a>(scanned: &'a Scanned, names: &[&str]) -> Option<&'a str> {
     scanned.value_of(names).and_then(Word::as_literal)
 }
 
@@ -228,9 +211,7 @@ fn logical_backup_resource(attrs: &mut Attrs, physical_family: &str) -> Resource
         _ => "backup_selection",
     };
     string(attrs, "logical_resource_kind", kind);
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new(physical_family),
-    }
+    unresolved_resource(physical_family)
 }
 
 fn restic_repository_file(
@@ -333,7 +314,7 @@ fn repository_effect(
         return;
     };
     if repo.is_empty() || repo.contains(['{', '}']) {
-        boundary(
+        backup_boundary(
             builder,
             node,
             "backup repository location is empty or requires runtime expansion",
@@ -346,7 +327,7 @@ fn repository_effect(
         repo
     };
     if location.is_empty() {
-        boundary(builder, node, "backup repository path is empty");
+        backup_boundary(builder, node, "backup repository path is empty");
         return;
     }
     let mut remote = None;
@@ -371,7 +352,7 @@ fn repository_effect(
                 .is_some_and(|(bucket, _)| !bucket.is_empty())
         };
         if !valid {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "backup object repository syntax is not established",
@@ -385,11 +366,11 @@ fn repository_effect(
         .or_else(|| location.strip_prefix("sftp://").filter(|_| restic))
     {
         let Some((endpoint, path)) = ssh.split_once('/') else {
-            boundary(builder, node, "remote backup repository has no path");
+            backup_boundary(builder, node, "remote backup repository has no path");
             return;
         };
         if endpoint.is_empty() || path.is_empty() {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "remote backup repository has an empty endpoint or path",
@@ -399,11 +380,11 @@ fn repository_effect(
         remote = Some(endpoint.to_owned());
     } else if let Some(sftp) = location.strip_prefix("sftp:").filter(|_| restic) {
         let Some((endpoint, path)) = sftp.rsplit_once(':') else {
-            boundary(builder, node, "unresolved SFTP backup repository");
+            backup_boundary(builder, node, "unresolved SFTP backup repository");
             return;
         };
         if endpoint.is_empty() || path.is_empty() {
-            boundary(builder, node, "empty SFTP backup endpoint or path");
+            backup_boundary(builder, node, "empty SFTP backup endpoint or path");
             return;
         }
         remote = Some(endpoint.to_owned());
@@ -411,12 +392,12 @@ fn repository_effect(
         if !restic && !location.contains("://") {
             let (endpoint, path) = location.split_once(':').unwrap();
             if endpoint.is_empty() || path.is_empty() {
-                boundary(builder, node, "empty SSH backup endpoint or path");
+                backup_boundary(builder, node, "empty SSH backup endpoint or path");
                 return;
             }
             remote = Some(endpoint.to_owned());
         } else {
-            boundary(builder, node, "backup repository backend is not modeled");
+            backup_boundary(builder, node, "backup repository backend is not modeled");
             return;
         }
     }
@@ -575,14 +556,14 @@ impl CommandModel for Borg {
                 .operands
                 .first()
                 .is_some_and(|(_, w)| w.as_literal() == Some("repo-delete"));
-        let node = reviewed(
+        let node = reviewed_source_node(
             builder,
             ctx,
             node,
             if v2 { BORG2_SOURCE } else { BORG_SOURCE },
         );
         if !valid_options(ctx, &scanned, &BORG_SPEC, &[]) {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "borg options or operands are unknown, invalid or incomplete",
@@ -590,7 +571,7 @@ impl CommandModel for Borg {
             return;
         }
         if scanned.has(&["-h", "--help", "--version"]) {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "borg informational invocation; output effects are not enumerated",
@@ -598,7 +579,7 @@ impl CommandModel for Borg {
             return;
         }
         let Some((command_index, command)) = scanned.operands.first() else {
-            boundary(builder, node, "borg subcommand is absent");
+            backup_boundary(builder, node, "borg subcommand is absent");
             return;
         };
         let command = command.as_literal().unwrap();
@@ -611,7 +592,7 @@ impl CommandModel for Borg {
             return;
         }
         if !matches!(command, "delete" | "repo-delete" | "prune" | "compact") {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "borg subcommand is outside repository/archive destruction coverage",
@@ -619,7 +600,7 @@ impl CommandModel for Borg {
             return;
         }
         if v2 && command == "prune" {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "borg 2 retention policy is outside modeled archive selection coverage",
@@ -638,7 +619,7 @@ impl CommandModel for Borg {
                 .count()
                 > 1
         }) {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "repeated borg retention options are not modeled",
@@ -664,7 +645,7 @@ impl CommandModel for Borg {
                     pattern.contains(':') && !pattern.starts_with("sh:")
                 })
         {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "borg typed archive pattern requires unmodeled validation",
@@ -696,7 +677,7 @@ impl CommandModel for Borg {
             || (scanned.has(&["--stats", "-s", "--quick-stats"])
                 && scanned.has(&["-n", "--dry-run"]))
         {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "borg options conflict with the selected command grammar",
@@ -720,7 +701,7 @@ impl CommandModel for Borg {
                     .and_then(|s| s.parse::<u64>().ok())
                     .is_none_or(|n| n == 0)
             {
-                boundary(
+                backup_boundary(
                     builder,
                     node,
                     "borg archive count selector is zero, invalid or unknown",
@@ -745,7 +726,7 @@ impl CommandModel for Borg {
                         .is_some_and(|n| n != 0)
                 }))
         {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "borg prune requires a valid nonzero retention policy",
@@ -765,7 +746,7 @@ impl CommandModel for Borg {
         } else {
             // Without version evidence, BORG_REPO plus bare delete is ambiguous
             // between Borg 1 repository deletion and Borg 2 archive selection.
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "borg repository selection or command version is not observed",
@@ -788,7 +769,7 @@ impl CommandModel for Borg {
             || (filtered && !operands.is_empty())
             || operands.iter().any(|s| !archive_name(s, v2))
         {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "borg archive operands conflict with selection controls",
@@ -798,7 +779,7 @@ impl CommandModel for Borg {
         let whole = command == "repo-delete"
             || (!v2 && command == "delete" && !filtered && operands.is_empty());
         if v2 && command == "delete" && !filtered && operands.is_empty() {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "borg archive deletion requires an explicit selection",
@@ -975,10 +956,10 @@ impl CommandModel for Restic {
         DOMAINS
     }
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, node: ProvenanceRef) {
-        let node = reviewed(builder, ctx, node, RESTIC_SOURCE);
+        let node = reviewed_source_node(builder, ctx, node, RESTIC_SOURCE);
         let scanned = scan(ctx.argv, &RESTIC_SPEC);
         if !valid_options(ctx, &scanned, &RESTIC_SPEC, RESTIC_BOOLS) {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "restic options or operands are unknown, invalid or incomplete",
@@ -986,7 +967,7 @@ impl CommandModel for Restic {
             return;
         }
         if boolean(ctx, &scanned, &["-h", "--help"]) == Some(true) {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "restic help does not remove backups; output effects are not enumerated",
@@ -998,7 +979,7 @@ impl CommandModel for Restic {
             .first()
             .and_then(|(_, word)| word.as_literal());
         if !matches!(command, Some("forget" | "prune")) {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "restic command is outside snapshot forgetting and repository pruning coverage",
@@ -1029,7 +1010,7 @@ impl CommandModel for Restic {
                     .iter()
                     .any(|flag| !prune_flags.contains(&flag.name))
             {
-                boundary(
+                backup_boundary(
                     builder,
                     node,
                     "restic prune arguments are outside reviewed coverage",
@@ -1072,12 +1053,12 @@ impl CommandModel for Restic {
             );
             return;
         }
-        if value(&scanned, &["-g", "--group-by"]).is_some_and(|s| {
+        if scanned_option_value(&scanned, &["-g", "--group-by"]).is_some_and(|s| {
             !s.is_empty()
                 && s.split(',')
                     .any(|part| !["host", "paths", "tags"].contains(&part))
         }) {
-            boundary(builder, node, "restic snapshot grouping is invalid");
+            backup_boundary(builder, node, "restic snapshot grouping is invalid");
             return;
         }
         let mut policy = false;
@@ -1085,22 +1066,23 @@ impl CommandModel for Restic {
             for (_, word) in scanned.values_of(names) {
                 let s = word.as_literal().unwrap();
                 if s != "unlimited" && s.parse::<i64>().map_or(true, |n| n < 0) {
-                    boundary(builder, node, "restic retention count is invalid");
+                    backup_boundary(builder, node, "restic retention count is invalid");
                     return;
                 }
             }
-            policy |= value(&scanned, names)
+            policy |= scanned_option_value(&scanned, names)
                 .is_some_and(|s| s == "unlimited" || s.parse::<i64>().is_ok_and(|n| n > 0));
         }
         for name in RESTIC_WITHIN {
             for (_, word) in scanned.values_of(&[name]) {
                 if restic_duration_is_zero(word.as_literal().unwrap()).is_none() {
-                    boundary(builder, node, "restic retention duration is invalid");
+                    backup_boundary(builder, node, "restic retention duration is invalid");
                     return;
                 }
             }
             // An all-zero duration sets no policy.
-            policy |= value(&scanned, &[name]).and_then(restic_duration_is_zero) == Some(false);
+            policy |= scanned_option_value(&scanned, &[name]).and_then(restic_duration_is_zero)
+                == Some(false);
         }
         let ids = &scanned.operands[1..];
         if ids.iter().any(|(_, w)| {
@@ -1109,7 +1091,7 @@ impl CommandModel for Restic {
                     && (s.is_empty() || s.len() > 64 || !s.bytes().all(|c| c.is_ascii_hexdigit()))
             })
         }) {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "restic snapshot ID is not a literal hexadecimal prefix or latest",
@@ -1128,7 +1110,7 @@ impl CommandModel for Restic {
                 .iter()
                 .any(|(_, word)| word.as_literal() == Some("latest"))
         {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "restic explicit snapshot IDs leave filter options unused",
@@ -1137,9 +1119,9 @@ impl CommandModel for Restic {
         }
         if ids.is_empty()
             && (!(policy || (allow && filtered))
-                || value(&scanned, &["-l", "--keep-last"]) == Some("unlimited"))
+                || scanned_option_value(&scanned, &["-l", "--keep-last"]) == Some("unlimited"))
         {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "restic forget has no removal policy, lacks the required allow-all filter, or keeps every snapshot",
@@ -1186,12 +1168,12 @@ impl CommandModel for Restic {
             scanned.flags.iter().filter(|f| filters.contains(&f.name)),
         );
         for names in RESTIC_COUNTS {
-            if let Some(count) = value(&scanned, names) {
+            if let Some(count) = scanned_option_value(&scanned, names) {
                 string(&mut attrs, names[1].trim_start_matches("--"), count);
             }
         }
         for name in RESTIC_WITHIN {
-            if let Some(duration) = value(&scanned, &[name]) {
+            if let Some(duration) = scanned_option_value(&scanned, &[name]) {
                 string(&mut attrs, name.trim_start_matches("--"), duration);
             }
         }
@@ -1233,10 +1215,10 @@ impl CommandModel for Velero {
         DOMAINS
     }
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, node: ProvenanceRef) {
-        let node = reviewed(builder, ctx, node, VELERO_SOURCE);
+        let node = reviewed_source_node(builder, ctx, node, VELERO_SOURCE);
         let scanned = scan(ctx.argv, &VELERO_SPEC);
         if !valid_options(ctx, &scanned, &VELERO_SPEC, VELERO_BOOLS) {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "velero selection or boolean options are unknown, invalid or incomplete",
@@ -1244,7 +1226,7 @@ impl CommandModel for Velero {
             return;
         }
         if boolean(ctx, &scanned, &["-h", "--help"]) == Some(true) {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "velero help does not delete backups; output effects are not enumerated",
@@ -1257,7 +1239,7 @@ impl CommandModel for Velero {
             .map(|(_, w)| w.as_literal().unwrap())
             .collect::<Vec<_>>();
         if operands.len() < 2 || operands[..2] != ["backup", "delete"] {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "velero subcommand is outside backup deletion coverage",
@@ -1266,10 +1248,10 @@ impl CommandModel for Velero {
         }
         let names = &operands[2..];
         let all = boolean(ctx, &scanned, &["--all"]).unwrap();
-        let selector = value(&scanned, &["-l", "--selector"]);
+        let selector = scanned_option_value(&scanned, &["-l", "--selector"]);
         if usize::from(!names.is_empty()) + usize::from(all) + usize::from(selector.is_some()) != 1
         {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "velero backup delete requires exactly one of names, --all=true, or selector",
@@ -1284,7 +1266,7 @@ impl CommandModel for Velero {
             .any(|(_, word)| !equality_selector(word.as_literal().unwrap()))
             || names.iter().any(|s| !dns_name(s))
         {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "velero backup name or selector syntax is outside modeled validation",
@@ -1311,7 +1293,7 @@ impl CommandModel for Velero {
         if let Some(selector) = selector {
             string(&mut attrs, "selector", selector);
         }
-        if let Some(namespace) = value(&scanned, &["-n", "--namespace"]) {
+        if let Some(namespace) = scanned_option_value(&scanned, &["-n", "--namespace"]) {
             string(&mut attrs, "namespace", namespace);
         }
         let resource = logical_backup_resource(&mut attrs, "object");
@@ -1365,7 +1347,7 @@ impl CommandModel for Kopia {
         DOMAINS
     }
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, node: ProvenanceRef) {
-        let node = reviewed(builder, ctx, node, KOPIA_SOURCE);
+        let node = reviewed_source_node(builder, ctx, node, KOPIA_SOURCE);
         let scanned = scan(ctx.argv, &KOPIA_SPEC);
         let operands = scanned
             .operands
@@ -1373,7 +1355,7 @@ impl CommandModel for Kopia {
             .map(|(_, word)| word.as_literal())
             .collect::<Option<Vec<_>>>();
         let Some(operands) = operands else {
-            boundary(builder, node, "kopia snapshot selection is not literal");
+            backup_boundary(builder, node, "kopia snapshot selection is not literal");
             return;
         };
         if !scanned.unknown_flags.is_empty()
@@ -1381,7 +1363,7 @@ impl CommandModel for Kopia {
             || operands[..2] != ["snapshot", "delete"]
             || operands[2..].iter().any(|id| id.is_empty())
         {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "kopia arguments are outside snapshot deletion coverage",
@@ -1443,13 +1425,13 @@ impl CommandModel for PgBackRest {
         DOMAINS
     }
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, node: ProvenanceRef) {
-        let node = reviewed(builder, ctx, node, PGBACKREST_SOURCE);
+        let node = reviewed_source_node(builder, ctx, node, PGBACKREST_SOURCE);
         let scanned = scan(ctx.argv, &PGBACKREST_SPEC);
         let command = scanned
             .operands
             .first()
             .and_then(|(_, word)| word.as_literal());
-        let repo = value(&scanned, &["--repo"]);
+        let repo = scanned_option_value(&scanned, &["--repo"]);
         if !valid_options(ctx, &scanned, &PGBACKREST_SPEC, &[])
             || scanned.operands.len() != 1
             || command != Some("expire")
@@ -1459,7 +1441,7 @@ impl CommandModel for PgBackRest {
                     .map_or(true, |number| number == 0 || number > 256)
             })
         {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "pgBackRest arguments are outside repository expiration coverage",
@@ -1530,7 +1512,7 @@ impl CommandModel for Duplicity {
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, node: ProvenanceRef) {
         let scanned = scan(ctx.argv, &DUPLICITY_SPEC);
         if !valid_options(ctx, &scanned, &DUPLICITY_SPEC, &[]) {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "duplicity options or operands are unknown, invalid or incomplete",
@@ -1538,7 +1520,7 @@ impl CommandModel for Duplicity {
             return;
         }
         if scanned.has(&["-h", "--help", "--version"]) {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "duplicity informational invocation; output effects are not enumerated",
@@ -1551,7 +1533,7 @@ impl CommandModel for Duplicity {
             .map(|(_, word)| word.as_literal().unwrap())
             .collect::<Vec<_>>();
         let [command, retention, target] = operands.as_slice() else {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "duplicity command is outside backup-set removal coverage",
@@ -1564,7 +1546,7 @@ impl CommandModel for Duplicity {
                 retention.parse::<u64>().is_ok_and(|count| count > 0)
             }
             _ => {
-                boundary(
+                backup_boundary(
                     builder,
                     node,
                     "duplicity command is outside backup-set removal coverage",
@@ -1573,7 +1555,7 @@ impl CommandModel for Duplicity {
             }
         };
         if !retained {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "duplicity retention selector is not an established interval or count",
@@ -1597,7 +1579,7 @@ impl CommandModel for Duplicity {
             }
             .map(|provider| (provider, rest))
         }) else {
-            boundary(
+            backup_boundary(
                 builder,
                 node,
                 "duplicity backup target backend is not modeled",
@@ -1609,7 +1591,7 @@ impl CommandModel for Duplicity {
             _ => (rest.trim_end_matches('/'), None),
         };
         if bucket.is_empty() {
-            boundary(builder, node, "duplicity backup target has no bucket");
+            backup_boundary(builder, node, "duplicity backup target has no bucket");
             return;
         }
         let mut attrs = selection("retention", false, false);

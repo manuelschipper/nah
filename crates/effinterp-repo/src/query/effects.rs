@@ -1,4 +1,10 @@
-use super::*;
+use std::collections::BTreeMap;
+
+use effinterp_proto::{BoundaryRow, EffectsReport, Payload, RepoQueryEnvelope};
+
+use super::{EnvelopeBuilder, fact_sort_key, protocol_domains, protocol_resource};
+use crate::index::RepoIndex;
+use crate::surface::effective_surface;
 
 /// Forward query: every effect reachable from one entrypoint — direct AND
 /// cross-file — with coverage and boundaries, from the canonical surface.

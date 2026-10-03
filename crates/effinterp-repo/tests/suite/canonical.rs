@@ -3,7 +3,7 @@
 //! conflate host and container namespaces.
 #![allow(clippy::disallowed_methods)]
 
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 const APP: &str = "#!/usr/bin/env python\nfrom util import wipe\nwipe(\"/var/cache/app\", name)\n";
@@ -28,7 +28,11 @@ fn cross_file_effect_is_in_both_forward_and_reverse() {
     });
     assert!(in_forward, "effects_of must include the cross-file delete");
 
-    let rev = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let rev = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
     let in_reverse = rev.payload.as_reach().unwrap().indeterminate.iter().any(|row| matches!(row,
         effinterp_proto::Indeterminate::Effect { fact, matched: effinterp_proto::Match::Indeterminate { reason: effinterp_proto::MatchReason::Unbound { .. } }, .. }
         if fact.entrypoint == "app.py" && fact.operation.0 == "filesystem.delete"));
@@ -130,7 +134,11 @@ fn realm_selectors_do_not_conflate_host_and_container() {
     );
     let idx = build_index(&root, IndexLimits::default());
 
-    let host = reach(&idx, &Selector::parse("host/fs:/etc/passwd").unwrap(), None);
+    let host = reach(
+        &idx,
+        &ResourceSelector::parse("host/fs:/etc/passwd").unwrap(),
+        None,
+    );
     assert!(
         host.payload.as_reach().unwrap().matches.is_empty(),
         "host query must not match a container delete: {:?}",
@@ -139,7 +147,7 @@ fn realm_selectors_do_not_conflate_host_and_container() {
 
     let container = reach(
         &idx,
-        &Selector::parse("container:postgres/fs:/etc/passwd").unwrap(),
+        &ResourceSelector::parse("container:postgres/fs:/etc/passwd").unwrap(),
         None,
     );
     assert!(
@@ -155,7 +163,7 @@ fn realm_selectors_do_not_conflate_host_and_container() {
 
     let any = reach(
         &idx,
-        &Selector::parse("any-realm/fs:/etc/passwd").unwrap(),
+        &ResourceSelector::parse("any-realm/fs:/etc/passwd").unwrap(),
         None,
     );
     assert!(
@@ -173,7 +181,7 @@ fn realm_selectors_do_not_conflate_host_and_container() {
 /// selector, not a realm qualifier.
 #[test]
 fn bare_container_selector_is_not_a_realm() {
-    let s = Selector::parse("container:postgres").unwrap();
+    let s = ResourceSelector::parse("container:postgres").unwrap();
     assert_eq!(s.family, "container");
     assert_eq!(s.needle, "postgres");
 }

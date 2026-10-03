@@ -1,11 +1,17 @@
-use super::*;
+use effinterp_engine::{Assurance, ExternalCall, ResolvedObject};
+
+use super::{
+    Linker, Resolution, class_defined, instance, resolve_common_method, resolve_export,
+    resolve_standard_callee, standard_class_candidates,
+};
+use crate::module::{ModuleFile, ModuleRegistry};
 
 pub(crate) struct PhpLinker;
 
 impl Linker for PhpLinker {
     fn resolve_callee<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         callee: &str,
     ) -> Resolution<'a> {
@@ -18,7 +24,7 @@ impl Linker for PhpLinker {
 
     fn class_candidates<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         name: &str,
     ) -> Vec<(ResolvedObject, Assurance)> {
@@ -32,7 +38,7 @@ impl Linker for PhpLinker {
 
     fn resolve_method<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         inst: &ResolvedObject,
         method: &str,
     ) -> Resolution<'a> {
@@ -50,7 +56,7 @@ impl Linker for PhpLinker {
 
     fn classify_external(
         &self,
-        _reg: &Registry,
+        _reg: &ModuleRegistry,
         _module: &str,
         _member: &str,
         _arity: Option<usize>,
@@ -60,7 +66,7 @@ impl Linker for PhpLinker {
 
     fn classify_import(
         &self,
-        _reg: &Registry,
+        _reg: &ModuleRegistry,
         _file: &ModuleFile,
         _spec: &str,
     ) -> Option<ExternalCall> {
@@ -69,7 +75,7 @@ impl Linker for PhpLinker {
 
     fn execution_roots<'a>(
         &self,
-        _reg: &'a Registry,
+        _reg: &'a ModuleRegistry,
         _file: &'a ModuleFile,
     ) -> Vec<(&'a ModuleFile, Option<&'a str>)> {
         Vec::new()

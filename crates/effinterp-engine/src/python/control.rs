@@ -46,7 +46,7 @@ pub(super) fn build(graph: &mut Graph, body: &[Stmt], entry: Entry, extra_bound:
         graph.widen();
         return;
     }
-    let mut builder = Builder {
+    let mut builder = PythonControlFlowBuilder {
         graph,
         entry,
         local_annotations: entry == Entry::Callable,
@@ -57,7 +57,7 @@ pub(super) fn build(graph: &mut Graph, body: &[Stmt], entry: Entry, extra_bound:
     builder.graph.exit(end, ControlExit::Success);
 }
 
-struct Builder<'g> {
+struct PythonControlFlowBuilder<'g> {
     graph: &'g mut Graph,
     entry: Entry,
     local_annotations: bool,
@@ -381,7 +381,7 @@ pub(super) fn truthy(expr: &Expr) -> Option<bool> {
     }
 }
 
-impl Builder<'_> {
+impl PythonControlFlowBuilder<'_> {
     fn test(&mut self, at: Frontier, expr: &Expr) -> Frontier {
         let at = self.expr(at, expr);
         if matches!(expr, Expr::Constant(_)) {

@@ -24,7 +24,7 @@ use nah_proto::guard_host::{
     GuardHostFacts, ReachedHostPath, ShippedGuardGap, ShippedGuardMatches,
 };
 
-use crate::filesystem_queries::{HostRule, ReachEndpoint, ReachedPath};
+use crate::filesystem_guards::{HostRule, ReachEndpoint, ReachedPath};
 use crate::registry::{GuardDefinition, shipped_guard_definitions};
 
 /// A predicate a guard clause applies to an effect after its query matched,
@@ -646,7 +646,7 @@ fn direct_path_restoration_qualifies(
     else {
         return Qualification::Indeterminate;
     };
-    let expected = nah_proto::labels::join(worktree, path, host.platform());
+    let expected = nah_proto::labels::join_lexical_path(worktree, path, host.platform());
     let Some(causality) = &index.plan.causality.graph else {
         return Qualification::Indeterminate;
     };

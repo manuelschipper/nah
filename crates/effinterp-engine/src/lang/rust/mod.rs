@@ -45,30 +45,25 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::LazyLock;
 
 use effinterp_proto::{
-    AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, ExecutionEdgeKind, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceFamily, ResourceIdentity,
+    Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain, Effect,
+    ExecutionEdgeKind, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
 };
 use syn::spanned::Spanned;
 use syn::visit::Visit;
-use syn::{Block, Expr, FnArg, ImplItem, Item, Local, Pat, Stmt, TraitItem, UseTree};
+use syn::{Block, Expr, FnArg, ImplItem, Item, Local, Pat, Stmt, UseTree};
 
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::control_flow::SiteFacts;
-use crate::module_summary::{
-    CallEdge, ClassEntry, DispatchContract, DispatchImpl, DispatchSignature, FunctionEntry,
-    ImportBinding, ModuleSummary, call_results,
-};
+use crate::module_summary::{CallEdge, ClassEntry, DispatchImpl, DispatchSignature, ImportBinding};
 use crate::nest::{Nest, Transition, word_resource};
 use crate::paths::fs_resource_uses_cwd;
 use crate::resource_transfer::TransferBinding;
-use crate::summary::{Summary, bind_positional, substitute_resource_expr};
-use crate::value::parse_url_endpoint;
+use crate::summary::{bind_positional, substitute_resource_expr};
 use crate::word::{Word, WordPart};
 use crate::{
     CallableValue, ObjectIdentity, ObjectValue, SemanticValue, SemanticValueKind, TypeRef,
-    ValueArgument, ValueLimits, canonical_rust_std_type, join_branches, merge_arguments,
-    positional_arguments, property_access, substitute_value, substitute_value_counted,
+    ValueLimits, canonical_rust_std_type, join_branches, property_access, substitute_value,
+    substitute_value_counted,
 };
 
 /// Effect domains this frontend can surface.
@@ -1419,25 +1414,25 @@ struct ValueState {
 }
 
 #[derive(Clone, Default)]
-struct ValueFacts {
+struct RustValueFacts {
     expressions: HashMap<ExprKey, SemanticValue>,
     commands: HashMap<ExprKey, CommandCandidates>,
     returns: Option<SemanticValue>,
 }
 
-static DEFAULT_VALUE_FACTS: LazyLock<ValueFacts> = LazyLock::new(ValueFacts::default);
+static DEFAULT_VALUE_FACTS: LazyLock<RustValueFacts> = LazyLock::new(RustValueFacts::default);
 
 fn value_facts_or_default<'a>(
-    facts: &'a HashMap<String, ValueFacts>,
+    facts: &'a HashMap<String, RustValueFacts>,
     name: &str,
-) -> &'a ValueFacts {
+) -> &'a RustValueFacts {
     facts.get(name).unwrap_or(&DEFAULT_VALUE_FACTS)
 }
 
-fn unresolved_value_facts() -> ValueFacts {
-    ValueFacts {
+fn unresolved_value_facts() -> RustValueFacts {
+    RustValueFacts {
         returns: Some(SemanticValue::unresolved("value")),
-        ..ValueFacts::default()
+        ..RustValueFacts::default()
     }
 }
 
@@ -1455,7 +1450,7 @@ fn rust_value_facts<'a>(
     fns: &Fns<'_>,
     uses: &Resolver,
     value_limits: crate::ValueLimits,
-) -> HashMap<String, ValueFacts> {
+) -> HashMap<String, RustValueFacts> {
     rust_value_facts_counted(names, fns, uses, value_limits).0
 }
 
@@ -1464,7 +1459,7 @@ fn rust_value_facts_counted<'a>(
     fns: &Fns<'_>,
     uses: &Resolver,
     value_limits: crate::ValueLimits,
-) -> (HashMap<String, ValueFacts>, u64) {
+) -> (HashMap<String, RustValueFacts>, u64) {
     let mut visiting = HashSet::new();
     let mut cache = HashMap::new();
     let mut value_steps = 0;
@@ -1501,7 +1496,7 @@ fn infer_rust_value_facts(
     fns: &Fns<'_>,
     _uses: &Resolver,
     visiting: &mut HashSet<String>,
-    cache: &mut HashMap<String, ValueFacts>,
+    cache: &mut HashMap<String, RustValueFacts>,
     nodes: &mut u64,
     value_steps: &mut u64,
     depth: usize,
@@ -1511,7 +1506,7 @@ fn infer_rust_value_facts(
         return facts.returns.clone();
     }
     let Some(function) = fns.get(name) else {
-        cache.insert(name.to_string(), ValueFacts::default());
+        cache.insert(name.to_string(), RustValueFacts::default());
         return None;
     };
     if *nodes >= crate::limits::invocation_node_limit(DEFAULT_MAX_RUST_NODES) {
@@ -1536,7 +1531,7 @@ fn infer_rust_value_facts(
         nodes,
         value_steps,
         depth,
-        facts: ValueFacts::default(),
+        facts: RustValueFacts::default(),
         return_values: Vec::new(),
         value_depth: 0,
     };
@@ -1587,11 +1582,11 @@ struct ValueAnalyzer<'a, 'b> {
     fns: &'a Fns<'a>,
     uses: &'a Resolver,
     visiting: &'b mut HashSet<String>,
-    cache: &'b mut HashMap<String, ValueFacts>,
+    cache: &'b mut HashMap<String, RustValueFacts>,
     nodes: &'b mut u64,
     value_steps: &'b mut u64,
     depth: usize,
-    facts: ValueFacts,
+    facts: RustValueFacts,
     return_values: Vec<SemanticValue>,
     value_depth: usize,
 }
@@ -3386,7 +3381,7 @@ fn widen_loop_state(
 }
 
 fn widen_loop_facts(
-    facts: &mut ValueFacts,
+    facts: &mut RustValueFacts,
     body: &Block,
     original: &ValueState,
     inner: &ValueState,
@@ -3946,8 +3941,8 @@ struct Executor<'a> {
     futures: HashMap<String, Expr>,
     receiver_types: HashMap<String, String>,
     receiver_fields: HashMap<String, HashMap<String, ResourceExpr>>,
-    value_facts: &'a ValueFacts,
-    all_value_facts: &'a HashMap<String, ValueFacts>,
+    value_facts: &'a RustValueFacts,
+    all_value_facts: &'a HashMap<String, RustValueFacts>,
 }
 
 impl Executor<'_> {
@@ -5265,12 +5260,12 @@ fn rust_guard_regions(file: &syn::File, source: &str) -> crate::guards::GuardReg
             end: r.end as u32,
         }
     }
-    struct Collector<'a> {
+    struct RustGuardRegionCollector<'a> {
         depth: usize,
         source: &'a str,
         guards: crate::guards::GuardRegions,
     }
-    impl<'ast> Visit<'ast> for Collector<'_> {
+    impl<'ast> Visit<'ast> for RustGuardRegionCollector<'_> {
         fn visit_block(&mut self, block: &'ast Block) {
             let stops = |body: &Block| {
                 matches!(
@@ -5400,7 +5395,7 @@ fn rust_guard_regions(file: &syn::File, source: &str) -> crate::guards::GuardReg
             self.depth -= 1;
         }
     }
-    let mut collector = Collector {
+    let mut collector = RustGuardRegionCollector {
         depth: 0,
         source,
         guards: Default::default(),

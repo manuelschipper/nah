@@ -1,5 +1,5 @@
 use super::support::{canonical, init_repo, request, run, value};
-use crate::fulfill;
+use crate::fulfill_observation_request;
 #[cfg(unix)]
 use crate::fulfill_with_git;
 use nah_proto::observation::{
@@ -14,7 +14,7 @@ use std::time::Duration;
 #[test]
 fn ordinary_non_repository_has_a_successful_empty_root_set() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let observation = fulfill(&request(temp.path(), &[])).expect("observation");
+    let observation = fulfill_observation_request(&request(temp.path(), &[])).expect("observation");
     assert!(matches!(
         value(&observation, "roots"),
         ObservationValue::Roots {
@@ -43,7 +43,7 @@ fn linked_worktree_reports_distinct_project_and_main_roots() {
         ])
         .current_dir(&main));
 
-    let observation = fulfill(&request(&worktree, &[])).expect("observation");
+    let observation = fulfill_observation_request(&request(&worktree, &[])).expect("observation");
     let ObservationValue::Roots {
         observed: Observed::Ok { value: roots },
     } = value(&observation, "roots")
@@ -88,7 +88,7 @@ fn linked_worktree_requires_a_matching_gitdir_back_pointer() {
     )
     .expect("tamper backlink");
 
-    let observation = fulfill(&request(&worktree, &[])).expect("observation");
+    let observation = fulfill_observation_request(&request(&worktree, &[])).expect("observation");
     assert!(matches!(
         value(&observation, "roots"),
         ObservationValue::Roots {
@@ -110,7 +110,7 @@ fn configured_worktree_cannot_expand_the_project_root() {
         .args(["config", "core.worktree", outside.to_str().unwrap()])
         .current_dir(&repo));
 
-    let observation = fulfill(&request(&repo, &[])).expect("observation");
+    let observation = fulfill_observation_request(&request(&repo, &[])).expect("observation");
     assert!(matches!(
         value(&observation, "roots"),
         ObservationValue::Roots {

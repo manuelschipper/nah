@@ -58,23 +58,51 @@ fn canonical_repo_path(root: &Path, path: &Path) -> Option<String> {
     Some(parts.join("/"))
 }
 
+/// Directory names the repository crawl never descends into: vendored
+/// dependencies, build output and tool state. Entrypoint discovery and the
+/// module registry share this one skip list.
+const CRAWL_SKIP_DIRS: [&str; 5] = ["node_modules", ".git", "target", "vendor", ".claude"];
+
+/// The repo-relative path of a file or directory the crawl walked. The walk
+/// only yields paths under `root` that [`canonical_repo_path`] accepts.
+fn walked_repo_path(root: &Path, path: &Path) -> String {
+    canonical_repo_path(root, path).expect("walked repository path is canonical")
+}
+
+/// Whether a file carries any Unix execute bit; never true on other platforms.
+#[cfg(unix)]
+fn is_executable(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    metadata.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn is_executable(_: &std::fs::Metadata) -> bool {
+    false
+}
+
 pub use compose::{
     ComposeBudget, ComposedBoundary, ComposedEffect, ComposedOccurrence, Composition,
 };
 pub use discover::{
-    Entrypoint, EntrypointEvidence, EntrypointKind, LaunchEdge, ProcessLaunchEvidence, SpanSeg,
+    Entrypoint, EntrypointEvidence, EntrypointKind, LaunchEdge, ProcessLaunchEvidence, SpanSegment,
 };
 pub use dispatch::DispatchVia;
+pub use index::incremental_update::{
+    InvalidationAction, RepoChange, UpdateFailure, UpdateOutcome, UpdateReport, apply_changes,
+    invalidation_action,
+};
 pub use index::{
     ANALYSIS_PANIC_ERROR, AnalyzedEntrypoint, CrawlLimits, EntrypointOutcome, GoRootEffect,
-    IndexLimits, InvalidationAction, RepoChange, RepoIndex, RepositoryLimits, Skip, SkipCategory,
-    UpdateFailure, UpdateOutcome, UpdateReport, apply_changes, build_index, invalidation_action,
+    IndexLimits, RepoIndex, RepositoryLimits, SkipCategory, SkippedPath, build_index,
 };
-pub use module::{ModuleFile, Registry};
+pub use module::{ModuleFile, ModuleRegistry};
 pub use normalize::normalize_surface;
 pub use query::{effects_of, reach};
 pub use resource::{
-    DatabaseIdentitySelector, GitIdentitySelector, RealmFilter, Selector, identity_from_selector,
+    DatabaseIdentitySelector, GitIdentitySelector, RealmFilter, ResourceSelector,
+    identity_from_selector,
 };
 pub use shallow::ShallowSourceResolver;
 pub use snapshot::{
@@ -82,5 +110,5 @@ pub use snapshot::{
 };
 pub use store::{REPO_INDEX_SCHEMA, save_index};
 pub use surface::{
-    EffectiveBoundary, EffectiveEffect, EffectiveSurface, ProvStep, effective_surface,
+    EffectiveBoundary, EffectiveEffect, EffectiveSurface, ProvenanceStep, effective_surface,
 };

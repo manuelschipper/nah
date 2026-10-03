@@ -7,15 +7,12 @@
 
 use tree_sitter::Node;
 
-use crate::control_flow::{Catch, ControlExit, Exn, Frontier, Graph, Jump, Span, Symbol};
-
-pub(super) fn span(node: Node) -> Span {
-    (node.start_byte() as u32, node.end_byte() as u32)
-}
+use crate::control_flow::{Catch, ControlExit, Exn, Frontier, Graph, Jump, Symbol};
+use crate::lang::tree_sitter_nodes::{named_children, node_span, node_text};
 
 /// Running a class: static initialization, then `main`.
 pub(super) fn build_program(graph: &mut Graph, root: Node, main: Option<Node>, source: &str) {
-    let mut builder = Builder::new(graph, source);
+    let mut builder = JavaControlFlowBuilder::new(graph, source);
     if runs_static_code(root, 0) {
         builder.graph.unknown(builder.at);
     }
@@ -28,7 +25,7 @@ pub(super) fn build_program(graph: &mut Graph, root: Node, main: Option<Node>, s
 }
 
 pub(super) fn build_body(graph: &mut Graph, body: Node, source: &str) {
-    let mut builder = Builder::new(graph, source);
+    let mut builder = JavaControlFlowBuilder::new(graph, source);
     builder.node(body);
     builder.graph.jump(builder.at, Jump::Return);
 }
@@ -60,15 +57,10 @@ fn contains_call(node: Node, depth: u32) -> bool {
         .any(|child| contains_call(child, depth + 1))
 }
 
-struct Builder<'g, 's> {
+struct JavaControlFlowBuilder<'g, 's> {
     graph: &'g mut Graph,
     at: Frontier,
     source: &'s str,
-}
-
-fn named_children(node: Node) -> Vec<Node> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor).collect()
 }
 
 fn literal_true(node: Node) -> bool {
@@ -82,7 +74,7 @@ fn literal_true(node: Node) -> bool {
     node.kind() == "true"
 }
 
-impl<'g, 's> Builder<'g, 's> {
+impl<'g, 's> JavaControlFlowBuilder<'g, 's> {
     fn new(graph: &'g mut Graph, source: &'s str) -> Self {
         graph.enable_exceptions();
         let at = graph.entry();
@@ -90,7 +82,7 @@ impl<'g, 's> Builder<'g, 's> {
     }
 
     fn site(&mut self, node: Node, opaque: bool) {
-        self.at = self.graph.site(self.at, span(node), opaque);
+        self.at = self.graph.site(self.at, node_span(node), opaque);
     }
 
     fn children(&mut self, node: Node) {
@@ -399,12 +391,6 @@ const JAVA_EXCEPTIONS: &[&str] = &[
     "Error",
     "NullPointerException",
 ];
-
-fn node_text<'a>(node: Node, source: &'a str) -> &'a str {
-    let start = node.start_byte();
-    let end = node.end_byte().min(source.len());
-    source.get(start..end).unwrap_or("")
-}
 
 fn simple_name(text: &str) -> &str {
     text.trim()

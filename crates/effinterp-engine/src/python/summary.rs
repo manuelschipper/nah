@@ -13,10 +13,11 @@ use effinterp_proto::{
 use rustpython_parser::ast::Ranged;
 use rustpython_parser::ast::{self, Expr, Stmt};
 
-use super::resolve::Imports;
+use super::import_bindings::extract_imports;
+use super::resolve::PythonImportNames;
 use super::{
-    Capture, Def, Walker, collect_class_bases, collect_class_sets, collect_class_strings,
-    collect_classes, collect_defs, collect_path_attrs, extract_imports,
+    Def, PythonSummaryCapture, PythonWalker, collect_class_bases, collect_class_sets,
+    collect_class_strings, collect_classes, collect_defs, collect_path_attrs,
     materialize_deferred_spawns, partition_top_level,
 };
 use crate::builder::PlanBuilder;
@@ -121,7 +122,7 @@ pub(super) fn summarize_ast(
     let class_strings = collect_class_strings(suite);
     let class_sets = collect_class_sets(suite);
     let max_nodes = limits.max_python_nodes;
-    let mut walker = Walker {
+    let mut walker = PythonWalker {
         builder: &mut builder,
         nest: &nest,
         source,
@@ -131,7 +132,7 @@ pub(super) fn summarize_ast(
         chdir: None,
         scope: None,
         depth: 0,
-        imports: Imports::default(),
+        imports: PythonImportNames::default(),
         defs,
         summaries: std::collections::HashMap::new(),
         demand_summaries: false,
@@ -405,7 +406,7 @@ pub(super) fn summarize_ast(
     summary
 }
 
-impl Walker<'_, '_> {
+impl PythonWalker<'_, '_> {
     fn decorators_are_transparent(&self, name: &str) -> bool {
         self.decorator_gate(name).is_empty()
     }
@@ -869,7 +870,12 @@ impl Walker<'_, '_> {
     /// The variable scope is reset to module constants for the body (its locals
     /// must not leak out, and the caller's locals must not leak in), then
     /// restored.
-    fn capture_body(&mut self, body: &[Stmt], function: &str, start_ordinal: u32) -> Capture {
+    fn capture_body(
+        &mut self,
+        body: &[Stmt],
+        function: &str,
+        start_ordinal: u32,
+    ) -> PythonSummaryCapture {
         let walk = crate::limits::summary_walk();
         let saved_nodes = self.nodes_left;
         let saved_hit = self.node_budget_hit;
@@ -877,7 +883,7 @@ impl Walker<'_, '_> {
             self.nodes_left = self.nest.limits.max_python_nodes;
             self.node_budget_hit = false;
         }
-        let saved = self.capture.replace(Capture::default());
+        let saved = self.capture.replace(PythonSummaryCapture::default());
         if let Some(def) = self.defs.iter().find(|def| def.name == function)
             && let Some(capture) = self.capture.as_mut()
         {

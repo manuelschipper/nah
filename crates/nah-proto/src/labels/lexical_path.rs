@@ -9,7 +9,7 @@ use crate::ctx::Platform;
 
 /// The spelling two paths are compared by: on Windows, `/` separators and
 /// ASCII lowercase, because Windows paths are case-insensitive.
-pub fn fold(path: &str, platform: Platform) -> String {
+pub fn fold_path_spelling(path: &str, platform: Platform) -> String {
     if platform == Platform::Windows {
         path.replace('\\', "/").to_ascii_lowercase()
     } else {
@@ -17,9 +17,9 @@ pub fn fold(path: &str, platform: Platform) -> String {
     }
 }
 
-/// `fold` without trailing separators, except the root's own.
+/// `fold_path_spelling` without trailing separators, except the root's own.
 pub(crate) fn comparison_key(path: &str, platform: Platform) -> String {
-    let folded = fold(path, platform);
+    let folded = fold_path_spelling(path, platform);
     if folded == "/" {
         folded
     } else {
@@ -75,7 +75,7 @@ pub fn lexically_normalized(path: &str, platform: Platform) -> String {
 }
 
 /// Reports whether `path` is `base` itself or sits under it.
-pub fn contains(base: &str, path: &str, platform: Platform) -> bool {
+pub fn lexically_contains(base: &str, path: &str, platform: Platform) -> bool {
     let base = comparison_key(base, platform);
     let path = comparison_key(path, platform);
     path == base
@@ -90,7 +90,7 @@ pub fn same_path(left: &str, right: &str, platform: Platform) -> bool {
 }
 
 /// Joins a relative path onto a base with the platform's separator.
-pub fn join(base: &str, relative: &str, platform: Platform) -> String {
+pub fn join_lexical_path(base: &str, relative: &str, platform: Platform) -> String {
     let (base, relative, separator) = if platform == Platform::Windows {
         (
             base.trim_end_matches(['/', '\\']),
@@ -112,11 +112,17 @@ pub fn installed_binary_paths(home: &str, platform: Platform) -> Vec<String> {
     };
     let mut paths = [".local/bin", ".cargo/bin"]
         .iter()
-        .map(|directory| join(&join(home, directory, platform), binary, platform))
+        .map(|directory| {
+            join_lexical_path(
+                &join_lexical_path(home, directory, platform),
+                binary,
+                platform,
+            )
+        })
         .collect::<Vec<_>>();
     if platform == Platform::Windows {
-        paths.push(join(
-            &join(home, "AppData/Local/Programs/nah", platform),
+        paths.push(join_lexical_path(
+            &join_lexical_path(home, "AppData/Local/Programs/nah", platform),
             binary,
             platform,
         ));

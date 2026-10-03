@@ -1,4 +1,12 @@
-use super::*;
+use std::collections::{HashMap, HashSet};
+
+use lib_ruby_parser::Node;
+use lib_ruby_parser::nodes::Send;
+
+use crate::lang::frontend::MAX_WALK_DEPTH;
+use crate::limits::DEFAULT_MAX_RUBY_NODES;
+
+use super::{children, constant_path, top_statements};
 
 // Bound retained paths even when file-local aliases repeatedly double a string.
 const MAX_LOAD_PATH_BYTES: usize = 4096;

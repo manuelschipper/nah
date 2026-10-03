@@ -15,6 +15,7 @@ mod guard_config;
 mod hermes_installation;
 mod hook_config;
 mod hook_paths;
+mod interactive_nap;
 mod javascript_bridge;
 mod kiro_installation;
 mod openclaw_installation;
@@ -64,6 +65,9 @@ pub(crate) use guard_config::{
 };
 pub(crate) use hermes_installation::{
     hermes_hook_status, hermes_self_protection_paths, mutate_hermes_hook,
+};
+pub(crate) use interactive_nap::{
+    interactive_nap_request, live_custom_guard_names, nap_mode, run_interactive_nap,
 };
 pub(crate) use kiro_installation::{
     kiro_hook_status, kiro_self_protection_paths, mutate_kiro_hook,

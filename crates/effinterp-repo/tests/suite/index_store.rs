@@ -6,7 +6,9 @@
 use std::path::PathBuf;
 
 use effinterp_engine::Assurance;
-use effinterp_repo::{IndexLimits, REPO_INDEX_SCHEMA, Selector, build_index, reach, save_index};
+use effinterp_repo::{
+    IndexLimits, REPO_INDEX_SCHEMA, ResourceSelector, build_index, reach, save_index,
+};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 /// A multi-language repo exercising direct effects, cross-file composition,
@@ -52,7 +54,7 @@ fn go_package_view_resolves_a_sibling_file_constant() {
         ],
     );
     let built = build_index(&root, IndexLimits::default());
-    let sel = Selector::parse("fs:/implicit-const").unwrap();
+    let sel = ResourceSelector::parse("fs:/implicit-const").unwrap();
     assert!(
         !reach(&built, &sel, None)
             .payload

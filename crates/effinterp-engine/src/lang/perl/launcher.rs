@@ -1,6 +1,6 @@
 use effinterp_proto::{CoverageLevel, Domain, ProvenanceRef, RequestAssurance};
 
-use super::{Imports, PerlFailure, analyze, boundary};
+use super::{PerlFailure, PerlImports, analyze, perl_boundary};
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::models::common::{code_execution, operand_effect, program_input_attrs};
 use crate::models::{CommandModel, InvocationCtx};
@@ -66,7 +66,7 @@ impl CommandModel for Perl {
                 !matches!(value, effinterp_proto::ResourceExpr::Literal { value } if value.is_empty())
             })
         }) {
-            boundary(builder, node, &format!("Perl {name} startup selection is not modeled"));
+            perl_boundary(builder, node, &format!("Perl {name} startup selection is not modeled"));
             return;
         }
         if launch.sources.is_empty() {
@@ -163,12 +163,12 @@ impl CommandModel for Perl {
         );
         if let Some(detail) = launch.unsupported.as_deref() {
             input_operands(builder, ctx, node, &launch, launch.operands);
-            boundary(builder, node, detail);
+            perl_boundary(builder, node, detail);
             return;
         }
         if launch.sources.iter().any(|(_, source)| source.is_none()) {
             input_operands(builder, ctx, node, &launch, launch.operands);
-            boundary(builder, node, "Perl -e/-E source is runtime-selected");
+            perl_boundary(builder, node, "Perl -e/-E source is runtime-selected");
             return;
         }
         let mut antecedents = vec![node];
@@ -216,14 +216,14 @@ fn input_operands(
 ) {
     if launch.in_place.is_some() || launch.loop_input {
         if first == ctx.argv.len() {
-            boundary(builder, node, "Perl implicit input loop selects stdin");
+            perl_boundary(builder, node, "Perl implicit input loop selects stdin");
         }
         for (index, operand) in ctx.argv.iter().enumerate().skip(first) {
             let Some(path) = operand
                 .as_literal()
                 .filter(|path| *path != "-" && !path.is_empty())
             else {
-                boundary(
+                perl_boundary(
                     builder,
                     node,
                     "Perl input operand is dynamic or selects stdin",
@@ -236,7 +236,7 @@ fn input_operands(
                     || path.trim() != path
                     || path.starts_with(['<', '>', '+', '&']))
             {
-                boundary(
+                perl_boundary(
                     builder,
                     node,
                     "Perl diamond input operand can select a pipe or trimmed filename",
@@ -295,7 +295,7 @@ struct Launch<'a> {
     operands: usize,
     in_place: Option<&'a str>,
     loop_input: bool,
-    imports: Imports,
+    imports: PerlImports,
 }
 
 impl<'a> Launch<'a> {

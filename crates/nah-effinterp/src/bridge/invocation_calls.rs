@@ -2,9 +2,8 @@
 //! translations leave gaps in that understanding, and the coverage claims
 //! the evidence publishes from them.
 
-use effinterp_proto as p;
 use effinterp_proto::{ExecutionAssurance, ProvenanceKind, ProvenanceRef, ResourceExpr, Subject};
-use nah_proto::effects as e;
+use nah_proto::effects;
 use nah_proto::effects::Knowledge::{Known, Unknown};
 use nah_proto::labels::hidden_characters::has_hidden_characters;
 use nah_proto::tool::ToolCallInput;
@@ -22,8 +21,8 @@ use super::{
 /// scopes each boundary where it raises it, and plan validation admits
 /// environment scope only for a registered environmental reason on an
 /// unmodeled or unresolved boundary that no limit cut short.
-fn environment_boundary(boundary: &p::Boundary) -> bool {
-    boundary.scope == p::BoundaryScope::Environment
+fn environment_boundary(boundary: &effinterp_proto::Boundary) -> bool {
+    boundary.scope == effinterp_proto::BoundaryScope::Environment
 }
 
 /// Whether an unresolved resource belongs to the environment: a configured
@@ -35,14 +34,15 @@ fn environment_boundary(boundary: &p::Boundary) -> bool {
 /// translation gap.
 pub(super) fn environmental_resource(
     view: &crate::plan_view::PlanView<'_>,
-    effect: &p::Effect,
+    effect: &effinterp_proto::Effect,
 ) -> bool {
-    let p::ResourceExpr::Unresolved { family } = &effect.resource else {
+    let effinterp_proto::ResourceExpr::Unresolved { family } = &effect.resource else {
         return false;
     };
     view.boundaries_in_domain(&family.0).any(|boundary| {
         (family.0 == "network"
-            || family.0 == "filesystem" && boundary.reason == p::BoundaryReason::PACKAGE_SCRIPTS)
+            || family.0 == "filesystem"
+                && boundary.reason == effinterp_proto::BoundaryReason::PACKAGE_SCRIPTS)
             && environment_boundary(boundary)
             && boundary
                 .provenance
@@ -56,7 +56,7 @@ pub(super) fn environmental_resource(
 /// reason in `effinterp_proto::BOUNDARY_REASONS`. A plan carrying a reason
 /// outside that registry is refused rather than published under a code
 /// nothing names.
-fn boundary_gap_code(reason: &p::BoundaryReason) -> Option<String> {
+fn boundary_gap_code(reason: &effinterp_proto::BoundaryReason) -> Option<String> {
     reason
         .spec()
         .map(|spec| spec.reason.as_str().replace('_', "-"))
@@ -67,8 +67,11 @@ fn boundary_gap_code(reason: &p::BoundaryReason) -> Option<String> {
 pub(super) fn project_invocation_calls(
     root: &ToolCallInput,
     view: &crate::plan_view::PlanView<'_>,
-) -> Result<e::EffectGraph, e::EvidenceError> {
-    use e::*;
+) -> Result<effects::EffectGraph, effects::EvidenceError> {
+    use effects::{
+        CallId, CausalAvailability, Domain, EffectCall, EffectGap, EffectGraph, EvidenceError,
+        GapCategory, GapId, GapPhase, InvocationKind, PayloadGroupId,
+    };
     let plan = view.plan();
     let mut graph = EffectGraph {
         calls: vec![],
@@ -100,7 +103,7 @@ pub(super) fn project_invocation_calls(
             Subject::Exec { cwd, .. } => (
                 InvocationKind::Argv,
                 match node.argv.first() {
-                    Some(p::ResourceExpr::Literal { value }) => Known(value.clone()),
+                    Some(effinterp_proto::ResourceExpr::Literal { value }) => Known(value.clone()),
                     _ => Unknown,
                 },
                 cwd,
@@ -132,7 +135,7 @@ pub(super) fn project_invocation_calls(
                 node.argv
                     .iter()
                     .map(|argument| match argument {
-                        p::ResourceExpr::Literal { value } => Some(value.clone()),
+                        effinterp_proto::ResourceExpr::Literal { value } => Some(value.clone()),
                         _ => None,
                     })
                     .collect::<Option<Vec<_>>>()
@@ -142,7 +145,7 @@ pub(super) fn project_invocation_calls(
             },
             id,
             parent: view
-                .parent_edge(p::ExecutionNodeRef(id.0))
+                .parent_edge(effinterp_proto::ExecutionNodeRef(id.0))
                 .map(|edge| CallId(edge.from.0)),
             kind,
             identity: if index == 0 {
@@ -170,7 +173,7 @@ pub(super) fn project_invocation_calls(
                     .coverage
                     .0
                     .values()
-                    .all(|claim| claim.level == p::CoverageLevel::Full)
+                    .all(|claim| claim.level == effinterp_proto::CoverageLevel::Full)
             {
                 nah_proto::action::Coverage::Full
             } else {
@@ -202,7 +205,8 @@ pub(super) fn project_invocation_calls(
     for index in view.effect_indices_family("filesystem") {
         let effect = &plan.effects[index];
         let annotation = view.annotation(index);
-        let Some((path, _)) = crate::observe::observation_bound(&effect.resource) else {
+        let Some((path, _)) = crate::observation_request::observation_bound(&effect.resource)
+        else {
             continue;
         };
         if view.path_unavailable(&path)
@@ -228,22 +232,22 @@ pub(super) fn project_invocation_calls(
 /// nothing beside it already states what it does.
 pub(super) fn add_untranslated_effect_gap(
     view: &crate::plan_view::PlanView<'_>,
-    graph: &mut e::EffectGraph,
-    effect: &p::Effect,
-    call: e::CallId,
+    graph: &mut effects::EffectGraph,
+    effect: &effinterp_proto::Effect,
+    call: effects::CallId,
     guards: &ShippedGuardPolicy<'_>,
 ) {
-    use e::*;
+    use effects::GapPhase;
     let attr_bool = |key: &str| effect_attr_bool(effect, key);
     let attr_text = |key: &str| effect_attr_text(effect, key);
     // A shipped guard that owns an effect's missing-fact gap names its own
     // gap when its query is indeterminate.
-    let declarative_owner = |effect: &p::Effect| guards.owns_effect_gap(effect);
+    let declarative_owner = |effect: &effinterp_proto::Effect| guards.owns_effect_gap(effect);
     // An audited request on the same call whose registered outcome is this
     // operation already carries the typed fact, so the plain effect beside
     // it is redundant evidence rather than a translation the bridge is
     // missing.
-    let audited = p::OPERATIONS
+    let audited = effinterp_proto::OPERATIONS
         .iter()
         .filter(|request| request.outcomes.contains(&effect.operation.as_str()))
         .any(|request| {
@@ -326,10 +330,13 @@ pub(super) fn add_untranslated_effect_gap(
 /// Name the access semantics each fact still leaves unknown, and return
 /// which unknown each of those gaps records, by gap index.
 pub(super) fn add_access_semantics_gaps(
-    graph: &mut e::EffectGraph,
-    stated_non_content_access: &BTreeSet<e::FactId>,
-) -> BTreeMap<usize, (e::UnknownKind, Option<e::ResourceId>)> {
-    use e::*;
+    graph: &mut effects::EffectGraph,
+    stated_non_content_access: &BTreeSet<effects::FactId>,
+) -> BTreeMap<usize, (effects::UnknownKind, Option<effects::ResourceId>)> {
+    use effects::{
+        AccessPurpose, Domain, EnvironmentSelection, FactPayload, FilesystemOperation, GapPhase,
+        NetworkOperation, ResourceDetails, ResourceKind, Selection, UnknownKind,
+    };
     // Access semantics the evidence publishes, after the causal passes have
     // named the purpose of a consumed read and the direction of an answered
     // request. The ports these payloads leave empty are not missing evidence:
@@ -417,10 +424,13 @@ pub(super) fn add_access_semantics_gaps(
 /// public graph, and return the attribution the public aggregate reads.
 pub(super) fn project_coverage_attribution(
     view: &crate::plan_view::PlanView<'_>,
-    graph: &mut e::EffectGraph,
-    access_unknowns: &BTreeMap<usize, (e::UnknownKind, Option<e::ResourceId>)>,
-) -> e::CoverageAttribution {
-    use e::*;
+    graph: &mut effects::EffectGraph,
+    access_unknowns: &BTreeMap<usize, (effects::UnknownKind, Option<effects::ResourceId>)>,
+) -> effects::CoverageAttribution {
+    use effects::{
+        BoundaryId, CallId, ClaimLevel, CoverageAttribution, CoverageClaim, Domain, EngineBoundary,
+        EngineClaim, GapId, GapPhase, InvocationUnknown,
+    };
     let plan = view.plan();
     let environmental = |index: usize| environment_boundary(&plan.boundaries[index]);
     for (domain, claim) in plan
@@ -449,8 +459,8 @@ pub(super) fn project_coverage_attribution(
         gaps.sort();
         gaps.dedup();
         let level = match claim.level {
-            p::CoverageLevel::Full if gaps.is_empty() => ClaimLevel::Full,
-            p::CoverageLevel::None => ClaimLevel::None,
+            effinterp_proto::CoverageLevel::Full if gaps.is_empty() => ClaimLevel::Full,
+            effinterp_proto::CoverageLevel::None => ClaimLevel::None,
             _ => ClaimLevel::Partial,
         };
         if let Some(existing) = graph.coverage.iter_mut().find(|c| c.domain == domain) {
@@ -466,11 +476,11 @@ pub(super) fn project_coverage_attribution(
         }
     }
     // The public aggregate reads these facts, not the claims projected above.
-    let engine_claim = |claim: &p::CoverageClaim| EngineClaim {
+    let engine_claim = |claim: &effinterp_proto::CoverageClaim| EngineClaim {
         level: match claim.level {
-            p::CoverageLevel::Full => ClaimLevel::Full,
-            p::CoverageLevel::Partial => ClaimLevel::Partial,
-            p::CoverageLevel::None => ClaimLevel::None,
+            effinterp_proto::CoverageLevel::Full => ClaimLevel::Full,
+            effinterp_proto::CoverageLevel::Partial => ClaimLevel::Partial,
+            effinterp_proto::CoverageLevel::None => ClaimLevel::None,
         },
         boundaries: claim.gaps.iter().map(|id| BoundaryId(id.0)).collect(),
     };
@@ -512,28 +522,29 @@ pub(super) fn project_coverage_attribution(
 }
 
 /// What a gap Nah added leaves unknown, read from its phase and code.
-fn unknown_kind(gap: &e::EffectGap) -> e::UnknownKind {
-    use e::UnknownKind::*;
+fn unknown_kind(gap: &effects::EffectGap) -> effects::UnknownKind {
     match (gap.phase, gap.code.as_str()) {
-        (e::GapPhase::Observation, "descendant-scan-incomplete") => Descendants,
-        (e::GapPhase::Observation, _) => Realpath,
-        (e::GapPhase::Projection, _) => Visibility,
+        (effects::GapPhase::Observation, "descendant-scan-incomplete") => {
+            effects::UnknownKind::Descendants
+        }
+        (effects::GapPhase::Observation, _) => effects::UnknownKind::Realpath,
+        (effects::GapPhase::Projection, _) => effects::UnknownKind::Visibility,
         (
             _,
             "resource-components-unavailable"
             | "move-destination-unavailable"
             | "network-delete-resource-kind-unavailable"
             | "git-recovery-selection-unavailable",
-        ) => Selector,
+        ) => effects::UnknownKind::Selector,
         (
             _,
             "causal-detail-unavailable"
             | "effect-occurrence-binding-unavailable"
             | "condition-widened",
-        ) => CausalRoute,
+        ) => effects::UnknownKind::CausalRoute,
         // The remaining translation gaps name request controls and modes the
         // payload needs, sometimes together with the selection they qualify.
-        _ => ActionControl,
+        _ => effects::UnknownKind::ActionControl,
     }
 }
 
@@ -564,7 +575,7 @@ fn visible_execution_node(
     {
         return false;
     }
-    let Some(edge) = view.parent_edge(p::ExecutionNodeRef(index as u32)) else {
+    let Some(edge) = view.parent_edge(effinterp_proto::ExecutionNodeRef(index as u32)) else {
         return false;
     };
     if edge.from.0 as usize != 0 && !visible[edge.from.0 as usize] {
@@ -619,18 +630,18 @@ fn provenance_is_visible<'a>(
 
 /// Add a gap Nah names, numbered after every gap already in the graph.
 pub(super) fn add_gap(
-    graph: &mut e::EffectGraph,
-    call: e::CallId,
-    domain: Option<e::Domain>,
-    phase: e::GapPhase,
+    graph: &mut effects::EffectGraph,
+    call: effects::CallId,
+    domain: Option<effects::Domain>,
+    phase: effects::GapPhase,
     code: &str,
 ) {
-    graph.gaps.push(e::EffectGap {
+    graph.gaps.push(effects::EffectGap {
         // Boundary gaps are numbered by their boundary, and an informational
         // one leaves its number unused, so continue past the highest.
-        id: e::GapId(graph.gaps.iter().map(|gap| gap.id.0 + 1).max().unwrap_or(0)),
+        id: effects::GapId(graph.gaps.iter().map(|gap| gap.id.0 + 1).max().unwrap_or(0)),
         phase,
-        category: e::GapCategory::Unmodeled,
+        category: effects::GapCategory::Unmodeled,
         call,
         domain,
         code: code.into(),

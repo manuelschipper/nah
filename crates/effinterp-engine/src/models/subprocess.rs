@@ -7,8 +7,8 @@
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CausalAssurance, CoverageLevel, Domain,
-    ExecutionEdgeKind, ExecutionRealm, Port, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity, Subject,
+    ExecutionEdgeKind, ExecutionRealm, Port, ProvenanceRef, ResourceExpr, ResourceIdentity,
+    Subject,
 };
 
 use std::collections::BTreeMap;
@@ -25,6 +25,7 @@ use crate::models::{
     CommandModel, InvocationCtx, ModelBindingEnd, ModelCausalBinding, source_refusal_detail,
 };
 use crate::nest::{INJECTED_ENVIRONMENT, SourceResolution, Transition, word_resource};
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 use effinterp_model_schema::EffectSelection;
 
@@ -2388,9 +2389,7 @@ impl CommandModel for Ssh {
                         .value
                         .as_literal()
                         .map(ssh_forward_destination)
-                        .unwrap_or_else(|| ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("network"),
-                        }),
+                        .unwrap_or_else(|| unresolved_resource("network")),
                 )
             } else {
                 (
@@ -2458,9 +2457,7 @@ impl CommandModel for Ssh {
         if let Some(forward) = &options.stdio_forward {
             let resource = match forward.value.as_literal() {
                 Some(text) => ssh_forward_destination(text),
-                None => ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                },
+                None => unresolved_resource("network"),
             };
             arg_effect(
                 builder,

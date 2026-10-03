@@ -660,7 +660,7 @@ impl Catalog {
         models.extend(build::build_models());
         models.extend(ci::ci_models());
         models.extend(subprocess::subprocess_models());
-        models.extend(wrappers::models());
+        models.extend(wrappers::wrapper_models());
         models.extend(container::container_models());
         models.extend(cloud::cloud_models());
         models.extend(platform::platform_models());
@@ -672,7 +672,7 @@ impl Catalog {
         models.push(Box::new(crate::lang::perl::Perl));
         models.push(Box::new(osascript::Osascript));
         models.extend(storage::storage_models());
-        models.extend(backup::models());
+        models.extend(backup::backup_models());
         models.extend(system::system_models());
         models.extend(remote::remote_models());
         models.extend(cmdexec::cmdexec_models());

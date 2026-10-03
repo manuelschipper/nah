@@ -14,6 +14,7 @@ use crate::models::common::{
 };
 use crate::models::{CommandModel, InvocationCtx, source_refusal_detail};
 use crate::nest::{SourceResolution, Transition};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 pub(super) fn build_models() -> Vec<Box<dyn CommandModel>> {
@@ -28,13 +29,13 @@ pub(super) fn build_models() -> Vec<Box<dyn CommandModel>> {
     ]
 }
 
-struct BuildContext {
+struct BuildToolContext {
     runtime_cwd: Option<String>,
     cwd: Option<String>,
     cwd_resource: Option<ResourceExpr>,
 }
 
-impl BuildContext {
+impl BuildToolContext {
     fn new(ctx: &InvocationCtx<'_>) -> Self {
         Self {
             runtime_cwd: ctx.runtime_cwd.map(str::to_string),
@@ -63,7 +64,11 @@ impl BuildContext {
     }
 }
 
-fn unresolved(builder: &mut PlanBuilder, model_node: ProvenanceRef, detail: impl Into<String>) {
+fn unresolved_build_target(
+    builder: &mut PlanBuilder,
+    model_node: ProvenanceRef,
+    detail: impl Into<String>,
+) {
     builder.declare_coverage(Domain::new("process"), CoverageLevel::Partial);
     builder.boundary(Boundary {
         reason: BoundaryReason::UNRESOLVED_BUILD_TARGET,
@@ -119,12 +124,12 @@ fn resolved_build_source(
         SourceResolution::Source { origin, source } => Some((origin, source)),
         SourceResolution::Refused(refusal) => {
             if let Some(detail) = source_refusal_detail(builder, refusal, detail) {
-                unresolved(builder, model_node, detail);
+                unresolved_build_target(builder, model_node, detail);
             }
             None
         }
         SourceResolution::UnsupportedEncoding => {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 format!("{detail}: source is not valid UTF-8"),
@@ -133,7 +138,7 @@ fn resolved_build_source(
         }
         SourceResolution::AlreadySelected => None,
         SourceResolution::Unavailable => {
-            unresolved(builder, model_node, detail);
+            unresolved_build_target(builder, model_node, detail);
             None
         }
     }
@@ -146,7 +151,7 @@ fn nest_shell_lines(
     model_node: ProvenanceRef,
     provenance: &[ProvenanceRef],
     origin: &str,
-    build: &BuildContext,
+    build: &BuildToolContext,
     lines: Vec<ShellLine>,
     detail: &str,
 ) {
@@ -154,7 +159,7 @@ fn nest_shell_lines(
     for line in lines {
         let Some(source) = line.source else {
             if let Some(refusal) = line.refusal {
-                unresolved(builder, model_node, refusal);
+                unresolved_build_target(builder, model_node, refusal);
                 continue;
             }
             widened = true;
@@ -190,7 +195,7 @@ fn nest_shell_lines(
         };
     }
     if widened {
-        unresolved(builder, model_node, detail);
+        unresolved_build_target(builder, model_node, detail);
     }
 }
 
@@ -218,7 +223,7 @@ fn nest_program(
     origin: String,
     source: String,
     language: &str,
-    build: &BuildContext,
+    build: &BuildToolContext,
 ) {
     {
         let cwd_resource = build.cwd_resource.clone();
@@ -262,17 +267,17 @@ impl CommandModel for Make {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         let Ok(invocation) = make_invocation(ctx) else {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "make options are not statically supported",
             );
             return;
         };
-        let mut build = BuildContext::new(ctx);
+        let mut build = BuildToolContext::new(ctx);
         for directory in &invocation.directories {
             if !build.descend(directory) {
-                unresolved(
+                unresolved_build_target(
                     builder,
                     model_node,
                     "make -C directory is not repository-relative",
@@ -341,7 +346,7 @@ impl CommandModel for Make {
                     .split_whitespace()
                     .any(|target| target == ".ONESHELL")
         }) {
-            unresolved(builder, model_node, "make .ONESHELL recipe is not modeled");
+            unresolved_build_target(builder, model_node, "make .ONESHELL recipe is not modeled");
             return;
         }
 
@@ -356,7 +361,7 @@ impl CommandModel for Make {
         };
         for (target_index, target) in targets {
             let Some((selected_target, lines)) = make_recipe(&source, target) else {
-                unresolved(
+                unresolved_build_target(
                     builder,
                     model_node,
                     format!(
@@ -827,14 +832,14 @@ impl CommandModel for Just {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         let Ok((file, directories, target)) = just_invocation(ctx) else {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "just options are not statically supported",
             );
             return;
         };
-        let mut build = BuildContext::new(ctx);
+        let mut build = BuildToolContext::new(ctx);
         let files = file
             .as_deref()
             .map(|file| vec![file])
@@ -851,7 +856,7 @@ impl CommandModel for Just {
                 .as_ref()
                 .map(|(_, value, arguments)| (value.as_str(), *arguments)),
         ) else {
-            unresolved(builder, model_node, "just recipe is not recoverable");
+            unresolved_build_target(builder, model_node, "just recipe is not recoverable");
             return;
         };
         if !recipe.no_cd {
@@ -862,7 +867,7 @@ impl CommandModel for Just {
                     .filter(|directory| !directory.is_empty())
                     && !build.descend(directory)
                 {
-                    unresolved(
+                    unresolved_build_target(
                         builder,
                         model_node,
                         "justfile directory is not repository-relative",
@@ -872,7 +877,7 @@ impl CommandModel for Just {
             } else {
                 for directory in directories {
                     if !build.descend(&directory) {
-                        unresolved(
+                        unresolved_build_target(
                             builder,
                             model_node,
                             "just working directory is not repository-relative",
@@ -883,7 +888,7 @@ impl CommandModel for Just {
             }
             for directory in &recipe.working_directories {
                 if !build.descend(directory) {
-                    unresolved(
+                    unresolved_build_target(
                         builder,
                         model_node,
                         "just recipe working directory is not repository-relative",
@@ -1149,19 +1154,19 @@ impl CommandModel for Task {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         let Ok((file, directory, target)) = task_invocation(ctx) else {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "task options are not statically supported",
             );
             return;
         };
-        let mut build = BuildContext::new(ctx);
+        let mut build = BuildToolContext::new(ctx);
         if file.is_none()
             && let Some(directory) = directory.as_deref()
             && !build.descend(directory)
         {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "task working directory is not repository-relative",
@@ -1191,7 +1196,7 @@ impl CommandModel for Task {
             if let Some(directory) = execution_directory
                 && !build.descend(directory)
             {
-                unresolved(
+                unresolved_build_target(
                     builder,
                     model_node,
                     "task working directory is not repository-relative",
@@ -1201,7 +1206,7 @@ impl CommandModel for Task {
         }
         let name = target.as_ref().map_or("default", |(_, name)| name.as_str());
         let Some(recipe) = task_recipe(&source, name) else {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 format!("task target {name:?} is not recoverable"),
@@ -1210,7 +1215,7 @@ impl CommandModel for Task {
         };
         for directory in &recipe.working_directories {
             if !build.descend(directory) {
-                unresolved(
+                unresolved_build_target(
                     builder,
                     model_node,
                     "task working directory is not repository-relative",
@@ -1359,8 +1364,9 @@ fn task_recipe(source: &str, requested: &str) -> Option<BuildRecipe> {
                                 }
                             });
                         if let Some(command) = command {
-                            let command =
-                                command.filter(|command| !command.is_empty()).map(unquote);
+                            let command = command
+                                .filter(|command| !command.is_empty())
+                                .map(unquote_or_verbatim);
                             recovered.push(command.filter(|command| !command.contains("{{")));
                         }
                         index += 1;
@@ -1479,7 +1485,7 @@ impl CommandModel for Cargo {
         }
         if ctx.argv.get(1).and_then(|word| word.as_literal()) == Some("build") {
             cargo_build_inputs(builder, ctx, model_node);
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "cargo build executes unmodeled compiler, dependency build scripts, and proc macros",
@@ -1491,7 +1497,7 @@ impl CommandModel for Cargo {
             .get(1)
             .and_then(|word| (word.as_literal() == Some("run")).then_some(1))
         else {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "cargo command is not an executable entrypoint",
@@ -1499,14 +1505,14 @@ impl CommandModel for Cargo {
             return;
         };
         let Ok((manifest_path, bin)) = cargo_run_args(ctx, run_index + 1) else {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "cargo run options are not statically supported",
             );
             return;
         };
-        let build = BuildContext::new(ctx);
+        let build = BuildToolContext::new(ctx);
         let manifest_path = manifest_path.as_deref().unwrap_or("Cargo.toml");
         let resolved = resolve_from(ctx, builder, build.runtime_cwd.as_deref(), manifest_path);
         let Some((manifest_origin, manifest)) = resolved_build_source(
@@ -1522,7 +1528,7 @@ impl CommandModel for Cargo {
         let Some(source_path) = source_path
             .and_then(|path| crate::paths::join_relative_file(Some(&manifest_dir), &path))
         else {
-            unresolved(builder, model_node, "cargo binary source is ambiguous");
+            unresolved_build_target(builder, model_node, "cargo binary source is ambiguous");
             return;
         };
         let resolved =
@@ -1718,9 +1724,7 @@ fn cargo_metadata_dispatch(
         builder.effect(Effect {
             id: Default::default(),
             operation: Operation::new("artifact.yank_request"),
-            resource: ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("artifact"),
-            },
+            resource: unresolved_resource("artifact"),
             attributes: attrs.clone(),
             request_assurance: effinterp_proto::RequestAssurance::Exact,
             modality: Modality::MustOnSuccess,
@@ -1735,9 +1739,7 @@ fn cargo_metadata_dispatch(
             node,
             command as u32,
             "network.request",
-            ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("network"),
-            },
+            unresolved_resource("network"),
             attrs,
         );
         builder.declare_coverage(Domain::new("artifact"), CoverageLevel::Full);
@@ -1790,9 +1792,7 @@ fn cargo_metadata_dispatch(
                     node,
                     command as u32,
                     "network.request",
-                    ResourceExpr::Unresolved {
-                        family: effinterp_proto::ResourceFamily::new("network"),
-                    },
+                    unresolved_resource("network"),
                     Default::default(),
                 );
                 builder.declare_coverage(Domain::new("network"), CoverageLevel::Full);
@@ -2100,7 +2100,7 @@ fn cargo_install_dispatch(
     // not which package or binary it names: the selection stays stated.
     let unknown_options = leading_unknown || !scanned.unknown_flags.is_empty();
     if unknown_options {
-        unresolved(
+        unresolved_build_target(
             builder,
             model_node,
             "cargo install/uninstall option is not modeled",
@@ -2123,7 +2123,7 @@ fn cargo_install_dispatch(
         .iter()
         .any(|name| scanned.values_of(&[name]).len() > 1)
     {
-        unresolved(
+        unresolved_build_target(
             builder,
             model_node,
             "cargo install/uninstall options or selectors are not statically supported",
@@ -2135,7 +2135,7 @@ fn cargo_install_dispatch(
     }
     let dry_run = scanned.has(&["-n", "--dry-run"]);
     if install && scanned.operands.is_empty() && !scanned.has(&["--path", "--git"]) {
-        unresolved(
+        unresolved_build_target(
             builder,
             model_node,
             "cargo install package or path source is not explicit",
@@ -2149,7 +2149,7 @@ fn cargo_install_dispatch(
             name == "." || name == ".." || name.contains(['/', '\\', '*', '?', '[', ']'])
         })
     }) {
-        unresolved(
+        unresolved_build_target(
             builder,
             model_node,
             "cargo binary selector is not a literal executable name",
@@ -2195,12 +2195,7 @@ fn cargo_install_dispatch(
         // `CARGO_HOME` and yields to `CARGO_INSTALL_ROOT` and `--root`.
         if name == "CARGO_INSTALL_ROOT" && config_root {
             root = ResourceExpr::Union {
-                alternatives: vec![
-                    ResourceExpr::Unresolved {
-                        family: effinterp_proto::ResourceFamily::new("filesystem"),
-                    },
-                    root,
-                ],
+                alternatives: vec![unresolved_resource("filesystem"), root],
             };
         }
         root = match ctx.environment_value(name) {
@@ -2364,7 +2359,7 @@ fn cargo_install_dispatch(
     let mut unrecorded = false;
     let mut mutates = false;
     if config_root && !install {
-        unresolved(
+        unresolved_build_target(
             builder,
             node,
             "cargo --config may set the install root the uninstall removes from",
@@ -2691,11 +2686,11 @@ fn cargo_build_inputs(
         source: manifest,
     } = resolve_from(ctx, builder, ctx.runtime_cwd, manifest_path)
     else {
-        unresolved(builder, model_node, "Cargo.toml is not recoverable");
+        unresolved_build_target(builder, model_node, "Cargo.toml is not recoverable");
         return;
     };
     let Some(package_name) = cargo_package_value(&manifest, "name") else {
-        unresolved(
+        unresolved_build_target(
             builder,
             model_node,
             "Cargo workspace package selection is not explicit",
@@ -2795,7 +2790,7 @@ impl CommandModel for Javac {
             .next_back()
             == Some("none")
         {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "javac compilation is not modeled when annotation processing is disabled",
@@ -2808,7 +2803,7 @@ impl CommandModel for Javac {
             &["-processorpath", "--processor-path", "-processor-path"],
         );
         let (Some(processor), Some(processor_path)) = (processor, processor_path) else {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "javac annotation processor is not explicitly selected",
@@ -3006,14 +3001,14 @@ impl CommandModel for Maven {
                 arg == "exec:java" || (arg.contains("exec-maven-plugin") && arg.ends_with(":java"))
             })
         }) {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "Maven goal is not an executable entrypoint",
             );
             return;
         }
-        let build = BuildContext::new(ctx);
+        let build = BuildToolContext::new(ctx);
         let file = option_value(ctx, &["-f", "--file", "--pom-file"]).unwrap_or("pom.xml");
         let resolved = resolve_from(ctx, builder, build.runtime_cwd.as_deref(), file);
         let Some((manifest_origin, manifest)) =
@@ -3029,7 +3024,7 @@ impl CommandModel for Maven {
             .map(str::to_string);
         let main = cli_main.or_else(|| maven_exec_main_class(&manifest));
         let Some(main) = main else {
-            unresolved(builder, model_node, "Maven main class is not explicit");
+            unresolved_build_target(builder, model_node, "Maven main class is not explicit");
             return;
         };
         let manifest_dir = crate::paths::parent_dir(&manifest_origin);
@@ -3066,7 +3061,7 @@ impl CommandModel for Gradle {
         let run_index = match gradle_run_task(ctx) {
             Ok(Some(index)) => index,
             Ok(None) => {
-                unresolved(
+                unresolved_build_target(
                     builder,
                     model_node,
                     "Gradle task is not an executable entrypoint",
@@ -3074,7 +3069,7 @@ impl CommandModel for Gradle {
                 return;
             }
             Err(()) => {
-                unresolved(
+                unresolved_build_target(
                     builder,
                     model_node,
                     "Gradle options are not statically supported",
@@ -3082,11 +3077,11 @@ impl CommandModel for Gradle {
                 return;
             }
         };
-        let mut build = BuildContext::new(ctx);
+        let mut build = BuildToolContext::new(ctx);
         if let Some(directory) = option_value(ctx, &["-p", "--project-dir"])
             && !build.descend(directory)
         {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "Gradle project directory is not repository-relative",
@@ -3106,7 +3101,7 @@ impl CommandModel for Gradle {
             return;
         };
         if !gradle_application_plugin(&manifest) {
-            unresolved(
+            unresolved_build_target(
                 builder,
                 model_node,
                 "Gradle application plugin is not explicit",
@@ -3114,7 +3109,7 @@ impl CommandModel for Gradle {
             return;
         }
         let Some(main) = gradle_main_class(&manifest) else {
-            unresolved(builder, model_node, "Gradle main class is not explicit");
+            unresolved_build_target(builder, model_node, "Gradle main class is not explicit");
             return;
         };
         let manifest_dir = crate::paths::parent_dir(&manifest_origin);
@@ -3230,7 +3225,7 @@ fn gradle_application_plugin(source: &str) -> bool {
     })
 }
 
-fn unquote(value: &str) -> String {
+fn unquote_or_verbatim(value: &str) -> String {
     unquote_exact(value).unwrap_or_else(|| value.to_string())
 }
 

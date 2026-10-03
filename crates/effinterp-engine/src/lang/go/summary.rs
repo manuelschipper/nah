@@ -1,6 +1,25 @@
 //! Go callable discovery and module summary inference.
 
-use super::*;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+use effinterp_proto::ResourceExpr;
+use gosyn::ast::{BlockStmt, DeclStmt, Declaration, Element, Expression, File, FuncLit, Statement};
+use gosyn::token::Operator;
+
+use crate::builder::PlanBuilder;
+use crate::control_flow::{ControlCaps, ControlExit, ControlFact, ControlFlow, SiteFacts};
+use crate::lang::frontend::MAX_WALK_DEPTH;
+use crate::limits::DEFAULT_MAX_GO_NODES;
+use crate::module_summary::{
+    CallEdge, ClassEntry, DispatchContract, DispatchSignature, FunctionEntry, ImportBinding,
+    ModuleSummary, StructField,
+};
+use crate::summary::Summary;
+use crate::value::unresolved_resource;
+use crate::{ScopeKey, SemanticValue, TypeRef, join_branches};
+
+use super::model::string_of;
+use super::{GoSummaryCapture, GoWalker, MAX_SUMMARY_ITERS, Out, PackageValues, control};
 
 pub(super) fn summarize_ast(
     source: &str,
@@ -167,7 +186,7 @@ pub(super) fn summarize_ast(
 // Imports and function collection
 
 /// local package name -> import path (e.g. "exec" -> "os/exec").
-pub(super) type Imports = HashMap<String, String>;
+pub(super) type GoImports = HashMap<String, String>;
 
 #[derive(Clone)]
 pub(super) struct GoFunc {
@@ -203,7 +222,7 @@ pub(super) fn is_str_lit(lit: &gosyn::ast::BasicLit) -> bool {
     lit.value.starts_with('"') || lit.value.starts_with('`')
 }
 
-pub(super) fn unquote(raw: &str) -> String {
+pub(super) fn unquote_go_string(raw: &str) -> String {
     let s = raw.trim();
     if let Some(inner) = s.strip_prefix('`').and_then(|r| r.strip_suffix('`')) {
         return inner.to_string();
@@ -218,10 +237,10 @@ pub(super) fn unquote(raw: &str) -> String {
     s.to_string()
 }
 
-pub(super) fn collect_imports(file: &File) -> Imports {
+pub(super) fn collect_imports(file: &File) -> GoImports {
     let mut out = HashMap::new();
     for imp in &file.imports {
-        let path = unquote(&imp.path.value);
+        let path = unquote_go_string(&imp.path.value);
         let local = match &imp.name {
             Some(id) => id.name.clone(),
             None => {
@@ -868,7 +887,7 @@ fn collect_classes(file: &File) -> Vec<ClassEntry> {
 }
 
 fn struct_tag_keys(raw: &str) -> Vec<String> {
-    let tag = unquote(raw);
+    let tag = unquote_go_string(raw);
     let bytes = tag.as_bytes();
     let mut keys = Vec::new();
     let mut index = 0;
@@ -912,7 +931,7 @@ pub(super) fn declared_type_names(file: &File) -> HashSet<String> {
 }
 
 pub(super) fn named_type_ref(
-    imports: &Imports,
+    imports: &GoImports,
     repo_types: &HashSet<String>,
     fact_file: &str,
     typ: &str,
@@ -931,7 +950,7 @@ pub(super) fn named_type_ref(
 
 pub(super) fn go_dispatch_contracts(
     file: &File,
-    imports: &Imports,
+    imports: &GoImports,
     package: &str,
 ) -> Vec<DispatchContract> {
     let mut contracts = Vec::new();
@@ -981,7 +1000,7 @@ pub(super) fn go_dispatch_contracts(
 
 fn go_dispatch_signatures(
     file: &File,
-    imports: &Imports,
+    imports: &GoImports,
     package: &str,
 ) -> HashMap<String, DispatchSignature> {
     let mut signatures = HashMap::new();
@@ -1010,7 +1029,7 @@ fn go_dispatch_signatures(
 
 fn go_return_types(
     file: &File,
-    imports: &Imports,
+    imports: &GoImports,
     package: &str,
     fact_file: &str,
 ) -> HashMap<String, Vec<Option<TypeRef>>> {
@@ -1069,7 +1088,7 @@ fn go_return_types(
 
 fn go_dispatch_signature(
     function: &gosyn::ast::FuncType,
-    imports: &Imports,
+    imports: &GoImports,
     package: &str,
 ) -> Option<DispatchSignature> {
     Some(DispatchSignature {
@@ -1080,7 +1099,7 @@ fn go_dispatch_signature(
 
 fn go_signature_fields(
     fields: &gosyn::ast::FieldList,
-    imports: &Imports,
+    imports: &GoImports,
     package: &str,
 ) -> Option<Vec<String>> {
     let mut out = Vec::new();
@@ -1093,7 +1112,7 @@ fn go_signature_fields(
     Some(out)
 }
 
-fn go_signature_type(expr: &Expression, imports: &Imports, package: &str) -> Option<String> {
+fn go_signature_type(expr: &Expression, imports: &GoImports, package: &str) -> Option<String> {
     match expr {
         Expression::Ident(ident) => Some(match ident.name.as_str() {
             "any" => "interface{}".to_string(),
@@ -1186,7 +1205,7 @@ fn go_signature_type(expr: &Expression, imports: &Imports, package: &str) -> Opt
 
 fn go_dispatch_type_aliases(
     file: &File,
-    imports: &Imports,
+    imports: &GoImports,
     package: &str,
 ) -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -1207,7 +1226,7 @@ fn go_dispatch_type_aliases(
     out
 }
 
-fn go_signature_constant(expr: &Expression, imports: &Imports, package: &str) -> Option<String> {
+fn go_signature_constant(expr: &Expression, imports: &GoImports, package: &str) -> Option<String> {
     match expr {
         Expression::BasicLit(literal) => Some(literal.value.clone()),
         Expression::Ident(_) | Expression::Selector(_) => go_signature_type(expr, imports, package),
@@ -1321,38 +1340,38 @@ pub(super) fn returns_instances(body: &BlockStmt) -> Vec<Option<String>> {
 /// Per-return-tuple-index local name when every return agrees.
 fn return_bindings(body: &BlockStmt) -> Vec<Option<String>> {
     #[derive(Clone)]
-    enum Binding {
+    enum ReturnBinding {
         Unseen,
         Named(String),
         Ambiguous,
     }
 
-    fn visit(block: &BlockStmt, merged: &mut Option<Vec<Binding>>) {
+    fn visit(block: &BlockStmt, merged: &mut Option<Vec<ReturnBinding>>) {
         for stmt in &block.list {
             visit_stmt(stmt, merged);
         }
     }
-    fn visit_stmt(stmt: &Statement, merged: &mut Option<Vec<Binding>>) {
+    fn visit_stmt(stmt: &Statement, merged: &mut Option<Vec<ReturnBinding>>) {
         match stmt {
             Statement::Return(r) => {
-                let prev = merged.get_or_insert_with(|| vec![Binding::Unseen; r.ret.len()]);
+                let prev = merged.get_or_insert_with(|| vec![ReturnBinding::Unseen; r.ret.len()]);
                 if prev.len() != r.ret.len() {
                     prev.clear();
                     return;
                 }
                 for (old, expr) in prev.iter_mut().zip(&r.ret) {
                     let Expression::Ident(id) = expr else {
-                        *old = Binding::Ambiguous;
+                        *old = ReturnBinding::Ambiguous;
                         continue;
                     };
                     if id.name == "nil" {
                         continue;
                     }
                     match old {
-                        Binding::Unseen => *old = Binding::Named(id.name.clone()),
-                        Binding::Named(name) if *name == id.name => {}
-                        Binding::Named(_) | Binding::Ambiguous => {
-                            *old = Binding::Ambiguous;
+                        ReturnBinding::Unseen => *old = ReturnBinding::Named(id.name.clone()),
+                        ReturnBinding::Named(name) if *name == id.name => {}
+                        ReturnBinding::Named(_) | ReturnBinding::Ambiguous => {
+                            *old = ReturnBinding::Ambiguous;
                         }
                     }
                 }
@@ -1383,8 +1402,8 @@ fn return_bindings(body: &BlockStmt) -> Vec<Option<String>> {
         .unwrap_or_default()
         .into_iter()
         .map(|binding| match binding {
-            Binding::Named(name) => Some(name),
-            Binding::Unseen | Binding::Ambiguous => None,
+            ReturnBinding::Named(name) => Some(name),
+            ReturnBinding::Unseen | ReturnBinding::Ambiguous => None,
         })
         .collect();
     if result.iter().all(Option::is_none) {
@@ -1394,7 +1413,7 @@ fn return_bindings(body: &BlockStmt) -> Vec<Option<String>> {
     }
 }
 
-fn extract_import_bindings(imports: &Imports) -> Vec<ImportBinding> {
+fn extract_import_bindings(imports: &GoImports) -> Vec<ImportBinding> {
     imports
         .iter()
         .map(|(local, path)| ImportBinding {
@@ -1411,7 +1430,7 @@ fn extract_import_bindings(imports: &Imports) -> Vec<ImportBinding> {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compute_summaries(
     source: &str,
-    imports: &Imports,
+    imports: &GoImports,
     funcs: &HashMap<String, GoFunc>,
     dispatch_contracts: &[DispatchContract],
     package_file: Option<&File>,
@@ -1435,8 +1454,8 @@ pub(super) fn compute_summaries(
                 .iter()
                 .map(|p| (p.clone(), ResourceExpr::Parameter { name: p.clone() }))
                 .collect();
-            let mut cap = Capture::default();
-            let mut w = Walker {
+            let mut cap = GoSummaryCapture::default();
+            let mut w = GoWalker {
                 value_limits,
                 source,
                 condition_source: &condition_source,
@@ -1480,14 +1499,7 @@ pub(super) fn compute_summaries(
                 channel_values: f
                     .params
                     .iter()
-                    .map(|name| {
-                        (
-                            name.clone(),
-                            ResourceExpr::Unresolved {
-                                family: ResourceFamily::new("filesystem"),
-                            },
-                        )
-                    })
+                    .map(|name| (name.clone(), unresolved_resource("filesystem")))
                     .collect(),
                 resource_values: HashMap::new(),
                 values: f
@@ -1538,7 +1550,7 @@ pub(super) fn compute_summaries(
 #[allow(clippy::too_many_arguments)]
 fn collect_call_edges(
     source: &str,
-    imports: &Imports,
+    imports: &GoImports,
     funcs: &HashMap<String, GoFunc>,
     summaries: &HashMap<String, Summary>,
     func: &GoFunc,
@@ -1554,9 +1566,9 @@ fn collect_call_edges(
         .iter()
         .map(|p| (p.clone(), ResourceExpr::Parameter { name: p.clone() }))
         .collect();
-    let mut cap = Capture::default();
+    let mut cap = GoSummaryCapture::default();
     let condition_source = effinterp_proto::ConditionSource::new(source);
-    let mut w = Walker {
+    let mut w = GoWalker {
         value_limits,
         source,
         condition_source: &condition_source,
@@ -1598,14 +1610,7 @@ fn collect_call_edges(
         channel_values: func
             .params
             .iter()
-            .map(|name| {
-                (
-                    name.clone(),
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("filesystem"),
-                    },
-                )
-            })
+            .map(|name| (name.clone(), unresolved_resource("filesystem")))
             .collect(),
         resource_values: HashMap::new(),
         values: func
@@ -1633,21 +1638,21 @@ fn collect_call_edges(
 #[allow(clippy::too_many_arguments)]
 fn collect_package_initializers(
     source: &str,
-    imports: &Imports,
+    imports: &GoImports,
     funcs: &HashMap<String, GoFunc>,
     summaries: &HashMap<String, Summary>,
     file: &File,
     fact_file: &str,
     fact_scope: &ScopeKey,
     value_limits: crate::ValueLimits,
-) -> (Capture, BTreeMap<String, SemanticValue>) {
+) -> (GoSummaryCapture, BTreeMap<String, SemanticValue>) {
     let _walk = crate::limits::summary_walk();
-    let mut cap = Capture::default();
+    let mut cap = GoSummaryCapture::default();
     let limits = crate::AnalysisLimits::default();
     let imported: Vec<_> = file
         .imports
         .iter()
-        .filter(|import| !crate::external::is_go_stdlib(&unquote(&import.path.value)))
+        .filter(|import| !crate::external::is_go_stdlib(&unquote_go_string(&import.path.value)))
         .collect();
     let import_spans: Vec<_> = imported
         .iter()
@@ -1677,14 +1682,14 @@ fn collect_package_initializers(
             control::import_span(import),
             SiteFacts {
                 exit: Some(ControlExit::Import {
-                    module: unquote(&import.path.value),
+                    module: unquote_go_string(&import.path.value),
                 }),
                 ..SiteFacts::known(Vec::new())
             },
         );
     }
     let condition_source = effinterp_proto::ConditionSource::new(source);
-    let mut w = Walker {
+    let mut w = GoWalker {
         value_limits,
         source,
         condition_source: &condition_source,
@@ -3037,7 +3042,7 @@ pub(super) fn struct_field_types(file: &File) -> HashMap<String, String> {
 /// Cobra command literals register callbacks even when this file never executes the command.
 pub(super) fn cobra_registrations(
     file: &File,
-    imports: &Imports,
+    imports: &GoImports,
     funcs: &mut HashMap<String, GoFunc>,
     fact_file: &str,
     max_bytes: u64,
@@ -3047,7 +3052,7 @@ pub(super) fn cobra_registrations(
     Option<&'static str>,
 ) {
     let mut bytes_left = max_bytes;
-    enum Node<'a> {
+    enum CobraScanNode<'a> {
         Expr(&'a Expression),
         Stmt(&'a Statement),
         Block(&'a BlockStmt),
@@ -3059,12 +3064,12 @@ pub(super) fn cobra_registrations(
         match declaration {
             Declaration::Variable(declaration) => {
                 for spec in &declaration.specs {
-                    stack.extend(spec.values.iter().map(Node::Expr));
+                    stack.extend(spec.values.iter().map(CobraScanNode::Expr));
                 }
             }
             Declaration::Function(function) => {
                 if let Some(body) = &function.body {
-                    stack.push(Node::Block(body));
+                    stack.push(CobraScanNode::Block(body));
                 }
             }
             _ => {}
@@ -3076,7 +3081,7 @@ pub(super) fn cobra_registrations(
     let mut roots = BTreeSet::new();
     while let Some(node) = stack.pop() {
         match node {
-            Node::Block(block) => {
+            CobraScanNode::Block(block) => {
                 for statement in block.list.iter().rev() {
                     let bindings: Vec<&gosyn::ast::Ident> = match statement {
                         Statement::Assign(assign) if assign.op == Operator::Define => assign
@@ -3104,28 +3109,30 @@ pub(super) fn cobra_registrations(
                     };
                     for binding in bindings {
                         if imports.contains_key(&binding.name) {
-                            stack.push(Node::Shadow(binding, block.pos.1));
+                            stack.push(CobraScanNode::Shadow(binding, block.pos.1));
                         }
                     }
-                    stack.push(Node::Stmt(statement));
+                    stack.push(CobraScanNode::Stmt(statement));
                 }
             }
-            Node::Shadow(binding, end) => shadowed.push((binding.name.clone(), binding.pos, end)),
-            Node::Literal(literal) => {
+            CobraScanNode::Shadow(binding, end) => {
+                shadowed.push((binding.name.clone(), binding.pos, end))
+            }
+            CobraScanNode::Literal(literal) => {
                 for field in &literal.values {
                     if let Some(key) = &field.key {
                         match key {
-                            Element::Expr(expr) => stack.push(Node::Expr(expr)),
-                            Element::LitValue(value) => stack.push(Node::Literal(value)),
+                            Element::Expr(expr) => stack.push(CobraScanNode::Expr(expr)),
+                            Element::LitValue(value) => stack.push(CobraScanNode::Literal(value)),
                         }
                     }
                     match &field.val {
-                        Element::Expr(expr) => stack.push(Node::Expr(expr)),
-                        Element::LitValue(value) => stack.push(Node::Literal(value)),
+                        Element::Expr(expr) => stack.push(CobraScanNode::Expr(expr)),
+                        Element::LitValue(value) => stack.push(CobraScanNode::Literal(value)),
                     }
                 }
             }
-            Node::Expr(expr) => match expr {
+            CobraScanNode::Expr(expr) => match expr {
                 Expression::CompositeLit(literal) => {
                     if let Some(typ) = constructed_class(expr)
                         && let Some((pkg, "Command")) = typ.split_once('.')
@@ -3241,110 +3248,120 @@ pub(super) fn cobra_registrations(
                             registrations.push(registration);
                         }
                     }
-                    stack.push(Node::Literal(&literal.val));
+                    stack.push(CobraScanNode::Literal(&literal.val));
                 }
-                Expression::FuncLit(literal) => stack.push(Node::Block(&literal.body)),
+                Expression::FuncLit(literal) => stack.push(CobraScanNode::Block(&literal.body)),
                 Expression::Call(call) => {
-                    stack.push(Node::Expr(&call.func));
-                    stack.extend(call.args.iter().map(Node::Expr));
+                    stack.push(CobraScanNode::Expr(&call.func));
+                    stack.extend(call.args.iter().map(CobraScanNode::Expr));
                 }
-                Expression::Paren(paren) => stack.push(Node::Expr(&paren.expr)),
+                Expression::Paren(paren) => stack.push(CobraScanNode::Expr(&paren.expr)),
                 Expression::Operation(operation) => {
-                    stack.push(Node::Expr(&operation.x));
+                    stack.push(CobraScanNode::Expr(&operation.x));
                     if let Some(right) = &operation.y {
-                        stack.push(Node::Expr(right));
+                        stack.push(CobraScanNode::Expr(right));
                     }
                 }
-                Expression::Star(star) => stack.push(Node::Expr(&star.right)),
-                Expression::Selector(selector) => stack.push(Node::Expr(&selector.x)),
+                Expression::Star(star) => stack.push(CobraScanNode::Expr(&star.right)),
+                Expression::Selector(selector) => stack.push(CobraScanNode::Expr(&selector.x)),
                 Expression::Index(index) => {
-                    stack.push(Node::Expr(&index.left));
-                    stack.push(Node::Expr(&index.index));
+                    stack.push(CobraScanNode::Expr(&index.left));
+                    stack.push(CobraScanNode::Expr(&index.index));
                 }
                 Expression::IndexList(index) => {
-                    stack.push(Node::Expr(&index.left));
-                    stack.extend(index.indices.iter().map(Node::Expr));
+                    stack.push(CobraScanNode::Expr(&index.left));
+                    stack.extend(index.indices.iter().map(CobraScanNode::Expr));
                 }
                 Expression::Slice(slice) => {
-                    stack.push(Node::Expr(&slice.left));
-                    stack.extend(slice.index.iter().flatten().map(|index| Node::Expr(index)));
+                    stack.push(CobraScanNode::Expr(&slice.left));
+                    stack.extend(
+                        slice
+                            .index
+                            .iter()
+                            .flatten()
+                            .map(|index| CobraScanNode::Expr(index)),
+                    );
                 }
-                Expression::TypeAssert(assertion) => stack.push(Node::Expr(&assertion.left)),
-                Expression::List(list) => stack.extend(list.iter().map(Node::Expr)),
+                Expression::TypeAssert(assertion) => {
+                    stack.push(CobraScanNode::Expr(&assertion.left))
+                }
+                Expression::List(list) => stack.extend(list.iter().map(CobraScanNode::Expr)),
                 _ => {}
             },
-            Node::Stmt(stmt) => match stmt {
-                Statement::Assign(assign) => stack.extend(assign.right.iter().map(Node::Expr)),
+            CobraScanNode::Stmt(stmt) => match stmt {
+                Statement::Assign(assign) => {
+                    stack.extend(assign.right.iter().map(CobraScanNode::Expr))
+                }
                 Statement::Declaration(DeclStmt::Variable(declaration)) => {
                     for spec in &declaration.specs {
-                        stack.extend(spec.values.iter().map(Node::Expr));
+                        stack.extend(spec.values.iter().map(CobraScanNode::Expr));
                     }
                 }
-                Statement::Expr(expr) => stack.push(Node::Expr(&expr.expr)),
-                Statement::Return(ret) => stack.extend(ret.ret.iter().map(Node::Expr)),
-                Statement::Block(block) => stack.push(Node::Block(block)),
+                Statement::Expr(expr) => stack.push(CobraScanNode::Expr(&expr.expr)),
+                Statement::Return(ret) => stack.extend(ret.ret.iter().map(CobraScanNode::Expr)),
+                Statement::Block(block) => stack.push(CobraScanNode::Block(block)),
                 Statement::If(branch) => {
-                    stack.push(Node::Block(&branch.body));
-                    stack.push(Node::Expr(&branch.cond));
+                    stack.push(CobraScanNode::Block(&branch.body));
+                    stack.push(CobraScanNode::Expr(&branch.cond));
                     if let Some(init) = &branch.init {
-                        stack.push(Node::Stmt(init));
+                        stack.push(CobraScanNode::Stmt(init));
                     }
                     if let Some(other) = &branch.else_ {
-                        stack.push(Node::Stmt(other));
+                        stack.push(CobraScanNode::Stmt(other));
                     }
                 }
                 Statement::For(loop_) => {
-                    stack.push(Node::Block(&loop_.body));
+                    stack.push(CobraScanNode::Block(&loop_.body));
                     for part in [&loop_.init, &loop_.cond, &loop_.post]
                         .into_iter()
                         .flatten()
                     {
-                        stack.push(Node::Stmt(part));
+                        stack.push(CobraScanNode::Stmt(part));
                     }
                 }
                 Statement::Range(loop_) => {
-                    stack.push(Node::Block(&loop_.body));
-                    stack.push(Node::Expr(&loop_.expr));
+                    stack.push(CobraScanNode::Block(&loop_.body));
+                    stack.push(CobraScanNode::Expr(&loop_.expr));
                 }
                 Statement::Go(go) => {
-                    stack.push(Node::Expr(&go.call.func));
-                    stack.extend(go.call.args.iter().map(Node::Expr));
+                    stack.push(CobraScanNode::Expr(&go.call.func));
+                    stack.extend(go.call.args.iter().map(CobraScanNode::Expr));
                 }
                 Statement::Defer(defer) => {
-                    stack.push(Node::Expr(&defer.call.func));
-                    stack.extend(defer.call.args.iter().map(Node::Expr));
+                    stack.push(CobraScanNode::Expr(&defer.call.func));
+                    stack.extend(defer.call.args.iter().map(CobraScanNode::Expr));
                 }
-                Statement::Label(label) => stack.push(Node::Stmt(&label.stmt)),
+                Statement::Label(label) => stack.push(CobraScanNode::Stmt(&label.stmt)),
                 Statement::Select(select) => {
                     for clause in &select.body.body {
                         if let Some(comm) = &clause.comm {
-                            stack.push(Node::Stmt(comm));
+                            stack.push(CobraScanNode::Stmt(comm));
                         }
-                        stack.extend(clause.body.iter().map(Node::Stmt));
+                        stack.extend(clause.body.iter().map(CobraScanNode::Stmt));
                     }
                 }
                 Statement::TypeSwitch(switch) => {
                     for part in [&switch.init, &switch.tag].into_iter().flatten() {
-                        stack.push(Node::Stmt(part));
+                        stack.push(CobraScanNode::Stmt(part));
                     }
                     for clause in &switch.block.body {
-                        stack.extend(clause.body.iter().map(Node::Stmt));
+                        stack.extend(clause.body.iter().map(CobraScanNode::Stmt));
                     }
                 }
                 Statement::Send(send) => {
-                    stack.push(Node::Expr(&send.chan));
-                    stack.push(Node::Expr(&send.value));
+                    stack.push(CobraScanNode::Expr(&send.chan));
+                    stack.push(CobraScanNode::Expr(&send.value));
                 }
                 Statement::Switch(switch) => {
                     if let Some(init) = &switch.init {
-                        stack.push(Node::Stmt(init));
+                        stack.push(CobraScanNode::Stmt(init));
                     }
                     if let Some(tag) = &switch.tag {
-                        stack.push(Node::Expr(tag));
+                        stack.push(CobraScanNode::Expr(tag));
                     }
                     for clause in &switch.block.body {
-                        stack.extend(clause.list.iter().map(Node::Expr));
-                        stack.extend(clause.body.iter().map(Node::Stmt));
+                        stack.extend(clause.list.iter().map(CobraScanNode::Expr));
+                        stack.extend(clause.body.iter().map(CobraScanNode::Stmt));
                     }
                 }
                 _ => {}

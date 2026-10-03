@@ -8,9 +8,14 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::adapter_fields::runtime_field_names_covered;
+use crate::adapter_fields::{
+    runtime_field_names_covered, tool_input_non_empty_string, tool_input_optional_bool,
+    tool_input_string,
+};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
+
+const INVALID_AMP_TOOL_INPUT: &str = "invalid-amp-tool-input";
 
 #[derive(Deserialize)]
 struct AmpHookInput {
@@ -28,7 +33,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
 ) -> u8 {
     let request = serde_json::from_reader::<_, AmpHookInput>(stdin)
         .map_err(|error| error.to_string())
-        .and_then(normalize);
+        .and_then(normalize_amp_hook_input);
     let output = match request {
         Ok(request) => {
             match hook_adapter::decide_input(request, stderr, Runtime::Amp, failure_policy) {
@@ -43,34 +48,27 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     json!({"block": false, "evaluation_failed": decision.evaluation_failed()})
                 }
                 HookOutcome::IrrelevantEvent => return 0,
-                HookOutcome::MalformedInput => unavailable(
+                HookOutcome::MalformedInput => hook_adapter::unavailable_plugin_reply(
                     failure_policy,
+                    Runtime::Amp,
                     hook_adapter::IntegrationUnavailable::MalformedInput,
                 )
-                .unwrap_or_else(|| delegated(false)),
+                .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
                 HookOutcome::EvaluationUnavailable(kind) => {
-                    { unavailable(failure_policy, kind) }.unwrap_or_else(|| delegated(true))
+                    { hook_adapter::unavailable_plugin_reply(failure_policy, Runtime::Amp, kind) }
+                        .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(true))
                 }
             }
         }
-        Err(_) => unavailable(
+        Err(_) => hook_adapter::unavailable_plugin_reply(
             failure_policy,
+            Runtime::Amp,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
-        .unwrap_or_else(|| delegated(false)),
+        .unwrap_or_else(|| hook_adapter::delegated_plugin_reply(false)),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
-}
-
-fn unavailable(
-    failure_policy: FailurePolicy,
-    unavailable: hook_adapter::IntegrationUnavailable,
-) -> Option<Value> {
-    hook_adapter::unavailable_feedback(failure_policy, Runtime::Amp, unavailable).map(
-        |reason| json!({"block":true,"reason":format!("nah - {reason}"),"evaluation_failed":true}),
-    )
 }
 
 /// The tool call `run` hands the pipeline for this Amp tool call.
@@ -79,7 +77,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize(AmpHookInput {
+    normalize_amp_hook_input(AmpHookInput {
         tool_name: tool_name.into(),
         tool_input,
         cwd: cwd.into(),
@@ -87,13 +85,13 @@ pub(crate) fn normalize_call(
     })
 }
 
-fn normalize(input: AmpHookInput) -> Result<ToolCallInput, String> {
+fn normalize_amp_hook_input(input: AmpHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_input.clone();
     let lowered = input
         .tool_input
         .as_object()
-        .ok_or_else(|| "invalid-amp-tool-input".to_owned())
-        .and_then(|object| lower(&input.tool_name, &input.tool_input, object));
+        .ok_or_else(|| INVALID_AMP_TOOL_INPUT.to_owned())
+        .and_then(|object| lower_amp_tool(&input.tool_name, &input.tool_input, object));
     let (tool, tool_input, normalization_complete) = match lowered {
         Ok((tool, tool_input)) => (
             tool,
@@ -113,75 +111,50 @@ fn normalize(input: AmpHookInput) -> Result<ToolCallInput, String> {
     .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_amp_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     object: &Map<String, Value>,
 ) -> Result<(&'a str, Value), String> {
     Ok(match tool_name {
-        "shell_command" => ("Bash", json!({"command": string(object, "command")?})),
+        "shell_command" => (
+            "Bash",
+            json!({"command": tool_input_string(object, "command", INVALID_AMP_TOOL_INPUT)?}),
+        ),
         "apply_patch" => (
             "apply_patch",
-            json!({"command": non_empty(object, "patchText")?}),
+            json!({"command": tool_input_non_empty_string(object, "patchText", INVALID_AMP_TOOL_INPUT)?}),
         ),
         "create_file" => (
             "Write",
             json!({
-                "file_path": non_empty(object, "path")?,
-                "content": string(object, "content")?
+                "file_path": tool_input_non_empty_string(object, "path", INVALID_AMP_TOOL_INPUT)?,
+                "content": tool_input_string(object, "content", INVALID_AMP_TOOL_INPUT)?
             }),
         ),
         "edit_file" => {
             let mut normalized = json!({
-                "file_path": non_empty(object, "path")?,
-                "old_string": string(object, "old_str")?,
-                "new_string": string(object, "new_str")?
+                "file_path": tool_input_non_empty_string(object, "path", INVALID_AMP_TOOL_INPUT)?,
+                "old_string": tool_input_string(object, "old_str", INVALID_AMP_TOOL_INPUT)?,
+                "new_string": tool_input_string(object, "new_str", INVALID_AMP_TOOL_INPUT)?
             });
-            if let Some(replace_all) = optional_bool(object, "replace_all")? {
+            if let Some(replace_all) =
+                tool_input_optional_bool(object, "replace_all", INVALID_AMP_TOOL_INPUT)?
+            {
                 normalized["replace_all"] = json!(replace_all);
             }
             ("Edit", normalized)
         }
         "upload_thread_file" => (
             "AmpUpload",
-            json!({"file_path": non_empty(object, "path")?}),
+            json!({"file_path": tool_input_non_empty_string(object, "path", INVALID_AMP_TOOL_INPUT)?}),
         ),
         "download_thread_file" => (
             "AmpDownload",
-            json!({"file_path": non_empty(object, "destination")?}),
+            json!({"file_path": tool_input_non_empty_string(object, "destination", INVALID_AMP_TOOL_INPUT)?}),
         ),
         _ => (tool_name, tool_input.clone()),
     })
-}
-
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-amp-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    string(object, name).and_then(|value| {
-        if value.is_empty() {
-            Err("invalid-amp-tool-input".into())
-        } else {
-            Ok(value)
-        }
-    })
-}
-
-fn optional_bool(object: &Map<String, Value>, name: &str) -> Result<Option<bool>, String> {
-    match object.get(name) {
-        Some(Value::Bool(value)) => Ok(Some(*value)),
-        None => Ok(None),
-        Some(_) => Err("invalid-amp-tool-input".into()),
-    }
-}
-
-fn delegated(evaluation_failed: bool) -> Value {
-    json!({"block": false, "evaluation_failed": evaluation_failed})
 }
 
 #[cfg(test)]
@@ -189,7 +162,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(AmpHookInput {
+        normalize_amp_hook_input(AmpHookInput {
             tool_name: tool_name.into(),
             tool_input,
             cwd: "/repo".into(),
@@ -294,7 +267,7 @@ mod tests {
                 json!({"path":"/repo/file","old_str":"a","new_str":"b","replace_all":"yes"}),
             ),
         ] {
-            let call = normalize(AmpHookInput {
+            let call = normalize_amp_hook_input(AmpHookInput {
                 tool_name: name.into(),
                 tool_input: input.clone(),
                 cwd: "/repo".into(),

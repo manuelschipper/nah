@@ -5,7 +5,7 @@
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
     ExecutionInputReason, ExecutionInputRole, ExecutionPhase, ExecutionSelector, ProvenanceRef,
-    ResourceExpr, ResourceFamily, SourceDialect, Subject,
+    ResourceExpr, SourceDialect, Subject,
 };
 
 use crate::SourcePurpose;
@@ -20,6 +20,7 @@ use crate::models::{
     CommandModel, InvocationCtx, ModelBindingEnd, ModelCausalBinding, source_refusal_detail,
 };
 use crate::nest::SourceResolution;
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 /// Node runtime options that consume the next argument.
@@ -237,7 +238,7 @@ pub(crate) fn apply(
                 &[model_node, arg],
             );
         } else {
-            unavailable(builder, model_node, "node -e with non-literal source");
+            node_source_unavailable(builder, model_node, "node -e with non-literal source");
         }
         return;
     }
@@ -322,7 +323,7 @@ fn node_script(
         Default::default(),
     );
     let Some(path) = script.as_literal() else {
-        unavailable(builder, model_node, "node script target is dynamic");
+        node_source_unavailable(builder, model_node, "node script target is dynamic");
         return;
     };
     let resolved = ctx.resolve_source_operand(builder, path, SourcePurpose::InvocationInput);
@@ -351,15 +352,15 @@ fn node_script(
             if let Some(detail) =
                 source_refusal_detail(builder, refusal, "node script source is unavailable")
             {
-                unavailable(builder, model_node, &detail);
+                node_source_unavailable(builder, model_node, &detail);
             }
         }
         SourceResolution::UnsupportedEncoding => {
-            unavailable(builder, model_node, "node script source is not valid UTF-8")
+            node_source_unavailable(builder, model_node, "node script source is not valid UTF-8")
         }
         SourceResolution::AlreadySelected => (),
         SourceResolution::Unavailable => {
-            unavailable(builder, model_node, "node script source is unavailable")
+            node_source_unavailable(builder, model_node, "node script source is unavailable")
         }
     }
 }
@@ -458,7 +459,7 @@ pub(crate) fn bun_runtime_inputs(
                     &[model_node, arg],
                 );
             }
-            None => unavailable(builder, model_node, "bun -e with non-literal source"),
+            None => node_source_unavailable(builder, model_node, "bun -e with non-literal source"),
         }
         return;
     }
@@ -616,7 +617,7 @@ pub(crate) fn deno_runtime_inputs(
         source: main_source,
     } = resolved
     else {
-        unavailable(builder, model_node, "deno main source is unavailable");
+        node_source_unavailable(builder, model_node, "deno main source is unavailable");
         return;
     };
     if let SourceResolution::Source {
@@ -715,7 +716,7 @@ fn deno_eval(builder: &mut PlanBuilder, ctx: &InvocationCtx<'_>, model_node: Pro
         return;
     };
     let Some(code) = code.as_literal() else {
-        unavailable(builder, model_node, "deno eval with non-literal source");
+        node_source_unavailable(builder, model_node, "deno eval with non-literal source");
         return;
     };
     let arg = arg_node(builder, ctx, index as u32);
@@ -1030,17 +1031,17 @@ fn stdin_program(
             &provenance,
         );
     } else if ctx.stdin.is_some() {
-        unavailable(
+        node_source_unavailable(
             builder,
             model_node,
             "stdin program is not statically recoverable",
         );
     } else {
-        unavailable(builder, model_node, unavailable_detail);
+        node_source_unavailable(builder, model_node, unavailable_detail);
     }
 }
 
-fn unavailable(builder: &mut PlanBuilder, model_node: ProvenanceRef, detail: &str) {
+fn node_source_unavailable(builder: &mut PlanBuilder, model_node: ProvenanceRef, detail: &str) {
     const DOMAINS: [&str; 4] = ["environment", "filesystem", "network", "process"];
     for domain in DOMAINS {
         builder.declare_coverage(Domain::new(domain), CoverageLevel::Partial);
@@ -1276,12 +1277,9 @@ impl CommandModel for DenoRun {
                 let resource = ctx.argv[index]
                     .as_literal()
                     .and_then(crate::models::net::parse_endpoint)
-                    .map_or(
-                        ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("network"),
-                        },
-                        |identity| ResourceExpr::Concrete { identity },
-                    );
+                    .map_or(unresolved_resource("network"), |identity| {
+                        ResourceExpr::Concrete { identity }
+                    });
                 builder.effect(effinterp_proto::Effect {
                     request_assurance: conservative,
                     id: Default::default(),
@@ -1303,7 +1301,7 @@ impl CommandModel for DenoRun {
                     "file",
                     Default::default(),
                 );
-                unavailable(builder, model_node, "deno remote module is not analyzed");
+                node_source_unavailable(builder, model_node, "deno remote module is not analyzed");
             }
             DenoScript::Stdin => {
                 code_execution(
@@ -1315,7 +1313,7 @@ impl CommandModel for DenoRun {
                     "stdin",
                     Default::default(),
                 );
-                unavailable(
+                node_source_unavailable(
                     builder,
                     model_node,
                     "deno program from stdin is not analyzed",
@@ -1342,7 +1340,7 @@ impl CommandModel for DenoRun {
                     "filesystem.read",
                     Default::default(),
                 );
-                unavailable(
+                node_source_unavailable(
                     builder,
                     model_node,
                     "deno script written earlier in the call is not analyzed",

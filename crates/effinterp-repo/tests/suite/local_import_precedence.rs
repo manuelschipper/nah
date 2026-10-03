@@ -6,7 +6,7 @@
 //! local (already-inlined) def and never reaches the cross-file effect.
 #![allow(clippy::disallowed_methods)]
 
-use effinterp_repo::{IndexLimits, Selector, build_index, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 /// app.py has a module-level `def main` (a no-op local function) and, inside
@@ -31,7 +31,7 @@ fn function_local_import_shadows_same_file_def() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/z").unwrap(), None);
+    let report = reach(&idx, &ResourceSelector::parse("fs:/z").unwrap(), None);
 
     let hit = report
         .payload
@@ -72,7 +72,7 @@ fn bare_local_call_without_shadowing_import_stays_local() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/z").unwrap(), None);
+    let report = reach(&idx, &ResourceSelector::parse("fs:/z").unwrap(), None);
 
     assert!(
         !report.payload.as_reach().unwrap().matches.iter().any(|h| {

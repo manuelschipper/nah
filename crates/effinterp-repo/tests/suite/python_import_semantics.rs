@@ -10,31 +10,9 @@ use std::path::Path;
 use effinterp_repo::{IndexLimits, build_index, effects_of};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
-/// The deletes on the entry's merged surface, as (resource, origin) pairs.
-fn deletes(root: &Path, entry: &str) -> Vec<(String, String)> {
-    let idx = build_index(root, IndexLimits::default());
-    let report = effects_of(&idx, entry)
-        .expect("entry analyzed")
-        .payload
-        .into_effects()
-        .unwrap();
-    report
-        .effects
-        .iter()
-        .filter(|e| e.operation.as_str() == "filesystem.delete")
-        .map(|e| {
-            (
-                effinterp_proto::display_resource_with_scope(&e.resource),
-                e.origin
-                    .as_ref()
-                    .expect("effect origin")
-                    .source_file
-                    .clone(),
-            )
-        })
-        .collect()
-}
+use crate::support::deletes;
 
+/// The deletes on the entry's merged surface, as (resource, origin) pairs.
 const WIPE_LIB: &str = "import shutil\ndef wipe(p):\n    shutil.rmtree(p)\n";
 
 /// `from pkg import name` where `name` is defined in `pkg/__init__.py` itself.

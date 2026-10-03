@@ -43,12 +43,13 @@ mod model;
 use crate::lang::frontend::{
     Frontend, FrontendInput, MAX_CALLBACK_VALUES, ParseFailure, ParseOutcome, WalkOutcome,
 };
+use crate::lang::tree_sitter_nodes::node_span;
+use crate::value::{fs_path_resource, unresolved_resource};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain, Effect,
-    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity, Subject,
+    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity, Subject,
 };
 use tree_sitter::Node;
 
@@ -62,8 +63,9 @@ use crate::module_summary::{
 use crate::nest::{Nest, SourceResolution, Transition};
 use crate::paths::{fs_resource_uses_cwd, join_file, parent_dir};
 use crate::resource_transfer::TransferBinding;
-use crate::summary::{Summary, bind_positional, has_text_concat, substitute_resource_expr};
-use crate::value::parse_url_endpoint;
+use crate::summary::{
+    Summary, bind_positional, contains_unresolved, has_text_concat, substitute_resource_expr,
+};
 use crate::{
     ObjectIdentity, SemanticValue, SemanticValueKind, SourcePurpose, SourceRefusal, ValueArgument,
     merge_arguments, positional_arguments,
@@ -351,7 +353,7 @@ fn file_ctx(root: Node, src: &str) -> FileCtx {
                     ctx.consts
                         .entry(owner.clone())
                         .or_default()
-                        .insert(text(name, src).to_string(), fs_path(&value));
+                        .insert(text(name, src).to_string(), fs_path_resource(&value));
                 } else {
                     ctx.top_consts.insert(text(name, src).to_string(), value);
                 }
@@ -381,7 +383,7 @@ fn file_ctx(root: Node, src: &str) -> FileCtx {
                 ctx.static_props
                     .entry(owner.clone())
                     .or_default()
-                    .insert(text(name, src).to_string(), fs_path(&value));
+                    .insert(text(name, src).to_string(), fs_path_resource(&value));
             }
         }
         let mut cursor = node.walk();
@@ -520,7 +522,7 @@ impl Frontend for PhpFrontend<'_> {
         builder.control_enter(source, false, |graph| {
             control::build(graph, &children, source)
         });
-        let mut w = Walker {
+        let mut w = PhpWalker {
             control_applications: Vec::new(),
             builder,
             nest,
@@ -780,7 +782,7 @@ fn run_class_method(
     inc.dispatch_stack.push(key);
     let functions = collect_functions(root, source);
     let runtime_cwd_resource = builder.current_execution_cwd();
-    let mut w = Walker {
+    let mut w = PhpWalker {
         control_applications: Vec::new(),
         builder,
         nest,
@@ -902,7 +904,7 @@ fn find_method_in<'a>(
     None
 }
 
-struct Walker<'a, 'b> {
+struct PhpWalker<'a, 'b> {
     builder: &'b mut PlanBuilder,
     nest: &'b Nest<'b>,
     src: &'a str,
@@ -963,7 +965,7 @@ struct Walker<'a, 'b> {
     >,
     /// Capture sites whose output a local may hold, each with whether the
     /// local holds those bytes verbatim.
-    capture_locals: HashMap<String, Vec<HeldCapture>>,
+    capture_locals: HashMap<String, Vec<PhpHeldCapture>>,
     /// Locals whose last definite assignment was a literal, with its PHP
     /// truth value, so `print_r`'s return mode can be read from them.
     truth_locals: HashMap<String, bool>,
@@ -972,7 +974,7 @@ struct Walker<'a, 'b> {
     globals_written: bool,
     /// Inside a call, the top-level scope's value facts as the outermost call
     /// began, which a `global` declaration binds to.
-    global_facts: Option<ValueFacts>,
+    global_facts: Option<PhpValueFacts>,
 }
 
 /// How the walker evaluated a call, for its control-flow site.
@@ -988,7 +990,7 @@ enum PhpCall {
     Opaque,
 }
 
-impl<'a, 'b> Walker<'a, 'b> {
+impl<'a, 'b> PhpWalker<'a, 'b> {
     /// Evaluate a call-like construct and register what it establishes.
     fn control_call(&mut self, n: Node<'a>, run: impl FnOnce(&mut Self) -> PhpCall) {
         let since = self.builder.control_registered();
@@ -1006,7 +1008,7 @@ impl<'a, 'b> Walker<'a, 'b> {
             _ => SiteFacts::unknown(),
         };
         self.builder
-            .control_site_since(self.src, false, control::span(n), since, facts);
+            .control_site_since(self.src, false, node_span(n), since, facts);
     }
 
     /// A construct whose own modeled occurrences are all it reaches.
@@ -1702,7 +1704,7 @@ impl<'a, 'b> Walker<'a, 'b> {
         let mut value = if supported {
             self.resolve_argument(right, env)
         } else {
-            unresolved_fs()
+            unresolved_resource("filesystem")
         };
         if guarded
             && self
@@ -1711,7 +1713,7 @@ impl<'a, 'b> Walker<'a, 'b> {
                 .or_else(|| env.get(&var))
                 .is_some_and(|current| current != &value)
         {
-            value = unresolved_fs();
+            value = unresolved_resource("filesystem");
         }
         self.store_local(&var, value, guarded);
         if !guarded {
@@ -1803,7 +1805,7 @@ impl<'a, 'b> Walker<'a, 'b> {
             return;
         };
         if text(operator, self.src) != ".=" {
-            self.store_local(&name, unresolved_fs(), false);
+            self.store_local(&name, unresolved_resource("filesystem"), false);
             return;
         }
         let old = self
@@ -1811,7 +1813,7 @@ impl<'a, 'b> Walker<'a, 'b> {
             .get(&name)
             .cloned()
             .or_else(|| env.get(&name).cloned())
-            .unwrap_or_else(unresolved_fs);
+            .unwrap_or_else(|| unresolved_resource("filesystem"));
         let guarded = guarded_assignment(n, self.src);
         let mut value = text_concat(vec![old, self.resolve_argument(right, env)]);
         if guarded
@@ -1821,7 +1823,7 @@ impl<'a, 'b> Walker<'a, 'b> {
                 .or_else(|| env.get(&name))
                 .is_some_and(|current| current != &value)
         {
-            value = unresolved_fs();
+            value = unresolved_resource("filesystem");
         }
         self.store_local(&name, value, guarded);
     }
@@ -1832,7 +1834,11 @@ impl<'a, 'b> Walker<'a, 'b> {
             if node.kind() == "variable_name"
                 && let Some(name) = child_kind(node, "name")
             {
-                self.store_local(text(name, self.src), unresolved_fs(), false);
+                self.store_local(
+                    text(name, self.src),
+                    unresolved_resource("filesystem"),
+                    false,
+                );
                 continue;
             }
             let mut cursor = node.walk();
@@ -1847,7 +1853,8 @@ impl<'a, 'b> Walker<'a, 'b> {
                 .get(name)
                 .is_some_and(|current| current != &value);
         if conflict || contains_unresolved(&value) {
-            self.locals.insert(name.to_string(), unresolved_fs());
+            self.locals
+                .insert(name.to_string(), unresolved_resource("filesystem"));
             self.poisoned.insert(name.to_string());
         } else {
             self.locals.insert(name.to_string(), value);
@@ -1859,7 +1866,7 @@ impl<'a, 'b> Walker<'a, 'b> {
     /// begins; says whether this call is that one.
     fn enter_facts(
         &mut self,
-        captures: &HashMap<String, Vec<HeldCapture>>,
+        captures: &HashMap<String, Vec<PhpHeldCapture>>,
         truths: &HashMap<String, bool>,
     ) -> bool {
         let outermost = self.global_facts.is_none();
@@ -1873,7 +1880,7 @@ impl<'a, 'b> Walker<'a, 'b> {
     /// through `global` or `$GLOBALS` may have changed them.
     fn restore_facts(
         &mut self,
-        captures: HashMap<String, Vec<HeldCapture>>,
+        captures: HashMap<String, Vec<PhpHeldCapture>>,
         truths: HashMap<String, bool>,
         globals_written: bool,
     ) {
@@ -2523,10 +2530,10 @@ impl<'a, 'b> Walker<'a, 'b> {
                     _ => None,
                 }
             }
-            "member_access_expression" => concrete_fs_path(&self.this_property_value(n)?),
-            "class_constant_access_expression" => concrete_fs_path(&self.class_constant_value(n)?),
+            "member_access_expression" => resource_fs_path(&self.this_property_value(n)?),
+            "class_constant_access_expression" => resource_fs_path(&self.class_constant_value(n)?),
             "scoped_property_access_expression" => {
-                concrete_fs_path(&self.static_property_value(n)?)
+                resource_fs_path(&self.static_property_value(n)?)
             }
             "binary_expression" => {
                 let mut path = String::new();
@@ -2897,12 +2904,10 @@ impl<'a, 'b> Walker<'a, 'b> {
         arg: Option<Node<'a>>,
         env: &HashMap<String, ResourceExpr>,
     ) -> ResourceExpr {
-        let unresolved = || ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        };
+        let unresolved = || unresolved_resource("network");
         let Some(arg) = arg else { return unresolved() };
         if let Some(url) = literal_string(arg, self.src) {
-            return model::endpoint(&url).unwrap_or_else(unresolved);
+            return model::absolute_url_endpoint(&url).unwrap_or_else(unresolved);
         }
         if arg.kind() == "encapsed_string" {
             let mut values = env.clone();
@@ -2911,17 +2916,18 @@ impl<'a, 'b> Walker<'a, 'b> {
                 return arg
                     .named_child(0)
                     .filter(|part| matches!(part.kind(), "string_content" | "escape_sequence"))
-                    .and_then(|part| model::endpoint(text(part, self.src)))
+                    .and_then(|part| model::absolute_url_endpoint(text(part, self.src)))
                     .unwrap_or_else(unresolved);
             }
-            return model::endpoint(&self.interpolate(arg, &values)).unwrap_or_else(unresolved);
+            return model::absolute_url_endpoint(&self.interpolate(arg, &values))
+                .unwrap_or_else(unresolved);
         }
         let mut values = env.clone();
         values.extend(self.locals.clone());
         match self.resolve_value(arg, &values) {
             ResourceExpr::Concrete {
                 identity: ResourceIdentity::FsPath { path },
-            } => model::endpoint(&path).unwrap_or_else(unresolved),
+            } => model::absolute_url_endpoint(&path).unwrap_or_else(unresolved),
             ResourceExpr::Concrete {
                 identity:
                     ResourceIdentity::NetworkEndpoint {
@@ -3037,7 +3043,7 @@ impl<'a, 'b> Walker<'a, 'b> {
         if contains_unresolved(&resource)
             && let Some(path) = self.static_path(n, &values)
         {
-            resource = fs_path(&path);
+            resource = fs_path_resource(&path);
         }
         let resource =
             effinterp_proto::normalize_resource(resource, effinterp_proto::PathPlatform::Posix);
@@ -3084,22 +3090,22 @@ impl<'a, 'b> Walker<'a, 'b> {
         if contains_unresolved(&value)
             && let Some(path) = self.static_path(node, &values)
         {
-            return fs_path(&path);
+            return fs_path_resource(&path);
         }
         value
     }
 
     fn resolve_value(&self, node: Node<'a>, env: &HashMap<String, ResourceExpr>) -> ResourceExpr {
         match node.kind() {
-            "member_access_expression" => {
-                self.this_property_value(node).unwrap_or_else(unresolved_fs)
-            }
+            "member_access_expression" => self
+                .this_property_value(node)
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             "class_constant_access_expression" => self
                 .class_constant_value(node)
-                .unwrap_or_else(unresolved_fs),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             "scoped_property_access_expression" => self
                 .static_property_value(node)
-                .unwrap_or_else(unresolved_fs),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             "binary_expression"
                 if node
                     .child_by_field_name("operator")
@@ -3130,7 +3136,7 @@ impl<'a, 'b> Walker<'a, 'b> {
                 for part in node.named_children(&mut cursor) {
                     match part.kind() {
                         "string_content" | "escape_sequence" => {
-                            parts.push(fs_path(text(part, self.src)))
+                            parts.push(fs_path_resource(text(part, self.src)))
                         }
                         _ => parts.push(self.resolve_value(part, env)),
                     }
@@ -3139,7 +3145,7 @@ impl<'a, 'b> Walker<'a, 'b> {
             }
             "function_call_expression" => self
                 .resolve_function_value(node, env)
-                .unwrap_or_else(unresolved_fs),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             _ => resolve_expr(node, self.src, env),
         }
     }
@@ -3158,7 +3164,9 @@ impl<'a, 'b> Walker<'a, 'b> {
             "sprintf" => {
                 resolve_sprintf(node, self.src, |argument| self.resolve_value(argument, env))
             }
-            "dirname" => self.static_path(node, env).map(|path| fs_path(&path)),
+            "dirname" => self
+                .static_path(node, env)
+                .map(|path| fs_path_resource(&path)),
             _ => None,
         }
     }
@@ -3430,17 +3438,17 @@ fn literal_truth(node: Node, src: &str) -> Option<bool> {
 }
 
 /// A capture site's span, with whether a value holds its bytes verbatim.
-type HeldCapture = ((usize, usize), bool);
+type PhpHeldCapture = ((usize, usize), bool);
 
 /// A scope's captured output by local, and its locals' literal truth values.
-type ValueFacts = (HashMap<String, Vec<HeldCapture>>, HashMap<String, bool>);
+type PhpValueFacts = (HashMap<String, Vec<PhpHeldCapture>>, HashMap<String, bool>);
 
 /// The capture sites (backticks, `shell_exec`, `exec`) and local names whose
 /// bytes an expression's value carries. Only forms that keep the text pass
 /// them on: interpolation, `.` concatenation, a branch's result, whitespace
 /// trimming and string conversion. A length, a comparison or any other
 /// computation over captured output does not carry its bytes.
-fn capture_sources(node: Node, src: &str) -> (Vec<HeldCapture>, Vec<(String, bool)>) {
+fn capture_sources(node: Node, src: &str) -> (Vec<PhpHeldCapture>, Vec<(String, bool)>) {
     let mut spans = Vec::new();
     let mut locals = Vec::new();
     // Each source is paired with whether its bytes reach the value verbatim;
@@ -3640,9 +3648,7 @@ fn superglobal_resource(n: Node, src: &str) -> Option<(String, ResourceExpr)> {
         .map(|name| ResourceExpr::Concrete {
             identity: ResourceIdentity::EnvironmentVariable { name },
         })
-        .unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("environment"),
-        });
+        .unwrap_or(unresolved_resource("environment"));
     Some((name, resource))
 }
 
@@ -3800,27 +3806,27 @@ fn literal_string(n: Node, src: &str) -> Option<String> {
 fn resolve_expr(n: Node, src: &str, env: &HashMap<String, ResourceExpr>) -> ResourceExpr {
     match n.kind() {
         "string" | "encapsed_string" => match literal_string(n, src) {
-            Some(s) => fs_path(&s),
+            Some(s) => fs_path_resource(&s),
             None if n.kind() == "encapsed_string" => {
                 let mut parts = Vec::new();
                 let mut cursor = n.walk();
                 for part in n.named_children(&mut cursor) {
                     match part.kind() {
                         "string_content" | "escape_sequence" => {
-                            parts.push(fs_path(text(part, src)))
+                            parts.push(fs_path_resource(text(part, src)))
                         }
                         _ => parts.push(resolve_expr(part, src, env)),
                     }
                 }
                 text_concat(parts)
             }
-            None => unresolved_fs(),
+            None => unresolved_resource("filesystem"),
         },
         "variable_name" => {
             let name = child_kind(n, "name").map(|x| text(x, src)).unwrap_or("");
-            env.get(name).cloned().unwrap_or(ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            })
+            env.get(name)
+                .cloned()
+                .unwrap_or(unresolved_resource("filesystem"))
         }
         "binary_expression" => {
             // Concatenation `a . b` -> Join of the parts. Any other binary
@@ -3831,9 +3837,7 @@ fn resolve_expr(n: Node, src: &str, env: &HashMap<String, ResourceExpr>) -> Reso
                 .map(|o| text(o, src))
                 .unwrap_or("");
             if op != "." {
-                return ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                };
+                return unresolved_resource("filesystem");
             }
             let mut parts = Vec::new();
             collect_concat(n, src, env, &mut parts);
@@ -3845,12 +3849,12 @@ fn resolve_expr(n: Node, src: &str, env: &HashMap<String, ResourceExpr>) -> Reso
                 .and_then(|argument| literal_string(*argument, src))
                 .filter(|name| !name.is_empty())
                 .map(|name| ResourceExpr::Environment { name })
-                .unwrap_or_else(unresolved_fs),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
             Some("sprintf") => resolve_sprintf(n, src, |argument| resolve_expr(argument, src, env))
-                .unwrap_or_else(unresolved_fs),
-            _ => unresolved_fs(),
+                .unwrap_or_else(|| unresolved_resource("filesystem")),
+            _ => unresolved_resource("filesystem"),
         },
-        _ => unresolved_fs(),
+        _ => unresolved_resource("filesystem"),
     }
 }
 
@@ -3874,7 +3878,7 @@ fn resolve_sprintf<'a>(
     let mut parts = Vec::new();
     for (index, literal) in literals.iter().enumerate() {
         if !literal.is_empty() {
-            parts.push(fs_path(literal));
+            parts.push(fs_path_resource(literal));
         }
         if let Some(argument) = args.get(index + 1) {
             let value = resolve(*argument);
@@ -3913,17 +3917,9 @@ fn collect_concat(
     }
 }
 
-fn fs_path(s: &str) -> ResourceExpr {
-    ResourceExpr::Concrete {
-        identity: ResourceIdentity::FsPath {
-            path: s.to_string(),
-        },
-    }
-}
-
 fn text_concat(mut parts: Vec<ResourceExpr>) -> ResourceExpr {
     match parts.len() {
-        0 => return fs_path(""),
+        0 => return fs_path_resource(""),
         1 => return parts.pop().unwrap(),
         _ => {}
     }
@@ -3954,20 +3950,20 @@ fn text_concat(mut parts: Vec<ResourceExpr>) -> ResourceExpr {
         };
         text.push_str(path);
     }
-    fs_path(&text)
+    fs_path_resource(&text)
 }
 
 /// A textual concatenation whose parts are now all literal is one path.
 fn fold_host_path(resource: ResourceExpr) -> ResourceExpr {
     match &resource {
-        ResourceExpr::Literal { value } => fs_path(value),
+        ResourceExpr::Literal { value } => fs_path_resource(value),
         ResourceExpr::Join { parts }
             if has_text_concat(&resource)
                 && parts
                     .iter()
                     .all(|part| matches!(part, ResourceExpr::Literal { .. })) =>
         {
-            fs_path(
+            fs_path_resource(
                 &parts
                     .iter()
                     .filter_map(|part| match part {
@@ -3981,23 +3977,7 @@ fn fold_host_path(resource: ResourceExpr) -> ResourceExpr {
     }
 }
 
-fn unresolved_fs() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("filesystem"),
-    }
-}
-
-fn contains_unresolved(resource: &ResourceExpr) -> bool {
-    match resource {
-        ResourceExpr::Unresolved { .. } => true,
-        ResourceExpr::Join { parts } => parts.iter().any(contains_unresolved),
-        ResourceExpr::Union { alternatives } => alternatives.iter().any(contains_unresolved),
-        ResourceExpr::Property { base, .. } => contains_unresolved(base),
-        _ => false,
-    }
-}
-
-fn concrete_fs_path(resource: &ResourceExpr) -> Option<String> {
+fn resource_fs_path(resource: &ResourceExpr) -> Option<String> {
     match resource {
         ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },
@@ -4502,7 +4482,7 @@ impl<'a, 'b> PhpCalls<'a, 'b> {
                 _ => {}
             }
             if self.edges.len() == start + 1 {
-                self.sites.insert(control::span(node), start as u32);
+                self.sites.insert(node_span(node), start as u32);
             }
             let guard = (self.edges.len() != start)
                 .then(|| super::conditions::tree_condition(self.src, node))
@@ -5174,7 +5154,7 @@ fn summarize_body(
         },
         |graph| control::build(graph, &children, src),
     );
-    let mut cap = Cap {
+    let mut cap = PhpCaptureWalker {
         control,
         effects: Vec::new(),
         boundaries: Vec::new(),
@@ -5206,7 +5186,7 @@ fn summarize_body(
     (cap.effects, cap.boundaries, finished.flow)
 }
 
-struct Cap<'a> {
+struct PhpCaptureWalker<'a> {
     control: ControlStack,
     effects: Vec<Effect>,
     boundaries: Vec<Boundary>,
@@ -5216,9 +5196,9 @@ struct Cap<'a> {
     truncated: bool,
 }
 
-impl<'a> Cap<'a> {
+impl<'a> PhpCaptureWalker<'a> {
     fn walk(&mut self, n: Node<'a>) {
-        // Same left-deep `.` hazard as Walker::exec.
+        // Same left-deep `.` hazard as PhpWalker::exec.
         let mut stack = vec![n];
         while let Some(n) = stack.pop() {
             if self.nodes == 0 || !crate::limits::summary_step() {
@@ -5289,7 +5269,7 @@ impl<'a> Cap<'a> {
                 self.control.register(
                     self.src,
                     true,
-                    control::span(n),
+                    node_span(n),
                     SiteFacts::known(
                         (effect_start..self.effects.len())
                             .map(|slot| ControlFact::Effect(slot as u32))
@@ -5308,8 +5288,7 @@ impl<'a> Cap<'a> {
             {
                 let mut facts = SiteFacts::known(Vec::new());
                 facts.exit = Some(ControlExit::Import { module });
-                self.control
-                    .register(self.src, true, control::span(n), facts);
+                self.control.register(self.src, true, node_span(n), facts);
             }
             let guard = (self.effects.len() != effect_start)
                 .then(|| super::conditions::tree_condition(self.src, n))

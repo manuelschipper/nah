@@ -5,7 +5,7 @@
 //! traces INTO the imported class's file (which the repo layer resolves from the
 //! import FQN to `a/util/Helper.java`).
 
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 use crate::support::antecedent_origins;
@@ -76,7 +76,11 @@ fn java_type_qualified_call_reaches_cross_file_delete() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
     let hit = report
         .payload
         .as_reach()

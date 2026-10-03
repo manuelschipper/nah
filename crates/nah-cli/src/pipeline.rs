@@ -371,7 +371,9 @@ pub(crate) fn decide_live_with_self_protection(
         &state.ctx,
         &self_protection,
         mode,
-        |request| nah_observe::fulfill(request).map_err(|error| error.to_string()),
+        |request| {
+            nah_observe::fulfill_observation_request(request).map_err(|error| error.to_string())
+        },
         |observation, evidence, memo_context| {
             let output = nah_extensions::consult_extensions(
                 &state.extensions,
@@ -706,7 +708,7 @@ where
         consult(&analysis.observation, &analysis.evidence, &context)
     };
     let coverage = analysis.evidence.coverage();
-    let core = match nah_policy::decide(
+    let core = match nah_policy::reduce_policy_decision(
         &analysis.evidence,
         crate::catalog::shipped_guards(),
         &analysis.guard_matches,
@@ -972,7 +974,7 @@ where
             let path_observations = plan.path_observations().to_vec();
             // Project the plan, evaluate the shipped guards over it, then
             // complete the evidence with the gaps those guards named.
-            let projection = nah_effinterp::project(
+            let projection = nah_effinterp::project_guard_evidence(
                 &plan,
                 &observation,
                 ctx,

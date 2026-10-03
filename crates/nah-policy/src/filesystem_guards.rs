@@ -24,7 +24,8 @@ use nah_proto::labels::{HostIntegrityClass, PathScope};
 
 use crate::registry::{GuardClause, GuardDefinition, GuardFamily};
 use crate::shared_queries::{
-    bool_attr, family, present_attr, selection, string_attr, string_one_of, variant,
+    bool_attr, present_attr, resource_family, resource_selection, resource_variant, string_attr,
+    string_one_of,
 };
 
 /// Nah's half of a filesystem guard clause, checked after its query matches.
@@ -219,7 +220,7 @@ const GIT_DISCARD_MODES: [&str; 8] = [
 const GIT_OVERWRITE_MODES: [&str; 4] = ["reset", "restore", "checkout", "switch"];
 
 /// In the reducer's attribution order.
-pub(crate) fn definitions() -> Vec<GuardDefinition> {
+pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
     vec![
         host_integrity(
             "fs-auth-identity",
@@ -235,13 +236,13 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
             domain: Domain::Filesystem,
             gap_code: None,
             clauses: vec![
-                clause(
+                filesystem_guard_clause(
                     destructive(),
                     ReachEndpoint::Selected,
                     true,
                     PathRule::SystemTree,
                 ),
-                clause(
+                filesystem_guard_clause(
                     filesystem("filesystem.move", vec![]),
                     ReachEndpoint::Selected,
                     false,
@@ -256,7 +257,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
             default_enabled: true,
             domain: Domain::Filesystem,
             gap_code: None,
-            clauses: vec![clause(
+            clauses: vec![filesystem_guard_clause(
                 destructive(),
                 ReachEndpoint::Selected,
                 true,
@@ -270,7 +271,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
             default_enabled: false,
             domain: Domain::Filesystem,
             gap_code: None,
-            clauses: vec![clause(
+            clauses: vec![filesystem_guard_clause(
                 filesystem("filesystem.delete", vec![]),
                 ReachEndpoint::Selected,
                 true,
@@ -311,7 +312,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
             default_enabled: true,
             domain: Domain::Filesystem,
             gap_code: None,
-            clauses: vec![clause(
+            clauses: vec![filesystem_guard_clause(
                 destructive(),
                 ReachEndpoint::Selected,
                 true,
@@ -326,7 +327,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
             domain: Domain::Filesystem,
             gap_code: None,
             clauses: vec![
-                clause(
+                filesystem_guard_clause(
                     Assertion::Any {
                         assertions: [
                             "filesystem.write",
@@ -341,7 +342,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                     false,
                     PathRule::RawStorageSpelling,
                 ),
-                clause(
+                filesystem_guard_clause(
                     filesystem("filesystem.move", vec![]),
                     ReachEndpoint::MoveDestination,
                     false,
@@ -349,13 +350,13 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                 ),
                 // A whole-device destruction names a typed block device; the
                 // device path it reaches is its identity.
-                clause(
+                filesystem_guard_clause(
                     Assertion::Any {
                         assertions: established(|request, execution| Assertion::All {
                             assertions: vec![
                                 host_effect(
                                     "system.storage_destroy",
-                                    family("blk"),
+                                    resource_family("blk"),
                                     vec![bool_attr("whole_device", true)],
                                     request,
                                     execution,
@@ -424,12 +425,12 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                                         operation,
                                         ResourcePredicate::AnyOf {
                                             predicates: vec![
-                                                family("svc"),
-                                                family("job"),
+                                                resource_family("svc"),
+                                                resource_family("job"),
                                                 ResourcePredicate::All {
                                                     predicates: vec![
-                                                        family("system"),
-                                                        selection(SelectionShape::Pattern),
+                                                        resource_family("system"),
+                                                        resource_selection(SelectionShape::Pattern),
                                                     ],
                                                 },
                                             ],
@@ -450,7 +451,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                 // this host or, with `-M`, in a local container the user
                 // administers. The runtime unit directory under /run is left
                 // out for the same reason `--runtime` is.
-                clause(
+                filesystem_guard_clause(
                     Assertion::Any {
                         assertions: [RealmPredicate::Host, RealmPredicate::Container]
                             .into_iter()
@@ -484,7 +485,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                         "system.storage_destroy",
                         ResourcePredicate::All {
                             predicates: vec![
-                                variant(ResourceVariant::StorageVolume),
+                                resource_variant(ResourceVariant::StorageVolume),
                                 ResourcePredicate::Not {
                                     predicate: Box::new(ResourcePredicate::AnyOf {
                                         predicates: ["btrfs", "aws", "gcloud", "az"]
@@ -543,7 +544,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                 .map(|attributes| {
                     host_effect(
                         "process.code_execution",
-                        family("proc"),
+                        resource_family("proc"),
                         attributes,
                         None,
                         Some(ExecutionAssurance::Exact),
@@ -570,7 +571,7 @@ fn host_integrity(
         domain: Domain::Filesystem,
         gap_code: None,
         clauses: vec![
-            clause(
+            filesystem_guard_clause(
                 Assertion::Any {
                     assertions: MUTATIONS
                         .into_iter()
@@ -581,7 +582,7 @@ fn host_integrity(
                 false,
                 path,
             ),
-            clause(
+            filesystem_guard_clause(
                 filesystem("filesystem.move", vec![]),
                 ReachEndpoint::MoveDestination,
                 false,
@@ -592,7 +593,7 @@ fn host_integrity(
     }
 }
 
-fn clause(
+fn filesystem_guard_clause(
     assertion: Assertion,
     endpoint: ReachEndpoint,
     recursive: bool,
@@ -693,7 +694,7 @@ fn filesystem(operation: &str, attributes: Vec<AttributePredicate>) -> Assertion
 fn executed_chmod(attributes: Vec<AttributePredicate>) -> Assertion {
     host_effect(
         "filesystem.metadata",
-        family("filesystem"),
+        resource_family("filesystem"),
         attributes,
         None,
         Some(ExecutionAssurance::Exact),
@@ -710,7 +711,7 @@ fn filesystem_in(
             realm,
             operation,
             if execution.is_some() {
-                variant(ResourceVariant::FsPath)
+                resource_variant(ResourceVariant::FsPath)
             } else {
                 ResourcePredicate::Any
             },
@@ -728,7 +729,10 @@ fn filesystem_in(
                     realm,
                     operation,
                     ResourcePredicate::All {
-                        predicates: vec![family("filesystem"), selection(SelectionShape::Pattern)],
+                        predicates: vec![
+                            resource_family("filesystem"),
+                            resource_selection(SelectionShape::Pattern),
+                        ],
                     },
                     raw,
                     None,

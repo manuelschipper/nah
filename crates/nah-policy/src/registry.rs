@@ -84,7 +84,7 @@ pub struct GuardClause {
     /// What Nah still decides beside the engine query: its host path catalogs
     /// and the filesystem family's eligibility. `None` when the query alone
     /// decides. A clause that binds effects never binds one this rejects.
-    pub host: Option<crate::filesystem_queries::HostRule>,
+    pub host: Option<crate::filesystem_guards::HostRule>,
     /// What Nah still decides about a matched effect that the query language
     /// cannot state; every qualifier must hold. Empty when the query decides.
     pub qualifiers: Vec<crate::guard_evaluation::QueryQualifier>,
@@ -96,34 +96,34 @@ pub struct GuardClause {
 /// guard ids, reasons and families; `ShippedGuards` holds it built once.
 pub(crate) fn shipped_guard_definitions() -> Vec<GuardDefinition> {
     let mut definitions = vec![
-        crate::simple_guards::registry_publish(),
-        crate::simple_guards::registry_unpublish(),
-        crate::simple_guards::sys_power(),
-        crate::simple_guards::sys_service_stop(),
-        crate::simple_guards::infra_container_reset(),
-        crate::simple_guards::infra_container_volume_delete(),
-        crate::simple_guards::infra_iac_destroy(),
-        crate::simple_guards::infra_k8s_delete(),
-        crate::simple_guards::storage_backup_destroy(),
-        crate::simple_guards::storage_recursive_delete(),
-        crate::simple_guards::storage_snapshot_delete(),
+        crate::package_registry_guards::registry_publish(),
+        crate::package_registry_guards::registry_unpublish(),
+        crate::system_guards::sys_power(),
+        crate::system_guards::sys_service_stop(),
+        crate::infrastructure_guards::infra_container_reset(),
+        crate::infrastructure_guards::infra_container_volume_delete(),
+        crate::infrastructure_guards::infra_iac_destroy(),
+        crate::infrastructure_guards::infra_k8s_delete(),
+        crate::infrastructure_guards::storage_backup_destroy(),
+        crate::infrastructure_guards::storage_recursive_delete(),
+        crate::infrastructure_guards::storage_snapshot_delete(),
         crate::database_guards::db_destroy(),
         crate::secret_guards::store_read(),
         crate::secret_guards::store_delete(),
         crate::secret_guards::store_destroy(),
     ];
     definitions.extend([
-        crate::flow_queries::exec_remote(),
-        crate::flow_queries::exec_decoded(),
+        crate::flow_guards::exec_remote(),
+        crate::flow_guards::exec_decoded(),
         crate::execution_guards::exec_obfuscated(),
-        crate::flow_queries::exec_network_shell(),
+        crate::flow_guards::exec_network_shell(),
         crate::secret_guards::credentials(),
         crate::secret_guards::environment(),
-        crate::flow_queries::secrets_exfil(),
+        crate::flow_guards::secrets_exfil(),
         crate::network_guards::lookalike_host(),
     ]);
-    definitions.extend(crate::git_queries::definitions());
-    definitions.extend(crate::filesystem_queries::definitions());
+    definitions.extend(crate::git_guards::git_guard_definitions());
+    definitions.extend(crate::filesystem_guards::filesystem_guard_definitions());
     for clause in definitions
         .iter()
         .flat_map(|definition| &definition.clauses)

@@ -3,10 +3,9 @@ use super::{
     common::{arg_node, symbolic_expr, unrecognized_arguments_boundary},
     infrastructure::{
         emit, emit_with_attributes, environment_gap, gap, parse_data, read_input, scoped_gap,
-        unknown,
     },
 };
-use crate::{builder::PlanBuilder, word::Word};
+use crate::{builder::PlanBuilder, value::unresolved_resource, word::Word};
 use effinterp_proto::{
     BoundaryReason, BoundaryScope, KubernetesNamespace, ProvenanceRef, ResourceExpr,
     ResourceIdentity,
@@ -134,7 +133,7 @@ const KINDS: &[(&[&str], &str, &str, bool)] = &[
 ];
 
 #[derive(Default)]
-struct Options {
+struct KubectlOptions {
     namespace: Option<ResourceExpr>,
     server: Option<ResourceExpr>,
     context: Option<ResourceExpr>,
@@ -155,9 +154,9 @@ struct Options {
 }
 
 pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: ProvenanceRef) {
-    let mut opts = Options {
+    let mut opts = KubectlOptions {
         grammar_known: true,
-        ..Options::default()
+        ..KubectlOptions::default()
     };
     let mut copy_options_known = true;
     let mut cluster_override = false;
@@ -500,7 +499,7 @@ pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: Prove
                     }
                 }
                 Err(()) => {
-                    targets.push(unknown("container"));
+                    targets.push(unresolved_resource("container"));
                     gap(
                         builder,
                         &provenance,
@@ -511,7 +510,7 @@ pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: Prove
                 }
             }
         } else {
-            targets.push(unknown("container"));
+            targets.push(unresolved_resource("container"));
         }
     }
     let mut resource_type = None;
@@ -565,12 +564,12 @@ pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: Prove
                     &opts,
                     kind,
                     None,
-                    unknown("container"),
+                    unresolved_resource("container"),
                     None,
                 ));
             }
         } else {
-            targets.push(unknown("container"));
+            targets.push(unresolved_resource("container"));
         }
         let (reason, scope) = if arguments_unresolved
             || operations.is_empty()
@@ -633,7 +632,7 @@ pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: Prove
             &opts,
             "*",
             None,
-            unknown("container"),
+            unresolved_resource("container"),
             None,
         );
         emit(
@@ -727,7 +726,7 @@ fn copy(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model: ProvenanceRef,
-    opts: Options,
+    opts: KubectlOptions,
     options_known: bool,
 ) {
     let operands = &opts.operands[1..];
@@ -789,7 +788,7 @@ fn copy(
         model,
         operands[remote_index].0 as u32,
         "container.copy",
-        unknown("container"),
+        unresolved_resource("container"),
         attributes,
     );
     let (index, local) = &operands[1 - remote_index];
@@ -829,7 +828,7 @@ fn copy(
 fn delete_attributes(
     scope: &str,
     selection: &str,
-    opts: &Options,
+    opts: &KubectlOptions,
 ) -> std::collections::BTreeMap<String, effinterp_proto::AttrValue> {
     let active = opts.dry_run.is_none();
     let mut attributes: std::collections::BTreeMap<String, effinterp_proto::AttrValue> = [
@@ -871,7 +870,11 @@ fn delete_attributes(
     attributes
 }
 
-fn delete_scope(opts: &Options, verb: Option<&str>, resource: &ResourceExpr) -> &'static str {
+fn delete_scope(
+    opts: &KubectlOptions,
+    verb: Option<&str>,
+    resource: &ResourceExpr,
+) -> &'static str {
     if verb != Some("delete") {
         return "unknown";
     }
@@ -909,7 +912,7 @@ fn delete_scope(opts: &Options, verb: Option<&str>, resource: &ResourceExpr) -> 
 fn target(
     builder: &mut PlanBuilder,
     provenance: &[ProvenanceRef],
-    opts: &Options,
+    opts: &KubectlOptions,
     kind: &str,
     group: Option<&str>,
     mut name: ResourceExpr,
@@ -923,7 +926,7 @@ fn target(
             BoundaryReason::PARTIAL_ANALYSIS,
             "Kubernetes resource kind is missing",
         );
-        return unknown("container");
+        return unresolved_resource("container");
     }
     if matches!(&name, ResourceExpr::Literal { value } if value.is_empty() || value.contains('/')) {
         gap(
@@ -933,7 +936,7 @@ fn target(
             BoundaryReason::PARTIAL_ANALYSIS,
             "Kubernetes resource name or subresource is unresolved",
         );
-        name = unknown("container");
+        name = unresolved_resource("container");
     }
     let (short, suffix) = kind
         .split_once('.')
@@ -962,7 +965,7 @@ fn target(
                         value: value.into(),
                     })
                     .or_else(|| opts.namespace.clone())
-                    .unwrap_or_else(|| unknown("container")),
+                    .unwrap_or_else(|| unresolved_resource("container")),
             ),
         }
     } else if cluster {
@@ -981,13 +984,13 @@ fn target(
                 BoundaryReason::PARTIAL_ANALYSIS,
                 "Kubernetes CLI and manifest namespaces conflict",
             );
-            return unknown("container");
+            return unresolved_resource("container");
         }
         KubernetesNamespace::Namespaced {
             namespace: Box::new(
                 manifest_namespace
                     .or_else(|| opts.namespace.clone())
-                    .unwrap_or_else(|| unknown("container")),
+                    .unwrap_or_else(|| unresolved_resource("container")),
             ),
         }
     };
@@ -997,8 +1000,16 @@ fn target(
             kind: kind.into(),
             name: Box::new(name),
             namespace,
-            server: Box::new(opts.server.clone().unwrap_or_else(|| unknown("network"))),
-            context: Box::new(opts.context.clone().unwrap_or_else(|| unknown("value"))),
+            server: Box::new(
+                opts.server
+                    .clone()
+                    .unwrap_or_else(|| unresolved_resource("network")),
+            ),
+            context: Box::new(
+                opts.context
+                    .clone()
+                    .unwrap_or_else(|| unresolved_resource("value")),
+            ),
         },
     }
 }
@@ -1006,7 +1017,7 @@ fn target(
 fn manifest(
     builder: &mut PlanBuilder,
     provenance: &[ProvenanceRef],
-    opts: &Options,
+    opts: &KubectlOptions,
     value: &serde_json::Value,
     targets: &mut Vec<ResourceExpr>,
     depth: usize,
@@ -1053,7 +1064,7 @@ fn manifest(
         ));
         return;
     }
-    targets.push(unknown("container"));
+    targets.push(unresolved_resource("container"));
     gap(
         builder,
         provenance,

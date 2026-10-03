@@ -673,7 +673,7 @@ fn optional_evidence_binds_values_unsets_and_rejects_drift() {
     )
     .unwrap();
     let drift = observed(plan.request(), |_| value("/other"));
-    let refusal = nah_effinterp::project(
+    let refusal = nah_effinterp::project_guard_evidence(
         &plan,
         &drift,
         &context(),

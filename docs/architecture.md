@@ -84,9 +84,9 @@ custom guards (exec/v2), and records.
 | Area | Owning module |
 | --- | --- |
 | Shared contracts | `nah-proto/src/{tool,ctx,observation,action,effects,decision,exec_v2,extension}.rs` |
-| Engine bridge | `nah-effinterp/src/{plan_view,source_observation,path_observation,observe,annotate}.rs`, `nah-effinterp/src/bridge/`, `nah-observe/src/source_files.rs` |
+| Engine bridge | `nah-effinterp/src/{plan_view,source_observation,path_observation,observation_request,annotate}.rs`, `nah-effinterp/src/bridge/`, `nah-observe/src/source_files.rs` |
 | Host and project fact fulfillment | `nah-observe/src/{io_paths,path_facts,roots,project_guards,descendants}.rs` |
-| Built-in guards and reduction | `nah-policy/src/{registry,*_guards,*_queries,guard_evaluation,lib}.rs` |
+| Built-in guards and reduction | `nah-policy/src/{registry,*_guards,shared_queries,guard_evaluation,lib}.rs` |
 | Self-protection, runtime-CLI recognition, nap | `nah-proto/src/{runtime_protection,labels/tier}.rs`, `nah-effinterp/src/runtime_cli.rs`, `nah-cli/src/{commands/runtime,nap}.rs`, `nah-policy/src/structural.rs` |
 | Custom guards | `nah-extensions/src/{trust,activation,bundle,selection,execution,transport,cache}.rs` |
 | Runtime translation and wiring | `nah-cli/src/<runtime>_adapter.rs`, shared `nah-cli/src/{hook_adapter,code_input,adapter_fields}.rs`, `nah-cli/src/commands/<runtime>_installation.rs` |
@@ -100,8 +100,8 @@ custom guards (exec/v2), and records.
 - Shell, source, or native tool interpretation: `effinterp-engine`, then the
   bridge's evidence projection. `nah-cli/src/code_input.rs` owns typed runtime
   intake.
-- A built-in guard: its `nah-policy` definition and default (`*_queries.rs`,
-  `*_guards.rs`), `shipped_guard_definitions` (`registry.rs`), its
+- A built-in guard: its `nah-policy` definition and default (`*_guards.rs`),
+  `shipped_guard_definitions` (`registry.rs`), its
   `nah-cli/guards/<guard>.toml` record (source of its
   `docs/guard-reference.md` section), and its `corpus/*.jsonl` family.
 - Observation: the named module in `nah-observe` and its protocol contract.

@@ -172,7 +172,7 @@ fn is_resolver_input(path: &str) -> bool {
 /// Build the complete dependency manifest from one bounded discovery crawl.
 pub(crate) fn dependency_manifest(
     inputs: &[InputRecord],
-    skipped_sources: &[crate::index::Skip],
+    skipped_sources: &[crate::index::SkippedPath],
     analyzer_build: &str,
     model_set: &str,
     limits: &IndexLimits,

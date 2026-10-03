@@ -1,6 +1,6 @@
 //! The reviewed temporary roots, where recursive deletion is routine cleanup.
 
-use super::lexical_path::fold;
+use super::lexical_path::fold_path_spelling;
 use crate::ctx::Platform;
 
 /// Whether `target` is, or lies under, a reviewed temporary root: `/tmp`,
@@ -22,7 +22,7 @@ pub fn is_reviewed_temporary_root(target: &str) -> bool {
     }
 
     // The Windows roots are read in the Windows spelling on every host.
-    let target = fold(target, Platform::Windows);
+    let target = fold_path_spelling(target, Platform::Windows);
     let bytes = target.as_bytes();
     if bytes.len() < 3 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' || bytes[2] != b'/' {
         return false;

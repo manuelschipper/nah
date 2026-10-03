@@ -1,28 +1,10 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
-use std::{
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-};
-
 use effinterp_engine::Assurance;
 use effinterp_proto::display_resource_with_scope;
 use effinterp_repo::{IndexLimits, build_index};
 
-static NEXT_TEMP_REPO: AtomicU64 = AtomicU64::new(0);
-
-fn temp_repo(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-    let nonce = NEXT_TEMP_REPO.fetch_add(1, Ordering::Relaxed);
-    let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("{tag}-{}-{nonce}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    for (relative, content) in files {
-        let path = root.join(relative);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, content).unwrap();
-    }
-    root
-}
+use crate::support::temp_repo;
 
 fn resources(index: &effinterp_repo::RepoIndex, entrypoint: &str) -> Vec<String> {
     let mut resources: Vec<_> = index

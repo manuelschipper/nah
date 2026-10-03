@@ -144,7 +144,7 @@ pub struct TrustedRootId(String);
 
 impl TrustedRootId {
     pub fn new(value: impl Into<String>) -> Result<Self, CtxError> {
-        non_empty(value).map(Self)
+        non_empty_ctx_identifier(value).map(Self)
     }
 
     pub fn as_str(&self) -> &str {
@@ -296,7 +296,7 @@ impl ShippedGuardState {
             return Err(CtxError::InvalidGuardState);
         }
         Ok(Self {
-            name: non_empty(name)?,
+            name: non_empty_ctx_identifier(name)?,
             enabled,
             explicitly_disabled,
         })
@@ -618,7 +618,7 @@ impl std::fmt::Display for CtxError {
     }
 }
 
-fn non_empty(value: impl Into<String>) -> Result<String, CtxError> {
+fn non_empty_ctx_identifier(value: impl Into<String>) -> Result<String, CtxError> {
     let value = value.into();
     if value.is_empty() {
         Err(CtxError::EmptyIdentifier)

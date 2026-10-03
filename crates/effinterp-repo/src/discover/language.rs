@@ -1,4 +1,11 @@
-use super::*;
+use std::path::Path;
+
+use effinterp_engine::rust_is_entry_macro_line;
+use effinterp_proto::{SourceDialect, Subject};
+
+use super::shebang::interpreter;
+use super::{Entrypoint, EntrypointCrawl, EntrypointEvidence, EntrypointKind};
+use crate::index::{CrawlLimits, SkipCategory};
 
 /// A Python/JS file that runs when executed (not a pure library), or None.
 /// Python uses the precise `if __name__ == "__main__"` guard; JS treats a file
@@ -230,7 +237,12 @@ pub(super) fn read_composer_bins(
 /// A `.php` file is an entrypoint only if it is a real program: a `php` shebang
 /// script, a file under a `bin/` directory, or a declared composer bin. Ordinary
 /// class files are not entrypoints (they remain queryable via the surface).
-pub(super) fn php_entrypoint(ctx: &mut Ctx, relpath: &str, content: &str, source_cwd: String) {
+pub(super) fn php_entrypoint(
+    ctx: &mut EntrypointCrawl,
+    relpath: &str,
+    content: &str,
+    source_cwd: String,
+) {
     let shebang = has_php_shebang(content);
     let is_program = shebang
         || relpath.split('/').any(|seg| seg == "bin")
@@ -276,7 +288,7 @@ fn has_php_shebang(content: &str) -> bool {
 }
 
 pub(super) fn registration_entrypoints(
-    ctx: &mut Ctx,
+    ctx: &mut EntrypointCrawl,
     file: &str,
     source: &str,
     dir: &str,

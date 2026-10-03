@@ -294,7 +294,7 @@ fn changes_stored_identity(effect: &Effect) -> bool {
         && effect.attributes.get("metadata") != Some(&AttrValue::Bool(true))
 }
 
-fn condition_requires_short_circuit_success(
+pub(crate) fn condition_requires_short_circuit_success(
     condition: Option<&Condition>,
     span: effinterp_proto::ByteSpan,
 ) -> bool {

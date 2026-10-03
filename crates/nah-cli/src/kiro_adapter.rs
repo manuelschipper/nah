@@ -8,9 +8,11 @@ use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::adapter_fields::runtime_field_names_covered;
+use crate::adapter_fields::{runtime_field_names_covered, tool_input_non_empty_string};
 use crate::hook_adapter::{self, HookOutcome};
 use crate::runtime::{FailurePolicy, Runtime};
+
+const INVALID_KIRO_TOOL_INPUT: &str = "invalid-kiro-tool-input";
 
 #[derive(Deserialize)]
 struct KiroHookInput {
@@ -38,7 +40,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         }
         serde_json::from_value::<KiroHookInput>(value)
             .map_err(|error| error.to_string())
-            .and_then(normalize)
+            .and_then(normalize_kiro_hook_input)
     });
     match request {
         Ok(Some(request)) => {
@@ -59,14 +61,21 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     }
                 }
                 HookOutcome::IrrelevantEvent => 0,
-                HookOutcome::MalformedInput => deny_unavailable(
+                HookOutcome::MalformedInput => hook_adapter::deny_unavailable_on_stderr(
                     stderr,
                     failure_policy,
+                    Runtime::Kiro,
                     hook_adapter::IntegrationUnavailable::MalformedInput,
                 )
                 .unwrap_or(0),
                 HookOutcome::EvaluationUnavailable(kind) => {
-                    deny_unavailable(stderr, failure_policy, kind).unwrap_or_else(|| {
+                    hook_adapter::deny_unavailable_on_stderr(
+                        stderr,
+                        failure_policy,
+                        Runtime::Kiro,
+                        kind,
+                    )
+                    .unwrap_or_else(|| {
                         let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
                         1
                     })
@@ -74,24 +83,14 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             }
         }
         Ok(None) => 0,
-        Err(_) => deny_unavailable(
+        Err(_) => hook_adapter::deny_unavailable_on_stderr(
             stderr,
             failure_policy,
+            Runtime::Kiro,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
         .unwrap_or(0),
     }
-}
-
-fn deny_unavailable<E: Write>(
-    stderr: &mut E,
-    failure_policy: FailurePolicy,
-    unavailable: hook_adapter::IntegrationUnavailable,
-) -> Option<u8> {
-    hook_adapter::unavailable_feedback(failure_policy, Runtime::Kiro, unavailable).map(|reason| {
-        let _ = writeln!(stderr, "nah - {reason}");
-        2
-    })
 }
 
 fn read_input<R: Read>(stdin: &mut R) -> Result<Value, String> {
@@ -108,7 +107,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize(KiroHookInput {
+    normalize_kiro_hook_input(KiroHookInput {
         hook_event_name: "PreToolUse".into(),
         tool_name: tool_name.into(),
         tool_input,
@@ -118,13 +117,13 @@ pub(crate) fn normalize_call(
     .map(|request| request.expect("a PreToolUse event always yields a tool call"))
 }
 
-fn normalize(input: KiroHookInput) -> Result<Option<ToolCallInput>, String> {
+fn normalize_kiro_hook_input(input: KiroHookInput) -> Result<Option<ToolCallInput>, String> {
     if !matches!(input.hook_event_name.as_str(), "PreToolUse" | "preToolUse") {
         return Ok(None);
     }
     let original_input = input.tool_input.clone();
     let object = input.tool_input.as_object();
-    let lowered = lower(&input.tool_name, &original_input, object);
+    let lowered = lower_kiro_tool(&input.tool_name, &original_input, object);
     let (tool, tool_input, complete) =
         lowered.unwrap_or_else(|_| (input.tool_name.as_str(), original_input.clone(), false));
     ToolCallInput::new(
@@ -138,7 +137,7 @@ fn normalize(input: KiroHookInput) -> Result<Option<ToolCallInput>, String> {
     .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_kiro_tool<'a>(
     tool_name: &'a str,
     original_input: &Value,
     object: Option<&Map<String, Value>>,
@@ -146,7 +145,7 @@ fn lower<'a>(
     Ok(match tool_name {
         "shell" | "execute_bash" | "execute_cmd" => (
             "Bash",
-            json!({"command": non_empty(required_object(object)?, "command")?}),
+            json!({"command": tool_input_non_empty_string(required_object(object)?, "command", INVALID_KIRO_TOOL_INPUT)?}),
             runtime_field_names_covered("kiro", tool_name, original_input),
         ),
         "read_file" => {
@@ -175,7 +174,7 @@ fn lower<'a>(
 }
 
 fn required_object(object: Option<&Map<String, Value>>) -> Result<&Map<String, Value>, String> {
-    object.ok_or_else(|| "invalid-kiro-tool-input".to_owned())
+    object.ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())
 }
 
 fn single_operation_path(object: &Map<String, Value>) -> Result<Option<String>, String> {
@@ -184,15 +183,15 @@ fn single_operation_path(object: &Map<String, Value>) -> Result<Option<String>, 
     };
     let operations = operations
         .as_array()
-        .ok_or_else(|| "invalid-kiro-tool-input".to_owned())?;
+        .ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())?;
     match operations.len() {
-        0 => return Err("invalid-kiro-tool-input".into()),
+        0 => return Err(INVALID_KIRO_TOOL_INPUT.into()),
         1 => {}
         _ => return Ok(None),
     }
     operations[0]
         .as_object()
-        .ok_or_else(|| "invalid-kiro-tool-input".to_owned())
+        .ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())
         .and_then(required_path)
         .map(Some)
 }
@@ -200,9 +199,9 @@ fn single_operation_path(object: &Map<String, Value>) -> Result<Option<String>, 
 fn required_path(object: &Map<String, Value>) -> Result<String, String> {
     match object.get("path") {
         Some(Value::String(path)) if !path.is_empty() => Ok(path.clone()),
-        Some(Value::String(_)) => Err("invalid-kiro-tool-input".into()),
-        Some(_) => Err("invalid-kiro-tool-input".into()),
-        None => Err("invalid-kiro-tool-input".into()),
+        Some(Value::String(_)) => Err(INVALID_KIRO_TOOL_INPUT.into()),
+        Some(_) => Err(INVALID_KIRO_TOOL_INPUT.into()),
+        None => Err(INVALID_KIRO_TOOL_INPUT.into()),
     }
 }
 
@@ -210,17 +209,8 @@ fn optional_u64(object: &Map<String, Value>, name: &str) -> Result<(), String> {
     match object.get(name) {
         None | Some(Value::Null) => Ok(()),
         Some(value) if value.as_u64().is_some() => Ok(()),
-        Some(_) => Err("invalid-kiro-tool-input".into()),
+        Some(_) => Err(INVALID_KIRO_TOOL_INPUT.into()),
     }
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-kiro-tool-input".to_owned())
 }
 
 #[cfg(test)]
@@ -228,7 +218,7 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
-        normalize(KiroHookInput {
+        normalize_kiro_hook_input(KiroHookInput {
             hook_event_name: "PreToolUse".into(),
             tool_name: tool_name.into(),
             tool_input,
@@ -293,7 +283,7 @@ mod tests {
 
     #[test]
     fn accepts_transition_event_case_and_keeps_malformed_tools_opaque() {
-        let transition = normalize(KiroHookInput {
+        let transition = normalize_kiro_hook_input(KiroHookInput {
             hook_event_name: "preToolUse".into(),
             tool_name: "shell".into(),
             tool_input: json!({"command":"pwd"}),
@@ -316,7 +306,7 @@ mod tests {
             ("fs_write", json!({"operations":[{"path":7}]})),
             ("str_replace", json!({"path":""})),
         ] {
-            let call = normalize(KiroHookInput {
+            let call = normalize_kiro_hook_input(KiroHookInput {
                 hook_event_name: "PreToolUse".into(),
                 tool_name: tool.into(),
                 tool_input: input.clone(),

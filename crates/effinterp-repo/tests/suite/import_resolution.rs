@@ -5,7 +5,7 @@
 //! both stay LOUD.
 #![allow(clippy::disallowed_methods)]
 
-use effinterp_repo::{IndexLimits, Selector, build_index, effects_of, reach};
+use effinterp_repo::{IndexLimits, ResourceSelector, build_index, effects_of, reach};
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 /// A `src/` layout: `src` is not a package (no `__init__.py`) but `src/app` and
@@ -30,7 +30,11 @@ fn src_layout_import_resolves_cross_file() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/var/cache/app").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/var/cache/app").unwrap(),
+        None,
+    );
     let hit = report
         .payload
         .as_reach()
@@ -72,7 +76,11 @@ fn deep_package_import_resolves() {
         ],
     );
     let idx = build_index(&root, IndexLimits::default());
-    let report = reach(&idx, &Selector::parse("fs:/srv/deep").unwrap(), None);
+    let report = reach(
+        &idx,
+        &ResourceSelector::parse("fs:/srv/deep").unwrap(),
+        None,
+    );
     let hit = report
         .payload
         .as_reach()

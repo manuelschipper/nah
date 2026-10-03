@@ -1,10 +1,19 @@
-use super::*;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+
+use effinterp_engine::Lang;
+use effinterp_proto::content_digest;
+
+use super::{ModuleFile, ModuleRegistry, ruby_shebang};
+use crate::index::{CrawlLimits, IndexBudget};
+use crate::snapshot::InputRecord;
+use crate::{CRAWL_SKIP_DIRS, walked_repo_path};
 
 fn ruby_loader_work(budget: &mut IndexBudget, work: usize, bytes: usize) -> bool {
     budget.charge(work as u64, bytes as u64).is_ok()
 }
 
-impl Registry {
+impl ModuleRegistry {
     pub(crate) fn ruby_resolution_digest(&self) -> String {
         effinterp_proto::stable_hash(
             "effinterp/ruby-resolution/v1",
@@ -537,7 +546,7 @@ pub(super) fn collect_ruby_metadata(
                     continue;
                 }
                 if kind.is_dir() && depth < limits.max_depth {
-                    if !SKIP_DIRS.contains(&entry.file_name().to_string_lossy().as_ref()) {
+                    if !CRAWL_SKIP_DIRS.contains(&entry.file_name().to_string_lossy().as_ref()) {
                         pending.push((path, depth + 1));
                     }
                 } else if kind.is_file() && metadata_path(&path) {
@@ -555,7 +564,7 @@ pub(super) fn collect_ruby_metadata(
             }
             let source = std::fs::read(&path).ok()?;
             Some(InputRecord {
-                path: rel(root, &path),
+                path: walked_repo_path(root, &path),
                 digest: content_digest(&source),
             })
         })
@@ -564,12 +573,15 @@ pub(super) fn collect_ruby_metadata(
 
 #[cfg(test)]
 mod tests {
+    use effinterp_engine::{ImportBinding, ModuleSummary};
+
     use super::*;
+    use crate::index::RepositoryLimits;
 
     // Loader graph construction used to bypass repository budgets.
     #[test]
     fn ruby_loader_obeys_repository_limits() {
-        let mut registry = Registry::default();
+        let mut registry = ModuleRegistry::default();
         for i in 0..200 {
             registry.insert(ModuleFile {
                 path: format!("f{i}.rb"),

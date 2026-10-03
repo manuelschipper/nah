@@ -7,8 +7,8 @@ use std::collections::HashMap;
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity, Subject,
+    Effect, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
+    Subject,
 };
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, CallExpression, Expression, ObjectExpression,
@@ -27,6 +27,7 @@ use crate::builder::RuntimeShell;
 use crate::nest::{Transition, word_resource};
 use crate::paths::fs_resource_uses_cwd;
 use crate::resource_transfer::TransferBinding;
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 /// The JavaScript runtime executing a program, from the command that launched
@@ -92,9 +93,7 @@ pub(super) fn network_source_literal(value: &str) -> ResourceExpr {
     ) {
         resource
     } else {
-        ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        }
+        unresolved_resource("network")
     }
 }
 
@@ -329,18 +328,12 @@ pub(super) fn external_effects(
         execution: effinterp_proto::ExecutionNodeRef(0),
         provenance: Vec::new(),
     };
-    let arg = |i: usize, family: &str| {
-        args.get(i).cloned().unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new(family),
-        })
-    };
+    let arg = |i: usize, family: &str| args.get(i).cloned().unwrap_or(unresolved_resource(family));
     match module {
         "fs" | "fs/promises" => {
             let (operation, append) = fs_operation(function)?;
             let target = if fs_takes_descriptor(function) {
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                }
+                unresolved_resource("filesystem")
             } else {
                 arg(0, "filesystem")
             };
@@ -388,22 +381,9 @@ pub(super) fn external_effects(
             function,
             "exec" | "execSync" | "execFile" | "execFileSync" | "spawn" | "spawnSync" | "fork"
         )
-        .then(|| {
-            vec![effect(
-                "process.exec",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("process"),
-                },
-            )]
-        }),
-        "node-fetch" | "node-fetch-native" | "__global__" => (function == "fetch").then(|| {
-            vec![effect(
-                "network.request",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                },
-            )]
-        }),
+        .then(|| vec![effect("process.exec", unresolved_resource("process"))]),
+        "node-fetch" | "node-fetch-native" | "__global__" => (function == "fetch")
+            .then(|| vec![effect("network.request", unresolved_resource("network"))]),
         _ => None,
     }
 }
@@ -1035,9 +1015,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                     self.builder.current_execution_cwd(),
                 ),
             },
-            None => ResourceExpr::Unresolved {
-                family: ResourceFamily::new("process"),
-            },
+            None => unresolved_resource("process"),
         }
     }
 
@@ -1167,9 +1145,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                 request_assurance: effinterp_proto::RequestAssurance::Conservative,
                 id: Default::default(),
                 operation: Operation::new("network.listen"),
-                resource: ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                },
+                resource: unresolved_resource("network"),
                 attributes: Default::default(),
                 modality: Modality::May,
                 realm: effinterp_proto::ExecutionRealm::Host,
@@ -1258,9 +1234,7 @@ impl<'a> EffectVisitor<'_, 'a> {
             );
         }
         let (resource, node) = if fs_takes_descriptor(function) {
-            let resource = ResourceExpr::Unresolved {
-                family: ResourceFamily::new("filesystem"),
-            };
+            let resource = unresolved_resource("filesystem");
             (resource, self.span_node(call.span))
         } else {
             let (resource, uses_cwd, host_environment) = self.arg_fs_resource(
@@ -1401,9 +1375,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                     request_assurance: effinterp_proto::RequestAssurance::Conservative,
                     id: Default::default(),
                     operation: Operation::new("process.exec"),
-                    resource: ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("process"),
-                    },
+                    resource: unresolved_resource("process"),
                     attributes: Default::default(),
                     modality: Modality::May,
                     realm: effinterp_proto::ExecutionRealm::Host,
@@ -1897,9 +1869,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                         "network argument concatenation is not statically bounded",
                     );
                 }
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                }
+                unresolved_resource("network")
             }
         };
         self.builder.effect(Effect {
@@ -1949,9 +1919,7 @@ impl<'a> EffectVisitor<'_, 'a> {
             request_assurance: effinterp_proto::RequestAssurance::Conservative,
             id: Default::default(),
             operation: Operation::new(operation),
-            resource: ResourceExpr::Unresolved {
-                family: ResourceFamily::new("environment"),
-            },
+            resource: unresolved_resource("environment"),
             attributes: unset
                 .then(|| ("unset".to_string(), AttrValue::Bool(true)))
                 .into_iter()
@@ -1971,9 +1939,7 @@ impl<'a> EffectVisitor<'_, 'a> {
             request_assurance: effinterp_proto::RequestAssurance::Conservative,
             id: Default::default(),
             operation: Operation::new("environment.read"),
-            resource: ResourceExpr::Unresolved {
-                family: effinterp_proto::ResourceFamily::new("environment"),
-            },
+            resource: unresolved_resource("environment"),
             attributes: Default::default(),
             modality: Modality::May,
             realm: effinterp_proto::ExecutionRealm::Host,
@@ -2328,12 +2294,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                 );
                 (resource, fs_resource_uses_cwd(&without_cwd))
             }
-            None => (
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                },
-                false,
-            ),
+            None => (unresolved_resource("filesystem"), false),
         }
     }
 

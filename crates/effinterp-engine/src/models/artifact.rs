@@ -4,15 +4,16 @@ use effinterp_proto::{
     ArtifactEcosystem, ArtifactReference, AttrValue, Boundary, BoundaryClass, BoundaryReason,
     BoundaryScope, CoverageLevel, Domain, Effect, ExecutionEdgeKind, ExecutionNodeRef,
     ExecutionRealm, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceFamily, ResourceIdentity, Subject,
+    ResourceIdentity, Subject,
 };
 
 use crate::SourcePurpose;
 use crate::builder::PlanBuilder;
-use crate::exec::program_name;
-use crate::models::common::{Attrs, arg_effect, arg_node};
+use crate::exec::dispatch_program_name;
+use crate::models::common::{Attrs, arg_effect, arg_node, reviewed_source_node};
 use crate::models::{CommandModel, InvocationCtx};
 use crate::nest::{SourceResolution, Transition, word_resource};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 struct GithubRelease {
@@ -31,26 +32,24 @@ pub(super) fn with_package_publication(owner: Box<dyn CommandModel>) -> Box<dyn 
     Box::new(PackagePublicationOwner { owner })
 }
 
-fn literal(value: &str) -> ResourceExpr {
+fn literal_resource(value: &str) -> ResourceExpr {
     ResourceExpr::Literal {
         value: value.into(),
     }
 }
 
 pub(super) fn unknown() -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new("artifact"),
-    }
+    unresolved_resource("artifact")
 }
 
-pub(super) fn boundary(
+pub(super) fn artifact_boundary(
     builder: &mut PlanBuilder,
     node: ProvenanceRef,
     domains: &[&str],
     reason: BoundaryReason,
     detail: &str,
 ) {
-    scoped_boundary(
+    artifact_scoped_boundary(
         builder,
         node,
         domains,
@@ -62,14 +61,14 @@ pub(super) fn boundary(
 
 /// A gap in what the registry, its configuration, or a package's own scripts
 /// do once the invocation runs, rather than in the invocation's own input.
-pub(super) fn environment_boundary(
+pub(super) fn artifact_environment_boundary(
     builder: &mut PlanBuilder,
     node: ProvenanceRef,
     domains: &[&str],
     reason: BoundaryReason,
     detail: &str,
 ) {
-    scoped_boundary(
+    artifact_scoped_boundary(
         builder,
         node,
         domains,
@@ -79,7 +78,7 @@ pub(super) fn environment_boundary(
     );
 }
 
-fn scoped_boundary(
+fn artifact_scoped_boundary(
     builder: &mut PlanBuilder,
     node: ProvenanceRef,
     domains: &[&str],
@@ -103,34 +102,14 @@ fn scoped_boundary(
     }
 }
 
-// Handwritten models pin their reviewed source in the same model-application
-// provenance used by the command catalog. Analysis never fetches these sources.
-pub(super) fn reviewed(
-    builder: &mut PlanBuilder,
-    ctx: &InvocationCtx,
-    node: ProvenanceRef,
-    source: &str,
-) -> ProvenanceRef {
-    let mut provenance = vec![node];
-    for index in 1..ctx.argv.len() {
-        provenance.push(arg_node(builder, ctx, index as u32));
-    }
-    builder.node(
-        ProvenanceKind::ModelApplication {
-            model: source.into(),
-        },
-        &provenance,
-    )
-}
-
 #[derive(Default)]
-struct Options {
+struct ArtifactOptions {
     values: BTreeMap<String, Word>,
     operands: Vec<usize>,
     invalid: bool,
 }
 
-impl Options {
+impl ArtifactOptions {
     fn boolean(&self, name: &str) -> bool {
         self.values.get(name).and_then(Word::as_literal) == Some("true")
     }
@@ -644,7 +623,7 @@ pub(super) fn npm_options(ctx: &InvocationCtx, start: usize) -> NpmOptions {
 /// Marks an npm request kept behind an option word this reading does not
 /// understand, which may change its package, destination or suppression.
 fn unrecognized_npm_options(builder: &mut PlanBuilder, node: ProvenanceRef) {
-    boundary(
+    artifact_boundary(
         builder,
         node,
         &["artifact", "network", "filesystem", "process"],
@@ -726,8 +705,8 @@ fn options(
     booleans: &[&str],
     values: &[&str],
     aliases: &[(&str, &str)],
-) -> Options {
-    let mut out = Options::default();
+) -> ArtifactOptions {
+    let mut out = ArtifactOptions::default();
     let mut index = start;
     let mut positional = false;
     while index < ctx.argv.len() {
@@ -908,13 +887,11 @@ pub(super) fn mutation(
         manifest.unwrap_or(node),
         index as u32,
         "network.upload",
-        endpoint.unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        }),
+        endpoint.unwrap_or(unresolved_resource("network")),
         Attrs::new(),
     );
     builder.declare_coverage(Domain::new("artifact"), CoverageLevel::Full);
-    environment_boundary(
+    artifact_environment_boundary(
         builder,
         node,
         &["network", "filesystem"],
@@ -933,7 +910,11 @@ pub(super) fn literal_package_dispatch(
     if registry_owner_dispatch(builder, ctx, node) {
         return true;
     }
-    let command = ctx.argv.first().and_then(program_name).unwrap_or("");
+    let command = ctx
+        .argv
+        .first()
+        .and_then(dispatch_program_name)
+        .unwrap_or("");
     // rustup's `cargo +<toolchain>` selects the toolchain, not the subcommand.
     let toolchain = usize::from(
         command == "cargo"
@@ -1002,7 +983,7 @@ pub(super) fn literal_package_dispatch(
         }
         _ => return false,
     };
-    let node = reviewed(
+    let node = reviewed_source_node(
         builder,
         ctx,
         node,
@@ -1279,7 +1260,7 @@ pub(super) fn literal_package_dispatch(
         return true;
     }
     if command == "gem" && matches!(action, "publish" | "yank") && operands.len() != 1 {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "network"],
@@ -1294,7 +1275,7 @@ pub(super) fn literal_package_dispatch(
             .iter()
             .any(|word| word.as_literal() == Some("--build"))
     {
-        environment_boundary(
+        artifact_environment_boundary(
             builder,
             node,
             &["artifact", "filesystem", "network", "process"],
@@ -1381,7 +1362,7 @@ pub(super) fn literal_package_dispatch(
         let mut version = unknown();
         let endpoint = selected_options
             .get("--registry")
-            .map_or_else(unknown, |value| literal(value));
+            .map_or_else(unknown, |value| literal_resource(value));
         // A recursive or filtered pnpm publication publishes the selected
         // workspace packages, which are not read here.
         let workspace = pnpm_selection
@@ -1395,7 +1376,7 @@ pub(super) fn literal_package_dispatch(
                             || word.starts_with("--filter=")
                     });
         if workspace {
-            boundary(
+            artifact_boundary(
                 builder,
                 node,
                 &["artifact", "filesystem"],
@@ -1443,7 +1424,7 @@ pub(super) fn literal_package_dispatch(
                         .and_then(|v| v.as_str())
                         .filter(|v| !v.is_empty())
                     {
-                        name = literal(value);
+                        name = literal_resource(value);
                     }
                     if (command != "yarn" || start == 3)
                         && let Some(value) = manifest
@@ -1451,7 +1432,7 @@ pub(super) fn literal_package_dispatch(
                             .and_then(|v| v.as_str())
                             .filter(|v| exact_npm_version(v))
                     {
-                        version = literal(value);
+                        version = literal_resource(value);
                     }
                 }
             }
@@ -1473,12 +1454,10 @@ pub(super) fn literal_package_dispatch(
             node,
             index as u32,
             "network.request",
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            },
+            unresolved_resource("network"),
             Attrs::new(),
         );
-        environment_boundary(
+        artifact_environment_boundary(
             builder,
             node,
             &["artifact", "network"],
@@ -1494,9 +1473,7 @@ pub(super) fn literal_package_dispatch(
             request_assurance,
             id: Default::default(),
             operation: Operation::new("artifact.yank_request"),
-            resource: ResourceExpr::Unresolved {
-                family: ResourceFamily::new("artifact"),
-            },
+            resource: unresolved_resource("artifact"),
             attributes: attrs.clone(),
             modality: Modality::MustOnSuccess,
             realm: ExecutionRealm::Host,
@@ -1511,9 +1488,7 @@ pub(super) fn literal_package_dispatch(
             None,
             arg,
             "artifact.delete",
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("artifact"),
-            },
+            unresolved_resource("artifact"),
             attrs,
             None,
         );
@@ -1541,7 +1516,7 @@ pub(super) fn literal_package_dispatch(
 struct LiteralPackages;
 
 fn package_publication_selected(argv: &[Word]) -> bool {
-    let command = argv.first().and_then(program_name);
+    let command = argv.first().and_then(dispatch_program_name);
     let sub = argv.get(1).and_then(Word::as_literal);
     let verb = argv.get(2).and_then(Word::as_literal);
     matches!(
@@ -1577,7 +1552,7 @@ impl CommandModel for LiteralPackages {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, node: ProvenanceRef) {
         if !literal_package_dispatch(builder, ctx, node) {
-            boundary(
+            artifact_boundary(
                 builder,
                 node,
                 &["artifact", "network", "filesystem", "process"],
@@ -1788,7 +1763,7 @@ pub(super) fn docker_push(
     node: ProvenanceRef,
     start: usize,
 ) {
-    let node = reviewed(
+    let node = reviewed_source_node(
         builder,
         ctx,
         node,
@@ -1800,7 +1775,7 @@ pub(super) fn docker_push(
                 && ctx.argv[1].as_literal() == Some("image")
                 && ctx.argv[2].as_literal() == Some("push")))
     {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "network"],
@@ -1817,7 +1792,7 @@ pub(super) fn docker_push(
         &[("-q", "--quiet"), ("-a", "--all-tags")],
     );
     if parsed.invalid || parsed.operands.len() != 1 {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "network"],
@@ -1831,18 +1806,18 @@ pub(super) fn docker_push(
     let (endpoint, repository) =
         if let Some((first, rest)) = super::container::split_word_once(image, '/') {
             match first.as_literal() {
-                Some("index.docker.io") => (literal("docker.io"), rest),
+                Some("index.docker.io") => (literal_resource("docker.io"), rest),
                 Some(v) if v.contains(['.', ':']) || v == "localhost" || v != v.to_lowercase() => {
                     (word_resource(&first), rest)
                 }
-                Some(_) => (literal("docker.io"), image.clone()),
+                Some(_) => (literal_resource("docker.io"), image.clone()),
                 // A symbolic first component can be a registry or a namespace.
                 None => (unknown(), rest),
             }
         } else if image.as_literal().is_some() {
-            (literal("docker.io"), image.clone())
+            (literal_resource("docker.io"), image.clone())
         } else {
-            boundary(
+            artifact_boundary(
                 builder,
                 node,
                 &["artifact", "network"],
@@ -1871,7 +1846,7 @@ pub(super) fn docker_push(
                 repository,
                 ArtifactReference::Tag {
                     value: if image.as_literal().is_some() {
-                        literal("latest")
+                        literal_resource("latest")
                     } else {
                         unknown()
                     },
@@ -1879,7 +1854,7 @@ pub(super) fn docker_push(
             )
         };
     if matches!(reference, ArtifactReference::Digest { .. }) {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "network"],
@@ -1893,7 +1868,7 @@ pub(super) fn docker_push(
     } else {
         word_resource(&name)
     };
-    if endpoint == literal("docker.io")
+    if endpoint == literal_resource("docker.io")
         && let ResourceExpr::Literal { value } = &mut name
         && !value.contains('/')
     {
@@ -1904,7 +1879,7 @@ pub(super) fn docker_push(
             .value()
             .is_some_and(|v| matches!(v, ResourceExpr::Literal { value } if value.is_empty()))
     {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "network"],
@@ -1922,7 +1897,7 @@ pub(super) fn docker_push(
                     .is_some_and(|last| last.contains(':'))
             }))
     {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "network"],
@@ -1941,7 +1916,7 @@ pub(super) fn docker_push(
         reference
     };
     if image.as_literal().is_none() {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "network"],
@@ -1981,7 +1956,7 @@ fn registry_owner_dispatch(
     ctx: &InvocationCtx,
     node: ProvenanceRef,
 ) -> bool {
-    let command = program_name(&ctx.argv[0]).unwrap_or("");
+    let command = dispatch_program_name(&ctx.argv[0]).unwrap_or("");
     if !matches!(command, "npm" | "cargo" | "gem" | "yarn" | "pnpm") {
         return false;
     }
@@ -2164,7 +2139,7 @@ fn registry_owner_dispatch(
         }
         (package, invalid || (command == "gem" && package.is_none()))
     };
-    let node = reviewed(
+    let node = reviewed_source_node(
         builder,
         ctx,
         node,
@@ -2176,7 +2151,7 @@ fn registry_owner_dispatch(
             .iter()
             .any(|(_, user, _)| user.as_literal().is_none_or(str::is_empty))
     {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "network"],
@@ -2209,7 +2184,7 @@ fn registry_owner_dispatch(
                 .and_then(|name| name.as_str())
                 .filter(|name| !name.is_empty())
         {
-            name = literal(value);
+            name = literal_resource(value);
         }
     }
     let endpoint = registry.unwrap_or_else(|| {
@@ -2280,7 +2255,7 @@ fn registry_owner_dispatch(
     } else {
         (BoundaryReason::MODEL_COVERAGE, BoundaryScope::Invocation)
     };
-    scoped_boundary(
+    artifact_scoped_boundary(
         builder,
         node,
         &["artifact", "filesystem", "network"],
@@ -2322,7 +2297,7 @@ pub(super) fn npm_dispatch(
         .filter(|operand| *operand > subindex)
         .collect();
     let publish = sub == "publish";
-    let node = reviewed(
+    let node = reviewed_source_node(
         builder,
         ctx,
         node,
@@ -2335,7 +2310,7 @@ pub(super) fn npm_dispatch(
         .count()
         > 1
     {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "network", "filesystem", "process"],
@@ -2381,7 +2356,7 @@ pub(super) fn npm_dispatch(
             })
         });
     if publish && !tarball && !ignore_scripts {
-        environment_boundary(
+        artifact_environment_boundary(
             builder,
             node,
             &["filesystem", "process", "network", "artifact"],
@@ -2399,7 +2374,7 @@ pub(super) fn npm_dispatch(
             ctx.resolve_fs_word(&ctx.argv[operand.unwrap()]),
             Attrs::new(),
         );
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "filesystem"],
@@ -2407,7 +2382,7 @@ pub(super) fn npm_dispatch(
             "npm archive package identity is unavailable",
         );
     } else if elsewhere {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "filesystem"],
@@ -2420,7 +2395,7 @@ pub(super) fn npm_dispatch(
             && let Some(index) = operand
         {
             let Some(path) = ctx.argv[index].as_literal() else {
-                boundary(
+                artifact_boundary(
                     builder,
                     node,
                     &["artifact", "filesystem"],
@@ -2434,7 +2409,7 @@ pub(super) fn npm_dispatch(
                 || (path.ends_with(".tgz") || path.ends_with(".tar.gz"))
                 || path.starts_with('@')
             {
-                boundary(
+                artifact_boundary(
                     builder,
                     node,
                     &["artifact", "filesystem", "network"],
@@ -2482,7 +2457,7 @@ pub(super) fn npm_dispatch(
             }
         }
         if manifest.is_none() && (publish || operand.is_none()) {
-            boundary(
+            artifact_boundary(
                 builder,
                 node,
                 &["artifact", "filesystem"],
@@ -2497,7 +2472,7 @@ pub(super) fn npm_dispatch(
             .and_then(|v| v.get(name))
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty() && (name != "version" || exact_npm_version(v)))
-            .map(literal)
+            .map(literal_resource)
             .unwrap_or_else(unknown)
     };
     let (name, reference) = if unsettled {
@@ -2515,7 +2490,7 @@ pub(super) fn npm_dispatch(
                     || (name.contains('/')
                         && (!name.starts_with('@') || name.matches('/').count() != 1))
                 {
-                    boundary(
+                    artifact_boundary(
                         builder,
                         node,
                         &["artifact", "network"],
@@ -2525,14 +2500,16 @@ pub(super) fn npm_dispatch(
                     return true;
                 }
                 (
-                    literal(name),
+                    literal_resource(name),
                     version.map_or(ArtifactReference::Whole {}, |v| {
-                        ArtifactReference::Version { value: literal(v) }
+                        ArtifactReference::Version {
+                            value: literal_resource(v),
+                        }
                     }),
                 )
             }
             None => {
-                boundary(
+                artifact_boundary(
                     builder,
                     node,
                     &["artifact"],
@@ -2551,7 +2528,7 @@ pub(super) fn npm_dispatch(
         )
     };
     if name == unknown() || reference.value() == Some(&unknown()) {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact"],
@@ -2563,7 +2540,7 @@ pub(super) fn npm_dispatch(
         manifest
             .get("name")
             .and_then(|v| v.as_str())
-            .is_some_and(|manifest_name| name == literal(manifest_name))
+            .is_some_and(|manifest_name| name == literal_resource(manifest_name))
     });
     let config = selected_manifest.and_then(|v| v.get("publishConfig"));
     let registry = parsed.value("registry").map(word_resource);
@@ -2571,7 +2548,7 @@ pub(super) fn npm_dispatch(
         .and_then(|v| v.get("registry"))
         .and_then(|v| v.as_str())
         .filter(|v| !v.is_empty())
-        .map(literal);
+        .map(literal_resource);
     let env_registry = ctx.environment_value("npm_config_registry");
     let mut endpoint = registry
         .or(config_registry)
@@ -2587,7 +2564,7 @@ pub(super) fn npm_dispatch(
             .and_then(|v| v.get(format!("{scope}:registry")))
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty())
-            .map(literal);
+            .map(literal_resource);
         if let Some(scoped) = scoped {
             endpoint = scoped;
         } else {
@@ -2597,7 +2574,7 @@ pub(super) fn npm_dispatch(
     if !matches!(&endpoint, ResourceExpr::Literal { value } if value.starts_with("https://") || value.starts_with("http://"))
     {
         endpoint = unknown();
-        environment_boundary(
+        artifact_environment_boundary(
             builder,
             node,
             &["artifact", "network"],
@@ -2609,7 +2586,7 @@ pub(super) fn npm_dispatch(
         .value("tag")
         .is_some_and(|tag| tag.as_literal().is_none())
     {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact"],
@@ -2639,7 +2616,7 @@ pub(super) fn npm_dispatch(
         attrs.insert("private".into(), AttrValue::Bool(private));
     }
     if publish && !tarball {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["filesystem"],
@@ -2719,9 +2696,7 @@ pub(super) fn npm_dispatch(
                 .map(|identity| ResourceExpr::Concrete { identity }),
             _ => None,
         }
-        .unwrap_or(ResourceExpr::Unresolved {
-            family: ResourceFamily::new("network"),
-        });
+        .unwrap_or(unresolved_resource("network"));
         arg_effect(
             builder,
             ctx,
@@ -2731,7 +2706,7 @@ pub(super) fn npm_dispatch(
             endpoint,
             Attrs::new(),
         );
-        environment_boundary(
+        artifact_environment_boundary(
             builder,
             node,
             &["network", "filesystem"],
@@ -2866,13 +2841,16 @@ impl CommandModel for GithubRelease {
                 .map(|repo| repo.split('/').collect::<Vec<_>>())
                 .as_deref()
             {
-                Some([host, owner, repo]) => (literal(host), literal(&format!("{owner}/{repo}"))),
-                Some([owner, repo]) => (unknown(), literal(&format!("{owner}/{repo}"))),
+                Some([host, owner, repo]) => (
+                    literal_resource(host),
+                    literal_resource(&format!("{owner}/{repo}")),
+                ),
+                Some([owner, repo]) => (unknown(), literal_resource(&format!("{owner}/{repo}"))),
                 _ => (unknown(), unknown()),
             };
             builder.declare_coverage(Domain::new("artifact"), CoverageLevel::Full);
             if endpoint == unknown() {
-                boundary(
+                artifact_boundary(
                     builder,
                     owner_node,
                     &["artifact"],
@@ -2892,7 +2870,7 @@ impl CommandModel for GithubRelease {
                     endpoint,
                     name,
                     ArtifactReference::Tag {
-                        value: literal(&tag),
+                        value: literal_resource(&tag),
                     },
                 ),
                 Attrs::new(),
@@ -2925,7 +2903,7 @@ impl CommandModel for GithubRelease {
             release_download_assets(builder, ctx, node, start);
             return;
         }
-        let node = reviewed(
+        let node = reviewed_source_node(
             builder,
             ctx,
             node,
@@ -2937,7 +2915,7 @@ impl CommandModel for GithubRelease {
             || parsed.values.contains_key("--cleanup-tag")
             || (parsed.values.contains_key("--notes") && parsed.values.contains_key("--notes-file"))
         {
-            boundary(
+            artifact_boundary(
                 builder,
                 node,
                 &["artifact", "network", "git", "filesystem"],
@@ -2985,7 +2963,7 @@ impl CommandModel for GithubRelease {
             },
             Attrs::new(),
         );
-        environment_boundary(
+        artifact_environment_boundary(
             builder,
             node,
             &["environment"],
@@ -2999,19 +2977,19 @@ impl CommandModel for GithubRelease {
             if pieces.iter().all(|s| !s.is_empty()) {
                 match pieces.as_slice() {
                     [owner, repo] => {
-                        endpoint = literal("github.com");
-                        name = literal(&format!("{owner}/{repo}"));
+                        endpoint = literal_resource("github.com");
+                        name = literal_resource(&format!("{owner}/{repo}"));
                     }
                     [host, owner, repo] => {
-                        endpoint = literal(host);
-                        name = literal(&format!("{owner}/{repo}"));
+                        endpoint = literal_resource(host);
+                        name = literal_resource(&format!("{owner}/{repo}"));
                     }
                     _ => {}
                 }
             }
         }
         if endpoint == unknown() {
-            boundary(
+            artifact_boundary(
                 builder,
                 node,
                 &["artifact", "network"],
@@ -3026,7 +3004,7 @@ impl CommandModel for GithubRelease {
             .map(|index| word_resource(&ctx.argv[*index]))
             .unwrap_or_else(unknown);
         if parsed.operands.is_empty() || ctx.argv[index].as_literal().is_none_or(str::is_empty) {
-            boundary(
+            artifact_boundary(
                 builder,
                 node,
                 &["artifact"],
@@ -3037,7 +3015,7 @@ impl CommandModel for GithubRelease {
         if create {
             for &index in parsed.operands.iter().skip(1) {
                 let Some(path) = ctx.argv[index].as_literal() else {
-                    boundary(
+                    artifact_boundary(
                         builder,
                         node,
                         &["filesystem", "network"],
@@ -3080,7 +3058,7 @@ impl CommandModel for GithubRelease {
                 }
             }
             if !parsed.boolean("--verify-tag") {
-                boundary(
+                artifact_boundary(
                     builder,
                     node,
                     &["git"],
@@ -3117,7 +3095,11 @@ impl CommandModel for GithubRelease {
                 endpoint,
                 name,
                 ArtifactReference::Tag {
-                    value: if tag == literal("") { unknown() } else { tag },
+                    value: if tag == literal_resource("") {
+                        unknown()
+                    } else {
+                        tag
+                    },
                 },
             ),
             attrs,

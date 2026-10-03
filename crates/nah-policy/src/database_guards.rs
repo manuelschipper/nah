@@ -1,13 +1,12 @@
 //! Declarative definition for the database-destruction guard.
 
-use effinterp_matcher::{
-    Assertion, AttributePredicate, ConditionPredicate, OperationMatch, Query, ResourcePredicate,
-    Selector, TextPredicate,
-};
+use effinterp_matcher::{Assertion, AttributePredicate, Query, ResourcePredicate, TextPredicate};
 use nah_proto::effects::Domain;
 
 use crate::registry::{GuardDefinition, GuardFamily, engine_only};
-use crate::shared_queries::{bool_attr, family, present_attr, string_attr, string_one_of};
+use crate::shared_queries::{
+    bool_attr, present_attr, resource_family, string_attr, string_one_of, success_path_effect,
+};
 
 /// Managed-database resources whose deletion removes live data, as the
 /// engine's cloud models name them: `(provider, service, kind)`. Timestream
@@ -77,7 +76,7 @@ pub(crate) fn db_destroy() -> GuardDefinition {
         // unknown stays indeterminate.
         destroys(
             "database.schema_drop",
-            family("db"),
+            resource_family("db"),
             vec![string_one_of(
                 "object_kind",
                 &[
@@ -95,10 +94,15 @@ pub(crate) fn db_destroy() -> GuardDefinition {
         ),
         // ClickHouse detached parts are a recovery copy that
         // storage-snapshot-delete owns.
-        destroys("database.truncate", family("db"), vec![], &["detached"]),
+        destroys(
+            "database.truncate",
+            resource_family("db"),
+            vec![],
+            &["detached"],
+        ),
         destroys(
             "database.write",
-            family("db"),
+            resource_family("db"),
             vec![
                 string_attr("action", "delete"),
                 present_attr("filtered"),
@@ -108,13 +112,13 @@ pub(crate) fn db_destroy() -> GuardDefinition {
         ),
         destroys(
             "database.write",
-            family("db"),
+            resource_family("db"),
             vec![string_attr("action", "overwrite")],
             &[],
         ),
         destroys(
             "database.schema_write",
-            family("db"),
+            resource_family("db"),
             vec![
                 present_attr("replaces_existing"),
                 bool_attr("replaces_existing", true),
@@ -127,7 +131,7 @@ pub(crate) fn db_destroy() -> GuardDefinition {
         ),
         destroys(
             "database.schema_write",
-            family("db"),
+            resource_family("db"),
             vec![
                 present_attr("drops_column"),
                 bool_attr("drops_column", true),
@@ -138,10 +142,12 @@ pub(crate) fn db_destroy() -> GuardDefinition {
     // A whole-stack infrastructure-as-code teardown is infra-iac-destroy's;
     // a targeted or unresolved one may still reach a database.
     let whole_stack = Assertion::Not {
-        assertion: Box::new(effect(
+        assertion: Box::new(success_path_effect(
             "cloud.resource.delete",
             ResourcePredicate::Any,
             vec![present_attr("whole_stack"), bool_attr("whole_stack", true)],
+            None,
+            None,
         )),
     };
     for (provider, service, kinds) in DB_RESOURCES {
@@ -183,35 +189,19 @@ fn destroys(
     attributes: Vec<AttributePredicate>,
     excluded: &[&str],
 ) -> Assertion {
-    let mut assertions = vec![effect(operation, resource, attributes)];
+    let mut assertions = vec![success_path_effect(
+        operation, resource, attributes, None, None,
+    )];
     for name in ["dry_run"].iter().chain(excluded) {
         assertions.push(Assertion::Not {
-            assertion: Box::new(effect(
+            assertion: Box::new(success_path_effect(
                 operation,
                 ResourcePredicate::Any,
                 vec![present_attr(name), bool_attr(name, true)],
+                None,
+                None,
             )),
         });
     }
     Assertion::All { assertions }
-}
-
-fn effect(
-    operation: &str,
-    resource: ResourcePredicate,
-    attributes: Vec<AttributePredicate>,
-) -> Assertion {
-    Assertion::Effect {
-        selector: Selector {
-            operation: OperationMatch::Exact(operation.into()),
-            resource,
-            attributes,
-            request_assurance: None,
-            condition: Some(ConditionPredicate::SuccessPath),
-            modality: None,
-            execution_assurance: None,
-            realm: None,
-        },
-        closure: None,
-    }
 }

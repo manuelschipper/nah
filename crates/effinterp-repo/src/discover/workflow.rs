@@ -1,6 +1,9 @@
-use super::*;
+use effinterp_engine::GITHUB_ACTIONS_DRIVER;
+use effinterp_proto::Subject;
 
-pub(super) fn github_workflow_steps(ctx: &mut Ctx, relpath: &str, content: &str) {
+use super::{Entrypoint, EntrypointCrawl, EntrypointEvidence, EntrypointKind};
+
+pub(super) fn github_workflow_steps(ctx: &mut EntrypointCrawl, relpath: &str, content: &str) {
     let lines: Vec<&str> = content.lines().collect();
     let mut index = 0;
     let mut step = 0;

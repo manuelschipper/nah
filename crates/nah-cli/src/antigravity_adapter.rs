@@ -9,10 +9,15 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    adapter_fields::runtime_field_names_covered,
+    adapter_fields::{
+        runtime_field_names_covered, tool_input_non_empty_string, tool_input_optional_bool,
+        tool_input_string,
+    },
     hook_adapter, live_state,
     runtime::{FailurePolicy, Runtime},
 };
+
+const INVALID_ANTIGRAVITY_TOOL_INPUT: &str = "invalid-antigravity-tool-input";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,7 +43,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
 ) -> u8 {
     let request = serde_json::from_reader::<_, AntigravityHookInput>(stdin)
         .map_err(|error| error.to_string())
-        .and_then(normalize);
+        .and_then(normalize_antigravity_hook_input);
     let output = match request {
         Ok(request) => {
             match hook_adapter::decide_input(request, stderr, Runtime::Antigravity, failure_policy)
@@ -48,7 +53,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                         if decision.guard_block_incomplete() {
                             let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
                         }
-                        deny(&hook_adapter::feedback(&decision))
+                        antigravity_deny_reply(&hook_adapter::feedback(&decision))
                     }
                     Verdict::Delegate => {
                         if decision.evaluation_failed() {
@@ -63,14 +68,17 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     Runtime::Antigravity,
                     hook_adapter::IntegrationUnavailable::MalformedInput,
                 )
-                .map_or_else(|| json!({"decision":"ask"}), |reason| deny(&reason)),
+                .map_or_else(
+                    || json!({"decision":"ask"}),
+                    |reason| antigravity_deny_reply(&reason),
+                ),
                 hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
                     match hook_adapter::unavailable_feedback(
                         failure_policy,
                         Runtime::Antigravity,
                         kind,
                     ) {
-                        Some(reason) => deny(&reason),
+                        Some(reason) => antigravity_deny_reply(&reason),
                         None => {
                             let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
                             json!({"decision":"ask"})
@@ -84,10 +92,12 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             Runtime::Antigravity,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
-        .map_or_else(|| json!({"decision":"ask"}), |reason| deny(&reason)),
+        .map_or_else(
+            || json!({"decision":"ask"}),
+            |reason| antigravity_deny_reply(&reason),
+        ),
     };
-    let _ = serde_json::to_writer(&mut *stdout, &output);
-    let _ = writeln!(stdout);
+    hook_adapter::write_hook_reply_line(stdout, output);
     0
 }
 
@@ -98,7 +108,7 @@ pub(crate) fn normalize_call(
     tool_input: Value,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    normalize(AntigravityHookInput {
+    normalize_antigravity_hook_input(AntigravityHookInput {
         tool_call: AntigravityToolCall {
             name: tool_name.into(),
             args: tool_input,
@@ -108,7 +118,7 @@ pub(crate) fn normalize_call(
     })
 }
 
-fn normalize(input: AntigravityHookInput) -> Result<ToolCallInput, String> {
+fn normalize_antigravity_hook_input(input: AntigravityHookInput) -> Result<ToolCallInput, String> {
     let original_input = input.tool_call.args.clone();
     let platform = live_state::host_platform();
     let workspaces = validate_workspaces(input.workspace_paths, platform)?;
@@ -116,9 +126,9 @@ fn normalize(input: AntigravityHookInput) -> Result<ToolCallInput, String> {
         .tool_call
         .args
         .as_object()
-        .ok_or_else(|| "invalid-antigravity-tool-input".to_owned())
+        .ok_or_else(|| INVALID_ANTIGRAVITY_TOOL_INPUT.to_owned())
         .and_then(|object| {
-            lower(
+            lower_antigravity_tool(
                 &input.tool_call.name,
                 &input.tool_call.args,
                 object,
@@ -153,7 +163,7 @@ fn normalize(input: AntigravityHookInput) -> Result<ToolCallInput, String> {
     .map_err(|error| error.to_string())
 }
 
-fn lower<'a>(
+fn lower_antigravity_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     object: &Map<String, Value>,
@@ -162,7 +172,7 @@ fn lower<'a>(
     Ok(match tool_name {
         "run_command" => (
             "Bash",
-            json!({"command": string(object, "CommandLine")?}),
+            json!({"command": tool_input_string(object, "CommandLine", INVALID_ANTIGRAVITY_TOOL_INPUT)?}),
             None,
             Some(absolute(object, "Cwd", platform)?),
         ),
@@ -176,7 +186,7 @@ fn lower<'a>(
                 "Write",
                 json!({
                     "file_path":path.clone(),
-                    "content":string(object, "CodeContent")?
+                    "content":tool_input_string(object, "CodeContent", INVALID_ANTIGRAVITY_TOOL_INPUT)?
                 }),
                 Some(path),
                 None,
@@ -186,10 +196,12 @@ fn lower<'a>(
             let path = absolute(object, "TargetFile", platform)?;
             let mut edit = json!({
                 "file_path":path.clone(),
-                "old_string":non_empty(object, "TargetContent")?,
-                "new_string":string(object, "ReplacementContent")?
+                "old_string":tool_input_non_empty_string(object, "TargetContent", INVALID_ANTIGRAVITY_TOOL_INPUT)?,
+                "new_string":tool_input_string(object, "ReplacementContent", INVALID_ANTIGRAVITY_TOOL_INPUT)?
             });
-            if let Some(replace_all) = optional_bool(object, "AllowMultiple")? {
+            if let Some(replace_all) =
+                tool_input_optional_bool(object, "AllowMultiple", INVALID_ANTIGRAVITY_TOOL_INPUT)?
+            {
                 edit["replace_all"] = json!(replace_all);
             }
             ("Edit", edit, Some(path), None)
@@ -211,7 +223,7 @@ fn lower<'a>(
             let path = absolute(object, "SearchDirectory", platform)?;
             (
                 "Find",
-                json!({"path":path.clone(),"pattern":string(object, "Pattern")?}),
+                json!({"path":path.clone(),"pattern":tool_input_string(object, "Pattern", INVALID_ANTIGRAVITY_TOOL_INPUT)?}),
                 Some(path),
                 None,
             )
@@ -220,16 +232,16 @@ fn lower<'a>(
             let path = absolute(object, "SearchPath", platform)?;
             (
                 "Grep",
-                json!({"path":path.clone(),"pattern":string(object, "Query")?}),
+                json!({"path":path.clone(),"pattern":tool_input_string(object, "Query", INVALID_ANTIGRAVITY_TOOL_INPUT)?}),
                 Some(path),
                 None,
             )
         }
         "manage_task" => {
-            match string(object, "Action")?.as_str() {
+            match tool_input_string(object, "Action", INVALID_ANTIGRAVITY_TOOL_INPUT)?.as_str() {
                 "send_input" => return Err("unsupported-antigravity-task-input".into()),
                 "list" | "kill" | "status" => {}
-                _ => return Err("invalid-antigravity-tool-input".into()),
+                _ => return Err(INVALID_ANTIGRAVITY_TOOL_INPUT.into()),
             }
             (tool_name, tool_input.clone(), None, None)
         }
@@ -252,7 +264,7 @@ fn workspace_for(path: Option<&str>, workspaces: &[String], platform: Platform) 
     path.and_then(|path| {
         workspaces
             .iter()
-            .filter(|workspace| nah_proto::labels::contains(workspace, path, platform))
+            .filter(|workspace| nah_proto::labels::lexically_contains(workspace, path, platform))
             .max_by_key(|workspace| workspace.len())
     })
     .unwrap_or(&workspaces[0])
@@ -264,54 +276,29 @@ fn replacement_chunks(object: &Map<String, Value>) -> Result<Vec<Value>, String>
         .get("ReplacementChunks")
         .and_then(Value::as_array)
         .filter(|chunks| !chunks.is_empty())
-        .ok_or_else(|| "invalid-antigravity-tool-input".to_owned())?
+        .ok_or_else(|| INVALID_ANTIGRAVITY_TOOL_INPUT.to_owned())?
         .iter()
         .map(|chunk| {
             let chunk = chunk
                 .as_object()
-                .ok_or_else(|| "invalid-antigravity-tool-input".to_owned())?;
-            optional_bool(chunk, "AllowMultiple")?;
+                .ok_or_else(|| INVALID_ANTIGRAVITY_TOOL_INPUT.to_owned())?;
+            tool_input_optional_bool(chunk, "AllowMultiple", INVALID_ANTIGRAVITY_TOOL_INPUT)?;
             Ok(json!({
-                "oldText":non_empty(chunk, "TargetContent")?,
-                "newText":string(chunk, "ReplacementContent")?
+                "oldText":tool_input_non_empty_string(chunk, "TargetContent", INVALID_ANTIGRAVITY_TOOL_INPUT)?,
+                "newText":tool_input_string(chunk, "ReplacementContent", INVALID_ANTIGRAVITY_TOOL_INPUT)?
             }))
         })
         .collect()
 }
 
-fn string(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-antigravity-tool-input".to_owned())
-}
-
-fn non_empty(object: &Map<String, Value>, name: &str) -> Result<String, String> {
-    object
-        .get(name)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| "invalid-antigravity-tool-input".to_owned())
-}
-
 fn absolute(object: &Map<String, Value>, name: &str, platform: Platform) -> Result<String, String> {
-    let path = non_empty(object, name)?;
+    let path = tool_input_non_empty_string(object, name, INVALID_ANTIGRAVITY_TOOL_INPUT)?;
     AbsolutePath::new(platform, path.clone())
         .map(|_| path)
-        .map_err(|_| "invalid-antigravity-tool-input".into())
+        .map_err(|_| INVALID_ANTIGRAVITY_TOOL_INPUT.into())
 }
 
-fn optional_bool(object: &Map<String, Value>, name: &str) -> Result<Option<bool>, String> {
-    match object.get(name) {
-        Some(Value::Bool(value)) => Ok(Some(*value)),
-        None => Ok(None),
-        Some(_) => Err("invalid-antigravity-tool-input".into()),
-    }
-}
-
-fn deny(reason: &str) -> Value {
+fn antigravity_deny_reply(reason: &str) -> Value {
     json!({"decision":"deny","reason":format!("nah - {reason}")})
 }
 
@@ -338,7 +325,7 @@ mod tests {
 
     fn normalized(name: &str, mut args: Value) -> ToolCallInput {
         native_paths(&mut args);
-        normalize(AntigravityHookInput {
+        normalize_antigravity_hook_input(AntigravityHookInput {
             tool_call: AntigravityToolCall {
                 name: name.into(),
                 args,

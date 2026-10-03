@@ -8,13 +8,14 @@ use crate::models::args::{
     DOCKER_BUILD, DOCKER_COMPOSE_EXEC, DOCKER_COMPOSE_RUN, DOCKER_EXEC, DOCKER_RUN, FlagSpec,
     Scanned, inner_start, scan, strip_literal_prefix,
 };
+use crate::value::unresolved_resource;
 
 use std::collections::BTreeMap;
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CausalAssurance,
     ContainerStorage, CoverageLevel, Domain, Effect, ExecutionEdgeKind, Modality, Operation, Port,
-    ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity,
+    ProvenanceRef, ResourceExpr, ResourceIdentity,
 };
 
 use crate::builder::PlanBuilder;
@@ -135,7 +136,7 @@ impl CommandModel for Docker {
         if ctx
             .argv
             .first()
-            .and_then(crate::exec::program_name)
+            .and_then(crate::exec::dispatch_program_name)
             .is_some_and(|command| matches!(command, "docker-compose" | "podman-compose"))
         {
             self.compose(builder, ctx, model_node, 1);
@@ -388,9 +389,7 @@ impl Docker {
                 model_node,
                 index,
                 "container.remove",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("container"),
-                },
+                unresolved_resource("container"),
                 attributes,
             );
         }
@@ -587,9 +586,7 @@ impl Docker {
                 "container.remove",
                 if filtered {
                     // A filtered sweep names no member of the runtime inventory.
-                    ResourceExpr::Unresolved {
-                        family: ResourceFamily::new("container"),
-                    }
+                    unresolved_resource("container")
                 } else {
                     ResourceExpr::Pattern {
                         pattern: effinterp_proto::ResourcePattern::Container {
@@ -885,9 +882,7 @@ impl Docker {
                             model_node,
                             sub_index as u32,
                             "network.download",
-                            ResourceExpr::Unresolved {
-                                family: ResourceFamily::new("network"),
-                            },
+                            unresolved_resource("network"),
                             Attrs::new(),
                         );
                     }
@@ -977,9 +972,7 @@ impl Docker {
                 model_node,
                 verb_index as u32,
                 operation,
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("network"),
-                },
+                unresolved_resource("network"),
                 Attrs::new(),
             );
         } else {
@@ -1431,7 +1424,7 @@ impl Docker {
         if selected.get("--help") == Some(&true)
             || selected.get("--dry-run") == Some(&true)
             || selected.get("--version") == Some(&true)
-                && crate::exec::program_name(&ctx.argv[0]) == Some("podman-compose")
+                && crate::exec::dispatch_program_name(&ctx.argv[0]) == Some("podman-compose")
         {
             return;
         }
@@ -1531,7 +1524,7 @@ impl Docker {
         start: usize,
         compose: bool,
     ) {
-        let BuildContext {
+        let ContainerBuildContext {
             operand_index: i,
             unknown_flags,
             operand_ambiguous,
@@ -1555,9 +1548,7 @@ impl Docker {
                 model_node,
                 start.saturating_sub(1) as u32,
                 "filesystem.read",
-                ResourceExpr::Unresolved {
-                    family: ResourceFamily::new("filesystem"),
-                },
+                unresolved_resource("filesystem"),
                 Attrs::new(),
             );
         } else if !operand_ambiguous && let Some(context) = ctx.argv.get(i) {
@@ -1757,9 +1748,7 @@ impl Docker {
                         reason: BoundaryReason::UNRESOLVED_SOURCE,
                         class: BoundaryClass::Unresolved,
                         scope: BoundaryScope::Invocation,
-                        affected_resource: Some(ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("container"),
-                        }),
+                        affected_resource: Some(unresolved_resource("container")),
                         callee: None,
                         domains: vec![Domain::new("container")],
                         provenance: vec![model_node],
@@ -2027,9 +2016,7 @@ fn container_effect(
                 storage: Vec::new(),
             },
         },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("container"),
-        },
+        None => unresolved_resource("container"),
     };
     arg_effect(
         builder, ctx, model_node, index, operation, resource, attributes,
@@ -2098,9 +2085,7 @@ fn run_effect(
                 storage,
             },
         },
-        None => ResourceExpr::Unresolved {
-            family: ResourceFamily::new("container"),
-        },
+        None => unresolved_resource("container"),
     };
     if identity_provenance.is_empty() {
         arg_effect(
@@ -2359,13 +2344,13 @@ fn runtime_context(
     Ok(context)
 }
 
-struct BuildContext {
+struct ContainerBuildContext {
     operand_index: usize,
     unknown_flags: Vec<(u32, String)>,
     operand_ambiguous: bool,
 }
 
-fn build_context(argv: &[Word], start: usize) -> Result<BuildContext, (usize, String)> {
+fn build_context(argv: &[Word], start: usize) -> Result<ContainerBuildContext, (usize, String)> {
     let (scanned, operand_index, operand_ambiguous) =
         container_options(argv, start, &DOCKER_BUILD, true);
     if let Some(flag) = scanned
@@ -2375,7 +2360,7 @@ fn build_context(argv: &[Word], start: usize) -> Result<BuildContext, (usize, St
     {
         return Err((flag.index as usize, argv[flag.index as usize].render_raw()));
     }
-    Ok(BuildContext {
+    Ok(ContainerBuildContext {
         operand_index,
         operand_ambiguous,
         unknown_flags: scanned.unknown_flags,

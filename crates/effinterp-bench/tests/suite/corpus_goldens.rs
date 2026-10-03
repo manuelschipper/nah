@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use effinterp_bench::bench::score::Scoreboard;
-use effinterp_bench::nah::corpus::{CaseLoad, corpus_digest, load_corpus};
+use effinterp_bench::invocation::score::Scoreboard;
+use effinterp_bench::nah::corpus::{CaseLoad, fixture_corpus_digest, load_corpus};
 use effinterp_bench::nah::goldens::{ResourceMatch, is_complete, load_goldens};
 use effinterp_bench::nah::report::{Ceilings, Parity, check_ceilings, parity, run_corpus};
 use effinterp_engine::Engine;
@@ -163,7 +163,10 @@ fn reviewed_protected_resource_requirements_are_exact() {
 fn committed_parity_is_fresh_and_measures_every_guard() {
     let corpus = repo_dir().join("corpus");
     let parity = committed_parity();
-    assert_eq!(parity.corpus_digest, corpus_digest(&corpus).unwrap());
+    assert_eq!(
+        parity.corpus_digest,
+        fixture_corpus_digest(&corpus).unwrap()
+    );
     let guards: BTreeSet<_> = load_corpus(&corpus)
         .unwrap()
         .into_iter()
@@ -194,7 +197,7 @@ fn committed_parity_matches_the_engine() {
     let report = run_corpus(
         &Engine::new().with_causality_detail(true),
         load_corpus(&corpus).unwrap(),
-        corpus_digest(&corpus).unwrap(),
+        fixture_corpus_digest(&corpus).unwrap(),
         // Reuse recorded provenance; corpus freshness is checked by digest.
         committed_parity().nah_commit,
     );

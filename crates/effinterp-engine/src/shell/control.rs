@@ -8,7 +8,7 @@
 
 use crate::control_flow::{ControlExit, Frontier, Graph, Jump};
 
-use super::lex::Span;
+use super::lex::ShellSpan;
 use super::parse::{self, GroupKind, ShellItem, Simple};
 
 /// The live paths after a construct, split by the status they carry.
@@ -26,7 +26,7 @@ pub(super) enum Callable {
     Function,
 }
 
-struct Builder<'a, 'g> {
+struct ShellControlFlowBuilder<'a, 'g> {
     graph: &'g mut Graph,
     source: &'a str,
     callable: Callable,
@@ -52,7 +52,7 @@ pub(super) fn build(
         return;
     }
     let entry = graph.entry();
-    let mut builder = Builder {
+    let mut builder = ShellControlFlowBuilder {
         graph,
         source,
         callable,
@@ -105,7 +105,7 @@ fn rewrites_control(item: &ShellItem) -> bool {
     }
 }
 
-impl Builder<'_, '_> {
+impl ShellControlFlowBuilder<'_, '_> {
     fn join(&mut self, frontiers: &[Frontier]) -> Frontier {
         self.graph.join(frontiers)
     }
@@ -171,7 +171,7 @@ impl Builder<'_, '_> {
             } => {
                 let (run, bypass) = select(status, *conditional, *short_circuit);
                 let ran = self.pipeline(run, cmds);
-                merge(self, ran, bypass)
+                merge_status(self, ran, bypass)
             }
             ShellItem::Group { kind, items } => match kind {
                 GroupKind::Brace | GroupKind::Redirected => self.items(status, items),
@@ -197,7 +197,7 @@ impl Builder<'_, '_> {
                 GroupKind::ShortCircuit(selection) => {
                     let (run, bypass) = select(status, true, *selection);
                     let ran = self.items(run, items);
-                    merge(self, ran, bypass)
+                    merge_status(self, ran, bypass)
                 }
             },
             ShellItem::For { items, .. } => self.repeat(everything, items),
@@ -462,12 +462,16 @@ fn continues_list(item: &ShellItem) -> bool {
     )
 }
 
-fn span(span: Span) -> (u32, u32) {
+fn span(span: ShellSpan) -> (u32, u32) {
     (span.start, span.end)
 }
 
 /// Where a `&&`/`||` operand runs from, and the paths that skip it.
-fn select(status: Status, conditional: bool, selection: Option<(Span, bool)>) -> (Status, Status) {
+fn select(
+    status: Status,
+    conditional: bool,
+    selection: Option<(ShellSpan, bool)>,
+) -> (Status, Status) {
     match (conditional, selection) {
         (false, _) => (status, Status::default()),
         (true, Some((_, true))) => (
@@ -494,7 +498,11 @@ fn select(status: Status, conditional: bool, selection: Option<(Span, bool)>) ->
     }
 }
 
-fn merge(builder: &mut Builder<'_, '_>, left: Status, right: Status) -> Status {
+fn merge_status(
+    builder: &mut ShellControlFlowBuilder<'_, '_>,
+    left: Status,
+    right: Status,
+) -> Status {
     Status {
         ok: builder.join(&[left.ok, right.ok]),
         fail: builder.join(&[left.fail, right.fail]),

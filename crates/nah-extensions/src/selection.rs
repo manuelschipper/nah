@@ -4,7 +4,7 @@ use crate::bundle::{ActiveExtensionCatalog, ExtensionBundle};
 use nah_proto::ctx::{AbsolutePath, ActivationProjection, Ctx, GuardScope, Platform};
 use nah_proto::effects::{GuardEvidence, Knowledge};
 use nah_proto::exec_v2::ExecV2Request;
-use nah_proto::labels::lexical_path::fold;
+use nah_proto::labels::lexical_path::fold_path_spelling;
 use nah_proto::labels::standard_executable_directory;
 use nah_proto::observation::{Observation, ObservationValue};
 
@@ -151,12 +151,15 @@ fn selector_matches_standard(selector: &str, name: &str, platform: Platform) -> 
 }
 
 /// Whether an invocation cwd is a trusted root or under it. Intentionally not
-/// `lexical_path::contains`: a root spelled with a trailing separator does not
+/// `lexical_path::lexically_contains`: a root spelled with a trailing separator does not
 /// contain its own unslashed spelling here, and a `/` root contains every cwd,
 /// including a Windows drive path. Switching would change which trusted-root
 /// extensions run.
 fn path_contains(root: &str, candidate: &str, platform: Platform) -> bool {
-    let (root, candidate) = (fold(root, platform), fold(candidate, platform));
+    let (root, candidate) = (
+        fold_path_spelling(root, platform),
+        fold_path_spelling(candidate, platform),
+    );
     if root == candidate {
         return true;
     }
@@ -297,7 +300,10 @@ mod tests {
 
     fn evidence(coverage: Coverage, calls: &[Call<'_>]) -> GuardEvidence {
         use Knowledge::{Known, Unknown};
-        use nah_proto::effects::*;
+        use nah_proto::effects::{
+            CallId, CausalAvailability, EffectCall, EffectGraph, InvocationKind, Knowledge,
+            PayloadGroupId, PublicSelection,
+        };
         let calls = calls
             .iter()
             .enumerate()

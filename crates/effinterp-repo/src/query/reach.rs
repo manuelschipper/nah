@@ -1,4 +1,14 @@
-use super::*;
+use std::collections::{BTreeMap, BTreeSet};
+
+use effinterp_proto::{
+    CoverageLevel, Indeterminate, Match, Payload, ReachHit, ReachReport, RepoQueryEnvelope,
+    ResourceExpr,
+};
+
+use super::{EnvelopeBuilder, operation_matches, protocol_resource, worst_coverage};
+use crate::index::RepoIndex;
+use crate::resource::ResourceSelector;
+use crate::surface::effective_surface;
 
 /// Reverse query: which entrypoints may affect the selected resource. Returns
 /// concrete/symbolic matches and — crucially — entrypoints whose opacity in the
@@ -6,7 +16,11 @@ use super::*;
 /// matches to one operation, domain, or verb ("what can WRITE this path");
 /// indeterminate entrypoints are unaffected — opacity cannot rule the
 /// operation out either.
-pub fn reach(index: &RepoIndex, selector: &Selector, operation: Option<&str>) -> RepoQueryEnvelope {
+pub fn reach(
+    index: &RepoIndex,
+    selector: &ResourceSelector,
+    operation: Option<&str>,
+) -> RepoQueryEnvelope {
     let domain = selector.domain().to_string();
     let mut matches = Vec::new();
     let mut indeterminate = Vec::new();
@@ -128,7 +142,7 @@ pub fn reach(index: &RepoIndex, selector: &Selector, operation: Option<&str>) ->
 
 /// The canonical text form of a selector, so a query echoes the identity it
 /// actually applied rather than the caller's spelling.
-fn render_selector(selector: &Selector) -> String {
+fn render_selector(selector: &ResourceSelector) -> String {
     format!(
         "{}/{}:{}",
         selector.realm.render(),
@@ -140,7 +154,7 @@ fn render_selector(selector: &Selector) -> String {
 fn boundary_matches_selector(
     domains: &[String],
     affected_resource: Option<&ResourceExpr>,
-    selector: &Selector,
+    selector: &ResourceSelector,
 ) -> bool {
     domains.iter().any(|domain| domain == selector.domain())
         && affected_resource.is_none_or(|resource| {

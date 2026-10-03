@@ -14,7 +14,7 @@ mod runner;
 
 pub use case::{CorpusSummary, load_cases, load_summary};
 pub use fixtures::{ContextFixture, FixtureRegistry, ObservationFixture, load_fixtures};
-pub use runner::{Reconciliation, expected_fail_ids, reconcile};
+pub use runner::{Reconciliation, expected_fail_ids, reconcile_triage_ledger};
 
 /// The repository's `corpus/` directory, canonicalized.
 pub fn corpus_dir() -> PathBuf {

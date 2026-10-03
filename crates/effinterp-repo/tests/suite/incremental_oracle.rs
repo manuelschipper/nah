@@ -19,12 +19,7 @@ use effinterp_repo::{
 use effinterp_testkit::repo_fixture::repo_test_fixture;
 
 use crate::plan_causality;
-
-fn write_file(root: &Path, rel: &str, content: &str) {
-    let path = root.join(rel);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, content).unwrap();
-}
+use crate::support::write_file;
 
 /// The oracle: an index reached incrementally must serialize byte-for-byte the
 /// same as a clean rebuild of the current on-disk state.

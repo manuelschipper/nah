@@ -1,8 +1,7 @@
 //! Which typed fact each plan effect is: its operation projected onto a
 //! `FactPayload`, with the certainty the engine's assurance supports.
 
-use effinterp_proto as p;
-use nah_proto::effects as e;
+use nah_proto::effects;
 use nah_proto::effects::Knowledge::{Known, Unknown};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,17 +15,23 @@ use super::resource_projection::{
 };
 
 /// A boolean effect attribute; any other value or none is unknown.
-pub(super) fn effect_attr_bool(effect: &p::Effect, key: &str) -> e::Knowledge<bool> {
+pub(super) fn effect_attr_bool(
+    effect: &effinterp_proto::Effect,
+    key: &str,
+) -> effects::Knowledge<bool> {
     match effect.attributes.get(key) {
-        Some(p::AttrValue::Bool(value)) => Known(*value),
+        Some(effinterp_proto::AttrValue::Bool(value)) => Known(*value),
         _ => Unknown,
     }
 }
 
 /// A string effect attribute; any other value or none is unknown.
-pub(super) fn effect_attr_text(effect: &p::Effect, key: &str) -> e::Knowledge<String> {
+pub(super) fn effect_attr_text(
+    effect: &effinterp_proto::Effect,
+    key: &str,
+) -> effects::Knowledge<String> {
     match effect.attributes.get(key) {
-        Some(p::AttrValue::String(value)) => Known(value.clone()),
+        Some(effinterp_proto::AttrValue::String(value)) => Known(value.clone()),
         _ => Unknown,
     }
 }
@@ -53,7 +58,7 @@ const MODEL_CERTIFIED_OPERATIONS: &[&str] = &[
 
 /// Whether the effect is a Git request whose registered outcome discards
 /// worktree contents: a clean, reset or worktree discard.
-fn requests_worktree_discard(effect: &p::Effect) -> bool {
+fn requests_worktree_discard(effect: &effinterp_proto::Effect) -> bool {
     effect
         .operation
         .spec()
@@ -62,8 +67,11 @@ fn requests_worktree_discard(effect: &p::Effect) -> bool {
 
 /// Text typed into another terminal and not submitted: an input that runs
 /// the program the text names once someone submits it there.
-fn terminal_input_fact(effect: &p::Effect, target: e::ResourceId) -> e::FactPayload {
-    use e::*;
+fn terminal_input_fact(
+    effect: &effinterp_proto::Effect,
+    target: effects::ResourceId,
+) -> effects::FactPayload {
+    use effects::{Certainty, ControlAction, ControlTransport, FactPayload};
     FactPayload::ControlInput {
         target,
         action: ControlAction::Deliver,
@@ -78,22 +86,22 @@ fn terminal_input_fact(effect: &p::Effect, target: e::ResourceId) -> e::FactPayl
 /// run over the plan's effects and then the finite selections' members.
 pub(super) struct EffectProjection {
     /// Each finite selection's members, by the index of the effect selecting them.
-    pub(super) member_effects: Vec<(usize, p::Effect)>,
+    pub(super) member_effects: Vec<(usize, effinterp_proto::Effect)>,
     pub(super) condition_atoms: BTreeMap<String, u32>,
     /// Each effect's public target resource.
-    pub(super) effect_resources: Vec<e::ResourceId>,
+    pub(super) effect_resources: Vec<effects::ResourceId>,
     /// What each plan effect physically reaches on the host, for the path
     /// catalogs of the declarative filesystem guards.
     pub(super) reach: Vec<HostReach>,
     /// Each effect's own fact.
-    pub(super) effect_facts: Vec<e::FactId>,
+    pub(super) effect_facts: Vec<effects::FactId>,
     /// Reads the engine says were written to the command's own output.
-    pub(super) disclosed_to_output: Vec<e::FactId>,
+    pub(super) disclosed_to_output: Vec<effects::FactId>,
     /// Accesses whose semantics the engine states as reaching something other
     /// than the object's contents.
-    pub(super) stated_non_content_access: BTreeSet<e::FactId>,
+    pub(super) stated_non_content_access: BTreeSet<effects::FactId>,
     /// Content-filter reads, told again as the search they answer.
-    pub(super) content_searches: Vec<(e::FactId, e::FactPayload)>,
+    pub(super) content_searches: Vec<(effects::FactId, effects::FactPayload)>,
 }
 
 /// The gap on a call whose program the filesystem models are not trusted to
@@ -107,15 +115,20 @@ pub(super) fn project_effect_facts(
     view: &crate::plan_view::PlanView<'_>,
     observation: &nah_proto::observation::Observation,
     invocation_cwd: &str,
-    graph: &mut e::EffectGraph,
+    graph: &mut effects::EffectGraph,
     guards: &ShippedGuardPolicy<'_>,
 ) -> EffectProjection {
-    use e::*;
+    use effects::{
+        AccessPurpose, Bound, CallId, Certainty, Domain, EffectFact, EffectGraph,
+        EnvironmentOperation, EnvironmentSelection, FactId, FactPayload, FilesystemOperation,
+        GapPhase, Modality, PermissionGrants, Realm, ResourceDetails, ResourceId, ResourceIdentity,
+        ResourceKind, SearchKind, SearchOutput, Selection, TransferDirection,
+    };
     let plan = view.plan();
     let member_effects = view
         .effects()
         .flat_map(|(index, effect)| {
-            crate::observe::finite_members(&effect.resource)
+            crate::observation_request::finite_members(&effect.resource)
                 .into_iter()
                 .flatten()
                 .map(move |member| {
@@ -162,17 +175,18 @@ pub(super) fn project_effect_facts(
             resource: target,
             // A pattern ending in `**` selects every entry at every depth
             // below its bound, as a recursive operation does.
-            recursive: crate::observe::subtree_root(&effect.resource).is_some()
-                || effect.attributes.get("recursive") == Some(&p::AttrValue::Bool(true))
+            recursive: crate::observation_request::subtree_root(&effect.resource).is_some()
+                || effect.attributes.get("recursive")
+                    == Some(&effinterp_proto::AttrValue::Bool(true))
                 || matches!(
                     &effect.resource,
-                    p::ResourceExpr::Pattern {
-                        pattern: p::ResourcePattern::FsPath { glob },
+                    effinterp_proto::ResourceExpr::Pattern {
+                        pattern: effinterp_proto::ResourcePattern::FsPath { glob },
                     } if glob.ends_with("/**")
                 ),
             device: match &effect.resource {
-                p::ResourceExpr::Concrete {
-                    identity: p::ResourceIdentity::BlockDevice { device },
+                effinterp_proto::ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::BlockDevice { device },
                 } => nah_proto::ctx::AbsolutePath::new(view.authority().platform(), device).ok(),
                 _ => None,
             },
@@ -224,7 +238,7 @@ pub(super) fn project_effect_facts(
                     .operation
                     .spec()
                     .is_some_and(|spec| !spec.outcomes.is_empty());
-        let package_outcome = p::OPERATIONS.iter().any(|request| {
+        let package_outcome = effinterp_proto::OPERATIONS.iter().any(|request| {
             request.domain == "artifact" && request.outcomes.contains(&effect.operation.as_str())
         });
         if (package_request || package_outcome) && matches!(attr_text("package_manager"), Known(_))
@@ -301,10 +315,10 @@ pub(super) fn project_effect_facts(
             && attr_bool("selection_complete") == Known(true)
         {
             match effect.attributes.get("selections") {
-                Some(p::AttrValue::List(selections)) => selections
+                Some(effinterp_proto::AttrValue::List(selections)) => selections
                     .iter()
                     .map(|selection| match selection {
-                        p::AttrValue::String(path) => {
+                        effinterp_proto::AttrValue::String(path) => {
                             nah_proto::ctx::AbsolutePath::new(view.authority().platform(), path)
                                 .ok()
                                 .map(|path| git_selection(path, graph))
@@ -384,17 +398,17 @@ pub(super) fn project_effect_facts(
                 // Accepted input mode and physical interpreter identity are
                 // independent. Only the owning model can certify the request.
                 match effect.request_assurance {
-                    p::RequestAssurance::Exact => Certainty::Exact,
-                    p::RequestAssurance::Conservative => Certainty::Conservative,
+                    effinterp_proto::RequestAssurance::Exact => Certainty::Exact,
+                    effinterp_proto::RequestAssurance::Conservative => Certainty::Conservative,
                 }
             } else if (matches!(payload, FactPayload::FilesystemAccess { .. })
-                && effect.request_assurance == p::RequestAssurance::Exact
+                && effect.request_assurance == effinterp_proto::RequestAssurance::Exact
                 // An exact request says what was asked for, not what it acts
                 // on. A resource of known family and unknown identity leaves
                 // the target open, and a destructive fact whose target is
                 // unidentified reads to the filesystem guards as reaching
                 // every root.
-                && !matches!(effect.resource, p::ResourceExpr::Unresolved { .. })
+                && !matches!(effect.resource, effinterp_proto::ResourceExpr::Unresolved { .. })
                 && graph.resources[target.0 as usize].identity.kind != ResourceKind::Unknown)
                 // A pattern names no single member, but for these payloads it
                 // selects at least what any member would: a read of a pattern
@@ -405,7 +419,7 @@ pub(super) fn project_effect_facts(
                 // rather than on which device it is. An ordinary write or a
                 // deletion is not in that set, because there the identity
                 // decides what is written over or lost.
-                || (matches!(effect.resource, p::ResourceExpr::Pattern { .. })
+                || (matches!(effect.resource, effinterp_proto::ResourceExpr::Pattern { .. })
                     && (matches!(
                         payload,
                         FactPayload::FilesystemAccess {
@@ -429,10 +443,10 @@ pub(super) fn project_effect_facts(
                         }
                     ) && attr_bool("raw_device") == Known(true))
                     && view.execution(effect.execution).assurance
-                        == p::ExecutionAssurance::Exact)
-                || (matches!(effect.resource, p::ResourceExpr::Concrete { .. })
+                        == effinterp_proto::ExecutionAssurance::Exact)
+                || (matches!(effect.resource, effinterp_proto::ResourceExpr::Concrete { .. })
                     && view.execution(effect.execution).assurance
-                        == p::ExecutionAssurance::Exact)
+                        == effinterp_proto::ExecutionAssurance::Exact)
                 // What leaves the host is supplied locally, so an outbound
                 // transfer is established by the invocation that performs it
                 // even when the peer is not named: a listener has no peer yet
@@ -449,7 +463,7 @@ pub(super) fn project_effect_facts(
                     }
                 ) && !aliased_remote
                     && view.execution(effect.execution).assurance
-                        == p::ExecutionAssurance::Exact)
+                        == effinterp_proto::ExecutionAssurance::Exact)
             {
                 Certainty::Exact
             } else {
@@ -490,7 +504,7 @@ pub(super) fn project_effect_facts(
             ));
         }
         if requests_worktree_discard(effect)
-            && effect.request_assurance == p::RequestAssurance::Exact
+            && effect.request_assurance == effinterp_proto::RequestAssurance::Exact
             && attr_bool("active") == Known(true)
             && attr_bool("dry_run") == Known(false)
         {
@@ -577,14 +591,20 @@ pub(super) fn project_effect_facts(
 #[allow(clippy::too_many_arguments)]
 fn effect_fact_payload(
     view: &crate::plan_view::PlanView<'_>,
-    graph: &mut e::EffectGraph,
-    effect: &p::Effect,
-    call: e::CallId,
-    target: e::ResourceId,
+    graph: &mut effects::EffectGraph,
+    effect: &effinterp_proto::Effect,
+    call: effects::CallId,
+    target: effects::ResourceId,
     control_tier: Option<nah_proto::labels::NahProtectionTier>,
     guards: &ShippedGuardPolicy<'_>,
-) -> e::FactPayload {
-    use e::*;
+) -> effects::FactPayload {
+    use effects::{
+        AccessPurpose, CallId, ControlAction, CredentialOperation, CredentialWorkflow,
+        DeletionMode, Domain, EnvironmentOperation, EnvironmentSelection, ExecutionDerivation,
+        ExecutionSource, FactPayload, FilesystemOperation, GapPhase, HostedTarget,
+        NetworkOperation, PermissionGrants, ResourceDetails, ResourceKind, Selection,
+        TransferDirection, VisiblePayload,
+    };
     let plan = view.plan();
     let attr_bool = |key: &str| effect_attr_bool(effect, key);
     let attr_text = |key: &str| effect_attr_text(effect, key);
@@ -596,8 +616,8 @@ fn effect_fact_payload(
             if effect.attributes.is_empty()
                 && matches!(
                     &effect.resource,
-                    p::ResourceExpr::Concrete {
-                        identity: p::ResourceIdentity::KubernetesResource { .. },
+                    effinterp_proto::ResourceExpr::Concrete {
+                        identity: effinterp_proto::ResourceIdentity::KubernetesResource { .. },
                     }
                 ) =>
         {
@@ -635,7 +655,7 @@ fn effect_fact_payload(
                     // disclose the selected path's contents.
                     let selected = nah_proto::ctx::AbsolutePath::new(
                         view.authority().platform(),
-                        nah_proto::labels::join(
+                        nah_proto::labels::join_lexical_path(
                             worktree.as_str(),
                             &path,
                             view.authority().platform(),
@@ -726,8 +746,8 @@ fn effect_fact_payload(
             // An execution whose program the engine could not name carries
             // no path and no argument vector to publish either.
             let (path, argv) = match &effect.resource {
-                p::ResourceExpr::Concrete {
-                    identity: p::ResourceIdentity::Process { path, argv, .. },
+                effinterp_proto::ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::Process { path, argv, .. },
                 } => (path.as_deref(), Some(argv)),
                 _ => (None, None),
             };
@@ -742,7 +762,9 @@ fn effect_fact_payload(
                     Known(
                         argv.iter()
                             .map(|argument| match argument {
-                                p::ResourceExpr::Literal { value } => Known(value.clone()),
+                                effinterp_proto::ResourceExpr::Literal { value } => {
+                                    Known(value.clone())
+                                }
                                 _ => Unknown,
                             })
                             .collect(),
@@ -806,7 +828,7 @@ fn effect_fact_payload(
             },
             target,
             destination: None,
-            recursive: if crate::observe::subtree_root(&effect.resource).is_some() {
+            recursive: if crate::observation_request::subtree_root(&effect.resource).is_some() {
                 Known(true)
             } else {
                 attr_bool("recursive")
@@ -925,8 +947,8 @@ fn effect_fact_payload(
         }
         "environment.read" | "environment.write" => FactPayload::EnvironmentAccess {
             names: match &effect.resource {
-                p::ResourceExpr::Concrete {
-                    identity: p::ResourceIdentity::EnvironmentVariable { name },
+                effinterp_proto::ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::EnvironmentVariable { name },
                 } => EnvironmentSelection::Names(vec![name.clone()]),
                 resource if whole_environment(resource) => EnvironmentSelection::Whole,
                 _ => EnvironmentSelection::Unknown,
@@ -939,11 +961,11 @@ fn effect_fact_payload(
             // A named read or an explicitly disclosed whole environment
             // identifies its selection. Other patterns leave it open.
             purpose: match &effect.resource {
-                p::ResourceExpr::Concrete {
-                    identity: p::ResourceIdentity::EnvironmentVariable { .. },
+                effinterp_proto::ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::EnvironmentVariable { .. },
                 } => AccessPurpose::Explicit,
-                p::ResourceExpr::Pattern {
-                    pattern: p::ResourcePattern::EnvironmentVariable { name_glob },
+                effinterp_proto::ResourceExpr::Pattern {
+                    pattern: effinterp_proto::ResourcePattern::EnvironmentVariable { name_glob },
                 } if name_glob == "*" && attr_text("output") == Known("stdout".into()) => {
                     AccessPurpose::Explicit
                 }

@@ -153,7 +153,7 @@ pub(crate) fn set_enabled(
     })
 }
 
-pub(crate) fn reset(
+pub(crate) fn reset_shipped_guard_state(
     path: &Path,
     defaults: &[(&str, bool)],
     name: &str,
@@ -365,8 +365,8 @@ mod tests {
         assert!(state.is_explicitly_disabled("fs-system-tree"));
 
         set_enabled(&path, &defaults, "fs-startup-persistence", true).unwrap();
-        reset(&path, &defaults, "fs-shell-profile").unwrap();
-        reset(&path, &defaults, "fs-system-tree").unwrap();
+        reset_shipped_guard_state(&path, &defaults, "fs-shell-profile").unwrap();
+        reset_shipped_guard_state(&path, &defaults, "fs-system-tree").unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "{\"v\":2,\"overrides\":{}}\n"

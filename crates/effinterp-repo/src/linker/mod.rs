@@ -1,16 +1,16 @@
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use effinterp_engine::{
-    Assurance, DispatchSignature, DispatchStyle, ExternalCall, ImportBinding, ObjectIdentity,
-    ResolvedObject, SemanticValue, SemanticValueKind, TypeRef, canonical_rust_std_type,
-    classify_go_call, classify_java_call, classify_python_call, classify_ruby_require,
-    classify_rust_call, property_access,
+    Assurance, ExternalCall, ImportBinding, ObjectIdentity, ResolvedObject, SemanticValue,
+    SemanticValueKind, property_access,
 };
 use effinterp_proto::{BoundaryReason, CalleeReference, Effect, ResourceExpr};
 
-use crate::module::{ModuleFile, Registry};
+use crate::module::{ModuleFile, ModuleRegistry};
 
-pub(crate) fn invalidation_for_path(path: &str) -> Option<crate::index::InvalidationAction> {
+pub(crate) fn invalidation_for_path(
+    path: &str,
+) -> Option<crate::index::incremental_update::InvalidationAction> {
     matches!(
         std::path::Path::new(path)
             .file_name()
@@ -25,7 +25,7 @@ pub(crate) fn invalidation_for_path(path: &str) -> Option<crate::index::Invalida
             | "setup.cfg"
             | "tsconfig.json"
     )
-    .then_some(crate::index::InvalidationAction::Rebuild)
+    .then_some(crate::index::incremental_update::InvalidationAction::Rebuild)
 }
 
 pub(crate) const MAX_DISPATCH_CANDIDATES: usize = 4;
@@ -36,7 +36,7 @@ pub(crate) trait Linker {
     /// The unambiguous declaration value of a package binding, excluding later writes.
     fn package_value(
         &self,
-        _registry: &Registry,
+        _registry: &ModuleRegistry,
         _importer: &ModuleFile,
         _name: &str,
     ) -> Option<SemanticValue> {
@@ -44,7 +44,7 @@ pub(crate) trait Linker {
     }
     fn resolve_package_value(
         &self,
-        registry: &Registry,
+        registry: &ModuleRegistry,
         importer: &ModuleFile,
         value: &SemanticValue,
     ) -> SemanticValue {
@@ -53,7 +53,7 @@ pub(crate) trait Linker {
     /// Resolve a package binding in its recorded scope without restarting the recursion guard.
     fn package_value_in_scope(
         &self,
-        _registry: &Registry,
+        _registry: &ModuleRegistry,
         _importer: &ModuleFile,
         _scope: &effinterp_engine::ScopeKey,
         _name: &str,
@@ -64,7 +64,7 @@ pub(crate) trait Linker {
     /// Bind package declarations under the names visible from this file.
     fn package_bindings(
         &self,
-        _registry: &Registry,
+        _registry: &ModuleRegistry,
         _importer: &ModuleFile,
     ) -> HashMap<String, SemanticValue> {
         HashMap::new()
@@ -72,7 +72,7 @@ pub(crate) trait Linker {
     /// Whether a package callee can differ from its declaration initializer.
     fn callee_is_rebound(
         &self,
-        _registry: &Registry,
+        _registry: &ModuleRegistry,
         _importer: &ModuleFile,
         _callee: &str,
     ) -> bool {
@@ -81,7 +81,7 @@ pub(crate) trait Linker {
     /// Find the declaration file of an indirect package callee; anonymous callables are file-local.
     fn rebound_callee<'a>(
         &self,
-        _registry: &'a Registry,
+        _registry: &'a ModuleRegistry,
         _importer: &'a ModuleFile,
         _callee: &str,
     ) -> Option<(&'a ModuleFile, String)> {
@@ -90,7 +90,7 @@ pub(crate) trait Linker {
     /// Whether this file participates in the importer’s selected package build.
     fn module_binding_candidate(
         &self,
-        _registry: &Registry,
+        _registry: &ModuleRegistry,
         _importer: &ModuleFile,
         _file: &ModuleFile,
     ) -> bool {
@@ -143,7 +143,7 @@ pub(crate) trait Linker {
     /// Recover the imported class reference after exact receiver dispatch.
     fn import_dispatch_reference(
         &self,
-        _registry: &Registry,
+        _registry: &ModuleRegistry,
         _importer: &ModuleFile,
         _edge: &effinterp_engine::CallEdge,
         _instance: &ResolvedObject,
@@ -173,21 +173,21 @@ pub(crate) trait Linker {
 
     fn resolve_callee<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         callee: &str,
     ) -> Resolution<'a>;
 
     fn class_candidates<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
         name: &str,
     ) -> Vec<(ResolvedObject, Assurance)>;
 
     fn resolve_method<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         inst: &ResolvedObject,
         method: &str,
     ) -> Resolution<'a>;
@@ -197,7 +197,7 @@ pub(crate) trait Linker {
     /// fixed-signature function is not inherited by a same-named call.
     fn classify_external(
         &self,
-        reg: &Registry,
+        reg: &ModuleRegistry,
         module: &str,
         member: &str,
         arity: Option<usize>,
@@ -205,18 +205,23 @@ pub(crate) trait Linker {
 
     fn classify_import(
         &self,
-        reg: &Registry,
+        reg: &ModuleRegistry,
         file: &ModuleFile,
         spec: &str,
     ) -> Option<ExternalCall>;
 
-    fn external_import_label(&self, _reg: &Registry, _file: &ModuleFile, spec: &str) -> String {
+    fn external_import_label(
+        &self,
+        _reg: &ModuleRegistry,
+        _file: &ModuleFile,
+        spec: &str,
+    ) -> String {
         format!("import {spec:?} is an unmodeled external library")
     }
 
     fn execution_roots<'a>(
         &self,
-        reg: &'a Registry,
+        reg: &'a ModuleRegistry,
         file: &'a ModuleFile,
     ) -> Vec<(&'a ModuleFile, Option<&'a str>)>;
 
@@ -333,7 +338,9 @@ fn wildcard_exports(file: &ModuleFile, name: &str) -> bool {
         || (file.summary.linkage.wildcard_excludes_private && name.starts_with('_')))
 }
 
-fn join_module(module: &str, imported: &str) -> String {
+/// The module path of `imported` under `module`; a relative module made only
+/// of dots keeps its dots and takes the name directly.
+pub(crate) fn join_module(module: &str, imported: &str) -> String {
     if module.chars().all(|c| c == '.') {
         format!("{module}{imported}")
     } else {
@@ -381,7 +388,7 @@ fn bounded_dispatch<'a>(
 }
 
 fn dispatch_contract<'a>(
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     inst: &ResolvedObject,
 ) -> Option<(&'a ModuleFile, &'a effinterp_engine::DispatchContract)> {
     let file = reg.files.get(&inst.file)?;
@@ -395,7 +402,7 @@ fn dispatch_contract<'a>(
 
 fn resolves_contract(
     linker: &dyn Linker,
-    reg: &Registry,
+    reg: &ModuleRegistry,
     file: &ModuleFile,
     written: &str,
     contract_file: &str,
@@ -422,7 +429,7 @@ fn excluded_dispatch_file(path: &str) -> bool {
 
 fn resolve_to<'a>(
     linker: &dyn Linker,
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     importer: &'a ModuleFile,
     binding: &ImportBinding,
     name: &str,
@@ -463,12 +470,12 @@ fn resolve_to<'a>(
 
 /// Follow only frontend-confirmed exports. Ordinary imports are deliberately
 /// excluded: a dependency with a same-named definition is not a re-export.
-fn resolve_export<'a>(reg: &'a Registry, file: &'a ModuleFile, name: &str) -> Resolution<'a> {
+fn resolve_export<'a>(reg: &'a ModuleRegistry, file: &'a ModuleFile, name: &str) -> Resolution<'a> {
     resolve_export_inner(reg, file, name, &mut Vec::new(), &mut HashMap::new())
 }
 
 fn resolve_export_inner<'a>(
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     file: &'a ModuleFile,
     name: &str,
     stack: &mut Vec<(String, String)>,
@@ -571,7 +578,7 @@ fn resolve_export_inner<'a>(
 }
 
 fn resolve_export_class<'a>(
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     file: &'a ModuleFile,
     name: &str,
 ) -> Option<(&'a ModuleFile, String)> {
@@ -579,7 +586,7 @@ fn resolve_export_class<'a>(
 }
 
 fn resolve_export_class_inner<'a>(
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     file: &'a ModuleFile,
     name: &str,
     stack: &mut Vec<(String, String)>,
@@ -629,7 +636,7 @@ fn resolve_export_class_inner<'a>(
 
 fn resolve_through_submodule<'a>(
     linker: &dyn Linker,
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     importer: &'a ModuleFile,
     binding: &ImportBinding,
     name: &str,
@@ -647,7 +654,7 @@ fn resolve_through_submodule<'a>(
 
 fn module_singleton(
     linker: &dyn Linker,
-    reg: &Registry,
+    reg: &ModuleRegistry,
     target: &ModuleFile,
     name: &str,
 ) -> Option<ResolvedObject> {
@@ -668,7 +675,7 @@ fn module_singleton(
 
 fn resolve_standard_callee<'a>(
     linker: &dyn Linker,
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     file: &'a ModuleFile,
     callee: &str,
 ) -> Resolution<'a> {
@@ -727,7 +734,7 @@ fn resolve_standard_callee<'a>(
 
 fn standard_class_candidates(
     linker: &dyn Linker,
-    reg: &Registry,
+    reg: &ModuleRegistry,
     file: &ModuleFile,
     name: &str,
 ) -> Vec<(ResolvedObject, Assurance)> {
@@ -786,7 +793,7 @@ fn standard_class_candidates(
 
 fn resolve_common_method<'a>(
     linker: &dyn Linker,
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     inst: &ResolvedObject,
     method: &str,
 ) -> Resolution<'a> {
@@ -818,7 +825,7 @@ fn resolve_common_method<'a>(
 
 fn resolve_method_in_class<'a>(
     linker: &dyn Linker,
-    reg: &'a Registry,
+    reg: &'a ModuleRegistry,
     inst: &ResolvedObject,
     method: &str,
     seen: &mut HashSet<(String, String)>,
@@ -898,7 +905,7 @@ fn dedup_targets(targets: &mut Vec<(&ModuleFile, String, Assurance)>) {
 const MAX_PACKAGE_VALUE_DEPTH: usize = 24;
 
 fn resolve_package_value_at(
-    registry: &Registry,
+    registry: &ModuleRegistry,
     importer: &ModuleFile,
     value: &SemanticValue,
     seen: &mut HashSet<(effinterp_engine::ScopeKey, String)>,

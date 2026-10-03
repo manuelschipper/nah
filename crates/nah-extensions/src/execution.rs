@@ -4,7 +4,7 @@ use crate::bundle::{ActiveExtensionCatalog, ExtensionBundle};
 use crate::cache::{MemoCache, decode_cache_entry, encode_cache_entry};
 use crate::memo::{MemoContext, memo_key};
 use crate::selection::{exec_request, selected_extensions};
-use crate::transport::execute;
+use crate::transport::execute_extension_process;
 use nah_proto::ctx::Ctx;
 use nah_proto::effects::GuardEvidence;
 use nah_proto::exec_v2::ExecV2Request;
@@ -235,7 +235,7 @@ fn execute_extension(
     extension: &ExtensionBundle,
     request: &ExecV2Request,
 ) -> (ExtensionConsultation, Option<ConsultationDiagnostic>) {
-    let executed = execute(extension, request);
+    let executed = execute_extension_process(extension, request);
     let diagnostic = executed.stderr.map(|stderr| ConsultationDiagnostic {
         activation: extension.projection().clone(),
         stderr,

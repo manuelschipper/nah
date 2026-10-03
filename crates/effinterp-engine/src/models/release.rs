@@ -13,15 +13,14 @@
 
 use std::collections::BTreeMap;
 
-use effinterp_proto::{
-    AttrValue, BoundaryReason, ProvenanceRef, RequestAssurance, ResourceExpr, ResourceFamily,
-};
+use effinterp_proto::{AttrValue, BoundaryReason, ProvenanceRef, RequestAssurance};
 
-use super::artifact::{boundary, environment_boundary, mutation, reviewed, unknown};
+use super::artifact::{artifact_boundary, artifact_environment_boundary, mutation, unknown};
 use crate::builder::PlanBuilder;
-use crate::exec::program_name;
-use crate::models::common::{Attrs, arg_effect};
+use crate::exec::dispatch_program_name;
+use crate::models::common::{Attrs, arg_effect, reviewed_source_node};
 use crate::models::{CommandModel, InvocationCtx};
+use crate::value::unresolved_resource;
 use crate::word::Word;
 
 pub(crate) fn release_models() -> Vec<Box<dyn CommandModel>> {
@@ -40,7 +39,7 @@ pub(super) struct Opt {
     pub value: bool,
 }
 
-const fn flag(key: &'static str, long: &'static [&'static str], short: Option<char>) -> Opt {
+const fn flag_opt(key: &'static str, long: &'static [&'static str], short: Option<char>) -> Opt {
     Opt {
         key,
         long,
@@ -271,23 +270,23 @@ const LERNA_GLOBALS: &[Opt] = &[
     valued("loglevel", &["loglevel"], None),
     valued("concurrency", &["concurrency"], None),
     valued("max-buffer", &["max-buffer"], None),
-    flag("reject-cycles", &["reject-cycles"], None),
-    flag("progress", &["progress"], None),
-    flag("sort", &["sort"], None),
+    flag_opt("reject-cycles", &["reject-cycles"], None),
+    flag_opt("progress", &["progress"], None),
+    flag_opt("sort", &["sort"], None),
 ];
 const PDM_GLOBALS: &[Opt] = &[
-    flag("verbose", &["verbose"], Some('v')),
-    flag("quiet", &["quiet"], Some('q')),
-    flag("ignore-python", &["ignore-python"], Some('I')),
+    flag_opt("verbose", &["verbose"], Some('v')),
+    flag_opt("quiet", &["quiet"], Some('q')),
+    flag_opt("ignore-python", &["ignore-python"], Some('I')),
     valued("config", &["config"], Some('c')),
     valued("project", &["project"], Some('p')),
 ];
 
 // Options of the commands whose settings can suppress a publication.
 const SEMANTIC_RELEASE: &[Opt] = &[
-    flag("dry-run", &["dry-run"], Some('d')),
-    flag("ci", &["ci"], None),
-    flag("debug", &["debug"], None),
+    flag_opt("dry-run", &["dry-run"], Some('d')),
+    flag_opt("ci", &["ci"], None),
+    flag_opt("debug", &["debug"], None),
     valued("branches", &["branches"], Some('b')),
     valued("repository-url", &["repository-url"], Some('r')),
     valued("tag-format", &["tag-format"], Some('t')),
@@ -295,18 +294,18 @@ const SEMANTIC_RELEASE: &[Opt] = &[
     valued("extends", &["extends"], Some('e')),
 ];
 const NP: &[Opt] = &[
-    flag("dry-run", &["dry-run", "preview"], None),
-    flag("publish", &["publish"], None),
-    flag("release-draft-only", &["release-draft-only"], None),
-    flag("release-draft", &["release-draft"], None),
-    flag("release-notes", &["release-notes"], None),
-    flag("any-branch", &["any-branch"], None),
-    flag("cleanup", &["cleanup"], None),
-    flag("tests", &["tests"], None),
-    flag("yolo", &["yolo"], None),
-    flag("2fa", &["2fa"], None),
-    flag("provenance", &["provenance"], None),
-    flag("stage", &["stage"], None),
+    flag_opt("dry-run", &["dry-run", "preview"], None),
+    flag_opt("publish", &["publish"], None),
+    flag_opt("release-draft-only", &["release-draft-only"], None),
+    flag_opt("release-draft", &["release-draft"], None),
+    flag_opt("release-notes", &["release-notes"], None),
+    flag_opt("any-branch", &["any-branch"], None),
+    flag_opt("cleanup", &["cleanup"], None),
+    flag_opt("tests", &["tests"], None),
+    flag_opt("yolo", &["yolo"], None),
+    flag_opt("2fa", &["2fa"], None),
+    flag_opt("provenance", &["provenance"], None),
+    flag_opt("stage", &["stage"], None),
     valued("branch", &["branch"], None),
     valued("tag", &["tag"], None),
     valued("contents", &["contents"], None),
@@ -316,24 +315,24 @@ const NP: &[Opt] = &[
     valued("remote", &["remote"], None),
 ];
 const RELEASE_IT: &[Opt] = &[
-    flag("dry-run", &["dry-run"], Some('d')),
-    flag("ci", &["ci"], None),
-    flag("verbose", &["verbose"], Some('V')),
-    flag("only-version", &["only-version"], None),
+    flag_opt("dry-run", &["dry-run"], Some('d')),
+    flag_opt("ci", &["ci"], None),
+    flag_opt("verbose", &["verbose"], Some('V')),
+    flag_opt("only-version", &["only-version"], None),
     valued("increment", &["increment"], Some('i')),
     valued("config", &["config"], Some('c')),
     valued("preRelease", &["preRelease"], None),
 ];
 pub(super) const CARGO_RELEASE: &[Opt] = &[
-    flag("execute", &["execute"], Some('x')),
-    flag("no-publish", &["no-publish"], None),
-    flag("no-push", &["no-push"], None),
-    flag("no-tag", &["no-tag"], None),
-    flag("no-verify", &["no-verify"], None),
-    flag("no-confirm", &["no-confirm"], None),
-    flag("workspace", &["workspace", "all"], None),
-    flag("verbose", &["verbose"], Some('v')),
-    flag("quiet", &["quiet"], Some('q')),
+    flag_opt("execute", &["execute"], Some('x')),
+    flag_opt("no-publish", &["no-publish"], None),
+    flag_opt("no-push", &["no-push"], None),
+    flag_opt("no-tag", &["no-tag"], None),
+    flag_opt("no-verify", &["no-verify"], None),
+    flag_opt("no-confirm", &["no-confirm"], None),
+    flag_opt("workspace", &["workspace", "all"], None),
+    flag_opt("verbose", &["verbose"], Some('v')),
+    flag_opt("quiet", &["quiet"], Some('q')),
     valued("package", &["package"], Some('p')),
     valued("exclude", &["exclude"], None),
     valued("manifest-path", &["manifest-path"], None),
@@ -342,18 +341,18 @@ pub(super) const CARGO_RELEASE: &[Opt] = &[
     valued("metadata", &["metadata"], None),
 ];
 pub(super) const CARGO_WORKSPACES_PUBLISH: &[Opt] = &[
-    flag("dry-run", &["dry-run"], None),
-    flag("yes", &["yes"], Some('y')),
-    flag("no-verify", &["no-verify"], None),
-    flag("publish-as-is", &["publish-as-is"], None),
-    flag("from-git", &["from-git"], None),
-    flag("allow-dirty", &["allow-dirty"], None),
-    flag("skip-published", &["skip-published"], None),
-    flag("no-git-commit", &["no-git-commit"], None),
-    flag("no-git-push", &["no-git-push"], None),
-    flag("no-git-tag", &["no-git-tag"], None),
-    flag("exact", &["exact"], None),
-    flag("all", &["all"], Some('a')),
+    flag_opt("dry-run", &["dry-run"], None),
+    flag_opt("yes", &["yes"], Some('y')),
+    flag_opt("no-verify", &["no-verify"], None),
+    flag_opt("publish-as-is", &["publish-as-is"], None),
+    flag_opt("from-git", &["from-git"], None),
+    flag_opt("allow-dirty", &["allow-dirty"], None),
+    flag_opt("skip-published", &["skip-published"], None),
+    flag_opt("no-git-commit", &["no-git-commit"], None),
+    flag_opt("no-git-push", &["no-git-push"], None),
+    flag_opt("no-git-tag", &["no-git-tag"], None),
+    flag_opt("exact", &["exact"], None),
+    flag_opt("all", &["all"], Some('a')),
     valued("registry", &["registry"], None),
     valued("token", &["token"], None),
     valued("allow-branch", &["allow-branch"], None),
@@ -372,7 +371,7 @@ pub(super) fn cargo_workspaces_suppressed(settings: &Settings) -> bool {
 
 /// The release command `argv` runs, when it publishes.
 fn release(ctx: &InvocationCtx) -> Option<Release> {
-    let tool = ctx.argv.first().and_then(program_name)?;
+    let tool = ctx.argv.first().and_then(dispatch_program_name)?;
     let (tool, ecosystem, (start, uncertain), options, style, suppressed, source): (
         _,
         _,
@@ -484,7 +483,7 @@ pub(super) fn release_publication(
     {
         return;
     }
-    let node = reviewed(
+    let node = reviewed_source_node(
         builder,
         ctx,
         node,
@@ -502,7 +501,7 @@ pub(super) fn release_publication(
     };
     let uncertain = release.uncertain || settings.uncertain;
     if uncertain {
-        boundary(
+        artifact_boundary(
             builder,
             node,
             &["artifact", "network", "filesystem", "process"],
@@ -510,7 +509,7 @@ pub(super) fn release_publication(
             "release arguments this reading does not understand may change whether and what it publishes",
         );
     }
-    environment_boundary(
+    artifact_environment_boundary(
         builder,
         node,
         &["artifact", "filesystem", "network", "process"],
@@ -527,12 +526,10 @@ pub(super) fn release_publication(
             node,
             (release.start - 1) as u32,
             "network.request",
-            ResourceExpr::Unresolved {
-                family: ResourceFamily::new("network"),
-            },
+            unresolved_resource("network"),
             Attrs::new(),
         );
-        environment_boundary(
+        artifact_environment_boundary(
             builder,
             node,
             &["artifact", "network"],
@@ -541,7 +538,7 @@ pub(super) fn release_publication(
         );
         return;
     }
-    boundary(
+    artifact_boundary(
         builder,
         node,
         &["artifact", "filesystem"],
@@ -601,7 +598,7 @@ impl CommandModel for ReleaseTools {
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, node: ProvenanceRef) {
         match release(ctx) {
             Some(release) => release_publication(builder, ctx, node, &release),
-            None => boundary(
+            None => artifact_boundary(
                 builder,
                 node,
                 &["artifact", "filesystem", "network", "process"],

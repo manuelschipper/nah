@@ -1,6 +1,27 @@
 //! Compilation of validated documents into the runtime registry.
 
-use super::*;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::LazyLock;
+
+use effinterp_model_schema::{
+    BehaviorDeclaration, COMPILER_SCHEMA_V2, Declaration, DeclarationDocument,
+    LifecycleDeclaration, LifecycleLanguage, declaration_digest,
+};
+
+use crate::Lang;
+use crate::models::CommandModel;
+use crate::models::lifecycle::{FrameworkLifecycle, LifecycleSig};
+
+use super::mcp::CompiledMcpTool;
+use super::model::DeclarativeCommandModel;
+use super::validate::{
+    callable_target, invalid, lifecycle_target, validate_command, validate_document, validate_id,
+    validate_library_api, validate_lifecycle, validate_mcp_tool,
+};
+use super::{
+    PROMOTED_MODEL_SOURCES, RegistryError, generated_command_models, generated_document_identities,
+    generated_library_apis, generated_lifecycles, generated_mcp_tools,
+};
 
 pub struct CompiledRegistry {
     pub(super) command_models: Vec<DeclarativeCommandModel>,
@@ -284,7 +305,7 @@ impl<'de> serde::Deserializer<'de> for &'de ModelValue {
 
 #[cfg(test)]
 pub(crate) fn builtin_registry() -> CompiledRegistry {
-    generated_registry()
+    super::generated_registry()
 }
 
 pub(in crate::models) fn builtin_command_models() -> Vec<Box<dyn CommandModel>> {

@@ -138,20 +138,18 @@ use std::rc::Rc;
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
     Effect, ExecutionNodeRef, Modality, Operation, Port, ProvenanceKind, ProvenanceRef,
-    ResourceExpr, ResourceFamily, ResourceIdentity, Subject,
+    ResourceExpr, ResourceIdentity,
 };
 
-use crate::builder::{KNOWN_DOMAINS, PlanBuilder, ScriptInterpreter};
-use crate::exec::{UnresolvedHead, analyze_exec};
-use crate::flow::{BindEnd, Descriptor, Flow, FlowReason, FlowRef, FlowStage, PortBinding};
-use crate::models::{StdinValue, curl_flow_info, wget_flow_info};
-use crate::nest::{Nest, SourceResolution, degrade_nested};
-use crate::paths::{join_cwd, join_source_path, process_identity_with_cwd};
-use crate::value::{SemanticValue, SemanticValueKind, join_branches};
+use crate::builder::{PlanBuilder, ScriptInterpreter};
+use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
+use crate::models::StdinValue;
+use crate::nest::Nest;
+use crate::paths::process_identity_with_cwd;
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
-use crate::{SourcePurpose, SourceRefusal};
-use eval::bind_for_var;
-use lex::{DupTarget, ExpansionBudget, ParamTransform, RedirKind, Seg, Span, Tok, WordTok};
+use eval::variable_binding::bind_for_var;
+use lex::{RedirKind, Seg, ShellDupTarget, ShellSpan, WordTok};
 use parse::{GroupKind, ShellItem, Simple};
 
 /// Builtins with no effect outside the shell: pure-control words, string
@@ -280,7 +278,7 @@ const MAX_PATH_BINDINGS: usize = 16;
 struct BranchValue {
     value: String,
     condition: effinterp_proto::Condition,
-    span: Span,
+    span: ShellSpan,
     antecedents: Vec<ProvenanceRef>,
     producers: Vec<FlowRef>,
 }
@@ -309,7 +307,7 @@ struct VarEntry {
     /// Fixed-size identity for the value state used by saturated function
     /// memo keys. Compute it on writes so repeated calls do not copy values.
     saturation_key: blake3::Hash,
-    span: Span,
+    span: ShellSpan,
     /// Lazily created provenance node for the assignment's source span.
     node: Option<ProvenanceRef>,
     /// Assignments whose values flowed into this assignment.
@@ -371,7 +369,7 @@ impl VarEntry {
 #[derive(Clone)]
 struct DeferredProcess {
     source: String,
-    span: Span,
+    span: ShellSpan,
     stage: u32,
     child: Box<ShellEnv>,
     condition: Option<effinterp_proto::Condition>,
@@ -629,10 +627,10 @@ struct ShellEnv {
     /// they are.
     readonly: BTreeSet<String>,
     /// Attributes `declare` gave a variable, which later assignments apply.
-    value_attributes: HashMap<String, eval::ValueAttributes>,
+    value_attributes: HashMap<String, eval::variable_binding::ValueAttributes>,
     /// Per active function call, the caller's attributes of each name the
     /// call declared function-scoped, restored when the call returns.
-    attribute_frames: Vec<HashMap<String, Option<eval::ValueAttributes>>>,
+    attribute_frames: Vec<HashMap<String, Option<eval::variable_binding::ValueAttributes>>>,
     /// Functions `readonly -f` or `declare -fr` fixed: a later definition of
     /// the name fails and leaves the fixed body in place.
     readonly_functions: BTreeSet<String>,
@@ -756,7 +754,7 @@ struct ShellEnv {
     /// A function call's own redirections, opened around its body before it
     /// runs, keyed by the calling command's source and span; the command
     /// takes them back instead of opening them again.
-    call_redirects: Option<(Rc<str>, Span, Redirects)>,
+    call_redirects: Option<(Rc<str>, ShellSpan, Redirects)>,
     /// The descriptors redirected by the command whose words (or later
     /// redirection targets) are being expanded, which change only that
     /// command's descriptor table; `None` for a `{name}` descriptor the shell
@@ -798,7 +796,7 @@ struct Shell<'a> {
 struct PendingAssign {
     name: String,
     value: String,
-    span: Span,
+    span: ShellSpan,
 }
 
 /// The stdin a simple command gets from its own redirections, set as it is
@@ -820,7 +818,7 @@ struct Converted {
     pending_assigns: Vec<PendingAssign>,
     word: Word,
     raw: String,
-    span: Span,
+    span: ShellSpan,
     assign_nodes: Vec<ProvenanceRef>,
     /// When this word is a lone variable that may be one of several literals
     /// (conditional assignments) or a lone `command -v` lookup, the non-empty
@@ -1008,9 +1006,9 @@ fn build_redirections(redirs: &[parse::Redir]) -> Vec<crate::flow::Redirection> 
                 _ => 0,
             };
             let dup = r.dup.map(|d| match d {
-                DupTarget::Fd(m) => crate::flow::DupTarget::Fd(Descriptor::Number(m)),
-                DupTarget::Move(m) => crate::flow::DupTarget::Move(Descriptor::Number(m)),
-                DupTarget::Close => crate::flow::DupTarget::Close,
+                ShellDupTarget::Fd(m) => crate::flow::DupTarget::Fd(Descriptor::Number(m)),
+                ShellDupTarget::Move(m) => crate::flow::DupTarget::Move(Descriptor::Number(m)),
+                ShellDupTarget::Close => crate::flow::DupTarget::Close,
             });
             crate::flow::Redirection {
                 role,
@@ -1261,7 +1259,7 @@ pub(crate) fn analyze_shell(
                     word: None,
                     word_condition: None,
                     saturation_key: variable_saturation_key(Some(value), &may, None, false, false),
-                    span: Span { start: 0, end: 0 },
+                    span: ShellSpan { start: 0, end: 0 },
                     node: Some(node),
                     antecedents: Vec::new(),
                     producers: Vec::new(),
@@ -1292,7 +1290,7 @@ pub(crate) fn analyze_shell(
                 word: None,
                 word_condition: None,
                 saturation_key: variable_saturation_key(Some(&value), &may, None, false, false),
-                span: Span { start: 0, end: 0 },
+                span: ShellSpan { start: 0, end: 0 },
                 node: Some(node),
                 antecedents: Vec::new(),
                 producers: Vec::new(),
@@ -1344,7 +1342,7 @@ pub(crate) fn analyze_shell(
                 word: None,
                 word_condition: None,
                 saturation_key,
-                span: Span { start: 0, end: 0 },
+                span: ShellSpan { start: 0, end: 0 },
                 node,
                 antecedents: Vec::new(),
                 producers: builder
@@ -1435,7 +1433,7 @@ pub(crate) fn analyze_shell(
                     unresolved_default_override: false,
                     word: None,
                     word_condition: None,
-                    span: Span { start: 0, end: 0 },
+                    span: ShellSpan { start: 0, end: 0 },
                     node: Some(node),
                     antecedents: Vec::new(),
                     producers: Vec::new(),
@@ -1453,7 +1451,7 @@ pub(crate) fn analyze_shell(
             pending_assigns: Vec::new(),
             raw: word.render_raw(),
             word,
-            span: Span { start: 0, end: 0 },
+            span: ShellSpan { start: 0, end: 0 },
             assign_nodes: vec![node],
             alts: Vec::new(),
             unresolved_default_override: false,
@@ -1472,7 +1470,7 @@ pub(crate) fn analyze_shell(
         source_origin.clone().map(|path| Converted {
             word: Word::literal(&path),
             raw: path,
-            span: Span { start: 0, end: 0 },
+            span: ShellSpan { start: 0, end: 0 },
             assign_nodes: scope.into_iter().collect(),
             alts: Vec::new(),
             unresolved_default_override: false,
@@ -1691,7 +1689,7 @@ fn analyze_buffer(
                 BoundaryReason::PARSE_ERROR,
                 BoundaryClass::ParseFailure,
                 message,
-                Span {
+                ShellSpan {
                     start: *pos,
                     end: source.len() as u32,
                 },
@@ -1730,7 +1728,7 @@ impl Shell<'_> {
         ))
     }
 
-    fn span_node(&self, builder: &mut PlanBuilder, span: Span) -> ProvenanceRef {
+    fn span_node(&self, builder: &mut PlanBuilder, span: ShellSpan) -> ProvenanceRef {
         builder.node(
             ProvenanceKind::SourceSpan {
                 start: span.start,
@@ -1745,7 +1743,7 @@ impl Shell<'_> {
     /// `max_analysis_bytes` saturated: the boundary names which, carries
     /// `span`, and the walker stops descending. A saturation charged without a
     /// span in hand (a variable binding) surfaces at the next charge here.
-    fn charge(&self, builder: &mut PlanBuilder, steps: u64, bytes: u64, span: Span) -> bool {
+    fn charge(&self, builder: &mut PlanBuilder, steps: u64, bytes: u64, span: ShellSpan) -> bool {
         let budget = self.nest.budget;
         let charged = budget.try_charge_bytes(bytes) && budget.try_charge_steps(steps);
         if budget.bytes_saturated() {
@@ -1821,7 +1819,7 @@ impl Shell<'_> {
         reason: BoundaryReason,
         class: BoundaryClass,
         detail: &str,
-        span: Span,
+        span: ShellSpan,
     ) {
         self.opaque_resource_boundary(builder, reason, class, None, detail, span);
     }
@@ -1835,7 +1833,7 @@ impl Shell<'_> {
         class: BoundaryClass,
         affected_resource: Option<ResourceExpr>,
         detail: &str,
-        span: Span,
+        span: ShellSpan,
     ) {
         let node = self.span_node(builder, span);
         builder.boundary(Boundary {
@@ -2130,12 +2128,7 @@ impl Shell<'_> {
                 // With no observed source there is nothing to discover by probing.
                 // Still refuse transient source predictions in unordered regions.
                 Some(builder.push_source_hazards(
-                    vec![(
-                        ResourceExpr::Unresolved {
-                            family: effinterp_proto::ResourceFamily::new("filesystem"),
-                        },
-                        true,
-                    )],
+                    vec![(unresolved_resource("filesystem"), true)],
                     Vec::new(),
                     None,
                     background,
@@ -2172,12 +2165,7 @@ impl Shell<'_> {
                 );
                 let mut mutations = builder.source_mutations_since(&cp);
                 if self.nest.budget.exhausted() || builder.effects_saturated() {
-                    mutations.push((
-                        ResourceExpr::Unresolved {
-                            family: effinterp_proto::ResourceFamily::new("filesystem"),
-                        },
-                        true,
-                    ));
+                    mutations.push((unresolved_resource("filesystem"), true));
                 }
                 // A background job races the commands after it, up to a
                 // `wait` for it, but runs its own commands in order.
@@ -2552,7 +2540,7 @@ impl Shell<'_> {
                             && self
                                 .source
                                 .get(header.start as usize..header.end as usize)
-                                .is_some_and(eval::arithmetic_for_enters)
+                                .is_some_and(eval::arithmetic::arithmetic_for_enters)
                     }) {
                         if let Some(termination) =
                             self.walk(builder, env, items, force_conditional, walk_depth + 1)
@@ -2791,7 +2779,10 @@ impl Shell<'_> {
                         let mut aliased = match &identity {
                             ResourceExpr::Concrete {
                                 identity: ResourceIdentity::FsPath { path },
-                            } => eval::descriptor_path(&Word::literal(path.clone()), env),
+                            } => eval::redirection::descriptor_path(
+                                &Word::literal(path.clone()),
+                                env,
+                            ),
                             _ => None,
                         };
                         if aliased.is_none()
@@ -2809,7 +2800,7 @@ impl Shell<'_> {
                                     identity: ResourceIdentity::FsPath { path },
                                 } = source
                             {
-                                aliased = eval::descriptor_path(
+                                aliased = eval::redirection::descriptor_path(
                                     &Word::literal(format!(
                                         "{}/{}",
                                         path.trim_end_matches('/'),
@@ -2819,7 +2810,7 @@ impl Shell<'_> {
                                 );
                             }
                         }
-                        eval::descriptor_path(word, env)
+                        eval::redirection::descriptor_path(word, env)
                             .or(aliased)
                             .map(|descriptor| (resource, descriptor))
                     })
@@ -3477,7 +3468,7 @@ impl Shell<'_> {
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
         items: &[ShellItem],
-        selection: Option<(Span, bool)>,
+        selection: Option<(ShellSpan, bool)>,
         walk_depth: u32,
     ) {
         let [condition, skipped] = [true, false].map(|runs| {

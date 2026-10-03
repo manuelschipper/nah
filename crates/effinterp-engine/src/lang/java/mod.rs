@@ -38,12 +38,14 @@ use crate::lang::frontend::{
     Frontend, FrontendInput, MAX_CALLBACK_VALUES, MAX_WALK_DEPTH, ParseFailure, ParseOutcome,
     WalkOutcome,
 };
+use crate::lang::tree_sitter_nodes::node_span;
+use crate::value::{fs_path_resource, unresolved_resource};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain, Effect,
-    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceFamily,
-    ResourceIdentity, SqlConnection, SqlDialect, Subject,
+    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
+    SqlConnection, SqlDialect, Subject,
 };
 use tree_sitter::{Node, Parser, Tree};
 
@@ -588,12 +590,13 @@ fn collect_class<'a>(file: &mut JFile<'a>, node: Node<'a>, src: &[u8]) {
                         }
                         if is_const && ty == "String" && value.kind() == "string_literal" {
                             file.constants
-                                .insert(fname.clone(), unquote(text(value, src)));
+                                .insert(fname.clone(), unquote_java_string(text(value, src)));
                         }
                         if value.kind() == "string_literal" {
-                            class
-                                .field_literals
-                                .insert(fname.clone(), concrete(&unquote(text(value, src))));
+                            class.field_literals.insert(
+                                fname.clone(),
+                                fs_path_resource(&unquote_java_string(text(value, src))),
+                            );
                         }
                     }
                     class.fields.insert(fname, ty.clone());
@@ -753,7 +756,7 @@ fn collect_stable_field_values(
             {
                 let repeated = !assigned_constructor_fields.insert(field.clone());
                 let value = if repeated || guarded_assignment(node, src) {
-                    unresolved("filesystem")
+                    unresolved_resource("filesystem")
                 } else {
                     resolve_typed_expr(value, src, &env, constants, &types)
                 };
@@ -903,7 +906,7 @@ impl Frontend for JavaFrontend {
             .map(|method| format!("{}.{}", method.class, method.name))
             .collect();
         let first_effect = builder.effects_len();
-        let mut ctx = Ctx {
+        let mut ctx = JavaWalkContext {
             src,
             file: &file,
             nest,
@@ -943,7 +946,7 @@ impl Frontend for JavaFrontend {
         for m in roots {
             let mut visiting = HashSet::new();
             visiting.insert(m.body.id());
-            let mut frame = Frame {
+            let mut frame = JavaMethodFrame {
                 env: m
                     .params
                     .iter()
@@ -988,7 +991,7 @@ impl Frontend for JavaFrontend {
                     ctx.walk_calls(builder, m.body, &mut frame, &mut visiting)
                 });
                 if let Some(application) = ctx.control_applications.pop() {
-                    builder.control_site(source, false, control::span(m.body), application);
+                    builder.control_site(source, false, node_span(m.body), application);
                 }
             } else {
                 ctx.walk_calls(builder, m.body, &mut frame, &mut visiting);
@@ -1085,7 +1088,7 @@ fn java_framework_name(file: &JFile<'_>, written: &str, simple: &str, canonical:
 /// Per-method execution frame: parameter value bindings, declared types of
 /// locals and parameters, and locals' `new X(...)` initializers.
 #[derive(Clone)]
-struct Frame<'a> {
+struct JavaMethodFrame<'a> {
     env: HashMap<String, ResourceExpr>,
     types: HashMap<String, String>,
     news: HashMap<String, Vec<Node<'a>>>,
@@ -1106,7 +1109,7 @@ struct Frame<'a> {
     constructor: bool,
 }
 
-struct Ctx<'a> {
+struct JavaWalkContext<'a> {
     src: &'a [u8],
     file: &'a JFile<'a>,
     nest: &'a Nest<'a>,
@@ -1137,7 +1140,7 @@ type MethodCandidate<'a> = (
     Node<'a>,
 );
 
-impl<'a> Ctx<'a> {
+impl<'a> JavaWalkContext<'a> {
     /// Evaluate an invocation or creation and register what it establishes.
     fn control_call(
         &mut self,
@@ -1175,7 +1178,7 @@ impl<'a> Ctx<'a> {
             facts.returns = false;
             facts.exit = None;
         }
-        builder.control_site_since(self.source, false, control::span(n), since, facts);
+        builder.control_site_since(self.source, false, node_span(n), since, facts);
     }
 
     /// Walk a method body in its own control-flow frame.
@@ -1212,7 +1215,7 @@ impl<'a> Ctx<'a> {
         &mut self,
         builder: &mut PlanBuilder,
         n: Node<'a>,
-        frame: &mut Frame<'a>,
+        frame: &mut JavaMethodFrame<'a>,
         visiting: &mut HashSet<usize>,
     ) {
         let depth = builder.condition_depth();
@@ -1226,7 +1229,7 @@ impl<'a> Ctx<'a> {
         &mut self,
         builder: &mut PlanBuilder,
         n: Node<'a>,
-        frame: &mut Frame<'a>,
+        frame: &mut JavaMethodFrame<'a>,
         visiting: &mut HashSet<usize>,
     ) {
         // Iterative: Java `+` is a left-deep binary_expression tree, one
@@ -1322,7 +1325,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn record_local(&self, n: Node<'a>, frame: &mut Frame<'a>) {
+    fn record_local(&self, n: Node<'a>, frame: &mut JavaMethodFrame<'a>) {
         let Some(ty) = n
             .child_by_field_name("type")
             .map(|t| bare_type(text(t, self.src)))
@@ -1449,7 +1452,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn record_enhanced_for(&self, n: Node<'a>, frame: &mut Frame<'a>) {
+    fn record_enhanced_for(&self, n: Node<'a>, frame: &mut JavaMethodFrame<'a>) {
         let (Some(ty), Some(name), Some(value)) = (
             n.child_by_field_name("type"),
             n.child_by_field_name("name"),
@@ -1478,7 +1481,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn record_update(&self, n: Node<'a>, frame: &mut Frame<'a>) {
+    fn record_update(&self, n: Node<'a>, frame: &mut JavaMethodFrame<'a>) {
         let Some(target) = n.named_child(0) else {
             return;
         };
@@ -1494,7 +1497,7 @@ impl<'a> Ctx<'a> {
         &mut self,
         builder: &mut PlanBuilder,
         n: Node<'a>,
-        frame: &mut Frame<'a>,
+        frame: &mut JavaMethodFrame<'a>,
     ) {
         let (Some(left), Some(right)) = (
             n.child_by_field_name("left"),
@@ -1509,7 +1512,7 @@ impl<'a> Ctx<'a> {
         {
             let value = if class.unstable_constructor_fields.contains(&field) {
                 frame.giveups.insert(field.clone());
-                unresolved("filesystem")
+                unresolved_resource("filesystem")
             } else {
                 resolve_typed_expr(
                     right,
@@ -1564,7 +1567,7 @@ impl<'a> Ctx<'a> {
         class: &str,
         name: &str,
         n: Node<'a>,
-        frame: &Frame<'a>,
+        frame: &JavaMethodFrame<'a>,
         visiting: &mut HashSet<usize>,
     ) -> bool {
         let args = self.arg_exprs(n, &frame.env, &frame.types);
@@ -1679,7 +1682,7 @@ impl<'a> Ctx<'a> {
                 })
                 .chain(param_types.into_iter())
                 .collect();
-            let mut callee_frame = Frame {
+            let mut callee_frame = JavaMethodFrame {
                 env,
                 types,
                 news: HashMap::new(),
@@ -1716,7 +1719,7 @@ impl<'a> Ctx<'a> {
         &mut self,
         builder: &mut PlanBuilder,
         n: Node<'a>,
-        frame: &mut Frame<'a>,
+        frame: &mut JavaMethodFrame<'a>,
         visiting: &mut HashSet<usize>,
     ) {
         let Some(name) = n.child_by_field_name("name").map(|x| text(x, self.src)) else {
@@ -1810,7 +1813,7 @@ impl<'a> Ctx<'a> {
             if identity_java_call(&ty, name, n, self.src) {
                 return;
             }
-            if let Some(ops) = model_ops(&ty, name, unresolved("filesystem"), &args) {
+            if let Some(ops) = model_ops(&ty, name, unresolved_resource("filesystem"), &args) {
                 let ops = filter_file_stream_ops(ops, &ty, name, n, self.src, &frame.types);
                 self.emit_giveup_boundaries(builder, n, frame, &ops);
                 self.emit_ops(builder, n, ops, model_transfer(&ty, name));
@@ -1861,7 +1864,7 @@ impl<'a> Ctx<'a> {
         }
 
         let modeled = self.model(n, name, recv, frame);
-        if matches!(modeled, None | Some(Modeled::Boundary(..))) && !callback_method(name) {
+        if matches!(modeled, None | Some(JavaModeledCall::Boundary(..))) && !callback_method(name) {
             for callback in callback_arguments(n) {
                 self.execute_callback_values(builder, callback, &[], frame, visiting);
             }
@@ -1870,11 +1873,11 @@ impl<'a> Ctx<'a> {
             }
         }
         match modeled {
-            Some(Modeled::Ops(ops, transfer)) => {
+            Some(JavaModeledCall::Ops(ops, transfer)) => {
                 self.emit_giveup_boundaries(builder, n, frame, &ops);
                 self.emit_ops(builder, n, ops, transfer);
             }
-            Some(Modeled::Shell(cmd)) => {
+            Some(JavaModeledCall::Shell(cmd)) => {
                 let node = self.node(builder, n);
                 self.nest.nest(
                     builder,
@@ -1893,7 +1896,7 @@ impl<'a> Ctx<'a> {
                     self.depth,
                 );
             }
-            Some(Modeled::Exec(args)) => {
+            Some(JavaModeledCall::Exec(args)) => {
                 let node = self.node(builder, n);
                 let words: Vec<Word> = args.iter().map(expr_to_word).collect();
                 if words.is_empty()
@@ -1906,9 +1909,7 @@ impl<'a> Ctx<'a> {
                         builder,
                         n,
                         "process.exec",
-                        ResourceExpr::Unresolved {
-                            family: ResourceFamily::new("process"),
-                        },
+                        unresolved_resource("process"),
                         None,
                     );
                     self.boundary(
@@ -1946,7 +1947,7 @@ impl<'a> Ctx<'a> {
                     );
                 }
             }
-            Some(Modeled::Sql(sql)) => {
+            Some(JavaModeledCall::Sql(sql)) => {
                 let node = self.node(builder, n);
                 self.nest.nest(
                     builder,
@@ -1965,7 +1966,7 @@ impl<'a> Ctx<'a> {
                     self.depth,
                 );
             }
-            Some(Modeled::Boundary(reason, class, detail, domains)) => {
+            Some(JavaModeledCall::Boundary(reason, class, detail, domains)) => {
                 self.boundary(builder, n, reason, class, &detail, domains);
             }
             None => {
@@ -1986,7 +1987,7 @@ impl<'a> Ctx<'a> {
         builder: &mut PlanBuilder,
         callback: Node<'a>,
         inputs: &[ResourceExpr],
-        frame: &mut Frame<'a>,
+        frame: &mut JavaMethodFrame<'a>,
         visiting: &mut HashSet<usize>,
     ) {
         // A callback runs under the control of the call that runs it.
@@ -2013,7 +2014,8 @@ impl<'a> Ctx<'a> {
             "method_reference" => {
                 if let Some((receiver, name)) = method_reference_parts(callback, self.src) {
                     if let Some(ty) = self.file.jdk_fqn(receiver).map(|_| bare_type(receiver))
-                        && let Some(ops) = model_ops(&ty, name, unresolved("filesystem"), inputs)
+                        && let Some(ops) =
+                            model_ops(&ty, name, unresolved_resource("filesystem"), inputs)
                     {
                         self.emit_ops(builder, callback, ops, model_transfer(&ty, name));
                         return;
@@ -2041,7 +2043,7 @@ impl<'a> Ctx<'a> {
         builder: &mut PlanBuilder,
         callback: Node<'a>,
         inputs: &[ResourceExpr],
-        frame: &mut Frame<'a>,
+        frame: &mut JavaMethodFrame<'a>,
         visiting: &mut HashSet<usize>,
     ) {
         if inputs.is_empty() {
@@ -2066,18 +2068,18 @@ impl<'a> Ctx<'a> {
         types: &HashMap<String, String>,
     ) -> Vec<ResourceExpr> {
         let Some(source) = callback_input_source(invocation, self.file, self.src) else {
-            return vec![unresolved("value")];
+            return vec![unresolved_resource("value")];
         };
         let mut args = self.arg_exprs(source, env, types);
         if args.len() > MAX_CALLBACK_VALUES {
             args.truncate(MAX_CALLBACK_VALUES);
-            args.push(unresolved("value"));
+            args.push(unresolved_resource("value"));
         }
         args
     }
 
     /// The bare name of a same-file class the receiver statically refers to.
-    fn same_file_receivers(&self, recv: Node, frame: &Frame) -> Vec<String> {
+    fn same_file_receivers(&self, recv: Node, frame: &JavaMethodFrame) -> Vec<String> {
         let candidates = match recv.kind() {
             "identifier" => {
                 let id = text(recv, self.src);
@@ -2115,7 +2117,12 @@ impl<'a> Ctx<'a> {
         classes
     }
 
-    fn receiver_creations(&self, recv: Node<'a>, frame: &Frame<'a>, ty: &str) -> Vec<Node<'a>> {
+    fn receiver_creations(
+        &self,
+        recv: Node<'a>,
+        frame: &JavaMethodFrame<'a>,
+        ty: &str,
+    ) -> Vec<Node<'a>> {
         match recv.kind() {
             "object_creation_expression" => vec![recv],
             "identifier" => frame
@@ -2138,7 +2145,7 @@ impl<'a> Ctx<'a> {
         &mut self,
         builder: &mut PlanBuilder,
         creation: Node<'a>,
-        frame: &mut Frame<'a>,
+        frame: &mut JavaMethodFrame<'a>,
         visiting: &mut HashSet<usize>,
     ) {
         if frame.allocations.contains_key(&creation.id()) {
@@ -2164,7 +2171,7 @@ impl<'a> Ctx<'a> {
         &mut self,
         builder: &mut PlanBuilder,
         n: Node<'a>,
-        frame: &mut Frame<'a>,
+        frame: &mut JavaMethodFrame<'a>,
         visiting: &mut HashSet<usize>,
     ) {
         let Some(raw) = n
@@ -2277,7 +2284,7 @@ impl<'a> Ctx<'a> {
         &mut self,
         builder: &mut PlanBuilder,
         sink: Node,
-        frame: &Frame,
+        frame: &JavaMethodFrame,
         ops: &[ModeledOp],
     ) {
         let mut names = tracked_giveups_in(sink, self.src, &frame.giveups);
@@ -2317,7 +2324,7 @@ impl<'a> Ctx<'a> {
             reason,
             class: BoundaryClass::Unresolved,
             scope: BoundaryScope::Invocation,
-            affected_resource: Some(unresolved(domain)),
+            affected_resource: Some(unresolved_resource(domain)),
             callee: None,
             domains: vec![Domain::new(domain)],
             provenance: vec![node],
@@ -2413,7 +2420,7 @@ impl<'a> Ctx<'a> {
         n: Node<'a>,
         name: &str,
         recv: Node<'a>,
-        frame: &mut Frame<'a>,
+        frame: &mut JavaMethodFrame<'a>,
     ) {
         let Some(id) = receiver_identifier(recv, self.src) else {
             return;
@@ -2470,7 +2477,7 @@ impl<'a> Ctx<'a> {
     }
 
     /// Rebind recovered process argv after an unguarded assignment of `name`.
-    fn bind_assigned_argv(&self, name: &str, value: Node<'a>, frame: &mut Frame<'a>) {
+    fn bind_assigned_argv(&self, name: &str, value: Node<'a>, frame: &mut JavaMethodFrame<'a>) {
         if value.kind() == "object_creation_expression" {
             let ty = bare_type(
                 value
@@ -2507,7 +2514,11 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn process_builder_argv(&self, recv: Node<'a>, frame: &Frame<'a>) -> Vec<ResourceExpr> {
+    fn process_builder_argv(
+        &self,
+        recv: Node<'a>,
+        frame: &JavaMethodFrame<'a>,
+    ) -> Vec<ResourceExpr> {
         match recv.kind() {
             "object_creation_expression"
                 if recv
@@ -2552,7 +2563,11 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn process_builder_cwd(&self, recv: Node<'a>, frame: &Frame<'a>) -> Option<ResourceExpr> {
+    fn process_builder_cwd(
+        &self,
+        recv: Node<'a>,
+        frame: &JavaMethodFrame<'a>,
+    ) -> Option<ResourceExpr> {
         match recv.kind() {
             "identifier" => frame.process_cwd.get(text(recv, self.src)).cloned(),
             "method_invocation" => {
@@ -2582,21 +2597,33 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn argv_from_creation(&self, creation: Node<'a>, frame: &Frame<'a>) -> Vec<ResourceExpr> {
+    fn argv_from_creation(
+        &self,
+        creation: Node<'a>,
+        frame: &JavaMethodFrame<'a>,
+    ) -> Vec<ResourceExpr> {
         let Some(args) = creation.child_by_field_name("arguments") else {
             return Vec::new();
         };
         self.argv_from_argument_list(args, frame)
     }
 
-    fn argv_from_invocation(&self, invocation: Node<'a>, frame: &Frame<'a>) -> Vec<ResourceExpr> {
+    fn argv_from_invocation(
+        &self,
+        invocation: Node<'a>,
+        frame: &JavaMethodFrame<'a>,
+    ) -> Vec<ResourceExpr> {
         let Some(args) = invocation.child_by_field_name("arguments") else {
             return Vec::new();
         };
         self.argv_from_argument_list(args, frame)
     }
 
-    fn argv_from_argument_list(&self, args: Node<'a>, frame: &Frame<'a>) -> Vec<ResourceExpr> {
+    fn argv_from_argument_list(
+        &self,
+        args: Node<'a>,
+        frame: &JavaMethodFrame<'a>,
+    ) -> Vec<ResourceExpr> {
         let mut cursor = args.walk();
         let children: Vec<_> = args.named_children(&mut cursor).collect();
         if children.len() == 1 {
@@ -2624,20 +2651,20 @@ impl<'a> Ctx<'a> {
             .collect()
     }
 
-    fn argv_from_expr(&self, n: Node<'a>, frame: &Frame<'a>) -> Vec<ResourceExpr> {
+    fn argv_from_expr(&self, n: Node<'a>, frame: &JavaMethodFrame<'a>) -> Vec<ResourceExpr> {
         match n.kind() {
-            "string_literal" => vec![concrete(&unquote(text(n, self.src)))],
+            "string_literal" => vec![fs_path_resource(&unquote_java_string(text(n, self.src)))],
             "identifier" => {
                 let name = text(n, self.src);
                 if let Some(argv) = frame.arrays.get(name) {
                     return argv.clone();
                 }
-                match frame
-                    .env
-                    .get(name)
-                    .cloned()
-                    .or_else(|| self.file.constants.get(name).map(|value| concrete(value)))
-                {
+                match frame.env.get(name).cloned().or_else(|| {
+                    self.file
+                        .constants
+                        .get(name)
+                        .map(|value| fs_path_resource(value))
+                }) {
                     Some(ResourceExpr::Union { alternatives }) => alternatives,
                     Some(other) => vec![other],
                     None => vec![ResourceExpr::Parameter {
@@ -2728,7 +2755,13 @@ impl<'a> Ctx<'a> {
             .collect()
     }
 
-    fn model(&mut self, n: Node, name: &str, recv: Node, frame: &Frame) -> Option<Modeled> {
+    fn model(
+        &mut self,
+        n: Node,
+        name: &str,
+        recv: Node,
+        frame: &JavaMethodFrame,
+    ) -> Option<JavaModeledCall> {
         // new ProcessBuilder(cmd, args...).start()/.run() — the argv is the
         // ProcessBuilder constructor's arguments, not this call's.
         let recv_type = jdk_receiver_type(recv, self.src, self.file, &frame.class, &frame.types);
@@ -2739,7 +2772,9 @@ impl<'a> Ctx<'a> {
                         .child_by_field_name("type")
                         .is_some_and(|t| bare_type(text(t, self.src)) == "ProcessBuilder")))
         {
-            return Some(Modeled::Exec(self.process_builder_argv(recv, frame)));
+            return Some(JavaModeledCall::Exec(
+                self.process_builder_argv(recv, frame),
+            ));
         }
 
         let args = self.arg_exprs(n, &frame.env, &frame.types);
@@ -2755,11 +2790,11 @@ impl<'a> Ctx<'a> {
             });
             return Some(
                 if is_array_arg(n, self.src) || array_local || argv.len() > 1 {
-                    Modeled::Exec(if argv.is_empty() { args } else { argv })
+                    JavaModeledCall::Exec(if argv.is_empty() { args } else { argv })
                 } else {
                     match string_literal_of(n, self.src) {
-                        Some(cmd) => Modeled::Shell(cmd),
-                        None => Modeled::Boundary(
+                        Some(cmd) => JavaModeledCall::Shell(cmd),
+                        None => JavaModeledCall::Boundary(
                             BoundaryReason::UNRESOLVED_CALL,
                             BoundaryClass::Unresolved,
                             "Runtime.exec with a non-literal command".to_string(),
@@ -2771,7 +2806,7 @@ impl<'a> Ctx<'a> {
         }
 
         if is_reflection(recv_type.as_deref(), name) {
-            return Some(Modeled::Boundary(
+            return Some(JavaModeledCall::Boundary(
                 BoundaryReason::UNMODELED_DYNAMIC_CODE,
                 BoundaryClass::Unresolved,
                 "java reflection".to_string(),
@@ -2785,13 +2820,13 @@ impl<'a> Ctx<'a> {
             "executeUpdate" | "executeQuery" | "execute" | "prepareStatement" | "prepareCall"
         ) && let Some(sql) = sql_literal(&args)
         {
-            return Some(Modeled::Sql(sql));
+            return Some(JavaModeledCall::Sql(sql));
         }
 
         let ty = recv_type?;
         let recv_res = self.receiver_resource(recv, &frame.env, &frame.types);
         if identity_java_call(&ty, name, n, self.src) {
-            return Some(Modeled::Ops(Vec::new(), None));
+            return Some(JavaModeledCall::Ops(Vec::new(), None));
         }
         if ty == "HttpURLConnection"
             && matches!(
@@ -2806,7 +2841,7 @@ impl<'a> Ctx<'a> {
             let verb = receiver_identifier(recv, self.src)
                 .and_then(|receiver| frame.http_verbs.get(receiver))
                 .map(String::as_str);
-            return Some(Modeled::Ops(
+            return Some(JavaModeledCall::Ops(
                 vec![(network_operation(verb), network_sink(recv_res), None)],
                 None,
             ));
@@ -2816,17 +2851,17 @@ impl<'a> Ctx<'a> {
                 .first()
                 .cloned()
                 .map(network_sink)
-                .unwrap_or(unresolved("network"));
+                .unwrap_or(unresolved_resource("network"));
             let verb = first_argument(n).and_then(|argument| {
                 http_verb_of_expr(argument, self.src, &frame.http_verbs, &self.file.constants)
             });
-            return Some(Modeled::Ops(
+            return Some(JavaModeledCall::Ops(
                 vec![(network_operation(verb.as_deref()), request, None)],
                 None,
             ));
         }
         if let Some(ops) = model_ops(&ty, name, recv_res, &args) {
-            return Some(Modeled::Ops(
+            return Some(JavaModeledCall::Ops(
                 filter_file_stream_ops(ops, &ty, name, n, self.src, &frame.types),
                 model_transfer(&ty, name),
             ));
@@ -2838,7 +2873,7 @@ impl<'a> Ctx<'a> {
             .jdk_fqn(text(recv, self.src))
             .or_else(|| self.file.type_fqn(&ty))?;
         if let Some(ExternalCall::Unmodeled(domains)) = classify_java_call(&fqn, name) {
-            return Some(Modeled::Boundary(
+            return Some(JavaModeledCall::Boundary(
                 BoundaryReason::EXTERNAL_UNMODELED,
                 BoundaryClass::Unmodeled,
                 format!("{fqn}.{name} is an unmodeled JDK call"),
@@ -2846,7 +2881,7 @@ impl<'a> Ctx<'a> {
             ));
         }
         matches!(classify_java_call(&fqn, name), Some(ExternalCall::Inert))
-            .then(|| Modeled::Ops(Vec::new(), None))
+            .then(|| JavaModeledCall::Ops(Vec::new(), None))
     }
 
     /// The resource a receiver expression denotes (for `File`-style APIs):
@@ -2861,7 +2896,7 @@ impl<'a> Ctx<'a> {
     }
 }
 
-enum Modeled {
+enum JavaModeledCall {
     /// Modeled effects, plus the transfer whose endpoints they contain.
     Ops(Vec<ModeledOp>, Option<ModeledTransfer>),
     Shell(String),
@@ -3313,7 +3348,7 @@ fn inline_full(
                     resource @ ResourceExpr::Concrete {
                         identity: ResourceIdentity::EnvironmentVariable { .. },
                     } => resource.clone(),
-                    _ => unresolved("environment"),
+                    _ => unresolved_resource("environment"),
                 };
             }
             let value = SemanticValue::from(&specialized.resource);
@@ -3462,7 +3497,7 @@ impl<'a> SumCtx<'a> {
             }
             let source = std::str::from_utf8(self.src).expect("parsed UTF-8 source");
             if self.active_callbacks.is_empty() && callbacks == self.callback_visits {
-                let span = control::span(n);
+                let span = node_span(n);
                 if self.edges.len() == edge_start + 1 {
                     self.call_sites.insert(span, edge_start as u32);
                     let mut facts = SiteFacts::unknown();
@@ -4052,7 +4087,7 @@ impl<'a> SumCtx<'a> {
                     reason: BoundaryReason::UNMODELED_DYNAMIC,
                     class: BoundaryClass::Unresolved,
                     scope: BoundaryScope::Invocation,
-                    affected_resource: Some(unresolved(domain)),
+                    affected_resource: Some(unresolved_resource(domain)),
                     callee: None,
                     domains: vec![Domain::new(domain)],
                     provenance: Vec::new(),
@@ -4409,7 +4444,9 @@ impl<'a> SumCtx<'a> {
             self.push_effects(
                 vec![(
                     "process.exec",
-                    args.first().cloned().unwrap_or(unresolved("process")),
+                    args.first()
+                        .cloned()
+                        .unwrap_or(unresolved_resource("process")),
                     None,
                 )],
                 None,
@@ -4423,7 +4460,7 @@ impl<'a> SumCtx<'a> {
                 .map(|x| {
                     resolve_typed_expr(x, self.src, &self.env, &self.file.constants, &self.types)
                 })
-                .unwrap_or(unresolved("process"));
+                .unwrap_or(unresolved_resource("process"));
             self.push_effects(vec![("process.exec", res, None)], None);
             return;
         }
@@ -4455,7 +4492,7 @@ impl<'a> SumCtx<'a> {
                 .first()
                 .cloned()
                 .map(network_sink)
-                .unwrap_or(unresolved("network"));
+                .unwrap_or(unresolved_resource("network"));
             let verb = first_argument(n).and_then(|argument| {
                 http_verb_of_expr(argument, self.src, &self.http_verbs, &self.file.constants)
             });
@@ -4561,12 +4598,12 @@ impl<'a> SumCtx<'a> {
 
     fn callback_inputs(&self, invocation: Node) -> Vec<ResourceExpr> {
         let Some(source) = callback_input_source(invocation, self.file, self.src) else {
-            return vec![unresolved("value")];
+            return vec![unresolved_resource("value")];
         };
         let mut args = self.args_of(source);
         if args.len() > MAX_CALLBACK_VALUES {
             args.truncate(MAX_CALLBACK_VALUES);
-            args.push(unresolved("value"));
+            args.push(unresolved_resource("value"));
         }
         args
     }
@@ -4604,7 +4641,8 @@ impl<'a> SumCtx<'a> {
             "method_reference" => {
                 if let Some((receiver, name)) = method_reference_parts(callback, self.src)
                     && let Some(ty) = self.file.jdk_fqn(receiver).map(|_| bare_type(receiver))
-                    && let Some(ops) = model_ops(&ty, name, unresolved("filesystem"), inputs)
+                    && let Some(ops) =
+                        model_ops(&ty, name, unresolved_resource("filesystem"), inputs)
                 {
                     self.push_effects(ops, model_transfer(&ty, name));
                 } else if let Some((receiver, name)) = method_reference_parts(callback, self.src) {
@@ -4864,7 +4902,7 @@ fn string_literal_of(n: Node, src: &[u8]) -> Option<String> {
     let mut c = a.walk();
     a.named_children(&mut c)
         .find(|x| x.kind() == "string_literal")
-        .map(|x| unquote(text(x, src)))
+        .map(|x| unquote_java_string(text(x, src)))
 }
 
 fn sql_literal(args: &[ResourceExpr]) -> Option<String> {
@@ -4902,7 +4940,7 @@ fn env_resource(args: &[ResourceExpr]) -> ResourceExpr {
             identity: ResourceIdentity::EnvironmentVariable { name: path.clone() },
         },
         Some(expr @ (ResourceExpr::Parameter { .. } | ResourceExpr::Join { .. })) => expr.clone(),
-        _ => unresolved("environment"),
+        _ => unresolved_resource("environment"),
     }
 }
 
@@ -4973,21 +5011,21 @@ fn resolve_expr_at(
     depth: u32,
 ) -> ResourceExpr {
     if depth >= MAX_WALK_DEPTH {
-        return unresolved("filesystem");
+        return unresolved_resource("filesystem");
     }
     match n.kind() {
-        "string_literal" => concrete(&unquote(text(n, src))),
+        "string_literal" => fs_path_resource(&unquote_java_string(text(n, src))),
         "decimal_integer_literal"
         | "hex_integer_literal"
         | "octal_integer_literal"
-        | "binary_integer_literal" => concrete(text(n, src)),
+        | "binary_integer_literal" => fs_path_resource(text(n, src)),
         "identifier" => {
             let name = text(n, src);
             if let Some(bound) = env.get(name) {
                 return bound.clone();
             }
             if let Some(value) = constants.get(name) {
-                return concrete(value);
+                return fs_path_resource(value);
             }
             ResourceExpr::Parameter {
                 name: name.to_string(),
@@ -4997,7 +5035,7 @@ fn resolve_expr_at(
             if n.child_by_field_name("operator")
                 .is_none_or(|operator| text(operator, src) != "+")
             {
-                return unresolved("filesystem");
+                return unresolved_resource("filesystem");
             }
             // "a" + b -> join of the two sides.
             let mut c = n.walk();
@@ -5008,35 +5046,35 @@ fn resolve_expr_at(
             if parts.len() == 2 {
                 ResourceExpr::Join { parts }
             } else {
-                unresolved("filesystem")
+                unresolved_resource("filesystem")
             }
         }
         "parenthesized_expression" | "cast_expression" => n
             .child_by_field_name("value")
             .or_else(|| n.named_child(0))
             .map(|value| resolve_expr_at(value, src, env, constants, types, depth + 1))
-            .unwrap_or(unresolved("filesystem")),
+            .unwrap_or(unresolved_resource("filesystem")),
         "array_initializer" => {
             let mut cursor = n.walk();
             let values: Vec<_> = n.named_children(&mut cursor).collect();
             if values.is_empty() || values.iter().any(|value| value.kind() != "string_literal") {
-                unresolved("filesystem")
+                unresolved_resource("filesystem")
             } else {
                 ResourceExpr::Union {
                     alternatives: values
                         .into_iter()
-                        .map(|value| concrete(&unquote(text(value, src))))
+                        .map(|value| fs_path_resource(&unquote_java_string(text(value, src))))
                         .collect(),
                 }
             }
         }
         "array_access" => {
             let Some(array) = n.child_by_field_name("array") else {
-                return unresolved("filesystem");
+                return unresolved_resource("filesystem");
             };
             let value = resolve_expr_at(array, src, env, constants, types, depth + 1);
             let ResourceExpr::Union { alternatives } = value else {
-                return unresolved("filesystem");
+                return unresolved_resource("filesystem");
             };
             n.child_by_field_name("index")
                 .and_then(|index| text(index, src).parse::<usize>().ok())
@@ -5054,13 +5092,13 @@ fn resolve_expr_at(
                 && object_text.rsplit('.').next() == Some("System")
             {
                 let Some(argument) = first_argument(n) else {
-                    return unresolved("environment");
+                    return unresolved_resource("environment");
                 };
                 return match resolve_expr_at(argument, src, env, constants, types, depth + 1) {
                     ResourceExpr::Concrete {
                         identity: ResourceIdentity::FsPath { path },
                     } if !path.is_empty() => ResourceExpr::Environment { name: path },
-                    _ => unresolved("environment"),
+                    _ => unresolved_resource("environment"),
                 };
             }
             if (name == "format" && object_text.rsplit('.').next() == Some("String"))
@@ -5080,7 +5118,7 @@ fn resolve_expr_at(
                             depth + 1,
                         ))
                     })
-                    .unwrap_or(unresolved("network"));
+                    .unwrap_or(unresolved_resource("network"));
             }
             if name == "newBuilder" && object_text.rsplit('.').next() == Some("HttpRequest") {
                 return first_argument(n)
@@ -5094,7 +5132,7 @@ fn resolve_expr_at(
                             depth + 1,
                         ))
                     })
-                    .unwrap_or(unresolved("network"));
+                    .unwrap_or(unresolved_resource("network"));
             }
             if matches!(
                 name,
@@ -5133,13 +5171,13 @@ fn resolve_expr_at(
                             .map(|x| resolve_expr_at(x, src, env, constants, types, depth + 1)),
                     );
                     return match parts.len() {
-                        0 => unresolved("filesystem"),
+                        0 => unresolved_resource("filesystem"),
                         1 => parts.into_iter().next().unwrap(),
                         _ => ResourceExpr::Join { parts },
                     };
                 }
             }
-            unresolved("filesystem")
+            unresolved_resource("filesystem")
         }
         "object_creation_expression" => {
             let ty = n
@@ -5152,15 +5190,15 @@ fn resolve_expr_at(
                 "filesystem"
             };
             let Some(arguments) = n.child_by_field_name("arguments") else {
-                return unresolved(family);
+                return unresolved_resource(family);
             };
             let mut cursor = arguments.walk();
             let arguments: Vec<_> = arguments.named_children(&mut cursor).collect();
             let Some(argument) = arguments.first().copied() else {
-                return unresolved(family);
+                return unresolved_resource(family);
             };
             if matches!(ty.as_str(), "URL" | "URI") && arguments.len() > 1 {
-                return unresolved(family);
+                return unresolved_resource(family);
             }
             if ty == "File" && arguments.len() == 2 {
                 return ResourceExpr::Join {
@@ -5193,11 +5231,11 @@ fn resolve_expr_at(
             if let Some(field) = whole.rsplit('.').next()
                 && let Some(value) = constants.get(field)
             {
-                return concrete(value);
+                return fs_path_resource(value);
             }
-            unresolved("filesystem")
+            unresolved_resource("filesystem")
         }
-        _ => unresolved("filesystem"),
+        _ => unresolved_resource("filesystem"),
     }
 }
 
@@ -5213,7 +5251,9 @@ fn invocation_string_argument(
     constants: &HashMap<String, String>,
 ) -> Option<String> {
     match first_argument(invocation)? {
-        argument if argument.kind() == "string_literal" => Some(unquote(text(argument, src))),
+        argument if argument.kind() == "string_literal" => {
+            Some(unquote_java_string(text(argument, src)))
+        }
         argument if argument.kind() == "identifier" => constants.get(text(argument, src)).cloned(),
         _ => None,
     }
@@ -5232,7 +5272,7 @@ fn resolve_string_format(
         .map(|node| text(node, src))
         .unwrap_or("");
     let Some(arguments) = invocation.child_by_field_name("arguments") else {
-        return unresolved("filesystem");
+        return unresolved_resource("filesystem");
     };
     let mut cursor = arguments.walk();
     let mut arguments: Vec<Node> = arguments.named_children(&mut cursor).collect();
@@ -5241,17 +5281,17 @@ fn resolve_string_format(
             .first()
             .is_none_or(|node| node.kind() != "string_literal")
         {
-            return unresolved("filesystem");
+            return unresolved_resource("filesystem");
         }
-        unquote(text(arguments.remove(0), src))
+        unquote_java_string(text(arguments.remove(0), src))
     } else {
         let Some(format) = invocation
             .child_by_field_name("object")
             .filter(|node| node.kind() == "string_literal")
         else {
-            return unresolved("filesystem");
+            return unresolved_resource("filesystem");
         };
-        unquote(text(format, src))
+        unquote_java_string(text(format, src))
     };
 
     let mut parts = Vec::new();
@@ -5260,13 +5300,13 @@ fn resolve_string_format(
     while let Some(relative) = format[offset..].find('%') {
         let specifier = offset + relative;
         let Some(spec) = format.as_bytes().get(specifier + 1) else {
-            return unresolved("filesystem");
+            return unresolved_resource("filesystem");
         };
         if !matches!(spec, b's' | b'd') || argument >= arguments.len() {
-            return unresolved("filesystem");
+            return unresolved_resource("filesystem");
         }
         if specifier > offset {
-            parts.push(concrete(&format[offset..specifier]));
+            parts.push(fs_path_resource(&format[offset..specifier]));
         }
         parts.push(resolve_expr_at(
             arguments[argument],
@@ -5280,13 +5320,13 @@ fn resolve_string_format(
         offset = specifier + 2;
     }
     if argument != arguments.len() {
-        return unresolved("filesystem");
+        return unresolved_resource("filesystem");
     }
     if offset < format.len() {
-        parts.push(concrete(&format[offset..]));
+        parts.push(fs_path_resource(&format[offset..]));
     }
     match parts.len() {
-        0 => concrete(""),
+        0 => fs_path_resource(""),
         1 => parts.pop().unwrap(),
         _ => ResourceExpr::Join { parts },
     }
@@ -5363,16 +5403,18 @@ fn is_unresolved(resource: &ResourceExpr) -> bool {
     matches!(resource, ResourceExpr::Unresolved { .. })
 }
 
-fn poison_local(name: &str, frame: &mut Frame<'_>) {
+fn poison_local(name: &str, frame: &mut JavaMethodFrame<'_>) {
     frame.poisoned.insert(name.to_string());
     frame.giveups.insert(name.to_string());
-    frame.env.insert(name.to_string(), unresolved("filesystem"));
+    frame
+        .env
+        .insert(name.to_string(), unresolved_resource("filesystem"));
     invalidate_argv_local(name, frame);
 }
 
 /// Drop recovered process argv for `name`. Reassignment must not keep a stale
 /// first value as fact.
-fn invalidate_argv_local(name: &str, frame: &mut Frame<'_>) {
+fn invalidate_argv_local(name: &str, frame: &mut JavaMethodFrame<'_>) {
     frame.arrays.remove(name);
     frame.process_argv.remove(name);
     frame.process_cwd.remove(name);
@@ -5383,7 +5425,7 @@ fn poison_summary_local(name: &str, context: &mut SumCtx<'_>) {
     context.giveups.insert(name.to_string());
     context
         .env
-        .insert(name.to_string(), unresolved("filesystem"));
+        .insert(name.to_string(), unresolved_resource("filesystem"));
 }
 
 fn assigned_local(left: Node, src: &[u8]) -> Option<(String, bool)> {
@@ -5551,11 +5593,11 @@ fn filesystem_sink(resource: ResourceExpr) -> ResourceExpr {
         },
         ResourceExpr::Literal { .. } => crate::value::sink_typed_join(vec![resource], "filesystem"),
         ResourceExpr::Unresolved { ref family } if family.0 != "filesystem" => {
-            unresolved("filesystem")
+            unresolved_resource("filesystem")
         }
         ResourceExpr::Concrete {
             identity: ResourceIdentity::NetworkEndpoint { .. },
-        } => unresolved("filesystem"),
+        } => unresolved_resource("filesystem"),
         resource => resource,
     }
 }
@@ -5574,7 +5616,7 @@ fn network_value(resource: ResourceExpr) -> ResourceExpr {
         ResourceExpr::Unresolved { ref family }
             if !matches!(family.0.as_ref(), "network" | "environment") =>
         {
-            unresolved("network")
+            unresolved_resource("network")
         }
         resource => resource,
     }
@@ -5616,7 +5658,7 @@ fn network_sink(resource: ResourceExpr) -> ResourceExpr {
         }
         | ResourceExpr::Parameter { .. }
         | ResourceExpr::Environment { .. }) => resource,
-        _ => unresolved("network"),
+        _ => unresolved_resource("network"),
     }
 }
 
@@ -5738,12 +5780,15 @@ fn iterable_element(
     {
         first_argument(call)
             .map(|argument| resolve_expr(argument, src, env, constants))
-            .unwrap_or(unresolved("filesystem"))
+            .unwrap_or(unresolved_resource("filesystem"))
     } else {
         return None;
     };
     Some(crate::value::sink_typed_join(
-        vec![filesystem_sink(directory), unresolved("filesystem")],
+        vec![
+            filesystem_sink(directory),
+            unresolved_resource("filesystem"),
+        ],
         "filesystem",
     ))
 }
@@ -5797,22 +5842,8 @@ fn expr_to_word(e: &ResourceExpr) -> Word {
     }
 }
 
-fn unquote(s: &str) -> String {
+fn unquote_java_string(s: &str) -> String {
     s.trim_matches('"').to_string()
-}
-
-fn concrete(path: &str) -> ResourceExpr {
-    ResourceExpr::Concrete {
-        identity: ResourceIdentity::FsPath {
-            path: path.to_string(),
-        },
-    }
-}
-
-fn unresolved(family: &str) -> ResourceExpr {
-    ResourceExpr::Unresolved {
-        family: ResourceFamily::new(family),
-    }
 }
 
 #[cfg(test)]
@@ -5845,7 +5876,10 @@ mod tests {
             .iter()
             .find(|e| e.callee == "Helper.wipe")
             .expect("Helper.wipe recorded as a type-qualified call edge");
-        assert_eq!(edge.resource_arguments(), vec![concrete("/var/cache/app")]);
+        assert_eq!(
+            edge.resource_arguments(),
+            vec![fs_path_resource("/var/cache/app")]
+        );
     }
 
     #[test]

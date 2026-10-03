@@ -1,10 +1,11 @@
 //! Classifies nah state protection tiers; it does not emit policy verdicts.
 
 use super::lexical_path::{
-    contains, fold, installed_binary_paths, join, lexically_normalized, same_path,
+    fold_path_spelling, installed_binary_paths, join_lexical_path, lexically_contains,
+    lexically_normalized, same_path,
 };
 use super::system_tree::SYSTEM_TREES;
-use super::{NahProtectionTier, selects};
+use super::{NahProtectionTier, selects_known_path};
 use crate::action::FilesystemOperation;
 use crate::ctx::{AbsolutePath, Platform};
 use crate::observation::Root;
@@ -36,15 +37,22 @@ pub fn nah_protection_tier(
     // A pattern reaches a nap file when the file is one of its expansions,
     // so `~/.nah/*` takes the nap state while `~/.nah/*/**` does not.
     let expands_to = |selection: &str, file: &str| {
-        effinterp_proto::glob_match(&fold(selection, platform), &fold(file, platform)) == Ok(true)
+        effinterp_proto::glob_match(
+            &fold_path_spelling(selection, platform),
+            &fold_path_spelling(file, platform),
+        ) == Ok(true)
     };
     if paths.iter().any(|path| {
         (!pattern
             && whole_container
-            && same_path(&join(home.as_str(), ".nah", platform), path, platform))
+            && same_path(
+                &join_lexical_path(home.as_str(), ".nah", platform),
+                path,
+                platform,
+            ))
             || [".nah/nap.json", ".nah/nap.key", ".nah/nap.lock"]
                 .iter()
-                .map(|entry| join(home.as_str(), entry, platform))
+                .map(|entry| join_lexical_path(home.as_str(), entry, platform))
                 .any(|file| same_path(&file, path, platform) || pattern && expands_to(path, &file))
     }) {
         return Some(NahProtectionTier::Permanent);
@@ -59,19 +67,25 @@ pub fn nah_protection_tier(
         // A pattern's bound only ever adds reachable paths, so it may raise the
         // tier but never lower it: the proposal downgrade still needs the target
         // itself to sit inside a guard directory.
-        let proposal = home_policy_paths
-            .iter()
-            .any(|entry| contains(&join(home.as_str(), entry, platform), path, platform))
-            || roots.iter().any(|root| {
-                contains(
-                    &join(root.path().as_str(), ".nah", platform),
-                    path,
-                    platform,
-                )
-            })
-            || trusted_roots
-                .iter()
-                .any(|root| contains(&join(root.as_str(), ".nah", platform), path, platform));
+        let proposal = home_policy_paths.iter().any(|entry| {
+            lexically_contains(
+                &join_lexical_path(home.as_str(), entry, platform),
+                path,
+                platform,
+            )
+        }) || roots.iter().any(|root| {
+            lexically_contains(
+                &join_lexical_path(root.path().as_str(), ".nah", platform),
+                path,
+                platform,
+            )
+        }) || trusted_roots.iter().any(|root| {
+            lexically_contains(
+                &join_lexical_path(root.as_str(), ".nah", platform),
+                path,
+                platform,
+            )
+        });
         if proposal {
             tier = Some(NahProtectionTier::Proposal);
             continue;
@@ -79,7 +93,7 @@ pub fn nah_protection_tier(
 
         let critical = owned_home_paths.iter().any(|entry| {
             protects_owned_path(
-                &join(home.as_str(), entry, platform),
+                &join_lexical_path(home.as_str(), entry, platform),
                 path,
                 platform,
                 operation,
@@ -94,10 +108,10 @@ pub fn nah_protection_tier(
             || (executable_bin_path(path, platform)
                 && !roots
                     .iter()
-                    .any(|root| contains(root.path().as_str(), path, platform))
+                    .any(|root| lexically_contains(root.path().as_str(), path, platform))
                 && !trusted_roots
                     .iter()
-                    .any(|root| contains(root.as_str(), path, platform)));
+                    .any(|root| lexically_contains(root.as_str(), path, platform)));
         if critical {
             return Some(NahProtectionTier::Critical);
         }
@@ -142,10 +156,10 @@ fn protects_owned_path(
     operation: FilesystemOperation,
     pattern: bool,
 ) -> bool {
-    selects(owned, path, platform, pattern)
+    selects_known_path(owned, path, platform, pattern)
         || operation == FilesystemOperation::Delete
             && !catastrophic_tree(path, platform)
-            && contains(path, owned, platform)
+            && lexically_contains(path, owned, platform)
 }
 
 fn catastrophic_tree(path: &str, platform: Platform) -> bool {

@@ -31,12 +31,12 @@ enum GitPushPredicate {
 }
 
 /// The destructive Git guard definitions, in definition order.
-pub(crate) fn definitions() -> Vec<GuardDefinition> {
+pub(crate) fn git_guard_definitions() -> Vec<GuardDefinition> {
     vec![
         program(
             "git-clean-force",
             true,
-            vec![clause(
+            vec![git_guard_clause(
                 selection_request(
                     "git.clean_request",
                     vec![
@@ -58,7 +58,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
         program(
             "git-hard-reset",
             true,
-            vec![clause(
+            vec![git_guard_clause(
                 request(
                     "git.reset_request",
                     vec![
@@ -73,7 +73,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
             "git-history-rewrite",
             false,
             vec![
-                clause(
+                git_guard_clause(
                     Query::new(Assertion::All {
                         assertions: vec![
                             request_assertion("git.history_rewrite_request", history_controls()),
@@ -99,7 +99,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                     }),
                     vec![],
                 ),
-                clause(
+                git_guard_clause(
                     request(
                         "git.recovery_destroy_request",
                         with(
@@ -116,7 +116,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                 ),
                 // Expiring one literal ref's reflog is the same loss; deleting
                 // one selected entry (`reflog delete HEAD@{1}`) is not.
-                clause(
+                git_guard_clause(
                     request(
                         "git.recovery_destroy_request",
                         with(
@@ -133,7 +133,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                     ),
                     vec![],
                 ),
-                clause(
+                git_guard_clause(
                     request(
                         "git.recovery_destroy_request",
                         with(
@@ -143,7 +143,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                     ),
                     vec![],
                 ),
-                clause(
+                git_guard_clause(
                     request(
                         "git.recovery_destroy_request",
                         with(history_controls(), vec![present_attr("prune")]),
@@ -165,7 +165,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
             ]
             .into_iter()
             .map(|operation| {
-                clause(
+                git_guard_clause(
                     Query::new(effect_assertion(
                         OperationMatch::Exact(operation.into()),
                         vec![],
@@ -182,7 +182,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
             "git-path-discard",
             false,
             vec![
-                clause(
+                git_guard_clause(
                     selection_request(
                         "git.worktree_discard_request",
                         vec![
@@ -193,7 +193,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                     ),
                     vec![],
                 ),
-                clause(
+                git_guard_clause(
                     Query::new(effect_assertion(
                         OperationMatch::Exact("git.read".into()),
                         vec![
@@ -221,7 +221,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
         program(
             "git-recovery-destroy",
             true,
-            vec![clause(
+            vec![git_guard_clause(
                 request(
                     "git.recovery_destroy_request",
                     with(
@@ -236,7 +236,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
             "git-ref-delete",
             false,
             vec![
-                clause(
+                git_guard_clause(
                     request(
                         "git.ref_delete_request",
                         vec![
@@ -248,7 +248,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                     vec![],
                 ),
                 push_clause(GitPushPredicate::RefDelete),
-                clause(
+                git_guard_clause(
                     request(
                         "git.worktree_discard_request",
                         vec![
@@ -258,7 +258,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                     ),
                     vec![],
                 ),
-                clause(
+                git_guard_clause(
                     request(
                         "git.worktree_discard_request",
                         vec![
@@ -273,7 +273,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
         program(
             "git-remote-repo-delete",
             true,
-            vec![clause(
+            vec![git_guard_clause(
                 Query::new(effect_assertion(
                     OperationMatch::Exact("network.delete_request".into()),
                     vec![
@@ -292,7 +292,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
             "git-remote-resource-delete",
             false,
             vec![
-                clause(
+                git_guard_clause(
                     Query::new(effect_assertion(
                         OperationMatch::Exact("network.delete_request".into()),
                         vec![
@@ -310,7 +310,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                 // (`gh cache delete --all --succeed-on-no-caches`) is only
                 // `May`, but no prompt stands between the command and the
                 // deletion of every resource it finds.
-                clause(
+                git_guard_clause(
                     Query::new(effect_assertion(
                         OperationMatch::Exact("network.delete_request".into()),
                         vec![
@@ -325,7 +325,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                     )),
                     vec![],
                 ),
-                clause(
+                git_guard_clause(
                     Query::new(effect_assertion(
                         OperationMatch::Exact("artifact.delete".into()),
                         vec![],
@@ -340,7 +340,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
         program(
             "git-rewrite-force",
             true,
-            vec![clause(
+            vec![git_guard_clause(
                 request(
                     "git.history_rewrite_request",
                     with(
@@ -358,7 +358,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
             "git-worktree-discard",
             true,
             vec![
-                clause(
+                git_guard_clause(
                     selection_request(
                         "git.worktree_discard_request",
                         vec![
@@ -369,7 +369,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                     ),
                     vec![],
                 ),
-                clause(
+                git_guard_clause(
                     request(
                         "git.worktree_discard_request",
                         vec![
@@ -380,7 +380,7 @@ pub(crate) fn definitions() -> Vec<GuardDefinition> {
                     ),
                     vec![],
                 ),
-                clause(
+                git_guard_clause(
                     request(
                         "git.worktree_discard_request",
                         vec![
@@ -483,7 +483,7 @@ fn program(id: &'static str, default_enabled: bool, clauses: Vec<GuardClause>) -
 /// Every Git clause counts an effect at any position the invocation can reach,
 /// not only on its success path: `git push || git push --force` force-pushes
 /// exactly when the first push fails.
-fn clause(query: Query, mut qualifiers: Vec<QueryQualifier>) -> GuardClause {
+fn git_guard_clause(query: Query, mut qualifiers: Vec<QueryQualifier>) -> GuardClause {
     qualifiers.push(QueryQualifier::FeasibleCondition);
     GuardClause {
         query,
@@ -508,7 +508,7 @@ fn push_clause(predicate: GitPushPredicate) -> GuardClause {
             })
             .collect(),
     };
-    clause(Query::new(query), vec![])
+    git_guard_clause(Query::new(query), vec![])
 }
 
 /// Each push predicate as alternative conjunctions of tests over a push

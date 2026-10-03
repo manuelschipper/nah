@@ -6,8 +6,7 @@ use effinterp_proto::{
     Condition, Coverage, CoverageClaim, CoverageLevel, Domain, Effect, ExecutionAssurance,
     ExecutionEdge, ExecutionEdgeKind, ExecutionGraph, ExecutionNode, ExecutionNodeRef,
     ExecutionRealm, ExecutionStreams, OccurrenceKind, Plan, ProvenanceKind, ProvenanceNode,
-    ProvenanceRef, ResourceExpr, ResourceFamily, ResourceIdentity, SCHEMA_V1, Subject,
-    ValidationError,
+    ProvenanceRef, ResourceExpr, ResourceIdentity, SCHEMA_V1, Subject, ValidationError,
 };
 
 use crate::flow::{Flow, FlowStage, build_causality};
@@ -17,6 +16,7 @@ use crate::limits::{
 };
 use crate::nest::{Budget, subject_cwd};
 use crate::resource_transfer::TransferBinding;
+use crate::value::unresolved_resource;
 
 /// Every effect domain the engine can emit, plus a catch-all. A lost or
 /// unmodeled boundary declares opacity across ALL of these (see
@@ -1146,9 +1146,7 @@ impl PlanBuilder {
                     class: BoundaryClass::Unresolved,
                     scope: BoundaryScope::Invocation,
                     domains: vec![Domain::new(effect.operation.domain())],
-                    affected_resource: Some(ResourceExpr::Unresolved {
-                        family: ResourceFamily::new(effect.operation.domain()),
-                    }),
+                    affected_resource: Some(unresolved_resource(effect.operation.domain())),
                     callee: None,
                     provenance: effect.provenance,
                     limit: None,
@@ -1326,9 +1324,7 @@ impl PlanBuilder {
         );
         if let Some(error) = errors.first() {
             let domain = effect.operation.domain().to_string();
-            let replacement = ResourceExpr::Unresolved {
-                family: ResourceFamily::new(domain.as_str()),
-            };
+            let replacement = unresolved_resource(domain.as_str());
             let detail = format!(
                 "{cause}: {op} on {original}",
                 cause = untyped_resource_cause(error),
@@ -3806,9 +3802,7 @@ fn stream_ref(
 /// so an adversarial deeply-nested Join/Union cannot make a plan unbounded.
 fn bound_resource_depth(expr: &mut ResourceExpr, remaining: usize, family: &str) -> bool {
     if remaining == 0 {
-        *expr = ResourceExpr::Unresolved {
-            family: ResourceFamily::new(family),
-        };
+        *expr = unresolved_resource(family);
         return true;
     }
     let mut widened = false;

@@ -322,9 +322,12 @@ fn install_and_uninstall_remove_nah_0x_hooks_without_touching_other_handlers() {
     let home = home.as_path();
     let settings_path = home.join(".claude/settings.json");
     std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
-    let shim = home.join(".claude/hooks/nah_guard.py");
+    let shim = home.join(".claude").join("hooks").join("nah_guard.py");
     let shim = shim.to_str().unwrap();
-    let canonical_shim = canonical_home.join(".claude/hooks/nah_guard.py");
+    let canonical_shim = canonical_home
+        .join(".claude")
+        .join("hooks")
+        .join("nah_guard.py");
     let canonical_shim = canonical_shim.to_str().unwrap();
     let handler = |command: String| json!({"type": "command", "command": command});
     // Each command is what that release's `_hook_command` wrote

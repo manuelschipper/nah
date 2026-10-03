@@ -9,7 +9,11 @@ use std::fmt;
 
 use crate::action::Coverage;
 use crate::ctx::{AbsolutePath, ExecProtocolVersion};
-use crate::effects::*;
+use crate::effects::{
+    ConditionExpr, EffectCall, EffectCondition, EffectFact, EffectGap, EffectOccurrence,
+    EffectRelation, EffectResource, FactPayload, GuardEvidence, InvocationKind, Knowledge,
+    ResourceDetails, ResourceIdentity, Selection,
+};
 use crate::observation::{Observed, Root};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
