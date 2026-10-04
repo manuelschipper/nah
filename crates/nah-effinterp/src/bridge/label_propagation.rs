@@ -309,7 +309,7 @@ pub(super) fn propagate_sensitivity<'a>(
                     // A glob that selects copied entries copies them on
                     // under the same names.
                     if let effinterp_proto::ResourceExpr::Pattern {
-                        pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                        pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
                     } = &effect.resource
                     {
                         labeled_entries.extend(
@@ -614,7 +614,7 @@ impl CopiedContent<'_> {
                         && nah_proto::labels::lexically_contains(path, self.destination, platform)
             }
             effinterp_proto::ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
             } => entries().any(|entry| effinterp_proto::glob_match(glob, &entry) == Ok(true)),
             selection => crate::observation_request::subtree_root(selection).is_some_and(|root| {
                 nah_proto::labels::lexically_contains(root, self.destination, platform)
