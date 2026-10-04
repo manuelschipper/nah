@@ -100,14 +100,14 @@ pub(super) fn superproject_and_submodule(
             git_dir_resource(inner.expr) == Some(&foreach_git_dir())
                 && outer.expr == superproject.expr
                 && outer.binding == superproject.binding
-                && resolved(outer.expr)
+                && names_one_path(outer.expr)
         })
     })
 }
 
 /// Whether `expr` names one path: no part of it is unresolved, one of
 /// several alternatives, or an unbound parameter.
-fn resolved(expr: &ResourceExpr) -> bool {
+fn names_one_path(expr: &ResourceExpr) -> bool {
     match expr {
         ResourceExpr::Literal { .. } => true,
         ResourceExpr::Parameter { .. } => *expr == foreach_submodule(),
@@ -124,8 +124,8 @@ fn resolved(expr: &ResourceExpr) -> bool {
         } => [worktree, git_dir, pathspec]
             .into_iter()
             .flatten()
-            .all(|part| resolved(part)),
-        ResourceExpr::Join { parts } => parts.iter().all(resolved),
+            .all(|part| names_one_path(part)),
+        ResourceExpr::Join { parts } => parts.iter().all(names_one_path),
         _ => false,
     }
 }
