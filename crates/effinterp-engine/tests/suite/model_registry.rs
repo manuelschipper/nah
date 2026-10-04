@@ -1936,8 +1936,14 @@ fn long_flags_never_alias_declared_short_flags() {
         (vec!["rm", "--verbose", "file"], json!({})),
         (vec!["rm", "--preserve-root", "file"], json!({})),
         (vec!["rm", "--one-file-system", "file"], json!({})),
-        (vec!["mkdir", "--parents", "dir"], json!({"parents": true})),
-        (vec!["mkdir", "--preserve", "dir"], json!({})),
+        (
+            vec!["mkdir", "--parents", "dir"],
+            json!({"directory": true, "parents": true}),
+        ),
+        (
+            vec!["mkdir", "--preserve", "dir"],
+            json!({"directory": true}),
+        ),
     ] {
         let argv_unknown_rm = argv[0] == "rm" && !matches!(argv[1], "--force" | "--recursive");
         let plan = analyze(argv.into_iter().map(str::to_string).collect());

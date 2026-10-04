@@ -48,6 +48,10 @@ pub struct PlanBuilder {
     execution_nodes: Vec<ExecutionNode>,
     execution_edges: Vec<ExecutionEdge>,
     execution_stack: Vec<ExecutionNodeRef>,
+    /// Effect counts at which a command model said its program consumes
+    /// standard input as program input, as `xargs` and `cat` do: the stage
+    /// holding that point reads a redirected file as program input.
+    stdin_consumers: Vec<usize>,
     /// The shell a language runtime selected for each shell it started.
     runtime_shells: BTreeMap<ExecutionNodeRef, RuntimeShell>,
     /// Structural limits that saturated within each execution node.
@@ -415,6 +419,7 @@ impl PlanBuilder {
             execution_nodes: vec![root],
             execution_edges: Vec::new(),
             execution_stack: vec![ExecutionNodeRef(0)],
+            stdin_consumers: Vec::new(),
             runtime_shells: BTreeMap::new(),
             execution_saturated: BTreeSet::new(),
             effect_id_subjects: BTreeSet::new(),
@@ -499,6 +504,7 @@ impl PlanBuilder {
             .release_bytes(self.accounted_effect_bytes - cp.accounted_effect_bytes);
         self.accounted_effect_bytes = cp.accounted_effect_bytes;
         self.effects.truncate(cp.effects);
+        self.stdin_consumers.retain(|at| *at <= cp.effects);
         self.execution_nodes.truncate(cp.execution_nodes);
         self.execution_edges.truncate(cp.execution_edges);
         self.execution_stack.truncate(cp.execution_stack);
@@ -1276,12 +1282,16 @@ impl PlanBuilder {
             effect.operation.as_str(),
             "filesystem.create" | "filesystem.delete" | "filesystem.move"
         ) {
-            self.budget.note_topology_mutation(match &effect.resource {
-                ResourceExpr::Concrete {
-                    identity: ResourceIdentity::FsPath { path },
-                } => Some(path.as_str()),
-                _ => None,
-            });
+            self.budget.note_topology_mutation(
+                match &effect.resource {
+                    ResourceExpr::Concrete {
+                        identity: ResourceIdentity::FsPath { path },
+                    } => Some(path.as_str()),
+                    _ => None,
+                },
+                effect.operation.as_str() == "filesystem.create"
+                    && effect.attributes.get("directory") == Some(&AttrValue::Bool(true)),
+            );
         }
         if effect.operation.as_str() == "filesystem.write" && effect.realm.is_host() {
             self.budget.note_write(match &effect.resource {
@@ -2500,6 +2510,20 @@ impl PlanBuilder {
 
     pub(crate) fn control_widen(&mut self) {
         self.control.widen();
+    }
+
+    /// Record that the command model being applied consumes its standard
+    /// input as program input.
+    pub(crate) fn note_stdin_consumed(&mut self) {
+        self.stdin_consumers.push(self.effects.len());
+    }
+
+    /// Whether a model applied after effect `start` and up to `end`, one
+    /// stage's range, consumes standard input.
+    pub(crate) fn stdin_consumed_within(&self, start: u32, end: u32) -> bool {
+        self.stdin_consumers
+            .iter()
+            .any(|at| (start as usize) < *at && *at <= end as usize)
     }
 
     pub fn effects_len(&self) -> usize {

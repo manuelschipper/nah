@@ -341,7 +341,39 @@
           "modality": "may"
         }
       ],
+      "required_boundaries": [
+        {
+          "query": {
+            "assertion": {
+              "boundary": {
+                "class": "unmodeled",
+                "detail": {
+                  "equals": "the filter file is not read, so a read of the process environment in it is not resolved"
+                },
+                "domains": {
+                  "all_of": [
+                    "environment"
+                  ]
+                },
+                "provenance": "nonempty",
+                "reason": "unparsed_script"
+              }
+            },
+            "schema_version": 2
+          },
+          "class": "unmodeled",
+          "domains": [
+            "environment"
+          ]
+        }
+      ],
       "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
         "filesystem": {
           "level": "full"
         },

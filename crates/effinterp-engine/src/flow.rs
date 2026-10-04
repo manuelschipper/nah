@@ -402,9 +402,9 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
                 Some(Dest::External(_))
             ),
         );
-        classify_stdin_program_input(builder, spec, &fd_tables[index]);
         let effects: Vec<u32> = (spec.effect_start..spec.effect_end).collect();
         let mut bindings = command_bindings(builder, spec);
+        classify_stdin_program_input(builder, spec, &fd_tables[index]);
         bindings.extend(redirect_bindings(&fd_tables[index]));
         for (argument, (producers, unquoted)) in spec
             .argument_producers
@@ -1269,25 +1269,28 @@ fn echo_printf_writes_stdout(spec: &StageSpec) -> bool {
     }
 }
 
-/// A file redirected onto the standard input of a builtin that consumes it is
-/// that builtin's program input, the way an operand of `cat` is. `read`,
-/// `mapfile` and `readarray` are the builtins that read descriptor 0; every
-/// other builtin leaves the descriptor untouched (`chmod < file` never reads
-/// it), so its redirection stays unmarked.
+/// A file redirected onto the standard input of a command that consumes it
+/// as program input is marked so, the way an operand of `cat` is. `read`,
+/// `mapfile` and `readarray` are the builtins that read descriptor 0. A
+/// command model says so for a program: `xargs`, whose standard input is its
+/// command's arguments, and a model that reads a file operand as program
+/// input and takes standard input in its place (`cat`, `head`). A binding
+/// from standard input alone does not: `sha256sum < file` prints a digest,
+/// and its operand read states no purpose either. Every other command leaves
+/// the redirection unmarked (`chmod < file` never reads it).
 fn classify_stdin_program_input(
     builder: &mut PlanBuilder,
     spec: &StageSpec,
     fds: &HashMap<Descriptor, Dest>,
 ) {
-    if !matches!(spec.name.as_deref(), Some("read" | "mapfile" | "readarray")) {
-        return;
-    }
-    // `-u FD` moves the input off descriptor 0.
-    if spec.words.iter().skip(1).any(|word| {
-        word.as_literal().is_some_and(|text| {
-            text.starts_with('-') && !text.starts_with("--") && text.contains('u')
-        })
-    }) {
+    let builtin = matches!(spec.name.as_deref(), Some("read" | "mapfile" | "readarray"))
+        // `-u FD` moves the input off descriptor 0.
+        && !spec.words.iter().skip(1).any(|word| {
+            word.as_literal().is_some_and(|text| {
+                text.starts_with('-') && !text.starts_with("--") && text.contains('u')
+            })
+        });
+    if !builtin && !builder.stdin_consumed_within(spec.effect_start, spec.effect_end) {
         return;
     }
     if let Some(Dest::File {

@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:f6d6294a47cf947a7a673a200b9797eaf55c3657069320bc7799517c5542204c",
+  "identity": "blake3:322e9be59be9adecb63a51fc067fe50c0f5144d48a42df8b44262d45d101499a",
   "provenance": {
     "author": "migrated_handwritten",
     "sources": [
@@ -2585,6 +2585,10 @@
                 }
               },
               "attributes": {
+                "directory": {
+                  "kind": "constant_bool",
+                  "value": true
+                },
                 "parents": {
                   "kind": "flag_present",
                   "flags": [

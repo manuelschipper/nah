@@ -1566,6 +1566,11 @@ impl CommandModel for Xargs {
             null_separated,
             newline_separated,
         } = xargs_options(ctx.argv);
+        // Without `-a`, standard input is the argument list, so a file
+        // redirected onto it is program input as the `-a` file is.
+        if !file_input {
+            builder.note_stdin_consumed();
+        }
         // Its bytes become the command's arguments, so the command, not
         // xargs, decides where they go: the read is program input.
         let file_read = arg_file.as_ref().and_then(|(index, file)| {

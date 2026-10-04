@@ -1294,7 +1294,7 @@ impl Shell<'_> {
                         if raw.starts_with('<')
                             && let Some(content) = self.literal_process_output(env, source)
                         {
-                            env.descriptors.insert(descriptor, Word::literal(content));
+                            env.descriptors.insert(descriptor, content);
                         }
                         producers.push(FlowRef {
                             stage,

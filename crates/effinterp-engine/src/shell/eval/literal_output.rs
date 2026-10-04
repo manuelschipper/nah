@@ -1,5 +1,51 @@
 //! Exact output for shell producers whose arguments are all literal.
 
+use crate::word::{Word, WordPart};
+
+/// Stands in an argument for text the shell supplies at run time, so that
+/// `render_words` can find where that text lands in the output.
+const SUPPLIED: char = '\u{e000}';
+
+/// `render` for `echo` and `printf` arguments that may hold text the shell
+/// supplies at run time (`printf '{"sha":"%s"}' "$(git rev-parse HEAD)"`):
+/// the output keeps each such text as an unknown part between the literal
+/// text around it. An output whose literal text depends on the supplied text
+/// (an option word, a printf format, text whose escapes are decoded) is not
+/// recovered.
+pub(super) fn render_words(
+    name: Option<&str>,
+    arguments: &[&Word],
+    stdin: Option<&str>,
+    max_bytes: u64,
+) -> Option<Word> {
+    let arguments = arguments
+        .iter()
+        .map(|word| {
+            word.parts
+                .iter()
+                .map(|part| match part {
+                    WordPart::Literal(text) if !text.contains(SUPPLIED) => Some(text.clone()),
+                    // A pattern may expand to several words.
+                    WordPart::Literal(_) | WordPart::Glob(_) => None,
+                    _ => Some(SUPPLIED.to_string()),
+                })
+                .collect::<Option<String>>()
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
+    let output = render(name, &arguments, stdin, max_bytes)?;
+    let mut parts = Vec::new();
+    for (index, literal) in output.split(SUPPLIED).enumerate() {
+        if index > 0 {
+            parts.push(WordPart::Unknown);
+        }
+        if !literal.is_empty() {
+            parts.push(WordPart::Literal(literal.to_string()));
+        }
+    }
+    Some(Word::new(parts))
+}
+
 pub(super) fn render(
     name: Option<&str>,
     arguments: &[&str],
@@ -115,7 +161,9 @@ fn render_system_twin(
                         .chars()
                         .all(|option| matches!(option, 'n' | 'e' | 'E'))
             };
-            if words.first().is_some_and(gnu_option) || words.iter().any(|word| word.contains('\\'))
+            if words.first().is_some_and(gnu_option)
+                || words.iter().any(|word| word.contains('\\'))
+                || words.first().is_some_and(|word| word.starts_with(SUPPLIED))
             {
                 return None;
             }
@@ -178,6 +226,11 @@ fn render_echo(arguments: &[&str]) -> Option<String> {
         offset += 1;
     }
     let text = arguments[offset..].join(" ");
+    // Supplied text in option position may be an option, and its escapes
+    // (`\c` ends the output) are not known.
+    if text.starts_with(SUPPLIED) || escapes && text.contains(SUPPLIED) {
+        return None;
+    }
     let mut output = String::new();
     if escapes {
         decode_escaped_text(&text, &mut output)?;
@@ -200,7 +253,10 @@ fn render_printf_arguments(arguments: &[&str], max_bytes: u64, shared: bool) -> 
     let [format, arguments @ ..] = arguments else {
         return None;
     };
-    if format.starts_with('-') || shared && !shared_printf_escapes(format) {
+    if format.starts_with('-')
+        || format.contains(SUPPLIED)
+        || shared && !shared_printf_escapes(format)
+    {
         return None;
     }
     render_printf(format, arguments, max_bytes, shared)
@@ -251,7 +307,7 @@ fn render_printf_once(
                 }
                 'b' => {
                     let argument = arguments.get(consumed).copied().unwrap_or("");
-                    if shared && !shared_printf_escapes(argument) {
+                    if argument.contains(SUPPLIED) || shared && !shared_printf_escapes(argument) {
                         return None;
                     }
                     decode_escaped_text(argument, output)?;

@@ -7781,8 +7781,17 @@ fn jq_named_values_and_filter_files_preserve_input_reads() {
         (vec!["jq", "--jsonargs", ".", "1"], vec![]),
     ] {
         let plan = analyze(&argv, Some("/work"));
+        // A filter file is not read, so what it reads of the environment is
+        // not resolved.
+        let file_filter = argv.contains(&"-f");
         assert!(
-            plan.boundaries.is_empty(),
+            plan.boundaries.iter().all(|boundary| file_filter
+                && boundary.reason == effinterp_proto::BoundaryReason::UNPARSED_SCRIPT
+                && boundary
+                    .domains
+                    .iter()
+                    .all(|domain| domain.0 == "environment"))
+                && plan.boundaries.len() == usize::from(file_filter),
             "{argv:?}: {:?}",
             plan.boundaries
         );

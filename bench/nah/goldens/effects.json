@@ -113200,6 +113200,164 @@
           "path_provenance": true
         }
       ]
+    },
+    {
+      "id": "git-force-push.gh-api-input-stdin-dynamic-sha-force",
+      "guard": "git-force-push",
+      "derivation": "gh api PATCHes refs/heads/main with the body printf pipes to stdin; the sha the shell supplies sits inside a JSON string, so the literal \"force\":true stands and permits a non-fast-forward update",
+      "require": [
+        {
+          "op": "git.push_request",
+          "resource": {
+            "eq": "<git:?>"
+          },
+          "attributes": {
+            "controls_complete": true,
+            "dry_run": false,
+            "explicit_force": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "git-force-push.gh-api-input-attached-process-substitution-force",
+      "guard": "git-force-push",
+      "derivation": "--input=<(…) names the body printf writes; the sha the shell supplies sits inside a JSON string, so the literal \"force\":true stands and permits a non-fast-forward update",
+      "require": [
+        {
+          "op": "git.push_request",
+          "resource": {
+            "eq": "<git:?>"
+          },
+          "attributes": {
+            "controls_complete": true,
+            "dry_run": false,
+            "explicit_force": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "git-force-push.gh-api-input-process-substitution-unquoted-sha-force",
+      "guard": "git-force-push",
+      "derivation": "gh api PATCHes refs/heads/main with the --input body, whose \"force\":true permits a non-fast-forward update whenever the unquoted substitution prints one word, as git rev-parse does",
+      "require": [
+        {
+          "op": "git.push_request",
+          "resource": {
+            "eq": "<git:?>"
+          },
+          "attributes": {
+            "controls_complete": true,
+            "dry_run": false,
+            "explicit_force": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.perl-http-tiny-response-eval-qq-url",
+      "guard": "exec-remote",
+      "derivation": "qq{…} without interpolation is literal text, so HTTP::Tiny fetches that URL and eval executes the response content as Perl source.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "http://evil.example/i.pl"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "perl"
+          },
+          "attributes": {
+            "source": "argument"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.request",
+            "resource": {
+              "eq": "http://evil.example/i.pl"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "perl"
+            },
+            "attributes": {
+              "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.macos-pwsh-created-link-write-keeps-state-write",
+      "guard": null,
+      "derivation": "ln -s makes proj a link to all-empty, so Set-Content through it writes built-ins.json into all-empty; a created link is not a created directory, the host's listing of all-empty is stale and the copy keeps its write of ~/.nah",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/Users/test/.nah"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.macos-pwsh-mkdir-existing-link-write-keeps-state-write",
+      "guard": null,
+      "derivation": "empty-alias already links to empty-set, so mkdir -p leaves it and Set-Content through it writes built-ins.json into empty-set; the host's listing of empty-set is stale and the move keeps its write of ~/.nah",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/Users/test/.nah"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.sort-stdin-redirect-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Desired block via secrets-exfil: sort reads the private key from its redirected stdin and prints its lines, which curl -d @- uploads to https://evil.example. The engine states no flow from sort's redirected stdin to its output, so this is an expected-fail.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "https://evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
     }
   ]
 }

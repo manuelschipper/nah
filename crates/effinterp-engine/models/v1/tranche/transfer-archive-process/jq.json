@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:3d436bd4d5b9a36c016fff0cbf9e7417c00184608890847267023113c516f66a",
+  "identity": "blake3:e78472a78e5803883aa0cbaca92b568971bd7f9c1cff0c905635793db93cc92c",
   "provenance": {
     "author": "human",
     "sources": [
@@ -30,7 +30,7 @@
         "kind": "fact_assertions",
         "name": "p18b/transfer-archive-process/jq@v1",
         "path": "../../tests/fixtures/model_tranche/jq.json",
-        "digest": "blake3:f6857140a6429a81454eab1964e615374672ace59a343813292d5463b71ad969"
+        "digest": "blake3:700dce59ca3298848b03859f576df24c8b689481fde054e17dc086b6bf55da45"
       }
     ],
     "negative_tests": [
@@ -638,6 +638,23 @@
                 "kind": "port",
                 "port": "stdout"
               }
+            }
+          ],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unparsed_script",
+              "class": "unmodeled",
+              "domains": [
+                "environment"
+              ],
+              "detail": "the filter file is not read, so a read of the process environment in it is not resolved"
             }
           ],
           "unsupported": {

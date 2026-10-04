@@ -44,7 +44,7 @@ mod source_and_eval;
 pub(super) mod variable_binding;
 mod word_expansion;
 
-use command_substitution::heredoc_body_expands;
+use command_substitution::{heredoc_body_expands, quoted_field};
 use directory_change::{
     DirectoryChange, directory_change, directory_target, host_runtime_cwd, physical_depth_after,
     pwd_follows_cwd,
@@ -128,6 +128,27 @@ fn literal_output(
         .map(|word| word.word.as_literal())
         .collect::<Option<Vec<_>>>()?;
     literal_output::render(
+        name,
+        &args,
+        stdin.and_then(|stdin| stdin.word.as_literal()),
+        max_bytes,
+    )
+}
+
+/// `literal_output` for a stage whose `echo` or `printf` arguments may hold
+/// text the shell supplies, kept as unknown parts of the output.
+fn literal_output_word(
+    name: Option<&str>,
+    converted: &[Converted],
+    stdin: Option<&StdinValue>,
+    max_bytes: u64,
+) -> Option<Word> {
+    let args = converted
+        .get(1..)?
+        .iter()
+        .map(|word| &word.word)
+        .collect::<Vec<_>>();
+    literal_output::render_words(
         name,
         &args,
         stdin.and_then(|stdin| stdin.word.as_literal()),
@@ -542,9 +563,7 @@ impl Shell<'_> {
                         file: (!read).then(|| {
                             redirected_file(redir.target.as_ref(), env.cwd_resource.clone())
                         }),
-                        word: written
-                            .map(Word::literal)
-                            .unwrap_or_else(|| Word::new(vec![WordPart::Unknown])),
+                        word: written.unwrap_or_else(|| Word::new(vec![WordPart::Unknown])),
                         provenance: vec![self.span_node(builder, redir.span)],
                     });
                 }
@@ -810,14 +829,30 @@ impl Shell<'_> {
             producer
                 .filter(|producer| !env.disabled_builtins.contains(*producer))
                 .and_then(|producer| {
-                    literal_output(
-                        Some(producer),
-                        words,
-                        stdin.as_ref(),
-                        self.nest.limits.max_source_bytes,
-                    )
+                    // Supplied text stays an unknown part of the output only
+                    // where quoting keeps it within one argument.
+                    if cmd.words.iter().all(|word| {
+                        word.segs.iter().all(|segment| {
+                            matches!(segment, Seg::Literal { .. }) || quoted_field(segment)
+                        })
+                    }) {
+                        literal_output_word(
+                            Some(producer),
+                            words,
+                            stdin.as_ref(),
+                            self.nest.limits.max_source_bytes,
+                        )
+                    } else {
+                        literal_output(
+                            Some(producer),
+                            words,
+                            stdin.as_ref(),
+                            self.nest.limits.max_source_bytes,
+                        )
+                        .map(Word::literal)
+                    }
                 })
-                .map(|content| {
+                .map(|word| {
                     let mut provenance = vec![self.span_node(builder, cmd.span)];
                     for word in converted {
                         provenance.extend(word.assign_nodes.iter().copied());
@@ -829,7 +864,7 @@ impl Shell<'_> {
                         paths: None,
                         piped: true,
                         file: None,
-                        word: Word::literal(content),
+                        word,
                         provenance,
                     }
                 })
@@ -3637,13 +3672,19 @@ impl Shell<'_> {
                 .collect::<Vec<_>>()
         });
         // A program opening `/dev/fd/N` reads the bytes this shell left open
-        // on N, such as an `exec N<<<...` here-string. The command's own
-        // redirection of N replaces that: a quoted `N<<<text` supplies its
-        // text, and any other leaves the bytes unknown.
+        // on N, such as an `exec N<<<...` here-string or the output of a
+        // `<(...)` operand. The command's own redirection of N replaces
+        // that: a quoted `N<<<text` supplies its text, and any other leaves
+        // the bytes unknown.
         let descriptor_sources = converted
             .iter()
+            // An option may take the path attached, as `--input=/dev/fd/3`.
+            .flat_map(|word| {
+                let attached = word.word.split_assignment().map(|(_, value)| value);
+                std::iter::once(word.word.clone()).chain(attached)
+            })
             .filter_map(|word| {
-                let descriptor = descriptor_path(&word.word, env)?;
+                let descriptor = descriptor_path(&word, env)?;
                 let own = cmd.redirs.iter().rev().find(|redir| {
                     redir.named_fd.is_none() && redir.fd.map(Descriptor::Number) == Some(descriptor)
                 });
@@ -3652,12 +3693,12 @@ impl Shell<'_> {
                         let target = redir.target.as_ref()?;
                         let text = parse::command_name_text(target)
                             .or_else(|| self.fixed_word_text(env, target))?;
-                        format!("{text}\n")
+                        Word::literal(format!("{text}\n"))
                     }
                     Some(_) => return None,
-                    None => env.descriptors.get(&descriptor)?.as_literal()?.to_string(),
+                    None => env.descriptors.get(&descriptor)?.clone(),
                 };
-                Some((word.word.as_literal()?.to_string(), content))
+                Some((word, content))
             })
             .collect();
         let descriptor_sources = self

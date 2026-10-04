@@ -14,6 +14,20 @@ use crate::word::{Word, WordPart};
 
 use super::literal_output;
 
+/// Whether a segment is a quoted expansion, which stays part of one word
+/// whatever its value. An unquoted one, or one that expands to a list
+/// (`"$@"`), may be several words.
+pub(in crate::shell) fn quoted_field(segment: &Seg) -> bool {
+    matches!(
+        segment,
+        Seg::Env { quoted: true, .. }
+            | Seg::Param { quoted: true, .. }
+            | Seg::Positional { quoted: true, .. }
+            | Seg::ArrayIndex { quoted: true, .. }
+            | Seg::CommandSub { quoted: true, .. }
+    )
+}
+
 fn substitution_stdout_redirect_spans(items: &[ShellItem]) -> Vec<ShellSpan> {
     let mut spans = Vec::new();
     for item in items {
@@ -541,14 +555,16 @@ impl Shell<'_> {
         literal_stdout(&words, self.nest.limits.max_source_bytes)
     }
 
-    /// The exact bytes a `<(…)` body or a pipeline stage feeding a compound
-    /// command writes when it is one `echo` or `printf` of fixed words, so a
-    /// later read of its output sees them before the body is analyzed.
+    /// What a `<(…)` body or a pipeline stage feeding a compound command
+    /// writes when it is one `echo` or `printf`, so a later read of its
+    /// output sees it before the body is analyzed. Fixed words give the exact
+    /// bytes; a quoted expansion the shell has not established stays an
+    /// unknown part between them.
     pub(in crate::shell) fn literal_process_output(
         &self,
         env: &ShellEnv,
         source: &str,
-    ) -> Option<String> {
+    ) -> Option<Word> {
         let lexed = lex::lex(source);
         if lexed.error.is_some() {
             return None;
@@ -567,40 +583,59 @@ impl Shell<'_> {
         let [cmd] = cmds.as_slice() else {
             return None;
         };
-        let words = self.fixed_command_words(env, cmd)?;
-        let (name, arguments) = words.split_first()?;
-        let name = name.as_literal()?;
-        if env.functions.contains_key(name)
-            || env.function_alternatives.contains_key(name)
-            || env.disabled_builtins.contains(name)
+        if !cmd.assignments.is_empty() || !cmd.redirs.is_empty() {
+            return None;
+        }
+        let (name, arguments) = cmd.words.split_first()?;
+        let name = self.fixed_word_text(env, name)?;
+        if !matches!(
+            literal_output::system_twin(&name).unwrap_or(&name),
+            "echo" | "printf"
+        ) || env.functions.contains_key(&name)
+            || env.function_alternatives.contains_key(&name)
+            || env.disabled_builtins.contains(&name)
             || env.expand_aliases
-                && (env.aliases.contains_key(name) || env.alias_alternatives.contains_key(name))
+                && (env.aliases.contains_key(&name) || env.alias_alternatives.contains_key(&name))
         {
             return None;
         }
         let arguments = arguments
             .iter()
-            .map(Word::as_literal)
+            .map(|word| self.process_output_word(env, word))
             .collect::<Option<Vec<_>>>()?;
-        literal_output::render(
-            Some(name),
-            &arguments,
+        literal_output::render_words(
+            Some(&name),
+            &arguments.iter().collect::<Vec<_>>(),
             None,
             self.nest.limits.max_source_bytes,
         )
-        .filter(|output| !output.contains('\0'))
+        .filter(|output| {
+            !output
+                .parts
+                .iter()
+                .any(|part| matches!(part, WordPart::Literal(text) if text.contains('\0')))
+        })
     }
 
-    /// A command's words when each is fixed text: literal segments, and
-    /// quoted variables whose value the shell has already established.
-    fn fixed_command_words(&self, env: &ShellEnv, cmd: &Simple) -> Option<Vec<Word>> {
-        if !cmd.assignments.is_empty() || !cmd.redirs.is_empty() {
-            return None;
+    /// One argument of a `literal_process_output` producer: its fixed text,
+    /// with each quoted expansion of unestablished value as an unknown part.
+    fn process_output_word(&self, env: &ShellEnv, word: &WordTok) -> Option<Word> {
+        let mut parts = Vec::new();
+        for segment in &word.segs {
+            let fixed = self.fixed_word_text(
+                env,
+                &WordTok {
+                    segs: vec![segment.clone()],
+                    span: word.span,
+                },
+            );
+            parts.push(match (fixed, segment) {
+                (Some(text), _) => WordPart::Literal(text),
+                (None, segment) if quoted_field(segment) => WordPart::Unknown,
+                _ => return None,
+            });
         }
-        cmd.words
-            .iter()
-            .map(|word| self.fixed_word_text(env, word).map(Word::literal))
-            .collect()
+        Some(Word::new(parts))
     }
 
     /// A word's text when it is fixed: literal segments, and quoted
