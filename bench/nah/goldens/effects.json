@@ -110080,44 +110080,6 @@
       ]
     },
     {
-      "id": "secrets-credentials.kiro-batched-fs-read-ssh-key",
-      "guard": "secrets-credentials",
-      "derivation": "each operation of a Kiro fs_read batch reads its path, the SSH private key among them; the engine has no model for the batch",
-      "require": [
-        {
-          "op": "filesystem.read",
-          "resource": {
-            "eq": "/home/test/.ssh/id_rsa"
-          }
-        }
-      ]
-    },
-    {
-      "id": "secrets-credentials.cline-read-files-ssh-key",
-      "guard": "secrets-credentials",
-      "derivation": "Cline read_files reads every listed path, the SSH private key among them; the engine has no model for the list",
-      "require": [
-        {
-          "op": "filesystem.read",
-          "resource": {
-            "eq": "/home/test/.ssh/id_rsa"
-          }
-        }
-      ]
-    },
-    {
-      "id": "self-protection.critical.kiro-batched-fs-write-trust",
-      "guard": null,
-      "derivation": "each operation of a Kiro fs_write batch writes its path, nah trust state among them. The engine has no model for the batch, so the call stays an explicit unsupported tool; that boundary must not be dropped.",
-      "require": [],
-      "require_boundary": [
-        {
-          "reason": "unsupported_tool",
-          "detail_contains": "fs_write"
-        }
-      ]
-    },
-    {
       "id": "self-protection.critical.openclaw-home-tmp-other-openclaw",
       "guard": null,
       "derivation": "OPENCLAW_HOME moves OpenClaw's home away from the ~/.openclaw state nah installs into (crates/nah-proto/src/runtime_protection.rs:87); it does not delete nah's plugin. The remaining agent execution is explicitly unresolved; policy bypass must not be translated into a filesystem deletion.",

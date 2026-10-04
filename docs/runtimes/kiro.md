@@ -31,9 +31,9 @@ The global `PreToolUse` hook sees built-in and MCP tool calls. Kiro documents
 `shell`, `execute_bash`, and the legacy `execute_cmd` alias as Bash-command
 tools, so all three use nah's Bash analysis on Windows as well as Unix. Native
 Windows install, status, reinstall, uninstall, and typed filesystem tools are
-supported. Kiro CLI 3's `read_file` calls and documented single-operation reads
-and writes expose their path to filesystem guards; Kiro's batched filesystem
-calls and unmapped built-in or MCP tools remain opaque and delegate. nah never
+supported. Kiro CLI 3's `read_file` calls and documented reads and writes
+expose their path to filesystem guards, each operation of a batch on its own;
+unmapped built-in or MCP tools remain opaque and delegate. nah never
 approves a call, so every delegate continues into Kiro's normal permission
 flow.
 

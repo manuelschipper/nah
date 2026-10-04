@@ -43,8 +43,8 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             .and_then(normalize_kiro_hook_input)
     });
     match request {
-        Ok(Some(request)) => {
-            match hook_adapter::decide_input(request, stderr, Runtime::Kiro, failure_policy) {
+        Ok(Some(requests)) => {
+            match hook_adapter::decide_each(requests, stderr, Runtime::Kiro, failure_policy) {
                 HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
                     let _ = writeln!(stderr, "nah - {}", hook_adapter::feedback(&decision));
                     if decision.guard_block_incomplete() {
@@ -101,12 +101,13 @@ fn read_input<R: Read>(stdin: &mut R) -> Result<Value, String> {
     serde_json::from_slice(&bytes).map_err(|error| error.to_string())
 }
 
-/// The tool call `run` hands the pipeline for this Kiro tool call.
+/// The tool calls `run` hands the pipeline for this Kiro tool call: one, or
+/// one per operation of a filesystem batch.
 pub(crate) fn normalize_call(
     tool_name: &str,
     tool_input: Value,
     cwd: &str,
-) -> Result<ToolCallInput, String> {
+) -> Result<Vec<ToolCallInput>, String> {
     normalize_kiro_hook_input(KiroHookInput {
         hook_event_name: "PreToolUse".into(),
         tool_name: tool_name.into(),
@@ -117,32 +118,40 @@ pub(crate) fn normalize_call(
     .map(|request| request.expect("a PreToolUse event always yields a tool call"))
 }
 
-fn normalize_kiro_hook_input(input: KiroHookInput) -> Result<Option<ToolCallInput>, String> {
+fn normalize_kiro_hook_input(input: KiroHookInput) -> Result<Option<Vec<ToolCallInput>>, String> {
     if !matches!(input.hook_event_name.as_str(), "PreToolUse" | "preToolUse") {
         return Ok(None);
     }
     let original_input = input.tool_input.clone();
     let object = input.tool_input.as_object();
     let lowered = lower_kiro_tool(&input.tool_name, &original_input, object);
-    let (tool, tool_input, complete) =
-        lowered.unwrap_or_else(|_| (input.tool_name.as_str(), original_input.clone(), false));
-    ToolCallInput::new(
-        SchemaVersion::V1,
-        tool,
-        tool_input,
-        input.cwd,
-        input.session_id,
-    )
-    .map(|input| Some(input.with_original_input(original_input, complete)))
-    .map_err(|error| error.to_string())
+    let lowered =
+        lowered.unwrap_or_else(|_| vec![(input.tool_name.as_str(), original_input.clone(), false)]);
+    lowered
+        .into_iter()
+        .map(|(tool, tool_input, complete)| {
+            ToolCallInput::new(
+                SchemaVersion::V1,
+                tool,
+                tool_input,
+                input.cwd.clone(),
+                input.session_id.clone(),
+            )
+            .map(|input| input.with_original_input(original_input.clone(), complete))
+            .map_err(|error| error.to_string())
+        })
+        .collect::<Result<_, _>>()
+        .map(Some)
 }
 
+/// The calls a Kiro tool call stands for. A filesystem batch performs each of
+/// its operations, so each becomes its own call and is judged on its own path.
 fn lower_kiro_tool<'a>(
     tool_name: &'a str,
     original_input: &Value,
     object: Option<&Map<String, Value>>,
-) -> Result<(&'a str, Value, bool), String> {
-    Ok(match tool_name {
+) -> Result<Vec<(&'a str, Value, bool)>, String> {
+    Ok(vec![match tool_name {
         "shell" | "execute_bash" | "execute_cmd" => (
             "Bash",
             json!({"command": tool_input_non_empty_string(required_object(object)?, "command", INVALID_KIRO_TOOL_INPUT)?}),
@@ -154,15 +163,17 @@ fn lower_kiro_tool<'a>(
             optional_u64(object, "limit")?;
             ("Read", json!({"file_path":required_path(object)?}), false)
         }
-        "read" | "fs_read" | "fsRead" => match single_operation_path(required_object(object)?)? {
-            Some(path) => ("Read", json!({"file_path":path}), false),
-            None => (tool_name, original_input.clone(), true),
-        },
+        "read" | "fs_read" | "fsRead" => {
+            return Ok(operation_paths(required_object(object)?)?
+                .into_iter()
+                .map(|path| ("Read", json!({"file_path":path}), false))
+                .collect());
+        }
         "write" | "fs_write" | "fsWrite" => {
-            match single_operation_path(required_object(object)?)? {
-                Some(path) => ("Write", json!({"file_path":path,"content":""}), false),
-                None => (tool_name, original_input.clone(), true),
-            }
+            return Ok(operation_paths(required_object(object)?)?
+                .into_iter()
+                .map(|path| ("Write", json!({"file_path":path,"content":""}), false))
+                .collect());
         }
         "str_replace" => (
             "Write",
@@ -170,30 +181,33 @@ fn lower_kiro_tool<'a>(
             false,
         ),
         _ => (tool_name, original_input.clone(), true),
-    })
+    }])
 }
 
 fn required_object(object: Option<&Map<String, Value>>) -> Result<&Map<String, Value>, String> {
     object.ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())
 }
 
-fn single_operation_path(object: &Map<String, Value>) -> Result<Option<String>, String> {
+/// The path of every operation, or of the call itself when it carries no
+/// `operations` list. One operation without a usable path refuses the whole
+/// call.
+fn operation_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
     let Some(operations) = object.get("operations") else {
-        return required_path(object).map(Some);
+        return required_path(object).map(|path| vec![path]);
     };
     let operations = operations
         .as_array()
+        .filter(|operations| !operations.is_empty())
         .ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())?;
-    match operations.len() {
-        0 => return Err(INVALID_KIRO_TOOL_INPUT.into()),
-        1 => {}
-        _ => return Ok(None),
-    }
-    operations[0]
-        .as_object()
-        .ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())
-        .and_then(required_path)
-        .map(Some)
+    operations
+        .iter()
+        .map(|operation| {
+            operation
+                .as_object()
+                .ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())
+                .and_then(required_path)
+        })
+        .collect()
 }
 
 fn required_path(object: &Map<String, Value>) -> Result<String, String> {
@@ -217,7 +231,7 @@ fn optional_u64(object: &Map<String, Value>, name: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
+    fn normalized_calls(tool_name: &str, tool_input: Value) -> Vec<ToolCallInput> {
         normalize_kiro_hook_input(KiroHookInput {
             hook_event_name: "PreToolUse".into(),
             tool_name: tool_name.into(),
@@ -227,6 +241,12 @@ mod tests {
         })
         .unwrap()
         .unwrap()
+    }
+
+    fn normalized(tool_name: &str, tool_input: Value) -> ToolCallInput {
+        let mut calls = normalized_calls(tool_name, tool_input);
+        assert_eq!(calls.len(), 1);
+        calls.remove(0)
     }
 
     #[test]
@@ -265,11 +285,30 @@ mod tests {
     }
 
     #[test]
-    fn preserves_batches_and_unknown_tools_opaque() {
+    fn lowers_each_batch_operation_and_preserves_unknown_tools_opaque() {
         let batch = json!({"operations":[{"path":"a"},{"path":"b"}]});
-        let call = normalized("fs_read", batch.clone());
-        assert_eq!(call.tool(), "fs_read");
-        assert_eq!(call.input(), &batch);
+        for (tool, lowered, inputs) in [
+            (
+                "fs_read",
+                "Read",
+                [json!({"file_path":"a"}), json!({"file_path":"b"})],
+            ),
+            (
+                "fs_write",
+                "Write",
+                [
+                    json!({"file_path":"a","content":""}),
+                    json!({"file_path":"b","content":""}),
+                ],
+            ),
+        ] {
+            let calls = normalized_calls(tool, batch.clone());
+            assert_eq!(calls.len(), 2, "{tool}");
+            for (call, input) in calls.iter().zip(&inputs) {
+                assert_eq!(call.tool(), lowered);
+                assert_eq!(call.input(), input);
+            }
+        }
 
         let mcp = json!({"query":"select 1"});
         let call = normalized("@postgres/query", mcp.clone());
@@ -304,17 +343,10 @@ mod tests {
             ("fs_write", json!({"operations":[{}]})),
             ("str_replace", json!({})),
             ("fs_write", json!({"operations":[{"path":7}]})),
+            ("fs_write", json!({"operations":[{"path":"a"},{}]})),
             ("str_replace", json!({"path":""})),
         ] {
-            let call = normalize_kiro_hook_input(KiroHookInput {
-                hook_event_name: "PreToolUse".into(),
-                tool_name: tool.into(),
-                tool_input: input.clone(),
-                cwd: "/repo".into(),
-                session_id: None,
-            })
-            .unwrap()
-            .unwrap();
+            let call = normalized(tool, input.clone());
             assert_eq!(call.tool(), tool);
             assert_eq!(call.input(), &input);
             assert!(!call.normalization_complete());

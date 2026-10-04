@@ -130,6 +130,17 @@ fn adapter_blocks_definite_violations_and_preserves_cline_permissions() {
     );
     assert_eq!(delegated, json!({"cancel":false}));
 
+    let sensitive_batch = run_hook(
+        home,
+        &project,
+        payload(
+            &project,
+            "read_files",
+            json!({"files":"[{\"path\":\"src/lib.rs\"},{\"path\":\".env\"}]"}),
+        ),
+    );
+    assert_eq!(sensitive_batch["cancel"], true);
+
     let sensitive = run_hook(
         home,
         &project,

@@ -202,6 +202,31 @@ pub(crate) fn decide_input<'a, E: Write>(
     }
 }
 
+/// Decides every call one runtime tool call lowered to, such as the operations
+/// of a filesystem batch. The runtime performs all of them or none, so the
+/// first block decides; otherwise the first outcome whose evaluation failed is
+/// reported, and a clean delegation only when every call delegated cleanly.
+pub(crate) fn decide_each<E: Write>(
+    requests: Vec<ToolCallInput>,
+    stderr: &mut E,
+    runtime: Runtime,
+    failure_policy: FailurePolicy,
+) -> HookOutcome {
+    let clean = |outcome: &HookOutcome| matches!(outcome, HookOutcome::Decision(decision) if !decision.evaluation_failed());
+    let mut reported = None;
+    for request in requests {
+        let outcome = decide_input(request, stderr, runtime, failure_policy);
+        if matches!(&outcome, HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block)
+        {
+            return outcome;
+        }
+        if reported.as_ref().is_none_or(clean) {
+            reported = Some(outcome);
+        }
+    }
+    reported.expect("a tool call lowers to at least one call")
+}
+
 pub(crate) fn feedback(decision: &HookDecision) -> String {
     if decision.audit_recorded {
         format!(
