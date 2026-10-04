@@ -110558,7 +110558,7 @@
     {
       "id": "fs-raw-device.cryptsetup-luksformat-batch-mode",
       "guard": "fs-raw-device",
-      "derivation": "'cryptsetup -q luksFormat /dev/sda' writes a new LUKS header over the raw device; -q (--batch-mode) only suppresses the confirmation prompt. The cryptsetup model declares no flags, so it stops at an unrecognized-arguments boundary. Source: https://gitlab.com/cryptsetup/cryptsetup/-/blob/b18cefcc7132956f4c154aefce45b1bdb4f233cf/man/cryptsetup-luksFormat.8.adoc",
+      "derivation": "'cryptsetup -q luksFormat /dev/sda' writes a new LUKS header over the raw device; -q (--batch-mode) only suppresses the confirmation prompt. Source: https://gitlab.com/cryptsetup/cryptsetup/-/blob/b18cefcc7132956f4c154aefce45b1bdb4f233cf/man/cryptsetup-luksFormat.8.adoc",
       "require": [
         {
           "op": "filesystem.write",
@@ -110646,7 +110646,7 @@
     {
       "id": "self-protection.critical.openclaw-config-set-plugins-entries-nah-disabled",
       "guard": null,
-      "derivation": "openclaw config set records plugins.entries.nah.enabled=false in ~/.openclaw/openclaw.json, as openclaw plugins disable nah does; nah protects that file at crates/nah-cli/src/commands/openclaw_installation.rs:93,165. The write is present but the set branch does not tag it as hook wiring.",
+      "derivation": "openclaw config set records plugins.entries.nah.enabled=false in ~/.openclaw/openclaw.json, as openclaw plugins disable nah does; nah protects that file at crates/nah-cli/src/commands/openclaw_installation.rs:93,165.",
       "require": [
         {
           "op": "filesystem.write",
@@ -110662,7 +110662,7 @@
     {
       "id": "db-destroy.dolt-sql-stdin-drop",
       "guard": "db-destroy",
-      "derivation": "printf pipes DROP TABLE users to dolt sql, which reads SQL from stdin when -q is absent; the dolt model reads SQL only from -q/--query",
+      "derivation": "printf pipes DROP TABLE users to dolt sql, which reads SQL from stdin when -q is absent",
       "require": [
         {
           "op": "database.schema_drop",
@@ -110678,7 +110678,7 @@
     {
       "id": "secrets-exfil.glab-auth-login-stdin-key",
       "guard": "secrets-exfil",
-      "derivation": "glab auth login --stdin reads the token from standard input, here the key, and sends it to the --hostname instance to authenticate; the glab model does not declare --stdin",
+      "derivation": "glab auth login --stdin reads the token from standard input, here the key, and sends it to the --hostname instance to authenticate",
       "require": [
         {
           "op": "filesystem.read",
@@ -110714,7 +110714,7 @@
     {
       "id": "secrets-credentials.gtar-create-private-key",
       "guard": "secrets-credentials",
-      "derivation": "gtar is GNU tar: -c reads each operand into the archive, here the SSH private key. The gtar document's read carries no access purpose, where the native tar model marks it program input.",
+      "derivation": "gtar is GNU tar: -c reads each operand into the archive, here the SSH private key, as program input.",
       "require": [
         {
           "op": "filesystem.read",
@@ -110730,7 +110730,7 @@
     {
       "id": "secrets-credentials.gtar-create-directory-private-key",
       "guard": "secrets-credentials",
-      "derivation": "gtar -C changes to ~/.ssh before reading the operand, so id_rsa is the SSH private key; the gtar document's create rule ignores -C and resolves the operand against the working directory. Source: https://www.gnu.org/software/tar/manual/html_node/directory.html",
+      "derivation": "gtar -C changes to ~/.ssh before reading the operand, so id_rsa is the SSH private key. Source: https://www.gnu.org/software/tar/manual/html_node/directory.html",
       "require": [
         {
           "op": "filesystem.read",
@@ -110746,7 +110746,7 @@
     {
       "id": "secrets-exfil.gtar-create-stdout-key-upload",
       "guard": "secrets-exfil",
-      "derivation": "gtar -cf - writes the archive holding the key to stdout, which curl uploads as its request body; the gtar document declares no bindings, so the read never reaches stdout",
+      "derivation": "gtar -cf - writes the archive holding the key to stdout, which curl uploads as its request body",
       "require": [
         {
           "op": "filesystem.read",
@@ -110782,7 +110782,43 @@
     {
       "id": "secrets-exfil.jq-env-upload",
       "guard": "secrets-exfil",
-      "derivation": "jq's `env` filter prints the whole process environment as JSON, which curl uploads; the jq document is inert and gives the filter no effect",
+      "derivation": "jq's `env` filter prints the whole process environment as JSON, which curl uploads",
+      "require": [
+        {
+          "op": "environment.read",
+          "resource": {
+            "eq": "environment:*"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "environment.read",
+            "resource": {
+              "eq": "environment:*"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.jq-embedded-env-upload",
+      "guard": "secrets-exfil",
+      "derivation": "jq's `env` builtin inside an array constructor still yields the whole process environment, which curl uploads; the jq document reads the environment only for a filter that is or begins with `env` or `$ENV`",
       "require": [
         {
           "op": "environment.read",
