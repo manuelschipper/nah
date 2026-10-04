@@ -1117,8 +1117,8 @@ impl<'a> Evaluator<'a> {
     /// The occurrences in `from`'s realm that some chain of byte edges of
     /// the traversal's kinds reaches from it, `from` included, whatever their
     /// conditions, and the code a launch argument or the launcher's stdin
-    /// among them hands another realm (see [`Self::launch_argument`] and
-    /// [`Self::launch_stdin`]). A byte route needs such a chain, so a destination outside
+    /// among them hands another realm (see [`Self::launch_argument_edge`] and
+    /// [`Self::launch_stdin_edge`]). A byte route needs such a chain, so a destination outside
     /// this set is never searched; one search per source then serves every
     /// destination. Like the route search it narrows, it costs no steps: a
     /// step is charged for each destination it reaches instead.
@@ -1228,8 +1228,8 @@ impl<'a> Evaluator<'a> {
     ) -> Truth {
         let realm = |id| self.nodes.get(id).map(|node| &node.realm);
         if realm(&edge.from) != realm(&edge.to)
-            && !self.launch_argument(edge)
-            && !self.launch_stdin(edge)
+            && !self.launch_argument_edge(edge)
+            && !self.launch_stdin_edge(edge)
         {
             return Truth::False;
         }
@@ -1269,14 +1269,14 @@ impl<'a> Evaluator<'a> {
     /// route otherwise stays in its source's realm; these bytes are the one
     /// thing the launch itself carries across, and the plan states both the
     /// launch and the argument the launched command executes.
-    fn launch_argument(&self, edge: &CausalEdge) -> bool {
+    fn launch_argument_edge(&self, edge: &CausalEdge) -> bool {
         let (Some(from), Some(to)) = (self.nodes.get(&edge.from), self.nodes.get(&edge.to)) else {
             return false;
         };
         matches!(from.occurrence, OccurrenceKind::Port { port: Port::Arg(_) })
             && occurrence_operation(to) == Some("process.code_execution")
             && occurrence_attribute(to, "source") == Some(&AttrValue::String("argument".into()))
-            && self.launches(from, to)
+            && self.execution_launches(from, to)
     }
 
     /// A launcher's stdin handed to the command it starts in another realm,
@@ -1285,18 +1285,18 @@ impl<'a> Evaluator<'a> {
     /// continues there only along that stdin to code run from it
     /// (`stdin_code_occurrence`), so bytes the launched command merely reads
     /// (`ssh host 'cat > f'`) reach nothing.
-    fn launch_stdin(&self, edge: &CausalEdge) -> bool {
+    fn launch_stdin_edge(&self, edge: &CausalEdge) -> bool {
         let (Some(from), Some(to)) = (self.nodes.get(&edge.from), self.nodes.get(&edge.to)) else {
             return false;
         };
         let stdin = |node: &OccurrenceNode| {
             matches!(node.occurrence, OccurrenceKind::Port { port: Port::Stdin })
         };
-        stdin(from) && stdin(to) && self.launches(from, to)
+        stdin(from) && stdin(to) && self.execution_launches(from, to)
     }
 
     /// Whether the plan states that `from`'s execution starts `to`'s.
-    fn launches(&self, from: &OccurrenceNode, to: &OccurrenceNode) -> bool {
+    fn execution_launches(&self, from: &OccurrenceNode, to: &OccurrenceNode) -> bool {
         from.execution
             .zip(to.execution)
             .is_some_and(|(launcher, launched)| {
@@ -2186,7 +2186,7 @@ fn occurrence_attribute<'a>(node: &'a OccurrenceNode, name: &str) -> Option<&'a 
 /// Whether a read opens what the links it meets lead to: its model says it
 /// follows links, or, when the model says nothing, it is a content read that
 /// does not recurse, which opens each entry it names. Keep this identical to
-/// `reads_through_links` in nah-effinterp's `bridge/label_propagation.rs`.
+/// `reads_through_links` in nah-effinterp's `observation_request.rs`.
 fn reads_through_links(node: &OccurrenceNode) -> bool {
     match occurrence_attribute(node, "follow_links") {
         Some(AttrValue::Bool(follows)) => *follows,
