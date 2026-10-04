@@ -59585,12 +59585,22 @@
     {
       "id": "fs-permission-weaken.find-exec-chmod",
       "guard": "fs-permission-weaken",
-      "derivation": "`-type f` excludes the directory start path `.`, so `chmod 4755 {}` sets a setuid mode on the entries below the project, not on the project root",
+      "derivation": "`-type f` excludes the directory start path `.` and selects the regular files the project's listing holds, so `chmod 4755 {}` sets a setuid mode on `cleanup.py` and each other listed file",
       "require": [
         {
           "op": "filesystem.metadata",
           "resource": {
-            "eq": "filesystem:/workspace/project/**"
+            "eq": "/workspace/project/cleanup.py"
+          },
+          "attributes": {
+            "action": "chmod",
+            "setuid": true
+          }
+        },
+        {
+          "op": "filesystem.metadata",
+          "resource": {
+            "eq": "/workspace/project/util/disk.py"
           },
           "attributes": {
             "action": "chmod",
@@ -62026,12 +62036,12 @@
     {
       "id": "fs-permission-weaken.find-exec-semicolon-other-write",
       "guard": "fs-permission-weaken",
-      "derivation": "`-type f` excludes the observed directory `build`, so `chmod o+w {}` grants world-write on the entries below it",
+      "derivation": "`-type f` excludes the observed directory `build` and selects `output`, the one regular file its listing holds, so `chmod o+w {}` grants world-write on it",
       "require": [
         {
           "op": "filesystem.metadata",
           "resource": {
-            "eq": "filesystem:/workspace/project/build/**"
+            "eq": "/workspace/project/build/output"
           },
           "attributes": {
             "action": "chmod",
@@ -67311,18 +67321,12 @@
     {
       "id": "fs-auth-identity.find-name-type-file-keeps-selection",
       "guard": "fs-auth-identity",
-      "derivation": "`-type f` cannot be carried by a selection glob, so the deletion keeps `-name authorized_keys`'s deeper selection below home, which reaches `~/.ssh/authorized_keys`",
+      "derivation": "home's listing holds `~/.ssh/authorized_keys` as a regular file, so `-name authorized_keys -type f` selects it and rm deletes it",
       "require": [
         {
           "op": "filesystem.delete",
           "resource": {
-            "eq": "filesystem:/home/test/*/**/authorized_keys"
-          }
-        },
-        {
-          "op": "filesystem.delete",
-          "resource": {
-            "eq": "filesystem:/home/test/.*/**/authorized_keys"
+            "eq": "/home/test/.ssh/authorized_keys"
           }
         }
       ]
@@ -67419,12 +67423,12 @@
     {
       "id": "fs-shell-profile.find-home-top-level-files",
       "guard": "fs-shell-profile",
-      "derivation": "`-maxdepth 1 -type f` deletes the regular files directly in home, `~/.bashrc` among them; the non-recursive `rm -f` cannot remove the directories `~/.*` also matches",
+      "derivation": "`-maxdepth 1 -type f` selects the regular files home's listing holds directly in it, of which `~/.bashrc` is the only one, so rm deletes it",
       "require": [
         {
           "op": "filesystem.delete",
           "resource": {
-            "eq": "filesystem:/home/test/.*"
+            "eq": "/home/test/.bashrc"
           }
         }
       ]
@@ -68988,6 +68992,25 @@
       "require": [
         {
           "op": "filesystem.write",
+          "resource": {
+            "eq": "/Users/test/.nah/built-ins.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.macos-pwsh-filtered-wildcard-move-admits-state-file",
+      "guard": null,
+      "derivation": "-Exclude no-match admits built-ins.json, the one entry `~/.nah/*` lists, so the move takes Nah's state file out of `~/.nah`",
+      "require": [
+        {
+          "op": "filesystem.move",
+          "resource": {
+            "eq": "/Users/test/.nah/built-ins.json"
+          }
+        },
+        {
+          "op": "filesystem.delete",
           "resource": {
             "eq": "/Users/test/.nah/built-ins.json"
           }
@@ -105789,13 +105812,90 @@
     },
     {
       "id": "fs-system-tree.find-negated-name-glob-exec-rm-private-etc",
-      "guard": "fs-system-tree",
-      "derivation": "`-name \"s*\"` selects /private/etc/sudoers for rm; the negated test keeps the whole /private/etc tree as rm's conservative selection",
+      "guard": "fs-auth-identity",
+      "derivation": "at depth 1 of the listed /private/etc, `-name \"s*\"` selects `ssh` and `sudoers` and `! -name x` leaves both, so rm is passed /private/etc/sudoers",
       "require": [
         {
           "op": "filesystem.delete",
           "resource": {
-            "eq": "one_of(/private/etc, filesystem:/private/etc/**)"
+            "eq": "/private/etc/sudoers"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-permission-weaken.find-depth-disables-prune-exec-chmod",
+      "guard": "fs-permission-weaken",
+      "derivation": "`-depth` visits `util` after what it holds, so `-prune` skips nothing and `chmod 4755 {}` sets a setuid mode on the listed `util/disk.py`",
+      "require": [
+        {
+          "op": "filesystem.metadata",
+          "resource": {
+            "eq": "/workspace/project/util/disk.py"
+          },
+          "attributes": {
+            "action": "chmod",
+            "setuid": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.glob-truncate-key-alias",
+      "guard": "fs-auth-identity",
+      "derivation": "`keys*` matches `keys-alias`, a link to `~/.ssh/authorized_keys`, so `truncate -s 0` empties the authorization file",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "filesystem:/workspace/aliases/keys*"
+          },
+          "attributes": {
+            "truncate": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.find-follow-links-tee-key-alias",
+      "guard": "fs-auth-identity",
+      "derivation": "`-L` lists `keys-alias` as a link to `~/.ssh/authorized_keys`, so `tee {}` on the `keys*` matches overwrites the authorization file",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/aliases"
+          },
+          "attributes": {
+            "follow_links": true
+          }
+        },
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "filesystem:/workspace/aliases/**/keys*"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.find-follow-links-shell-redirect-key-alias",
+      "guard": "fs-auth-identity",
+      "derivation": "`-L` lists `keys-alias` as a link to `~/.ssh/authorized_keys`, so the nested shell's `: > \"$1\"` on the `keys*` matches empties the authorization file",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/aliases"
+          },
+          "attributes": {
+            "follow_links": true
+          }
+        },
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "filesystem:/workspace/aliases/**/keys*"
           }
         }
       ]
