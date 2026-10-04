@@ -2319,6 +2319,21 @@
           "resolved": "/workspace/project/.git/HEAD"
         },
         {
+          "contents": "[core]\n\trepositoryformatversion = 0\n[remote \"origin\"]\n\turl = https://deploy:ghp_0123456789abcdefghij@github.com/example/project.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n",
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/config",
+          "requested": "/workspace/project/.git/config",
+          "resolved": "/workspace/project/.git/config"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/other/.git/config",
+          "requested": "/workspace/other/.git/config",
+          "resolved": "/workspace/other/.git/config"
+        },
+        {
           "exists": false,
           "kind": "missing",
           "requested": "/workspace/project/.ssh/id_rsa",
@@ -2714,6 +2729,27 @@
           "resolved": "/workspace/project/staging/blob",
           "kind": "missing",
           "exists": false
+        },
+        {
+          "requested": "/workspace/project/staging/other",
+          "resolved": "/workspace/project/staging/other",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/workspace/project/pattern-links/blob",
+          "resolved": "/workspace/project/pattern-links/blob",
+          "realpath": "/workspace/project/separate/server.key",
+          "kind": "symlink",
+          "target_kind": "file",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/separate/server.key",
+          "resolved": "/workspace/project/separate/server.key",
+          "realpath": "/workspace/project/separate/server.key",
+          "kind": "file",
+          "exists": true
         },
         {
           "requested": "/workspace/project/staged.tgz",
