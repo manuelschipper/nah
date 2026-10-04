@@ -3,7 +3,7 @@
     "baseline_defect": 0,
     "engine_error": 0,
     "guard_silent": 2,
-    "missing_effect": 12,
+    "missing_effect": 16,
     "missing_flow": 2,
     "regression": 0,
     "unsupported": 0
@@ -11,7 +11,7 @@
   "per_guard": {
     "(structural)": {
       "explained_partial": 166,
-      "missing_effect": 2,
+      "missing_effect": 4,
       "missing_flow": 0
     },
     "db-destroy": {
@@ -93,8 +93,8 @@
       "missing_flow": 0
     },
     "fs-system-tree": {
-      "explained_partial": 8,
-      "missing_effect": 0,
+      "explained_partial": 9,
+      "missing_effect": 2,
       "missing_flow": 0
     },
     "fs-volume-destroy": {
@@ -191,7 +191,7 @@
       "missing_flow": 0
     },
     "net-lookalike-host": {
-      "explained_partial": 1,
+      "explained_partial": 3,
       "missing_effect": 1,
       "missing_flow": 0
     },

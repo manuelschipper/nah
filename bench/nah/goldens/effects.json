@@ -109078,6 +109078,405 @@
           }
         }
       ]
+    },
+    {
+      "id": "db-destroy.php-mysqli-query-drop",
+      "guard": "db-destroy",
+      "derivation": "mysqli_query takes the SQL as its second argument; DROP TABLE users drops the table on the connection's database.",
+      "require": [
+        {
+          "op": "database.schema_drop",
+          "resource": {
+            "eq": "db:users"
+          },
+          "attributes": {
+            "object_kind": "table"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db-destroy.sqlcmd-drop-if-exists",
+      "guard": "db-destroy",
+      "derivation": "IF EXISTS after the object kind is part of the DROP statement, not a new T-SQL batch statement, so the drop keeps its target app.users.",
+      "require": [
+        {
+          "op": "database.schema_drop",
+          "resource": {
+            "eq": "db:app.users"
+          },
+          "attributes": {
+            "object_kind": "table"
+          }
+        }
+      ]
+    },
+    {
+      "id": "exec-decoded.node-atob-eval",
+      "guard": "exec-decoded",
+      "derivation": "The global atob decodes base64 text into source passed to eval in Node.",
+      "require": [
+        {
+          "op": "process.stream_transform",
+          "resource": {
+            "eq": "node"
+          },
+          "attributes": {
+            "transform": "decode"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "node"
+          },
+          "attributes": {
+            "source": "argument"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "process.stream_transform",
+            "resource": {
+              "eq": "node"
+            },
+            "attributes": {
+              "transform": "decode"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "node"
+            },
+            "attributes": {
+              "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "fs-system-tree.go-hex-escaped-path-remove-all",
+      "guard": "fs-system-tree",
+      "derivation": "The Go interpreted string \"\\x2fetc\" is /etc, which os.RemoveAll deletes recursively; the engine does not decode the \\x escape.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/etc"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-system-tree.python-function-past-summary-effect-cap-rmtree",
+      "guard": "fs-system-tree",
+      "derivation": "clean() runs 128 os.remove calls and then shutil.rmtree(\"/etc\"); the engine's function summary drops the 129th effect.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/etc"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-system-tree.python-init-annotated-reassignment-rmtree",
+      "guard": "fs-system-tree",
+      "derivation": "The annotated assignment self.root: str = \"/etc\" replaces the earlier value, so wipe() removes /etc; the engine keeps the first literal.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/etc"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-system-tree.go-exec-command-context-rm",
+      "guard": "fs-system-tree",
+      "derivation": "exec.CommandContext skips its context argument; the program is rm with -rf /etc.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/etc"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.option-from-branch-union-recursive-rm",
+      "guard": "fs-home",
+      "derivation": "f is -r on one branch and -i on the other, so one alternative of rm $f ~ deletes the fixture home directory recursively.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.python-httpx-stream-verb-first",
+      "guard": "net-lookalike-host",
+      "derivation": "httpx.stream takes the verb first and the URL second; the request reaches the mixed-script host. The engine reads the verb as the URL.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "https://gіthub.com/org/tool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.python-requests-request-keyword-url",
+      "guard": "net-lookalike-host",
+      "derivation": "requests.request(method=, url=) names the mixed-script host in its url keyword; the engine reads only positional arguments.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "https://gіthub.com/org/tool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "net-lookalike-host.python-requests-request-positional",
+      "guard": "net-lookalike-host",
+      "derivation": "requests.request takes the verb first and the URL second; the request reaches the mixed-script host.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "https://gіthub.com/org/tool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-is-none-guard-literal-argument-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "helper returns \"ping\" only when its argument is None; called with a string it returns the private key, which print writes to stdout and curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.python-helper-not-guard-true-argument-print-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "helper returns \"ping\" only when its argument is falsy; called with True it returns the private key, which print writes to stdout and curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.python-open-variable-write-mode-state",
+      "guard": null,
+      "derivation": "mode is the literal \"w\" bound to a variable, so open() truncates nah trust state; the engine assumes a read for a non-literal mode.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.nah/trust.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.ruby-case-in-pattern-arm-state",
+      "guard": null,
+      "derivation": "ARGV[0] is nil or a String, so the `in String` arm can run and unlink nah trust state; the engine does not visit case/in arms.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test/.nah/trust.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.lua-rename-onto-state",
+      "guard": null,
+      "derivation": "os.rename replaces its destination, nah trust state, with the source file.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.nah/trust.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.ruby-fileutils-mv-state",
+      "guard": null,
+      "derivation": "FileUtils.mv removes its source, nah trust state.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test/.nah/trust.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.ruby-after-block-comment",
+      "guard": null,
+      "derivation": "The =begin/=end comment ends before the unlink, which removes nah trust state.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test/.nah/trust.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.perl-after-pod-comment",
+      "guard": null,
+      "derivation": "The POD block ends at =cut; the unlink after it removes the installed nah binary.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test/.local/bin/nah"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.rscript-hex-escape-state",
+      "guard": null,
+      "derivation": "The R escape \\x2f is /, so unlink removes nah trust state.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test/.nah/trust.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.unalias-restores-command",
+      "guard": "fs-system-tree",
+      "derivation": "unalias removes the alias that turned rm into true, so the interactive shell runs the real rm -rf /.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.hash-reset-restores-command",
+      "guard": "fs-system-tree",
+      "derivation": "hash -r forgets the remembered /bin/true for rm, so rm -rf / runs the real rm.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.bash-option-expand-aliases",
+      "guard": "fs-system-tree",
+      "derivation": "bash -O expand_aliases expands aliases in a non-interactive shell, so ls runs rm -rf /.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/"
+          }
+        }
+      ]
+    },
+    {
+      "id": "shell-resolution.bash-posixly-correct-expands-aliases",
+      "guard": "fs-system-tree",
+      "derivation": "POSIXLY_CORRECT starts bash in POSIX mode, which expands aliases, so ls runs rm -rf /.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/"
+          }
+        }
+      ]
     }
   ]
 }
