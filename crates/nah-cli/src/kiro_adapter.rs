@@ -164,18 +164,18 @@ fn lower_kiro_tool<'a>(
             ("Read", json!({"file_path":required_path(object)?}), false)
         }
         "read" | "fs_read" | "fsRead" => {
-            let (paths, every_path_read) = operation_paths(required_object(object)?)?;
-            let complete =
-                every_path_read && runtime_field_names_covered("kiro", tool_name, original_input);
+            let (paths, every_operation_named_path) = operation_paths(required_object(object)?)?;
+            let complete = every_operation_named_path
+                && runtime_field_names_covered("kiro", tool_name, original_input);
             return Ok(paths
                 .into_iter()
                 .map(|path| ("Read", json!({"file_path":path}), complete))
                 .collect());
         }
         "write" | "fs_write" | "fsWrite" => {
-            let (paths, every_path_read) = operation_paths(required_object(object)?)?;
-            let complete =
-                every_path_read && runtime_field_names_covered("kiro", tool_name, original_input);
+            let (paths, every_operation_named_path) = operation_paths(required_object(object)?)?;
+            let complete = every_operation_named_path
+                && runtime_field_names_covered("kiro", tool_name, original_input);
             return Ok(paths
                 .into_iter()
                 .map(|path| ("Write", json!({"file_path":path,"content":""}), complete))
@@ -213,8 +213,8 @@ fn operation_paths(object: &Map<String, Value>) -> Result<(Vec<String>, bool), S
     if paths.is_empty() {
         return Err(INVALID_KIRO_TOOL_INPUT.into());
     }
-    let every_path_read = paths.len() == operations.len();
-    Ok((paths, every_path_read))
+    let every_operation_named_path = paths.len() == operations.len();
+    Ok((paths, every_operation_named_path))
 }
 
 fn required_path(object: &Map<String, Value>) -> Result<String, String> {

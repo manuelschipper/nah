@@ -125,6 +125,9 @@ const TOKEN_PREFIXES: &[&str] = &[
     "gldt-",
 ];
 
+/// Whether a configuration line holds a URL with a credential in its
+/// userinfo: a password, or a username that is a token of a known format
+/// (`TOKEN_PREFIXES`).
 fn holds_credentialed_url(line: &str) -> bool {
     line.match_indices("://").any(|(at, _)| {
         let authority = line[at + 3..]
