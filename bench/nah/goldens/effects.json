@@ -112767,6 +112767,219 @@
           }
         }
       ]
+    },
+    {
+      "id": "secrets-exfil.git-log-patch-history-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "git log -p prints every recorded version of the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "git.read",
+          "resource": {
+            "eq": "git:worktree=\"fs:/workspace/project\";git_dir=null;pathspec=null"
+          },
+          "attributes": {
+            "path": "source/server.key",
+            "disclosure": "contents",
+            "historical": true
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "git.read",
+            "resource": {
+              "eq": "git:worktree=\"fs:/workspace/project\";git_dir=null;pathspec=null"
+            },
+            "attributes": {
+              "path": "source/server.key",
+              "disclosure": "contents",
+              "historical": true
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.cat-partial-name-glob-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "the glob selects source/server.key, whose bytes cat prints to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "filesystem:/workspace/project/source/serv*"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "filesystem:/workspace/project/source/serv*"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.grep-dereference-recursive-pattern-links-upload",
+      "guard": "secrets-exfil",
+      "derivation": "GNU grep -R follows the link below pattern-links to the private key and prints its lines to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/pattern-links"
+          },
+          "attributes": {
+            "follow_links": true
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/pattern-links"
+            },
+            "attributes": {
+              "follow_links": true
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.less-key-piped-upload",
+      "guard": "secrets-exfil",
+      "derivation": "less writes the private key through to its piped stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-env.git-grep-env-file",
+      "guard": "secrets-env",
+      "derivation": "git grep prints the matching lines of the tracked .env file.",
+      "require": [
+        {
+          "op": "git.read",
+          "resource": {
+            "contains": "/workspace/project"
+          },
+          "attributes": {
+            "path": ".env",
+            "disclosure": "contents"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.cp-pattern-links-staging-cat-upload",
+      "guard": "secrets-exfil",
+      "derivation": "cp follows the link to the private key and copies its bytes into staging, which cat prints to stdout and curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "filesystem:/workspace/project/pattern-links/*"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "filesystem:/workspace/project/pattern-links/*"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
     }
   ]
 }

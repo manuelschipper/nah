@@ -79,6 +79,14 @@ missing target evidence and the bench ceilings count it separately.
   leaves `app.users` possible. Actual: the successful-switch target loses
   schema `s`. The golden requires both `db:prod.s.users` and `db:app.users`.
   Owner: SQL connection schema state.
+- `secrets-exfil.git-log-patch-history-key-upload` — the golden requires a
+  flow from the `git.read` of `source/server.key` to the upload. The Git
+  model (`crates/effinterp-engine/src/models/git.rs`) states that flow only
+  for a read carrying `output="stdout"` (`git show`, `git cat-file`), not for
+  `git log -p`, `git diff` or `git blame` of a path. The row blocks because
+  `secrets-exfil` also takes the call's own output as the route
+  (`sent` in `crates/nah-policy/src/flow_guards.rs`). Bench: one
+  `missing_flow` for `secrets-exfil`; owner: the Git model's output flow.
 
 ## Accepted conservative over-blocks
 
