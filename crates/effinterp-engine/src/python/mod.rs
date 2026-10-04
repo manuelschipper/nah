@@ -5020,7 +5020,7 @@ pub fn python_plugin_path_pattern(resource: &ResourceExpr) -> Option<String> {
         } => Some(path.clone()),
         ResourceExpr::Literal { value } => Some(value.clone()),
         ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } => Some(glob.clone()),
         ResourceExpr::Join { parts } => {
             let parts: Option<Vec<_>> = parts.iter().map(python_plugin_path_pattern).collect();

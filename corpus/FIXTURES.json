@@ -3230,6 +3230,56 @@
         }
       ]
     },
+    "self-protection-nap-active-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test",
+          "requested": "/home/test",
+          "resolved": "/home/test",
+          "descendants": [
+            "/home/test/.nah/nap.json",
+            "/home/test/notes.txt"
+          ]
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.nah",
+          "requested": "/home/test/.nah",
+          "resolved": "/home/test/.nah",
+          "descendants": [
+            "/home/test/.nah/nap.json"
+          ]
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/.nah/nap.json",
+          "requested": "/home/test/.nah/nap.json",
+          "resolved": "/home/test/.nah/nap.json"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/notes.txt",
+          "requested": "/home/test/notes.txt",
+          "resolved": "/home/test/notes.txt"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
     "self-protection-linux-v1": {
       "platform": "linux",
       "cwd": "/workspace/project",

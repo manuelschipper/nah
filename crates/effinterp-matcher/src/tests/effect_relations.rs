@@ -122,6 +122,7 @@ fn same_resource_relates_equal_concrete_identities_in_one_realm() {
     plan.effects.last_mut().unwrap().resource = ResourceExpr::Pattern {
         pattern: ResourcePattern::FsPath {
             glob: "/work/*.key".into(),
+            narrowing: Default::default(),
         },
     };
     assert_eq!(
@@ -280,6 +281,7 @@ fn plan_order_relates_a_bound_move_to_the_reads_that_follow_it() {
     pattern.resource = ResourceExpr::Pattern {
         pattern: ResourcePattern::FsPath {
             glob: "/work/*.key".into(),
+            narrowing: Default::default(),
         },
     };
     let mut plan = plan();

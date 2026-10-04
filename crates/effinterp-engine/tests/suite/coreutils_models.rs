@@ -1174,7 +1174,7 @@ fn rm_in_for_loop_preserves_glob() {
         effect.operation.0 == "filesystem.delete"
             && matches!(
                 &effect.resource,
-                ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/srv/data/*.log"
+                ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/srv/data/*.log"
             )
             && effect.condition.is_some()
     }));
@@ -1225,7 +1225,7 @@ fn rm_in_for_loop_expands_glob_inside_word() {
         effect.operation.0 == "filesystem.delete"
             && matches!(
                 &effect.resource,
-                ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } }
+                ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } }
                     if pattern == "/srv/data/prefix-*.log.bak"
             )
             && effect.condition.is_some()
@@ -1358,7 +1358,7 @@ fn destructive_filesystem_requests_keep_operation_exact_and_selection_honest() {
 fn glob(expr: &ResourceExpr) -> Option<&str> {
     match expr {
         ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } => Some(glob),
         _ => None,
     }
@@ -1429,8 +1429,8 @@ fn mv_target_directory_moves_each_source_and_rejects_unknown_flags() {
             transfers(&plan),
             vec![(
                 effinterp_proto::CausalAssurance::Exact,
-                "filesystem.delete Pattern { pattern: FsPath { glob: \"/*\" } }".to_string(),
-                "filesystem.write Pattern { pattern: FsPath { glob: \"/tmp/*\" } }".to_string(),
+                "filesystem.delete Pattern { pattern: FsPath { glob: \"/*\", narrowing: FsNarrowing { kinds: [], excluded_names: [] } } }".to_string(),
+                "filesystem.write Pattern { pattern: FsPath { glob: \"/tmp/*\", narrowing: FsNarrowing { kinds: [], excluded_names: [] } } }".to_string(),
             )],
             "{source}"
         );

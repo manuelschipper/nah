@@ -1017,7 +1017,7 @@ fn filesystem_globs_preserve_escaped_absolute_roots() {
                 .unwrap();
             if let Some(target) = target {
                 let ResourceExpr::Pattern {
-                    pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+                    pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
                 } = &read.resource
                 else {
                     panic!("expected rooted glob: {:?}", read.resource);

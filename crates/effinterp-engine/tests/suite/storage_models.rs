@@ -52,6 +52,7 @@ fn dd_preserves_pattern_and_symbolic_output_targets() {
             ResourceExpr::Pattern {
                 pattern: effinterp_proto::ResourcePattern::FsPath {
                     glob: "/dev/sd?".into(),
+                    narrowing: Default::default(),
                 },
             },
             true,

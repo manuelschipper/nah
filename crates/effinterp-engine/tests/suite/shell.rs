@@ -1022,7 +1022,7 @@ fn derived_absolute_resource_does_not_cite_changed_cwd() {
         .unwrap();
     assert!(matches!(
         &write.resource,
-        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/out/**"
+        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/out/**"
     ));
     assert!(!provenance_reaches(
         &plan,
@@ -1041,7 +1041,7 @@ fn derived_relative_resource_cites_changed_cwd() {
         .unwrap();
     assert!(matches!(
         &write.resource,
-        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/home/test/**"
+        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/home/test/**"
     ));
     assert!(provenance_reaches(
         &plan,
@@ -1061,7 +1061,7 @@ fn declarative_cwd_pattern_cites_host_context() {
             .unwrap();
         assert!(matches!(
             &write.resource,
-            ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/home/test/*"
+            ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/home/test/*"
         ));
         assert!(provenance_reaches(
             &plan,
@@ -1110,7 +1110,7 @@ fn archive_destination_cites_host_context_input() {
             .unwrap();
         assert!(matches!(
             &write.resource,
-            ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/home/test/out/**"
+            ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/home/test/out/**"
         ));
         assert!(provenance_reaches(
             &plan,
@@ -1890,7 +1890,7 @@ fn find_match_provenance_reaches_host_context() {
             effect.operation.0 == "filesystem.metadata"
                 && matches!(&effect.resource, ResourceExpr::Union { alternatives }
                     if alternatives.iter().any(|resource| matches!(resource,
-                        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } }
+                        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } }
                             if effinterp_proto::glob_match(pattern, &format!("{root}/.hidden/x")) == Ok(true))))
         }), "{root}: {:?}", plan.effects);
     }
@@ -3333,7 +3333,7 @@ fn quoting_protects_globs_and_splits() {
     let plan = shell("rm *.txt", Some("/w"));
     assert!(matches!(
         delete_resources(&plan)[0],
-        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/w/*.txt"
+        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/w/*.txt"
     ));
 
     for (source, target) in [
@@ -4647,7 +4647,7 @@ fn for_loop_glob_preserves_file_pattern() {
             .unwrap();
         assert!(matches!(
             &effect.resource,
-            ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == expected
+            ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == expected
         ));
         assert_eq!(
             effect.request_assurance,
@@ -7962,7 +7962,7 @@ fn filesystem_globs_retain_roots_and_invalid_patterns_have_boundaries() {
             .find(|effect| effect.operation.0 == "filesystem.read")
             .unwrap();
         let ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
         } = &read.resource
         else {
             panic!("expected filesystem pattern for {source}: {read:?}");
@@ -7993,7 +7993,7 @@ fn filesystem_globs_retain_roots_and_invalid_patterns_have_boundaries() {
         assert_eq!(exec_argv(&plan, "rm"), ["rm", "-rf", operand]);
         assert!(plan.effects.iter().any(|effect| {
             effect.operation.0 == "filesystem.delete"
-                && matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } }
+                && matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } }
                 if effinterp_proto::glob_match(pattern, target) == Ok(true))
         }));
     }
@@ -8009,7 +8009,7 @@ fn filesystem_globs_retain_roots_and_invalid_patterns_have_boundaries() {
             assert!(
                 plan.effects.iter().any(|effect| {
                     effect.operation.0 == operation
-                        && matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } }
+                        && matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } }
                         if effinterp_proto::glob_match(pattern, &target) == Ok(true))
                 }),
                 "{source} at {root}: {:?}",
@@ -8030,7 +8030,7 @@ fn filesystem_globs_retain_roots_and_invalid_patterns_have_boundaries() {
         };
         assert!(matches!(&parts[0], ResourceExpr::Environment { name } if name == "OUT"));
         let ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
         } = parts.last().unwrap()
         else {
             panic!("recursive extraction tail")
@@ -8062,7 +8062,7 @@ fn filesystem_globs_retain_roots_and_invalid_patterns_have_boundaries() {
         );
     }
     let plan = shell("cat /tmp/*", None);
-    assert!(plan.effects.iter().any(|effect| matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/tmp/*")));
+    assert!(plan.effects.iter().any(|effect| matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/tmp/*")));
     for source in [
         "set -- '/tmp/[ab]' '/tmp/c'; cat $@/*.rs",
         "arr=('/tmp/[ab]' '/tmp/c'); cat ${arr[@]}/*.rs",
@@ -8161,7 +8161,7 @@ fn filesystem_globs_retain_roots_and_invalid_patterns_have_boundaries() {
     assert!(plan.effects.iter().any(|effect| {
         effect.operation.0 == "filesystem.read"
             && matches!(&effect.resource, ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob }
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. }
             } if glob == "/tmp/x")
     }));
 }
@@ -8257,7 +8257,7 @@ fn brace_expansions_produce_argv_words() {
         assert_eq!(resources.len(), 1, "{source}");
         match resources[0] {
             ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
             } => {
                 assert!(pattern, "{source}");
                 assert_eq!(glob, expected, "{source}");
@@ -8282,7 +8282,7 @@ fn brace_expansions_produce_argv_words() {
     assert_eq!(resources.len(), 2);
     for (resource, expected) in resources.into_iter().zip(["/tmp/a/*", "/tmp/b/*"]) {
         assert!(
-            matches!(resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == expected)
+            matches!(resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == expected)
         );
     }
 

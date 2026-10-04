@@ -24,7 +24,7 @@ mod plan;
 mod provenance;
 mod realm;
 mod resource;
-pub use pattern::{Field, PortField, ResourcePattern, TextField};
+pub use pattern::{Field, FsEntryKind, FsNarrowing, PortField, ResourcePattern, TextField};
 mod resource_scope;
 mod subject;
 mod validate;

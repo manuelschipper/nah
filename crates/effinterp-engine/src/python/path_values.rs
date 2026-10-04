@@ -173,7 +173,10 @@ impl PythonWalker<'_, '_> {
         };
         let member = glob
             .map(|glob| ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                pattern: effinterp_proto::ResourcePattern::FsPath {
+                    glob,
+                    narrowing: Default::default(),
+                },
             })
             .unwrap_or_else(|| unresolved_resource("filesystem"));
         Some(ResourceExpr::Join {

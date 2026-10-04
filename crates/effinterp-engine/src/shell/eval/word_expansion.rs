@@ -1651,6 +1651,7 @@ impl Shell<'_> {
                         joined.push(SemanticValue::new(SemanticValueKind::Pattern {
                             pattern: effinterp_proto::ResourcePattern::FsPath {
                                 glob: pattern.clone(),
+                                narrowing: Default::default(),
                             },
                         }));
                     }
@@ -1845,7 +1846,7 @@ fn for_value_word(value: SemanticValue) -> Option<Word> {
     match value.kind {
         SemanticValueKind::Literal(value) => Some(Word::literal(value)),
         SemanticValueKind::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
         } => Some(Word::new(vec![WordPart::Glob(pattern)])),
         SemanticValueKind::Union(alternatives) => Some(Word::new(vec![WordPart::Union(
             alternatives

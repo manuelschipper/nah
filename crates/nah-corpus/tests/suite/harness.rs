@@ -64,7 +64,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 8699);
+    assert_eq!(summary.cases, 8708);
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn current_corpus_file_counts_are_pinned() {
             ("database-services.jsonl".to_owned(), 350),
             ("database.jsonl".to_owned(), 472),
             ("execution-flows.jsonl".to_owned(), 879),
-            ("filesystem.jsonl".to_owned(), 1179),
+            ("filesystem.jsonl".to_owned(), 1184),
             ("git.jsonl".to_owned(), 1272),
             ("infrastructure.jsonl".to_owned(), 438),
             ("kubernetes.jsonl".to_owned(), 67),
@@ -141,8 +141,8 @@ fn current_corpus_file_counts_are_pinned() {
             ("network.jsonl".to_owned(), 45),
             ("project.jsonl".to_owned(), 22),
             ("registry.jsonl".to_owned(), 300),
-            ("secrets.jsonl".to_owned(), 1291),
-            ("self-protection.jsonl".to_owned(), 1069),
+            ("secrets.jsonl".to_owned(), 1292),
+            ("self-protection.jsonl".to_owned(), 1072),
             ("shell-resolution.jsonl".to_owned(), 247),
             ("storage.jsonl".to_owned(), 202),
             ("threat-model.jsonl".to_owned(), 27),

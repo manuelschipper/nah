@@ -1713,7 +1713,7 @@ impl ParsedInvocation {
                         _ => self.literal(value, Some(current)),
                     })
                     .map(|pattern| match pattern {
-                        effinterp_proto::ResourcePattern::FsPath { glob } => {
+                        effinterp_proto::ResourcePattern::FsPath { glob, .. } => {
                             crate::paths::resolve_fs_word_with_cwd_on_platform(
                                 &Word::new(vec![WordPart::Glob(glob)]),
                                 cwd,

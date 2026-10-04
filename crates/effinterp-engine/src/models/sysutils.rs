@@ -290,10 +290,16 @@ impl CommandModel for Find {
                     traversal,
                     false,
                 );
+                let narrowing = find_expression(tests)
+                    .map(|expression| find_narrowing(&expression, traversal).0)
+                    .unwrap_or_default();
                 let whole_root = matches.iter().any(|matched| {
-                    matched == root || *matched == find_root_matches(ctx, root, roots_only)
+                    matched == root
+                        || *matched == find_root_matches(ctx, root, roots_only, &narrowing)
                 });
-                let unmodeled = unmodeled || *after_action;
+                // The delete of the whole tree below does not say which
+                // entries a narrowed selection leaves in place.
+                let unmodeled = unmodeled || *after_action || whole_root && !narrowing.is_none();
                 if whole_root {
                     unmodeled_tests |= unmodeled;
                     return None;
@@ -324,7 +330,12 @@ impl CommandModel for Find {
                     })
                     .unwrap_or_else(|| {
                         if selector.is_some() {
-                            ctx.resolve_fs_word(&find_root_matches(ctx, root, roots_only))
+                            ctx.resolve_fs_word(&find_root_matches(
+                                ctx,
+                                root,
+                                roots_only,
+                                &Default::default(),
+                            ))
                         } else {
                             ctx.resolve_fs_word(root)
                         }
@@ -1146,7 +1157,9 @@ fn find_kind(fact: &PathFact, follow: bool) -> Option<char> {
 /// apply may narrow them (the caller then raises a boundary).
 ///
 /// A start path the tests may select keeps the whole-tree word, since the
-/// action then reaches it and everything below. Otherwise only entries below
+/// action then reaches it and everything below; that word states the entry
+/// kinds and names the tests leave out (`find_narrowing`), so a reader can
+/// tell `find DIR -type d` from `find DIR`. Otherwise only entries below
 /// it can match. An entry whose exact name the tests spell is looked up, and
 /// passed as that path when it exists and passes every test; deeper entries
 /// are selected by the name's glob within the depth bounds. A glob cannot
@@ -1169,6 +1182,11 @@ fn find_action_matches(
 ) -> (Vec<Word>, bool) {
     let roots_only = depths.max == Some(0);
     let conjunction = find_conjunction(tests);
+    // What the tests say of every entry the action runs for, which the
+    // root-wide selection below carries instead of losing.
+    let (narrowing, exact) = find_expression(tests).map_or_else(Default::default, |expression| {
+        find_narrowing(&expression, traversal)
+    });
     let resolved = match (root.as_literal(), ctx.resolve_fs_word(root)) {
         (
             Some(spelled),
@@ -1178,24 +1196,67 @@ fn find_action_matches(
         ) => Some((spelled, path)),
         _ => None,
     };
-    // A glob carries a name. An entry type, or an expression with negation or
-    // alternatives, is applied to the entries the host lists. A command that
-    // removes every regular file below the start path empties the tree
-    // however few entries it holds now, so it keeps the tree's glob, reported
-    // as possibly narrower, rather than a list of files.
+    // A glob carries a name. An entry type, a path test, or an expression
+    // with negation or alternatives, is applied to the entries the host
+    // lists. A command that removes every regular file below the start path
+    // empties the tree however few entries it holds now, so it is passed the
+    // tree below rather than a list of files.
     if let Some((spelled, path)) = &resolved
         && !(removes && find_selects_every_file(tests, depths))
-        && conjunction
-            .as_ref()
-            .is_none_or(|tests| !tests.types.is_empty())
+        && conjunction.as_ref().is_none_or(|tests| {
+            !tests.types.is_empty()
+                // A path test that every entry passes narrows nothing, and
+                // the action then works through the whole tree.
+                || tests
+                    .paths
+                    .iter()
+                    .any(|(pattern, _)| !find_path_selects_every_entry(pattern, spelled))
+        })
         && let Some(listed) = find_listed_matches(
             builder, ctx, model_node, tests, root, spelled, path, root_fact, depths, traversal,
         )
     {
         return listed;
     }
+    // -P tests a linked start path as the link itself and does not descend
+    // through it; -H and -L follow it.
+    let unfollowed_link = traversal == FindTraversal::Physical
+        && root_fact.is_some_and(|fact| fact.kind == PathKind::Symlink);
+    // Removing every regular file below a directory is the loss of its tree,
+    // so the command is passed the tree, narrowed to the kinds the tests
+    // admit, rather than a glob of the entries below it. The start path
+    // itself stays, which the boundary reports.
+    if removes
+        && resolved.is_some()
+        && !roots_only
+        && !unfollowed_link
+        && root_fact
+            .is_none_or(|fact| find_kind(fact, traversal != FindTraversal::Physical) == Some('d'))
+        && find_selects_every_file(tests, depths)
+    {
+        return (
+            vec![find_root_matches(ctx, root, roots_only, &narrowing)],
+            true,
+        );
+    }
+    // The selection names the start path whatever the tests say of it, so it
+    // is exact only where the narrowing admits that path too.
+    let start_admitted = resolved.as_ref().is_some_and(|(spelled, _)| {
+        root_fact
+            .and_then(|fact| find_kind(fact, traversal != FindTraversal::Physical))
+            .and_then(|kind| match kind {
+                'd' => Some(effinterp_proto::FsEntryKind::Directory),
+                'f' => Some(effinterp_proto::FsEntryKind::File),
+                'l' => Some(effinterp_proto::FsEntryKind::Symlink),
+                _ => None,
+            })
+            .is_some_and(|kind| narrowing.admits(kind, find_entry_name(spelled)))
+    });
     let (Some(tests), Some((spelled, path))) = (conjunction, resolved) else {
-        return (vec![find_root_matches(ctx, root, roots_only)], true);
+        return (
+            vec![find_root_matches(ctx, root, roots_only, &narrowing)],
+            !(exact && depths.min == 0 && start_admitted),
+        );
     };
     // A pattern this matcher does not read leaves every test answer open.
     let unread = tests
@@ -1206,25 +1267,24 @@ fn find_action_matches(
     if depths.max.is_some_and(|max| max < depths.min) {
         return (Vec::new(), unread);
     }
-    // -P tests a linked start path as the link itself and does not descend
-    // through it; -H and -L follow it.
-    let unfollowed_link = traversal == FindTraversal::Physical
-        && root_fact.is_some_and(|fact| fact.kind == PathKind::Symlink);
     let root_kind = match root_fact {
         Some(fact) => find_kind(fact, traversal != FindTraversal::Physical),
         None => (matches!(spelled, "." | ".." | "/") || spelled.ends_with('/')).then_some('d'),
     };
-    if depths.min == 0 && tests.hold(spelled, root_kind) != Some(false) {
+    let start_selected = tests.hold(spelled, root_kind);
+    if depths.min == 0 && start_selected != Some(false) {
         let matches = if unfollowed_link {
             root.clone()
         } else {
-            find_root_matches(ctx, root, roots_only)
+            find_root_matches(ctx, root, roots_only, &narrowing)
         };
-        // A subtree cannot express entry-kind or other predicate filters.
-        // Retain its conservative reach and report the selection boundary.
+        // The subtree carries entry kinds and excluded names. Any other
+        // filter, or a start path the tests are not known to select, keeps
+        // its conservative reach behind the selection boundary.
         return (
             vec![matches],
-            unread || !tests.types.is_empty() || tests.filtered,
+            !(exact && start_selected == Some(true))
+                && (unread || !tests.types.is_empty() || tests.filtered),
         );
     }
     if roots_only || unfollowed_link || root_kind.is_some_and(|kind| kind != 'd') {
@@ -1363,21 +1423,115 @@ fn find_action_matches(
 }
 
 /// Whether the tests leave every regular file below a start path selected:
-/// only `-type` tests that admit regular files, with no name, path or other
-/// filter, and depth bounds that reach below the first level.
+/// only `-type` tests that admit regular files (`-type f`, `! -type d`), with
+/// no name, path or other filter, and depth bounds that reach below the first
+/// level.
 fn find_selects_every_file(tests: &[Word], depths: FindDepths) -> bool {
     depths.min <= 1
         && depths.max.is_none_or(|max| max >= 2)
-        && find_conjunction(tests).is_some_and(|tests| {
-            tests.names.is_empty()
-                && tests.paths.is_empty()
-                && !tests.filtered
-                && !tests.types.is_empty()
-                && tests
-                    .types
-                    .iter()
-                    .all(|types| types.split(',').any(|letter| letter == "f"))
+        && find_expression(tests).is_some_and(|expression| {
+            let (narrowing, exact) = find_narrowing(&expression, FindTraversal::Physical);
+            exact
+                && narrowing.excluded_names.is_empty()
+                && narrowing
+                    .kinds
+                    .contains(&effinterp_proto::FsEntryKind::File)
         })
+}
+
+/// What an expression's top-level conjunction says of every entry its action
+/// runs for: the entry kinds a `-type` or its negation admits and the names a
+/// negated `-name` leaves out. The second value is whether that is everything
+/// the expression tests, so the narrowed selection is exactly what the action
+/// receives.
+///
+/// Under `-L` a `-type` test reads what a link points at, so a link may pass
+/// any of them. A name pattern is carried only where the selection's glob
+/// grammar reads it as find does.
+fn find_narrowing(
+    expression: &FindExpr,
+    traversal: FindTraversal,
+) -> (effinterp_proto::FsNarrowing, bool) {
+    use effinterp_proto::FsEntryKind;
+    /// The kinds the type letters admit, or with `negated` the kinds they
+    /// leave. A letter for a FIFO, socket or device is only part of `Other`,
+    /// so it is admitted whole and never left out.
+    fn kinds(types: &str, negated: bool, follows: bool, exact: &mut bool) -> Vec<FsEntryKind> {
+        let mut named = Vec::new();
+        for letter in types.split(',') {
+            named.push(match letter {
+                "f" => FsEntryKind::File,
+                "d" => FsEntryKind::Directory,
+                "l" => FsEntryKind::Symlink,
+                _ => {
+                    *exact = false;
+                    if negated {
+                        continue;
+                    }
+                    FsEntryKind::Other
+                }
+            });
+        }
+        let mut kinds: Vec<FsEntryKind> = [
+            FsEntryKind::File,
+            FsEntryKind::Directory,
+            FsEntryKind::Symlink,
+            FsEntryKind::Other,
+        ]
+        .into_iter()
+        .filter(|kind| named.contains(kind) != negated)
+        .collect();
+        if follows {
+            *exact = false;
+            if !kinds.contains(&FsEntryKind::Symlink) {
+                kinds.push(FsEntryKind::Symlink);
+            }
+        }
+        kinds
+    }
+    fn collect(
+        expression: &FindExpr,
+        follows: bool,
+        narrowing: &mut effinterp_proto::FsNarrowing,
+        exact: &mut bool,
+    ) {
+        match expression {
+            FindExpr::Always | FindExpr::Action => {}
+            FindExpr::Type(types) if narrowing.kinds.is_empty() => {
+                narrowing.kinds = kinds(types, false, follows, exact);
+            }
+            FindExpr::Not(inner) => match &**inner {
+                FindExpr::Type(types) if narrowing.kinds.is_empty() => {
+                    narrowing.kinds = kinds(types, true, follows, exact);
+                }
+                FindExpr::Name(pattern, false)
+                    if !pattern.contains(['{', '}', '(', ')', '[', ']', '\\'])
+                        && effinterp_proto::validate_glob(pattern).is_ok() =>
+                {
+                    narrowing.excluded_names.push(pattern.clone());
+                }
+                _ => *exact = false,
+            },
+            FindExpr::And(terms) => {
+                for term in terms {
+                    collect(term, follows, narrowing, exact);
+                }
+            }
+            FindExpr::Or(alternatives) if alternatives.len() == 1 => {
+                collect(&alternatives[0], follows, narrowing, exact);
+            }
+            _ => *exact = false,
+        }
+    }
+    let mut narrowing = effinterp_proto::FsNarrowing::default();
+    let mut exact = true;
+    collect(
+        expression,
+        traversal == FindTraversal::Logical,
+        &mut narrowing,
+        &mut exact,
+    );
+    (narrowing, exact)
 }
 
 /// A find expression up to one action, read for whether that action runs for
@@ -1783,29 +1937,53 @@ fn find_depth_globs(
     Some(globs)
 }
 
-fn find_root_matches(ctx: &InvocationCtx, root: &Word, roots_only: bool) -> Word {
+/// The start path and everything below it: the root-wide selection of an
+/// action that works through the whole tree. `narrowing` states which of the
+/// entries below the start path the tests leave out.
+fn find_root_matches(
+    ctx: &InvocationCtx,
+    root: &Word,
+    roots_only: bool,
+    narrowing: &effinterp_proto::FsNarrowing,
+) -> Word {
     if roots_only {
         return root.clone();
     }
-    match find_descendant_matches(ctx, root) {
+    match find_descendant_matches(ctx, root, narrowing) {
         Some(descendants) => Word::new(vec![WordPart::Union(vec![root.clone(), descendants])]),
         None => Word::new(vec![WordPart::Unknown]),
     }
 }
 
-/// Every path strictly below `root`, when `root` resolves to one path.
-fn find_descendant_matches(ctx: &InvocationCtx, root: &Word) -> Option<Word> {
+/// Every path strictly below `root` that `narrowing` admits, when `root`
+/// resolves to one path.
+fn find_descendant_matches(
+    ctx: &InvocationCtx,
+    root: &Word,
+    narrowing: &effinterp_proto::FsNarrowing,
+) -> Option<Word> {
     let ResourceExpr::Concrete {
         identity: ResourceIdentity::FsPath { path },
     } = ctx.resolve_fs_word(root)
     else {
         return None;
     };
-    let pattern = format!(
+    let glob = format!(
         "{}/**",
         crate::paths::escape_fs_glob_path(path.trim_end_matches('/'))
     );
-    Some(Word::new(vec![WordPart::Glob(pattern)]))
+    // A glob word carries only its text, so a narrowed selection is passed as
+    // the resource it resolves to.
+    Some(Word::new(vec![if narrowing.is_none() {
+        WordPart::Glob(glob)
+    } else {
+        WordPart::Value(ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath {
+                glob,
+                narrowing: narrowing.clone(),
+            },
+        })
+    }]))
 }
 
 fn find_name_selection(
@@ -1834,6 +2012,7 @@ fn find_name_selection(
                 "{}/**/{name}",
                 crate::paths::escape_fs_glob_path(path.trim_end_matches('/'))
             ),
+            narrowing: Default::default(),
         },
     };
     let root_name = root.as_literal().map(crate::models::args::basename);

@@ -516,7 +516,7 @@ fn paths(plan: &Plan, operation: &str) -> Vec<String> {
                 identity: ResourceIdentity::FsPath { path },
             } => path.clone(),
             ResourceExpr::Pattern {
-                pattern: ResourcePattern::FsPath { glob },
+                pattern: ResourcePattern::FsPath { glob, .. },
             } => format!("glob:{glob}"),
             other => effinterp_proto::display_resource(other),
         })

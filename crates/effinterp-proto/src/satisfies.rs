@@ -494,7 +494,10 @@ impl Evaluator<'_> {
                             let descendants = self.scope(
                                 scope,
                                 &ResourceExpr::Pattern {
-                                    pattern: ResourcePattern::FsPath { glob },
+                                    pattern: ResourcePattern::FsPath {
+                                        glob,
+                                        narrowing: Default::default(),
+                                    },
                                 },
                                 contains,
                             );
@@ -1008,7 +1011,13 @@ impl Evaluator<'_> {
             match self.joined_glob(expr) {
                 Ok(Some((glob, steps))) => {
                     return and(
-                        self.pattern_member(identity, &ResourcePattern::FsPath { glob }),
+                        self.pattern_member(
+                            identity,
+                            &ResourcePattern::FsPath {
+                                glob,
+                                narrowing: Default::default(),
+                            },
+                        ),
                         Match::Satisfied {
                             proof: Proof { steps },
                         },
@@ -1319,7 +1328,7 @@ impl Evaluator<'_> {
             ) || matches!(part,ResourceExpr::Parameter { name } if name == "cwd");
             let (value, proof, pattern) = match part {
                 ResourceExpr::Pattern {
-                    pattern: ResourcePattern::FsPath { glob },
+                    pattern: ResourcePattern::FsPath { glob, .. },
                 } => (glob.clone(), vec![], true),
                 ResourceExpr::Pattern { .. } => return Err(MatchReason::UnsupportedShape),
                 _ => {
@@ -1416,7 +1425,7 @@ impl Evaluator<'_> {
             ),
         };
         match (pattern, identity) {
-            (ResourcePattern::FsPath { glob }, ResourceIdentity::FsPath { path }) => {
+            (ResourcePattern::FsPath { glob, .. }, ResourceIdentity::FsPath { path }) => {
                 let (glob, binding_steps) = match self.filesystem_glob(glob) {
                     Ok(value) => value,
                     Err(reason) => return unknown(reason),
@@ -1792,9 +1801,16 @@ impl Evaluator<'_> {
             return unknown(MatchReason::UnsupportedShape);
         }
         if let ScopeSet::Pattern {
-            pattern: ResourcePattern::FsPath { glob },
+            pattern: ResourcePattern::FsPath { glob, narrowing },
         } = &scope.set
         {
+            // The glob matching below reads a narrowed selection as every
+            // match of its glob. That over-approximates what an expression
+            // selects, which is sound wherever it stands; a narrowed scope
+            // read that way would claim to contain entries it leaves out.
+            if contains && !narrowing.is_none() {
+                return unknown(MatchReason::UnsupportedShape);
+            }
             let (resolved, steps) = match self.filesystem_glob(glob) {
                 Ok(value) => value,
                 Err(reason) => return unknown(reason),
@@ -1803,7 +1819,10 @@ impl Evaluator<'_> {
                 let scope = Scope {
                     realm: None,
                     set: ScopeSet::Pattern {
-                        pattern: ResourcePattern::FsPath { glob: resolved },
+                        pattern: ResourcePattern::FsPath {
+                            glob: resolved,
+                            narrowing: narrowing.clone(),
+                        },
                     },
                 };
                 return and(
@@ -1821,7 +1840,10 @@ impl Evaluator<'_> {
                         self.scope(
                             scope,
                             &ResourceExpr::Pattern {
-                                pattern: ResourcePattern::FsPath { glob },
+                                pattern: ResourcePattern::FsPath {
+                                    glob,
+                                    narrowing: Default::default(),
+                                },
                             },
                             contains,
                         ),
@@ -1835,7 +1857,7 @@ impl Evaluator<'_> {
             }
         }
         if let ResourceExpr::Pattern {
-            pattern: ResourcePattern::FsPath { glob },
+            pattern: ResourcePattern::FsPath { glob, narrowing },
         } = expr
         {
             let (resolved, steps) = match self.filesystem_glob(glob) {
@@ -1844,7 +1866,10 @@ impl Evaluator<'_> {
             };
             if &resolved != glob {
                 let expr = ResourceExpr::Pattern {
-                    pattern: ResourcePattern::FsPath { glob: resolved },
+                    pattern: ResourcePattern::FsPath {
+                        glob: resolved,
+                        narrowing: narrowing.clone(),
+                    },
                 };
                 return and(
                     self.scope(scope, &expr, contains),
@@ -1885,7 +1910,7 @@ impl Evaluator<'_> {
         }
         if !contains
             && let ResourceExpr::Pattern {
-                pattern: ResourcePattern::FsPath { glob },
+                pattern: ResourcePattern::FsPath { glob, .. },
             } = expr
         {
             let mut candidates = Vec::new();
@@ -1893,7 +1918,7 @@ impl Evaluator<'_> {
             match &scope.set {
                 ScopeSet::FsSubtree { root } => candidates.push(root.clone()),
                 ScopeSet::Pattern {
-                    pattern: ResourcePattern::FsPath { glob },
+                    pattern: ResourcePattern::FsPath { glob, .. },
                 } => globs.push(glob),
                 _ => (),
             }
@@ -1933,7 +1958,7 @@ impl Evaluator<'_> {
         if let (
             ScopeSet::FsSubtree { root },
             ResourceExpr::Pattern {
-                pattern: ResourcePattern::FsPath { glob },
+                pattern: ResourcePattern::FsPath { glob, .. },
             },
         ) = (&scope.set, expr)
         {

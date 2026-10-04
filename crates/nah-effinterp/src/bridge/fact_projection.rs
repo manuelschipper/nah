@@ -181,7 +181,7 @@ pub(super) fn project_effect_facts(
                 || matches!(
                     &effect.resource,
                     effinterp_proto::ResourceExpr::Pattern {
-                        pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                        pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
                     } if glob.ends_with("/**")
                 ),
             device: match &effect.resource {

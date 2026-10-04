@@ -832,7 +832,7 @@ pub(super) fn add_resource(
             }
         }
         effinterp_proto::ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } => {
             identity.kind = ResourceKind::HostPath;
             selection = Selection::Pattern {
@@ -1199,7 +1199,7 @@ fn selection_reach(
     };
     let extglob = match &effect.resource {
         effinterp_proto::ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } if nah_proto::labels::pattern::holds_extglob(glob) => Some(glob),
         _ => None,
     };

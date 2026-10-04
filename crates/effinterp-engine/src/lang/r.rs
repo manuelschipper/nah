@@ -471,7 +471,10 @@ impl RWalk<'_> {
                         },
                         true,
                     ) => Some(ResourceExpr::Pattern {
-                        pattern: effinterp_proto::ResourcePattern::FsPath { glob: path.clone() },
+                        pattern: effinterp_proto::ResourcePattern::FsPath {
+                            glob: path.clone(),
+                            narrowing: Default::default(),
+                        },
                     }),
                     _ => Some(resolved),
                 }

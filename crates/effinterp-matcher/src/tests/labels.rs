@@ -126,6 +126,7 @@ fn labels_reach_pattern_and_union_selections_through_the_provider() {
     plan.effects[read].resource = ResourceExpr::Pattern {
         pattern: ResourcePattern::FsPath {
             glob: "/work/*.key".into(),
+            narrowing: Default::default(),
         },
     };
     let labeled = |label, inherited| {
@@ -188,6 +189,7 @@ fn labels_reach_pattern_and_union_selections_through_the_provider() {
             ResourceExpr::Pattern {
                 pattern: ResourcePattern::FsPath {
                     glob: "/work/generated/**".into(),
+                    narrowing: Default::default(),
                 },
             },
         ],
@@ -278,6 +280,7 @@ fn observed_path_kinds_and_home_scope_come_from_the_provider() {
     plan.effects[read].resource = ResourceExpr::Pattern {
         pattern: ResourcePattern::FsPath {
             glob: "/backup/*".into(),
+            narrowing: Default::default(),
         },
     };
     assert!(matches!(
@@ -287,6 +290,7 @@ fn observed_path_kinds_and_home_scope_come_from_the_provider() {
     plan.effects[read].resource = ResourceExpr::Pattern {
         pattern: ResourcePattern::FsPath {
             glob: "/work/*".into(),
+            narrowing: Default::default(),
         },
     };
     assert!(matches!(

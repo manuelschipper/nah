@@ -892,7 +892,7 @@ fn terraform_and_terragrunt_require_a_proven_whole_stack_destroy_request() {
                     } if matches!(
                         configuration_root.as_ref(),
                         ResourceExpr::Pattern {
-                            pattern: effinterp_proto::ResourcePattern::FsPath { glob }
+                            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. }
                         } if glob == "/work/**"
                     )
                 )

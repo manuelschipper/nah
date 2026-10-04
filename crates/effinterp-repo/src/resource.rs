@@ -313,7 +313,10 @@ impl ResourceSelector {
                 if !n.contains(['*', '?', '[', '\\']) {
                     return Some(ScopeSet::FsSubtree { root: n.clone() });
                 }
-                ResourcePattern::FsPath { glob: n.clone() }
+                ResourcePattern::FsPath {
+                    glob: n.clone(),
+                    narrowing: Default::default(),
+                }
             }
             "env" => ResourcePattern::EnvironmentVariable {
                 name_glob: n.clone(),

@@ -457,6 +457,7 @@ fn validate_effect_resource_reports_each_failure_class() {
         ResourceExpr::Pattern {
             pattern: effinterp_proto::ResourcePattern::FsPath {
                 glob: String::new(),
+                narrowing: Default::default(),
             },
         },
     );
@@ -470,13 +471,17 @@ fn validate_effect_resource_reports_each_failure_class() {
         ResourceExpr::Pattern {
             pattern: effinterp_proto::ResourcePattern::FsPath {
                 glob: "bad**glob".into(),
+                narrowing: Default::default(),
             },
         },
         ResourceExpr::Join {
             parts: vec![
                 ResourceExpr::Parameter { name: "cwd".into() },
                 ResourceExpr::Pattern {
-                    pattern: effinterp_proto::ResourcePattern::FsPath { glob: "[".into() },
+                    pattern: effinterp_proto::ResourcePattern::FsPath {
+                        glob: "[".into(),
+                        narrowing: Default::default(),
+                    },
                 },
             ],
         },
@@ -688,6 +693,7 @@ fn rejects_invalid_and_noncanonical_boundary_resources() {
     invalid.boundaries[0].affected_resource = Some(ResourceExpr::Pattern {
         pattern: effinterp_proto::ResourcePattern::FsPath {
             glob: "/tmp/*/../x".into(),
+            narrowing: Default::default(),
         },
     });
     assert!(
@@ -782,6 +788,7 @@ fn environment_and_git_roots_require_their_typed_identity() {
             pathspec: Some(Box::new(ResourceExpr::Pattern {
                 pattern: effinterp_proto::ResourcePattern::FsPath {
                     glob: "src/*".into(),
+                    narrowing: Default::default(),
                 },
             })),
         },

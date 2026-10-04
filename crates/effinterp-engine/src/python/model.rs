@@ -211,6 +211,7 @@ pub(super) fn external_method_effects(
                         ) => ResourceExpr::Pattern {
                             pattern: effinterp_proto::ResourcePattern::FsPath {
                                 glob: pathlib_glob_pattern(path, &glob, method == "rglob"),
+                                narrowing: Default::default(),
                             },
                         },
                         _ => resource,
@@ -988,6 +989,7 @@ impl PythonWalker<'_, '_> {
                     ) => Some(ResourceExpr::Pattern {
                         pattern: effinterp_proto::ResourcePattern::FsPath {
                             glob: pathlib_glob_pattern(path, &glob, method == "rglob"),
+                            narrowing: Default::default(),
                         },
                     }),
                     _ => None,
@@ -3003,6 +3005,7 @@ impl PythonWalker<'_, '_> {
         let pattern = ResourceExpr::Pattern {
             pattern: effinterp_proto::ResourcePattern::FsPath {
                 glob: format!("{prefix}*{suffix}"),
+                narrowing: Default::default(),
             },
         };
         Some(ResourceExpr::Join {
@@ -3186,6 +3189,7 @@ impl PythonWalker<'_, '_> {
                             } else {
                                 format!("{}/{pattern}", root.as_deref().unwrap_or("."))
                             },
+                            narrowing: Default::default(),
                         },
                     }
                 } else {

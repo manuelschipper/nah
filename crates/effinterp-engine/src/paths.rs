@@ -187,6 +187,7 @@ pub(crate) fn resolve_literal_tool_pattern(
             resource: ResourceExpr::Pattern {
                 pattern: effinterp_proto::ResourcePattern::FsPath {
                     glob: literal.to_string(),
+                    narrowing: Default::default(),
                 },
             },
         };
@@ -200,6 +201,7 @@ pub(crate) fn resolve_literal_tool_pattern(
                     "{}/{literal}",
                     escape_fs_glob_path(path.trim_end_matches('/'))
                 ),
+                narrowing: Default::default(),
             },
         },
         base => ResourceExpr::Join {
@@ -208,6 +210,7 @@ pub(crate) fn resolve_literal_tool_pattern(
                 ResourceExpr::Pattern {
                     pattern: effinterp_proto::ResourcePattern::FsPath {
                         glob: literal.to_string(),
+                        narrowing: Default::default(),
                     },
                 },
             ],
@@ -307,6 +310,7 @@ pub(crate) fn resolve_fs_word_with_cwd_on_platform(
             WordPart::Glob(pattern) => ResourceExpr::Pattern {
                 pattern: effinterp_proto::ResourcePattern::FsPath {
                     glob: pattern.clone(),
+                    narrowing: Default::default(),
                 },
             },
             WordPart::Union(alternatives) => ResourceExpr::Union {
@@ -356,6 +360,7 @@ pub(crate) fn filesystem_glob(pattern: &str, cwd: Option<ResourceExpr>) -> Resou
     let leaf = ResourceExpr::Pattern {
         pattern: effinterp_proto::ResourcePattern::FsPath {
             glob: pattern.to_string(),
+            narrowing: Default::default(),
         },
     };
     if fs_glob_is_absolute(pattern) {
@@ -370,6 +375,7 @@ pub(crate) fn filesystem_glob(pattern: &str, cwd: Option<ResourceExpr>) -> Resou
                     "{}/{pattern}",
                     escape_fs_glob_path(path.trim_end_matches('/'))
                 ),
+                narrowing: Default::default(),
             },
         },
         cwd => ResourceExpr::Join {
@@ -544,6 +550,7 @@ fn command_word(word: &crate::word::Word, cwd: Option<&ResourceExpr>) -> Resourc
                 WordPart::Glob(pattern) => ResourceExpr::Pattern {
                     pattern: effinterp_proto::ResourcePattern::FsPath {
                         glob: pattern.clone(),
+                        narrowing: Default::default(),
                     },
                 },
                 WordPart::Union(alternatives) => ResourceExpr::Union {

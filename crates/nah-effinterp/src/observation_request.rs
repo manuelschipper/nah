@@ -209,7 +209,7 @@ pub(crate) fn observation_bound(resource: &ResourceExpr) -> Option<(Cow<'_, str>
             identity: ResourceIdentity::FsPath { path },
         } => Some((Cow::Borrowed(path), "")),
         ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } => pattern_observation_bound(glob),
         _ => subtree_root(resource).map(|root| (Cow::Borrowed(root), "")),
     }
@@ -287,8 +287,27 @@ pub(crate) fn finite_members(resource: &ResourceExpr) -> Option<&[ResourceExpr]>
     .then_some(alternatives)
 }
 
+/// What a filesystem selection's producer says it leaves out: the narrowing of
+/// a pattern, or of the descendants of a root-wide selection.
+pub(crate) fn selection_narrowing(
+    resource: &ResourceExpr,
+) -> Option<&effinterp_proto::FsNarrowing> {
+    match resource {
+        ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath { narrowing, .. },
+        } => Some(narrowing),
+        ResourceExpr::Union { alternatives } if subtree_root(resource).is_some() => {
+            alternatives.iter().find_map(selection_narrowing)
+        }
+        _ => None,
+    }
+}
+
 /// Preserve the exact set of a root and any descendant without treating an
-/// arbitrary union as one path. The root remains a selection bound.
+/// arbitrary union as one path. The root remains a selection bound. A producer
+/// may narrow the descendants (`find DIR -type d`): the selection still works
+/// through the whole tree, so it stays a subtree, and `selection_narrowing`
+/// says what it leaves out.
 pub(crate) fn subtree_root(resource: &ResourceExpr) -> Option<&str> {
     let ResourceExpr::Union { alternatives } = resource else {
         return None;
@@ -302,12 +321,12 @@ pub(crate) fn subtree_root(resource: &ResourceExpr) -> Option<&str> {
                 identity: ResourceIdentity::FsPath { path },
             },
             ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
             },
         )
         | (
             ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
             },
             ResourceExpr::Concrete {
                 identity: ResourceIdentity::FsPath { path },
@@ -395,7 +414,10 @@ mod tests {
             ("/other/**", None),
         ] {
             let pattern = ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob: glob.into() },
+                pattern: effinterp_proto::ResourcePattern::FsPath {
+                    glob: glob.into(),
+                    narrowing: Default::default(),
+                },
             };
             for alternatives in [
                 vec![root.clone(), pattern.clone()],
@@ -407,6 +429,26 @@ mod tests {
                 );
             }
         }
+        // A producer that narrows the descendants still works through the tree.
+        let narrowed = ResourceExpr::Union {
+            alternatives: vec![
+                root.clone(),
+                ResourceExpr::Pattern {
+                    pattern: effinterp_proto::ResourcePattern::FsPath {
+                        glob: r"/tmp/build\[1\]/**".into(),
+                        narrowing: effinterp_proto::FsNarrowing {
+                            kinds: vec![effinterp_proto::FsEntryKind::Directory],
+                            excluded_names: vec![],
+                        },
+                    },
+                },
+            ],
+        };
+        assert_eq!(subtree_root(&narrowed), Some("/tmp/build[1]"));
+        assert_eq!(
+            selection_narrowing(&narrowed).map(|narrowing| narrowing.kinds.as_slice()),
+            Some([effinterp_proto::FsEntryKind::Directory].as_slice())
+        );
         assert_eq!(
             subtree_root(&ResourceExpr::Union {
                 alternatives: vec![root.clone(), root]

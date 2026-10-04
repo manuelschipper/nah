@@ -1040,6 +1040,7 @@ pub(super) fn path_resource(path: &str, windows: bool, wildcards: bool) -> Resou
         return ResourceExpr::Pattern {
             pattern: ResourcePattern::FsPath {
                 glob: normalize_path(path, platform),
+                narrowing: Default::default(),
             },
         };
     }
@@ -1741,7 +1742,7 @@ fn move_item(
                 identity: ResourceIdentity::FsPath { path },
             }) => Some(path.clone()),
             Some(ResourceExpr::Pattern {
-                pattern: ResourcePattern::FsPath { glob },
+                pattern: ResourcePattern::FsPath { glob, .. },
             }) => Some(wildcard_root(glob).to_string()),
             _ => None,
         })
@@ -1792,7 +1793,7 @@ fn move_item(
             // nothing, and a moved directory is not established anyway.
             let depth = match &resolved[index] {
                 Some(ResourceExpr::Pattern {
-                    pattern: ResourcePattern::FsPath { glob },
+                    pattern: ResourcePattern::FsPath { glob, .. },
                 }) if !recursive => Some(glob_components_below(glob, root)),
                 _ => None,
             };
@@ -1829,7 +1830,7 @@ fn move_item(
     let mut admitted = vec![None; resolved.len()];
     for index in 0..resolved.len() {
         let Some(ResourceExpr::Pattern {
-            pattern: ResourcePattern::FsPath { glob },
+            pattern: ResourcePattern::FsPath { glob, .. },
         }) = &resolved[index]
         else {
             continue;
@@ -2018,7 +2019,7 @@ fn move_item(
             }
             match &resolved[index] {
                 Some(ResourceExpr::Pattern {
-                    pattern: ResourcePattern::FsPath { glob },
+                    pattern: ResourcePattern::FsPath { glob, .. },
                 }) if mirrors_wildcard(index) => Some(landed_entries(
                     Some((glob, wildcard_root(glob))),
                     source_kind(index),
@@ -2160,6 +2161,7 @@ fn move_item(
                     "{}/**",
                     crate::paths::escape_fs_glob_path(landed.landing.trim_end_matches('/'))
                 ),
+                narrowing: Default::default(),
             },
         });
         let resources = match overflow {

@@ -217,12 +217,15 @@ fn exact_patterns_and_unknowns_never_collapse() {
     ] {
         let resource = normalize_resource(
             ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob: input.into() },
+                pattern: effinterp_proto::ResourcePattern::FsPath {
+                    glob: input.into(),
+                    narrowing: Default::default(),
+                },
             },
             PathPlatform::Posix,
         );
         let ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
         } = &resource
         else {
             panic!("expected pattern")
@@ -246,7 +249,10 @@ fn exact_patterns_and_unknowns_never_collapse() {
         r"/work/../x\",
     ] {
         let resource = ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob: input.into() },
+            pattern: effinterp_proto::ResourcePattern::FsPath {
+                glob: input.into(),
+                narrowing: Default::default(),
+            },
         };
         assert_eq!(
             normalize_resource(resource.clone(), PathPlatform::Posix),
@@ -262,6 +268,7 @@ fn exact_patterns_and_unknowns_never_collapse() {
         let glob = |pattern: &str| ResourceExpr::Pattern {
             pattern: effinterp_proto::ResourcePattern::FsPath {
                 glob: pattern.into(),
+                narrowing: Default::default(),
             },
         };
         let normalized = normalize_resource(
@@ -285,6 +292,7 @@ fn exact_patterns_and_unknowns_never_collapse() {
     let glob = |pattern: &str| ResourceExpr::Pattern {
         pattern: effinterp_proto::ResourcePattern::FsPath {
             glob: pattern.into(),
+            narrowing: Default::default(),
         },
     };
     let through_wildcard = ResourceExpr::Join {
@@ -313,6 +321,7 @@ fn exact_patterns_and_unknowns_never_collapse() {
     let pattern = ResourceExpr::Pattern {
         pattern: effinterp_proto::ResourcePattern::FsPath {
             glob: "/tmp/build-*".into(),
+            narrowing: Default::default(),
         },
     };
     let unknown = ResourceExpr::Unresolved {
@@ -767,4 +776,57 @@ fn infrastructure_identities_round_trip_symbolic_fields_through_the_query_schema
         );
         assert!(errors.is_empty(), "{errors:?}");
     }
+}
+
+#[test]
+fn filesystem_narrowing_is_optional_on_the_wire_and_survives_normalization() {
+    use effinterp_proto::{FsEntryKind, FsNarrowing, ResourcePattern};
+    let pattern = |glob: &str, narrowing: FsNarrowing| ResourceExpr::Pattern {
+        pattern: ResourcePattern::FsPath {
+            glob: glob.into(),
+            narrowing,
+        },
+    };
+    // A selection that leaves nothing out keeps the wire form it always had,
+    // and a document written before the field existed still reads.
+    let plain = pattern("/w/**", FsNarrowing::default());
+    let wire = serde_json::to_value(&plain).unwrap();
+    assert_eq!(
+        wire,
+        serde_json::json!({"expr": "pattern", "pattern": {"family": "fs_path", "glob": "/w/**"}})
+    );
+    assert_eq!(serde_json::from_value::<ResourceExpr>(wire).unwrap(), plain);
+
+    let narrowing = FsNarrowing {
+        kinds: vec![FsEntryKind::Directory],
+        excluded_names: vec!["nap.*".into()],
+    };
+    let narrowed = pattern("/w/./**", narrowing.clone());
+    assert_eq!(
+        serde_json::from_value::<ResourceExpr>(serde_json::to_value(&narrowed).unwrap()).unwrap(),
+        narrowed
+    );
+    assert_eq!(
+        normalize_resource(narrowed, PathPlatform::Posix),
+        pattern("/w/**", narrowing.clone())
+    );
+    assert!(narrowing.admits(FsEntryKind::Directory, "guards"));
+    assert!(!narrowing.admits(FsEntryKind::File, "guards"));
+    assert!(!narrowing.admits(FsEntryKind::Directory, "nap.d"));
+
+    // A glob's trailing separator selects directories and links to them;
+    // normalization drops the separator and keeps what it said.
+    assert_eq!(
+        normalize_resource(
+            pattern("/w/*/", FsNarrowing::default()),
+            PathPlatform::Posix
+        ),
+        pattern(
+            "/w/*",
+            FsNarrowing {
+                kinds: vec![FsEntryKind::Directory, FsEntryKind::Symlink],
+                excluded_names: vec![],
+            }
+        )
+    );
 }
