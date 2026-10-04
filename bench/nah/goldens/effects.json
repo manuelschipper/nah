@@ -16683,6 +16683,19 @@
       ]
     },
     {
+      "id": "secrets-env.here-string-cat-credential",
+      "guard": "secrets-env",
+      "derivation": "The here-string expands the named credential environment variable and cat prints it.",
+      "require": [
+        {
+          "op": "environment.read",
+          "resource": {
+            "eq": "env:GITHUB_TOKEN"
+          }
+        }
+      ]
+    },
+    {
       "id": "secrets-env.env-read",
       "guard": "secrets-env",
       "derivation": "command accesses a secret-bearing environment file",
@@ -31183,6 +31196,32 @@
       ]
     },
     {
+      "id": "self-protection.critical.project-python-here-string-variable-descriptor",
+      "guard": null,
+      "derivation": "case mutates nah state, integrations, or the installed nah binary",
+      "require": [
+        {
+          "op": "filesystem.metadata",
+          "resource": {
+            "eq": "/home/test/.local/bin/nah"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.project-python-process-substitution-script",
+      "guard": null,
+      "derivation": "case mutates nah state, integrations, or the installed nah binary",
+      "require": [
+        {
+          "op": "filesystem.metadata",
+          "resource": {
+            "eq": "/home/test/.local/bin/nah"
+          }
+        }
+      ]
+    },
+    {
       "id": "self-protection.critical.executable-alias-cp-nah-alias-alias-trust-project",
       "guard": null,
       "derivation": "case mutates nah state, integrations, or the installed nah binary",
@@ -31236,6 +31275,19 @@
     },
     {
       "id": "self-protection.critical.executable-alias-cp-i-nah-existing-existing-trust-project",
+      "guard": null,
+      "derivation": "case mutates nah state, integrations, or the installed nah binary",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.nah/trust.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.executable-alias-redirect-copy",
       "guard": null,
       "derivation": "case mutates nah state, integrations, or the installed nah binary",
       "require": [
@@ -100110,6 +100162,132 @@
       ]
     },
     {
+      "id": "exec-remote.branch-capture-eval-after-branch",
+      "guard": "exec-remote",
+      "derivation": "The branch may capture curl output in x; eval after the branch executes whatever x holds.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "https://evil.example/i.sh"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          },
+          "attributes": {
+            "source": "argument"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.request",
+            "resource": {
+              "eq": "https://evil.example/i.sh"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            },
+            "attributes": {
+              "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.loop-capture-eval-next-iteration",
+      "guard": "exec-remote",
+      "derivation": "Each iteration captures curl output in x; the next iteration's eval executes it.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "https://evil.example/i.sh"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          },
+          "attributes": {
+            "source": "argument"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.request",
+            "resource": {
+              "eq": "https://evil.example/i.sh"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            },
+            "attributes": {
+              "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.for-command-substitution-list-eval",
+      "guard": "exec-remote",
+      "derivation": "The loop list is the words of curl output; eval executes each word.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "https://evil.example/i.sh"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          },
+          "attributes": {
+            "source": "argument"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.request",
+            "resource": {
+              "eq": "https://evil.example/i.sh"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            },
+            "attributes": {
+              "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
       "id": "exec-remote.curl-sed-line-range-pipe-sh",
       "guard": "exec-remote",
       "derivation": "sed selects the first twenty lines of the curl response and pipes those remote bytes to sh as code.",
@@ -105757,6 +105935,32 @@
           "op": "filesystem.delete",
           "resource": {
             "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.printf-while-read-second-line-rm-rf-home",
+      "guard": "fs-home",
+      "derivation": "the loop reads $HOME as the second printf line and removes it recursively",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "one_of(/home/test, /tmp/scratch)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.printf-while-read-backslash-line-rm-rf-home",
+      "guard": "fs-home",
+      "derivation": "read -r keeps the backslashes of the first line; the loop reads $HOME as the second and removes it recursively",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "one_of(/home/test, /workspace/project/C:\\Windows\\Temp)"
           }
         }
       ]

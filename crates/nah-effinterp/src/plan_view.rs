@@ -602,11 +602,52 @@ impl<'a> PlanView<'a> {
         })
     }
 
+    pub(crate) fn incoming_edges(
+        &self,
+        id: &effinterp_proto::OccurrenceId,
+    ) -> impl Iterator<Item = &'a effinterp_proto::CausalEdge> {
+        self.plan.causality.graph.iter().flat_map(move |graph| {
+            self.causality
+                .incoming
+                .get(id)
+                .into_iter()
+                .flatten()
+                .map(|index| &graph.edges[*index])
+        })
+    }
+
     pub(crate) fn observed_path(&self, requested: &str) -> Option<&'a PathObservation> {
         match self.observed_paths.get(requested) {
             Some(Observed::Ok { value }) => Some(value),
             Some(Observed::Error { .. }) | None => None,
         }
+    }
+
+    /// The observation of the entry at `path`, whether the plan asked for
+    /// it by that spelling or by one that resolves to it through a directory
+    /// link (`/tmp/x` for `/private/tmp/x`).
+    pub(crate) fn observed_entry(&self, path: &str) -> Option<&'a PathObservation> {
+        self.observed_path(path).or_else(|| {
+            self.observed_paths
+                .values()
+                .find_map(|observed| match observed {
+                    Observed::Ok { value } if value.resolved().as_str() == path => Some(value),
+                    _ => None,
+                })
+        })
+    }
+
+    /// Whether some observation shows a directory at `path`, by the
+    /// spelling the plan asked for or by where that spelling resolved.
+    pub(crate) fn observed_directory(&self, path: &str) -> bool {
+        self.observed_paths.iter().any(|(requested, observed)| {
+            matches!(observed, Observed::Ok { value }
+                if (*requested == path
+                    || value.resolved().as_str() == path
+                    || value.realpath().is_some_and(|real| real.as_str() == path))
+                    && (value.kind() == nah_proto::observation::PathKind::Directory
+                        || value.target_kind() == Some(nah_proto::observation::PathKind::Directory)))
+        })
     }
 
     pub(crate) fn path_unavailable(&self, requested: &str) -> bool {

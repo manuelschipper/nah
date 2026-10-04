@@ -1001,7 +1001,7 @@ impl Shell<'_> {
                             && (entry.script_set || !entry.script_may_set && entry.value.is_some())
                         {
                             assign_nodes.push(var_node(builder, self.scope, entry));
-                            producers.extend(entry.producers.iter().cloned());
+                            producers.extend(entry.producers_in_condition(builder).iter().cloned());
                             if let Some(value) = &entry.value {
                                 let use_default =
                                     env.unset.contains(name) || default.colon && value.is_empty();
@@ -1565,9 +1565,9 @@ impl Shell<'_> {
             return expansion;
         };
         expansion.unresolved_default_override = entry.unresolved_default_override;
-        if entry.word_condition.is_none() || entry.word_in_condition(builder).is_some() {
-            expansion.producers.extend(entry.producers.iter().cloned());
-        }
+        expansion
+            .producers
+            .extend(entry.producers_in_condition(builder).iter().cloned());
         expansion
             .assign_nodes
             .push(var_node(builder, self.scope, entry));
@@ -1814,7 +1814,7 @@ impl Shell<'_> {
             };
         }
         if env.unset.contains(name) {
-            return Some(false);
+            return (!env.startup_may_set.contains(name)).then_some(false);
         }
         if let Some(entry) = env.vars.get(name)
             && entry.script_set
@@ -1965,7 +1965,8 @@ pub(super) fn var_node(
             &antecedents,
         )
     });
-    builder.register_environment_value_producers(node, &entry.producers);
+    let producers = entry.producers_in_condition(builder).to_vec();
+    builder.register_environment_value_producers(node, &producers);
     node
 }
 

@@ -22,7 +22,7 @@ use crate::word::{Word, WordPart};
 
 use super::NestedShellMode;
 use super::redirection::{descriptor_file_read, descriptor_read_producer, word_descriptor};
-use super::word_expansion::{uses_default_ifs, var_node};
+use super::word_expansion::var_node;
 
 /// The case `declare -l` or `declare -u` applies to a declared value.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -302,8 +302,6 @@ impl Shell<'_> {
                     entry.word_condition = builder.current_condition();
                     if entry.word_condition.is_none() {
                         entry.word = None;
-                    } else {
-                        entry.producers = converted.producers;
                     }
                 }
             }
@@ -1013,6 +1011,7 @@ impl Shell<'_> {
         mut descriptor_producers: Vec<FlowRef>,
         persist: bool,
         conditional: bool,
+        ifs: Option<&str>,
     ) {
         builder.declare_coverage(Domain::new("environment"), CoverageLevel::Full);
         let mut targets = Vec::new();
@@ -1025,13 +1024,14 @@ impl Shell<'_> {
         // literal fields.
         let mut shaped_input = false;
         let mut other_options = false;
+        let mut raw = false;
         let mut i = 1;
         let mut options = true;
         while i < converted.len() {
             let target = &converted[i];
             match target.word.as_literal() {
                 Some("--") if options => options = false,
-                Some("-r") if options => {}
+                Some("-r") if options => raw = true,
                 Some(flag @ ("-p" | "-t" | "-n" | "-N" | "-d" | "-u" | "-i" | "-a")) if options => {
                     other_options = true;
                     shaped_input |= matches!(flag, "-n" | "-N" | "-d");
@@ -1117,16 +1117,38 @@ impl Shell<'_> {
                 .map(|target| (target.word.as_literal(), target.span))
                 .collect()
         };
-        // A literal input's first line, minus the leading and trailing blanks
-        // the shell strips. One variable takes all of it; under the default
-        // IFS, each earlier variable takes one field and the last the rest.
-        let line = stdin
+        // The lines a literal input assigns, each as `read` stores it. One
+        // variable takes a whole line; under the default IFS, each earlier
+        // variable takes one field and the last the rest.
+        let lines = stdin
             .and_then(|stdin| stdin.word.as_literal())
-            .map(|text| text.split('\n').next().unwrap_or_default())
-            .filter(|line| !shaped_input && !line.contains('\\'))
-            .map(|line| line.trim_matches([' ', '\t']));
+            .filter(|_| !shaped_input)
+            .map(|text| assigned_lines(text, raw, ifs));
+        // The condition of a `while read` loop reads one line per iteration,
+        // so inside the loop its one variable holds any line of the input.
+        let condition = conditional.then(|| builder.current_condition()).flatten();
+        let in_loop = condition.as_ref().is_some_and(innermost_is_loop);
+        let loop_lines = lines
+            .as_ref()
+            .filter(|_| in_loop && targets.len() == 1)
+            .and_then(|lines| lines.iter().cloned().collect::<Option<Vec<_>>>())
+            .map(|mut lines| {
+                lines.dedup();
+                lines.into_iter().map(Word::literal).collect::<Vec<_>>()
+            })
+            .filter(|lines| {
+                lines.len() > 1 && lines.len() as u64 <= self.nest.limits.max_value_cardinality
+            });
+        // Later iterations assign lines the first does not show, so a loop
+        // whose lines differ and are not all bound above recovers none.
+        let line = lines
+            .as_ref()
+            .filter(|lines| {
+                !in_loop || loop_lines.is_some() || lines.iter().all(|line| *line == lines[0])
+            })
+            .and_then(|lines| lines[0].as_deref());
         let mut fields = line
-            .filter(|_| targets.len() == 1 || !other_options && uses_default_ifs(env))
+            .filter(|_| targets.len() == 1 || !other_options && ifs == Some(" \t\n"))
             .map(|line| {
                 let mut fields = Vec::new();
                 let mut rest = line;
@@ -1166,6 +1188,33 @@ impl Shell<'_> {
                             input_nodes.clone(),
                             descriptor_producers.clone(),
                         );
+                        // A conditional read still precedes every use inside
+                        // its own region, where the line it stored is known.
+                        let word = match &loop_lines {
+                            Some(lines) => Some(Word::new(vec![WordPart::Union(lines.clone())])),
+                            None => line.clone().map(Word::literal),
+                        };
+                        if let Some(word) = word
+                            && let Some(condition) = &condition
+                            && let Some(entry) = env.vars.get_mut(name)
+                            && entry.value.is_none()
+                        {
+                            entry.word = Some(word);
+                            entry.word_condition = Some(condition.clone());
+                            let mut hash = blake3::Hasher::new();
+                            hash.update(
+                                variable_saturation_key(
+                                    None,
+                                    &entry.may,
+                                    entry.word.as_ref(),
+                                    entry.script_may_set,
+                                    entry.unresolved_default_override,
+                                )
+                                .as_bytes(),
+                            );
+                            hash.update(condition.identity_key().as_bytes());
+                            entry.saturation_key = hash.finalize();
+                        }
                     }
                     ResourceExpr::Concrete {
                         identity: ResourceIdentity::EnvironmentVariable {
@@ -1350,6 +1399,60 @@ fn record_transparent_write(
     }
 }
 
+/// What `read` assigns for each line of the literal input `text`, when its
+/// one variable takes the whole line. Without `-r` a line ending in a
+/// backslash continues on the next. `read` strips only the leading and
+/// trailing blanks IFS holds, so `IFS= read` keeps them. A line is `None`
+/// where IFS is unknown, or another backslash escape or a non-blank IFS
+/// delimiter shapes the value.
+fn assigned_lines(text: &str, raw: bool, ifs: Option<&str>) -> Vec<Option<String>> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut continued = false;
+    for line in text.strip_suffix('\n').unwrap_or(text).split('\n') {
+        if continued && let Some(last) = lines.last_mut() {
+            last.push_str(line);
+        } else {
+            lines.push(line.to_string());
+        }
+        let trailing = line.chars().rev().take_while(|c| *c == '\\').count();
+        continued = !raw && trailing % 2 == 1;
+        if continued && let Some(last) = lines.last_mut() {
+            last.pop();
+        }
+    }
+    lines
+        .into_iter()
+        .map(|line| {
+            let ifs = ifs?;
+            if !raw && line.contains('\\')
+                || line
+                    .chars()
+                    .any(|c| ifs.contains(c) && !c.is_ascii_whitespace())
+            {
+                return None;
+            }
+            let blanks: Vec<char> = [' ', '\t']
+                .into_iter()
+                .filter(|blank| ifs.contains(*blank))
+                .collect();
+            Some(line.trim_matches(blanks.as_slice()).to_string())
+        })
+        .collect()
+}
+
+/// Whether the region a condition most narrowly names is a loop.
+fn innermost_is_loop(condition: &effinterp_proto::Condition) -> bool {
+    match condition {
+        effinterp_proto::Condition::Atom { atom } => {
+            atom.origin.kind == effinterp_proto::ConditionKind::Loop
+        }
+        effinterp_proto::Condition::All { conditions } => {
+            conditions.last().is_some_and(innermost_is_loop)
+        }
+        _ => false,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bind_var(
     builder: &mut PlanBuilder,
@@ -1457,6 +1560,12 @@ pub(super) fn bind_var(
     };
     let unresolved_default_override =
         conditional && previous.is_some_and(|entry| entry.unresolved_default_override);
+    // A conditional write still precedes every use inside its own region, so
+    // its producers reach those uses. A guarded write, or one under no
+    // recorded condition, has no region to scope them to.
+    let producers_condition = (conditional && !guarded && !producers.is_empty())
+        .then(|| builder.current_condition())
+        .flatten();
     env.vars.insert(
         name,
         VarEntry {
@@ -1477,7 +1586,12 @@ pub(super) fn bind_var(
             span,
             node: None,
             antecedents,
-            producers: if conditional { Vec::new() } else { producers },
+            producers: if conditional && producers_condition.is_none() {
+                Vec::new()
+            } else {
+                producers
+            },
+            producers_condition,
             script_set,
             script_may_set: true,
             captured_name_hidden: false,
@@ -1486,12 +1600,53 @@ pub(super) fn bind_var(
     );
 }
 
+/// The pending flow values the words of a `for` list expand from: each
+/// iteration binds the loop variable to one of them, so its value carries
+/// what a captured variable or a `mapfile` array was read from.
+pub(in crate::shell) fn for_list_producers(
+    builder: &PlanBuilder,
+    env: &ShellEnv,
+    values: &[WordTok],
+) -> Vec<FlowRef> {
+    let mut producers = Vec::new();
+    for seg in values.iter().flat_map(|value| &value.segs) {
+        let (Seg::Env { name, .. }
+        | Seg::Param { name, .. }
+        | Seg::ArrayAll { name, .. }
+        | Seg::ArrayIndex { name, .. }) = seg
+        else {
+            continue;
+        };
+        let Some(name) = env.reference_target(name) else {
+            continue;
+        };
+        if let Some(entry) = env.vars.get(&name) {
+            producers.extend(entry.producers_in_condition(builder).iter().cloned());
+        }
+        match env.arrays.get(&name) {
+            Some(ArrayValue::Unknown(read)) => producers.extend(read.iter().cloned()),
+            Some(array) => producers.extend(
+                array
+                    .candidates()
+                    .iter()
+                    .flatten()
+                    .flat_map(|element| element.producers.iter().cloned()),
+            ),
+            None => {}
+        }
+    }
+    producers.sort();
+    producers.dedup();
+    producers
+}
+
 pub(in crate::shell) fn bind_for_var(
     builder: &mut PlanBuilder,
     env: &mut ShellEnv,
     name: String,
     word: Option<Word>,
     span: ShellSpan,
+    producers: Vec<FlowRef>,
 ) {
     let nameref = env.vars.get(&name).is_some_and(|entry| entry.nameref);
     if nameref && let Some(entry) = env.vars.get_mut(&name) {
@@ -1507,7 +1662,7 @@ pub(in crate::shell) fn bind_for_var(
         false,
         span,
         Vec::new(),
-        Vec::new(),
+        producers,
     );
     if let Some(entry) = env.vars.get_mut(&name) {
         entry.nameref = nameref;

@@ -73,13 +73,35 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
         effect.attributes.get("delivery") == Some(&AttrValue::String("terminal".into()))
     });
     let mut search_path = false;
+    let mut identifies_path = false;
     for effect in &plan.effects {
         match nah_control_executable(plan, effect) {
             Some(Some(path)) => {
                 paths.entry(path.to_owned()).or_default();
+                identifies_path = true;
             }
             Some(None) => search_path = true,
             None => {}
+        }
+    }
+    // A copy puts Nah on such a path only when it lands, which takes an
+    // existing directory to land in (`annotate::transfer_lands`).
+    if identifies_path {
+        for effect in &plan.effects {
+            if effect.realm.is_host()
+                && matches!(
+                    effect.operation.as_str(),
+                    "filesystem.write" | "filesystem.create"
+                )
+                && let ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path },
+                } = &effect.resource
+                && let Some(separator) = path.rfind(['/', '\\'])
+            {
+                paths
+                    .entry(path[..separator.max(1)].to_owned())
+                    .or_default();
+            }
         }
     }
     let mut queries = vec![

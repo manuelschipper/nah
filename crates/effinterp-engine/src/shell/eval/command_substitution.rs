@@ -1,7 +1,9 @@
 //! Shell command substitution: the value and producer a `$(...)` or backtick
 //! substitution yields, including literal output recovered without running it.
 
-use effinterp_proto::{ExecutionNodeRef, Port, ResourceExpr};
+use effinterp_proto::{
+    Effect, ExecutionNodeRef, Modality, Operation, Port, ResourceExpr, ResourceIdentity,
+};
 
 use crate::builder::PlanBuilder;
 use crate::flow::{BindEnd, FlowStage, PortBinding};
@@ -336,7 +338,11 @@ impl Shell<'_> {
                 })
                 .collect::<Vec<_>>();
             resources.dedup();
+            let located = (resources.is_empty() && here_string.is_none())
+                .then(|| self.located_command(builder, env, &words))
+                .flatten();
             let value = match resources.as_slice() {
+                _ if located.is_some() => located?,
                 [value] => value.clone(),
                 [] => match &here_string {
                     // A here-string delivers its word and a newline.
@@ -397,6 +403,119 @@ impl Shell<'_> {
             .map(|value| ResourceExpr::Literal { value })
     }
 
+    /// The path `which NAME` or `command -v NAME` prints: the first PATH
+    /// candidate the host shows to be an executable file. A candidate whose
+    /// executable bit the host did not report may be the answer or be passed
+    /// over, so it joins the later candidates and an unknown result as
+    /// alternatives. A search that establishes no candidate recovers nothing.
+    fn located_command(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &ShellEnv,
+        words: &[Word],
+    ) -> Option<ResourceExpr> {
+        use effinterp_proto::{Fact, ObservationOutcome, PathKind};
+        let words = words
+            .iter()
+            .map(Word::as_literal)
+            .collect::<Option<Vec<_>>>()?;
+        let command = match words.as_slice() {
+            ["which", command] => *command,
+            // The shell names a function, alias or builtin instead of a file.
+            ["command", "-v", command]
+                if !crate::shell::shell_builtin(command)
+                    && !env.functions.contains_key(*command)
+                    && !env.function_alternatives.contains_key(*command)
+                    && !env.aliases.contains_key(*command)
+                    && !env.alias_alternatives.contains_key(*command) =>
+            {
+                *command
+            }
+            _ => return None,
+        };
+        if command.is_empty() || command.starts_with('-') || command.contains('/') {
+            return None;
+        }
+        if !builder.is_host_realm() || builder.budget().observations.is_none() {
+            return None;
+        }
+        // The shell's own PATH when the script holds one, else the one the
+        // shell was started with.
+        let path = match env.vars.get("PATH") {
+            _ if env.unset.contains("PATH") => return None,
+            Some(entry) => entry.value.clone()?,
+            None => match self
+                .nest
+                .context
+                .and_then(|context| context.env.get("PATH"))
+            {
+                Some(path) => path.clone(),
+                // The search reads PATH, so the host is asked for it.
+                None => {
+                    builder.effect(Effect {
+                        id: Default::default(),
+                        operation: Operation::new("environment.read"),
+                        resource: ResourceExpr::Concrete {
+                            identity: ResourceIdentity::EnvironmentVariable {
+                                name: "PATH".into(),
+                            },
+                        },
+                        attributes: Default::default(),
+                        modality: Modality::May,
+                        request_assurance: effinterp_proto::RequestAssurance::Conservative,
+                        realm: effinterp_proto::ExecutionRealm::Host,
+                        condition: None,
+                        execution: ExecutionNodeRef(0),
+                        provenance: self.scope.iter().copied().collect(),
+                    });
+                    return None;
+                }
+            },
+        };
+        let literal = |value: String| ResourceExpr::Literal { value };
+        let mut candidates = Vec::new();
+        for directory in path.split(':') {
+            let candidate = format!("{}/{command}", directory.trim_end_matches('/'));
+            // A relative directory, a candidate this plan changed and one the
+            // host does not answer end what the search can establish.
+            if !directory.starts_with('/')
+                || !matches!(
+                    builder.written_source(&candidate, |_, _| false),
+                    crate::builder::WrittenSource::Host
+                )
+            {
+                break;
+            }
+            let ObservationOutcome::Path(fact) = builder.budget().observe_path(&candidate) else {
+                break;
+            };
+            let file = match &fact.followed {
+                Fact::Known(target) => target.kind == Fact::Known(PathKind::File),
+                Fact::Unavailable(_) => fact.kind == PathKind::File,
+            };
+            match fact.executable {
+                Some(true) if file => {
+                    if candidates.is_empty() {
+                        return Some(literal(candidate));
+                    }
+                    candidates.push(literal(candidate));
+                    return Some(ResourceExpr::Union {
+                        alternatives: candidates,
+                    });
+                }
+                None if file => candidates.push(literal(candidate)),
+                _ => {}
+            }
+        }
+        if candidates.is_empty() {
+            return None;
+        }
+        candidates.push(crate::value::unresolved_resource("fs_path"));
+        Some(ResourceExpr::Union {
+            alternatives: candidates,
+        })
+    }
+
     fn literal_function_stdout(&self, env: &ShellEnv, entry: &FnEntry) -> Option<ResourceExpr> {
         if !entry.alternatives.is_empty() || !entry.redirs.is_empty() {
             return None;
@@ -422,9 +541,14 @@ impl Shell<'_> {
         literal_stdout(&words, self.nest.limits.max_source_bytes)
     }
 
-    /// The exact bytes a `<(…)` body of one literal `echo` or `printf` writes,
-    /// so a later read of its descriptor sees them before the body is analyzed.
-    pub(super) fn literal_process_output(&self, env: &ShellEnv, source: &str) -> Option<String> {
+    /// The exact bytes a `<(…)` body or a pipeline stage feeding a compound
+    /// command writes when it is one `echo` or `printf` of fixed words, so a
+    /// later read of its output sees them before the body is analyzed.
+    pub(in crate::shell) fn literal_process_output(
+        &self,
+        env: &ShellEnv,
+        source: &str,
+    ) -> Option<String> {
         let lexed = lex::lex(source);
         if lexed.error.is_some() {
             return None;
@@ -443,7 +567,7 @@ impl Shell<'_> {
         let [cmd] = cmds.as_slice() else {
             return None;
         };
-        let words = literal_command_words(cmd)?;
+        let words = self.fixed_command_words(env, cmd)?;
         let (name, arguments) = words.split_first()?;
         let name = name.as_literal()?;
         if env.functions.contains_key(name)
@@ -465,6 +589,52 @@ impl Shell<'_> {
             self.nest.limits.max_source_bytes,
         )
         .filter(|output| !output.contains('\0'))
+    }
+
+    /// A command's words when each is fixed text: literal segments, and
+    /// quoted variables whose value the shell has already established.
+    fn fixed_command_words(&self, env: &ShellEnv, cmd: &Simple) -> Option<Vec<Word>> {
+        if !cmd.assignments.is_empty() || !cmd.redirs.is_empty() {
+            return None;
+        }
+        cmd.words
+            .iter()
+            .map(|word| self.fixed_word_text(env, word).map(Word::literal))
+            .collect()
+    }
+
+    /// A word's text when it is fixed: literal segments, and quoted
+    /// variables whose value the shell has already established.
+    pub(in crate::shell) fn fixed_word_text(
+        &self,
+        env: &ShellEnv,
+        word: &WordTok,
+    ) -> Option<String> {
+        let mut value = String::new();
+        for segment in &word.segs {
+            match segment {
+                Seg::Literal { text, quoted }
+                    if *quoted || !text.contains(['*', '?', '[', '~']) =>
+                {
+                    value.push_str(text)
+                }
+                // A definite value expands to itself, whether the
+                // script assigned it or the shell started with it.
+                Seg::Env { name, quoted: true } => {
+                    let target = env.reference_target(name)?;
+                    match env
+                        .vars
+                        .get(&target)
+                        .and_then(|entry| entry.value.as_deref())
+                    {
+                        Some(known) => value.push_str(known),
+                        None => value.push_str(&self.parameter_literal(env, name, None)?),
+                    }
+                }
+                _ => return None,
+            }
+        }
+        Some(value)
     }
 
     /// A command substitution whose body has a modeled stdout producer, or

@@ -352,6 +352,7 @@ fn alias_fixture(home: &Path, repo: &Path) -> std::path::PathBuf {
     .unwrap();
     std::fs::copy(repo.join("ordinary"), repo.join("existing")).unwrap();
     std::fs::create_dir(repo.join("directory")).unwrap();
+    symlink(repo, home.join("repo-link")).unwrap();
     symlink(&installed, repo.join("linked")).unwrap();
     symlink(&installed, repo.join("nah")).unwrap();
     std::fs::copy(&installed, repo.join("copied")).unwrap();
@@ -462,6 +463,16 @@ fn direct_and_same_call_nah_executable_aliases_remain_self_protected() {
             ),
             "nah nap",
         ),
+        // The same file copied and launched through a directory link.
+        (
+            format!(
+                "cp {} {link}/first && cp {link}/first {link}/second && ./second trust {}",
+                bash_path(&installed),
+                bash_path(&repo),
+                link = bash_path(&home.join("repo-link")),
+            ),
+            "runtime wiring",
+        ),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -534,6 +545,16 @@ fn direct_and_same_call_nah_executable_aliases_remain_self_protected() {
         ),
         format!(
             "cp -n {} existing; ./existing trust {}",
+            bash_path(&installed),
+            bash_path(&repo)
+        ),
+        format!(
+            "cp -u {} existing; ./existing trust {}",
+            bash_path(&installed),
+            bash_path(&repo)
+        ),
+        format!(
+            "cp {} absent/alias; ./absent/alias trust {}",
             bash_path(&installed),
             bash_path(&repo)
         ),
