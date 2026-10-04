@@ -5,14 +5,22 @@ use effinterp_proto::AttrValue;
 
 use crate::builder::PlanBuilder;
 use crate::models::InvocationCtx;
+use crate::models::args::FlagSpec;
 use crate::models::common::{Attrs, arg_node, attrs};
 use crate::word::{Word, WordPart};
 
-use super::{
-    SubCtx, discovers_from_worktree, foreach_whole_tree, git_argument_boundary, git_effective_flag,
-    git_operands_are_not_options, git_request_path, insert_selection, is_worktree_root_pathspec,
-    matches_everything, request_attrs, root_uses_invocation_cwd, top_discovered,
+use super::git_options::{
+    git_controls_known, git_effective_flag, git_help_requested, git_operands_are_not_options,
+    git_options,
 };
+use super::git_pathspec::{
+    foreach_whole_tree, git_request_path, insert_selection, is_worktree_root_pathspec,
+    matches_everything,
+};
+use super::git_repository::{
+    discovers_from_worktree, empty_repository_global, root_uses_invocation_cwd, top_discovered,
+};
+use super::{SubCtx, git_argument_boundary, request_attrs};
 
 fn git_checkout_options_known(s: &SubCtx<'_>, sub: &str) -> bool {
     let creation: &[&str] = if sub == "restore" {
@@ -817,4 +825,106 @@ pub(super) fn checkout(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
     } else {
         s.repo_effect(builder, "git.read", Attrs::new());
     }
+}
+
+/// git-checkout-index(1) writes index entries over the working tree: `-a`
+/// every entry below the cwd (checkout-index.c `checkout_all` skips entries
+/// outside the prefix), as `checkout -- .` selects, or the named files. It
+/// replaces an existing file only with `-f`. `--temp`, `--prefix` and
+/// `--stdin` write elsewhere or read their paths elsewhere and are not
+/// modeled. Returns false for a form the model does not read.
+pub(super) fn checkout_index(builder: &mut PlanBuilder, s: &SubCtx) -> bool {
+    let parsed = git_options(
+        s,
+        &FlagSpec {
+            value_flags: &["--stage"],
+            known_flags: &[
+                "-a",
+                "--all",
+                "-f",
+                "--force",
+                "-u",
+                "--index",
+                "-q",
+                "--quiet",
+                "-n",
+                "--no-create",
+                "--ignore-skip-worktree-bits",
+            ],
+            allow_abbreviation: true,
+        },
+    );
+    if git_help_requested(&parsed) || empty_repository_global(s) {
+        return true;
+    }
+    if !git_controls_known(&parsed) {
+        return false;
+    }
+    let all = parsed.has(&["-a", "--all"]);
+    let operands = s.operands(false);
+    // git dies on `--all` beside file names before writing anything.
+    if all && !operands.is_empty() {
+        return true;
+    }
+    if !parsed.has(&["-f", "--force"]) {
+        s.repo_effect(builder, "git.worktree_write", Attrs::new());
+        return true;
+    }
+    let default_path = Word::literal(".");
+    let paths = if all {
+        vec![(s.sub_index, &default_path)]
+    } else {
+        operands
+    };
+    let mut discard = attrs(&[("force", true)]);
+    discard.insert("discard_mode".into(), AttrValue::String("checkout".into()));
+    for (index, path) in &paths {
+        s.git_path_effect(
+            builder,
+            *index,
+            path,
+            "git.worktree_discard",
+            discard.clone(),
+        );
+        s.filesystem_path_effect(builder, *index, path, "filesystem.write", Attrs::new());
+    }
+    // Named operands are file names, not pathspecs: one spelled like
+    // pathspec magic is not read as a selection.
+    let whole_tree = all && foreach_whole_tree(builder, s, &paths);
+    let selection_paths = if whole_tree {
+        Some(Vec::new())
+    } else {
+        paths
+            .iter()
+            .map(|(_, path)| {
+                path.as_literal()
+                    .filter(|text| all || !text.starts_with(':'))
+                    .and_then(|_| git_request_path(s, path))
+            })
+            .collect::<Option<Vec<_>>>()
+    };
+    let Some(selection_paths) = selection_paths.filter(|_| !paths.is_empty()) else {
+        git_argument_boundary(
+            builder,
+            s,
+            "git checkout-index file selection is not a known plain path",
+        );
+        return true;
+    };
+    let mut request = request_attrs(&[
+        ("force", true),
+        ("selection_complete", true),
+        (
+            "root_uses_invocation_cwd",
+            root_uses_invocation_cwd(s.globals, s.ctx),
+        ),
+        (
+            "discovers_from_worktree",
+            discovers_from_worktree(s.globals, s.ctx),
+        ),
+    ]);
+    request.insert("discard_mode".into(), AttrValue::String("checkout".into()));
+    insert_selection(&mut request, whole_tree, &selection_paths);
+    s.request_effect(builder, "git.worktree_discard_request", request);
+    true
 }

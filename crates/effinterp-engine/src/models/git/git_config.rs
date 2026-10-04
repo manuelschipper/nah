@@ -9,7 +9,10 @@ use crate::models::InvocationCtx;
 use crate::paths::resolve_fs_word_with_cwd;
 use crate::word::Word;
 
-use super::{Globals, ScopedRepo, git_environment_path, superproject_and_submodule, worktree_base};
+use super::Globals;
+use super::git_repository::{
+    ScopedRepo, git_environment_path, superproject_and_submodule, worktree_base,
+};
 
 /// One setting the invocation may read.
 pub(super) struct ConfigEntry {
