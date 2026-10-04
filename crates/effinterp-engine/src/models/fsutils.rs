@@ -243,18 +243,18 @@ impl CommandModel for Vim {
             };
             if flags && text == "--" {
                 flags = false;
-            } else if flags && text == "-c" {
+            } else if flags && matches!(text, "-c" | "--cmd") {
                 if let Some(command) = ctx.argv.get(i + 1).and_then(Word::as_literal) {
-                    commands.push(command);
+                    commands.push((index + 1, command));
                     i += 1;
                 } else {
                     unknown.push((index, text.into()));
                 }
             } else if flags && text.starts_with("-c") && text.len() > 2 {
-                commands.push(&text[2..]);
+                commands.push((index, &text[2..]));
             } else if flags && text.starts_with('+') {
                 if text.len() > 1 {
-                    commands.push(&text[1..]);
+                    commands.push((index, &text[1..]));
                 }
             } else if flags && matches!(text, "-es" | "-e" | "-E") {
                 ex_silent = true;
@@ -270,7 +270,6 @@ impl CommandModel for Vim {
                         | "-w"
                         | "-W"
                         | "-i"
-                        | "--cmd"
                         | "--startuptime"
                         | "--log"
                 )
@@ -321,18 +320,62 @@ impl CommandModel for Vim {
         }
         let mut write_current = false;
         let mut write_all = false;
-        for command in commands
+        let mut unmodeled = false;
+        // Standard input has no argv word of its own, so its commands are
+        // attributed to the editor.
+        let stdin_commands = ex_silent.then(|| ctx.stdin_literal()).flatten();
+        for (index, command) in commands
             .into_iter()
-            .chain(ex_silent.then(|| ctx.stdin_literal()).flatten().into_iter())
-            .flat_map(|source| source.lines().flat_map(|line| line.split('|')))
+            .chain(stdin_commands.iter().map(|source| (0, *source)))
+            .flat_map(|(index, source)| source.lines().map(move |line| (index, line)))
+            .flat_map(|(index, line)| ex_commands(line).into_iter().map(move |c| (index, c)))
         {
-            let command = command.trim().trim_start_matches(':').trim();
-            let command = command.strip_suffix('!').unwrap_or(command);
-            match command.to_ascii_lowercase().as_str() {
-                "w" | "write" | "wq" | "x" | "xit" | "exit" | "update" => write_current = true,
-                "wa" | "wall" | "wqa" | "wqall" | "xa" | "xall" => write_all = true,
-                _ => {}
+            match command {
+                ExCommand::Inert => {}
+                ExCommand::WriteCurrent => write_current = true,
+                ExCommand::WriteAll => write_all = true,
+                ExCommand::WriteFile(_) if writes_disabled => {}
+                ExCommand::WriteFile(name) => match ex_file_word(ctx, name) {
+                    Some(file) => {
+                        operand_effect(
+                            builder,
+                            ctx,
+                            model_node,
+                            index,
+                            &file,
+                            "filesystem.write",
+                            Default::default(),
+                        );
+                    }
+                    None => unmodeled = true,
+                },
+                ExCommand::Shell(source) => {
+                    // Vim replaces `%`, `#` and `!` in the command before the
+                    // shell reads it.
+                    unmodeled |= source.contains(['%', '#', '!']);
+                    let arg = crate::models::common::arg_node(builder, ctx, index);
+                    ctx.nest_subject(
+                        builder,
+                        effinterp_proto::Subject::Shell {
+                            source: source.to_string(),
+                            cwd: ctx.cwd.map(str::to_string),
+                            context: Default::default(),
+                        },
+                        &[model_node, arg],
+                    );
+                }
+                ExCommand::Unmodeled => unmodeled = true,
             }
+        }
+        if unmodeled {
+            crate::models::common::boundary(
+                builder,
+                model_node,
+                BoundaryReason::UNPARSED_SCRIPT,
+                BoundaryClass::Unsupported,
+                &["filesystem", "process"],
+                "Vim Ex commands other than writes, quits and shell escapes are not modeled",
+            );
         }
         if !writes_disabled {
             let selected = if write_all {
@@ -369,6 +412,139 @@ impl CommandModel for Vim {
         fs_full_no_spawn(builder);
         unrecognized_arguments_boundary(builder, model_node, &["filesystem", "process"], &unknown);
     }
+}
+
+/// What one Vim Ex command does, as far as the Vim model reads it.
+enum ExCommand<'a> {
+    /// A quit, a line jump or a search: no effect outside the editor.
+    Inert,
+    WriteCurrent,
+    WriteAll,
+    /// `w FILE`, `saveas FILE` and the like write the file they name.
+    WriteFile(&'a str),
+    /// `!CMD` and `w !CMD` hand the rest of the line to the shell.
+    Shell(&'a str),
+    Unmodeled,
+}
+
+/// The Ex commands on one line. `|` separates commands, except after `!`,
+/// which takes the rest of the line as its shell command.
+fn ex_commands(line: &str) -> Vec<ExCommand<'_>> {
+    // `name` is `full` or an abbreviation of it no shorter than `short`.
+    fn is(name: &str, short: &str, full: &str) -> bool {
+        name.len() >= short.len() && full.starts_with(name)
+    }
+    let mut commands = Vec::new();
+    let mut rest = line;
+    'commands: loop {
+        // The range before the command name: line numbers, `%`, marks and
+        // `/pattern/` addresses. A pattern left open is a search for it.
+        loop {
+            rest = rest.trim_start_matches([
+                ' ', '\t', ':', '%', '$', '.', ',', ';', '+', '-', '0', '1', '2', '3', '4', '5',
+                '6', '7', '8', '9',
+            ]);
+            match rest.chars().next() {
+                Some(delimiter @ ('/' | '?')) => {
+                    let mut escaped = false;
+                    let close = rest[1..].find(|c| {
+                        let closes = c == delimiter && !escaped;
+                        escaped = c == '\\' && !escaped;
+                        closes
+                    });
+                    match close {
+                        Some(close) => rest = &rest[close + 2..],
+                        None => {
+                            commands.push(ExCommand::Inert);
+                            break 'commands;
+                        }
+                    }
+                }
+                Some('\'') => rest = rest.get(2..).unwrap_or(""),
+                _ => break,
+            }
+        }
+        if let Some(source) = rest.strip_prefix('!') {
+            commands.push(ExCommand::Shell(source));
+            break;
+        }
+        let name_end = rest
+            .find(|c: char| !c.is_ascii_alphabetic())
+            .unwrap_or(rest.len());
+        let (name, after) = rest.split_at(name_end);
+        let after = after.strip_prefix('!').unwrap_or(after);
+        if is(name, "sil", "silent") {
+            rest = after;
+            continue;
+        }
+        if is(name, "w", "write") && after.trim_start().starts_with('!') {
+            commands.push(ExCommand::Shell(&after.trim_start()[1..]));
+            break;
+        }
+        let (argument, next) = match after.split_once('|') {
+            Some((argument, next)) => (argument, Some(next)),
+            None => (after, None),
+        };
+        let argument = argument.trim();
+        let argument = argument.strip_prefix(">>").unwrap_or(argument).trim();
+        commands.push(
+            if is(name, "w", "write")
+                || is(name, "up", "update")
+                || is(name, "sav", "saveas")
+                || is(name, "x", "xit")
+                || is(name, "exi", "exit")
+                || name == "wq"
+            {
+                if argument.is_empty() {
+                    ExCommand::WriteCurrent
+                } else {
+                    ExCommand::WriteFile(argument)
+                }
+            } else if !argument.is_empty() {
+                ExCommand::Unmodeled
+            } else if is(name, "wa", "wall") || is(name, "wqa", "wqall") || is(name, "xa", "xall") {
+                ExCommand::WriteAll
+            } else if name.is_empty()
+                || is(name, "q", "quit")
+                || is(name, "qa", "qall")
+                || is(name, "quita", "quitall")
+                || is(name, "cq", "cquit")
+            {
+                ExCommand::Inert
+            } else {
+                ExCommand::Unmodeled
+            },
+        );
+        match next {
+            Some(next) => rest = next,
+            None => break,
+        }
+    }
+    commands
+}
+
+/// The file an Ex write names, or None where Vim would expand the name (`%`,
+/// `#`, an environment variable, a wildcard, backticks) or take part of it as
+/// an option (`++enc=`). A leading `~` is the home directory.
+fn ex_file_word(ctx: &InvocationCtx, name: &str) -> Option<Word> {
+    if name.starts_with("++")
+        || name.contains([' ', '\t', '%', '#', '$', '`', '*', '?', '[', '{', '\\', '<'])
+    {
+        return None;
+    }
+    Some(match name.strip_prefix('~') {
+        Some(below) if below.is_empty() || below.starts_with('/') => {
+            match ctx.environment_value("HOME") {
+                Some(ResourceExpr::Literal { value }) => Word::literal(format!("{value}{below}")),
+                _ => Word::new(vec![
+                    WordPart::Env("HOME".into()),
+                    WordPart::Literal(below.into()),
+                ]),
+            }
+        }
+        Some(_) => return None,
+        None => Word::literal(name),
+    })
 }
 
 /// Destination for an operand placed *into* a directory: `dir/basename(op)`
@@ -754,7 +930,7 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
         match text {
             Some("--") if !flags_done => flags_done = true,
             Some(t) if !flags_done && t.starts_with('-') && t.len() > 1 => {
-                if t == "-e" || t == "--expression" {
+                if t == "--expression" {
                     have_script = true;
                     scripts.push(
                         argv.get(i + 1)
@@ -762,10 +938,7 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
                             .map(str::to_string),
                     );
                     i += 1;
-                } else if let Some(rest) = t.strip_prefix("-e") {
-                    have_script = true;
-                    scripts.push(Some(rest.to_string()));
-                } else if t == "-f" || t == "--file" {
+                } else if t == "--file" {
                     if i + 1 < argv.len() {
                         script_files.push((index, argv[i + 1].clone()));
                     }
@@ -774,24 +947,11 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
                 } else if let Some(rest) = t.strip_prefix("--file=") {
                     script_files.push((index, Word::literal(rest)));
                     have_script = true;
-                } else if t == "-i"
-                    || t.starts_with("-i")
-                    || t == "--in-place"
-                    || t.starts_with("--in-place=")
-                {
+                } else if t == "--in-place" || t.starts_with("--in-place=") {
                     in_place = true;
-                    // BSD's empty backup suffix follows a bare `-i`.
-                    if t == "-i" && argv.get(i + 1).and_then(Word::as_literal) == Some("") {
-                        i += 1;
-                    }
                 } else if matches!(
                     t,
-                    "-n" | "-r"
-                        | "-E"
-                        | "-s"
-                        | "-u"
-                        | "-z"
-                        | "--quiet"
+                    "--quiet"
                         | "--silent"
                         | "--posix"
                         | "--regexp-extended"
@@ -802,8 +962,54 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
                 ) {
                 } else if matches!(t, "--help" | "--version") {
                     terminal = true;
-                } else {
+                } else if t.starts_with("--") {
                     unknown.push((index, t.to_string()));
+                } else {
+                    // A short-option cluster: `-Ei`, `-ne SCRIPT`, `-ni.bak`.
+                    // `-e` and `-f` take the rest of the word or the next
+                    // word as their value, and whatever follows `-i` in the
+                    // word is its backup suffix.
+                    for (at, flag) in t.char_indices().skip(1) {
+                        let rest = &t[at + flag.len_utf8()..];
+                        match flag {
+                            'n' | 'r' | 'E' | 's' | 'u' | 'z' => continue,
+                            'e' => {
+                                have_script = true;
+                                if rest.is_empty() {
+                                    scripts.push(
+                                        argv.get(i + 1)
+                                            .and_then(Word::as_literal)
+                                            .map(str::to_string),
+                                    );
+                                    i += 1;
+                                } else {
+                                    scripts.push(Some(rest.to_string()));
+                                }
+                            }
+                            'f' => {
+                                have_script = true;
+                                if !rest.is_empty() {
+                                    script_files.push((index, Word::literal(rest)));
+                                } else {
+                                    if i + 1 < argv.len() {
+                                        script_files.push((index, argv[i + 1].clone()));
+                                    }
+                                    i += 1;
+                                }
+                            }
+                            'i' => {
+                                in_place = true;
+                                // BSD's empty backup suffix follows a bare `-i`.
+                                if rest.is_empty()
+                                    && argv.get(i + 1).and_then(Word::as_literal) == Some("")
+                                {
+                                    i += 1;
+                                }
+                            }
+                            _ => unknown.push((index, t.to_string())),
+                        }
+                        break;
+                    }
                 }
             }
             _ => {
@@ -1018,9 +1224,22 @@ fn sed_script_is_pure(script: &str) -> bool {
             // Stream-only commands.
             'd' | 'D' | 'p' | 'P' | 'n' | 'N' | 'h' | 'H' | 'g' | 'G' | 'x' | 'z' | '=' | 'l'
             | 'q' | 'Q' | '{' | '}' => i += 1,
-            // Output text, labels, and comments run to end of line (an
-            // escaped newline continues `a\` text).
-            'a' | 'i' | 'c' | 'b' | 't' | 'T' | ':' | '#' => {
+            // A label ends at `;`, a blank or `}` in GNU sed, so the script
+            // continues after it: `$!b;e CMD` runs CMD. Reading the rest as
+            // commands is also safe where another sed takes the whole line
+            // as the label, since that only keeps a boundary.
+            'b' | 't' | 'T' | ':' => {
+                i += 1;
+                while i < n && matches!(chars[i], ' ' | '\t') {
+                    i += 1;
+                }
+                while i < n && !matches!(chars[i], ';' | '\n' | ' ' | '\t' | '}') {
+                    i += 1;
+                }
+            }
+            // Output text and comments run to end of line (an escaped
+            // newline continues `a\` text).
+            'a' | 'i' | 'c' | '#' => {
                 while i < n && chars[i] != '\n' {
                     if chars[i] == '\\' {
                         i += 1;

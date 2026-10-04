@@ -861,6 +861,54 @@ fn patch_and_vim_distinguish_inputs_from_write_targets() {
 }
 
 #[test]
+fn vim_ex_commands_are_read_or_keep_a_boundary() {
+    // A shell escape runs the rest of its line, `|` included, in the shell.
+    for command in ["!rm x | cat", "silent !rm x", ":w !rm x", "%!rm x"] {
+        let plan = analyze(&["vim", "-es", "-c", command, "target"], Some("/w"));
+        assert!(has_effect(&plan, "filesystem.delete", "/w/x"), "{command}");
+    }
+    let plan = analyze(&["vim", "--cmd", "!rm x", "target"], Some("/w"));
+    assert!(has_effect(&plan, "filesystem.delete", "/w/x"));
+
+    // A write that names a file writes that file, not the edited one.
+    for command in [
+        "w out",
+        "w! out",
+        "1,5write >> out",
+        "saveas out",
+        "sil up out|q",
+    ] {
+        let plan = analyze(&["vim", "-es", "-c", command, "target"], Some("/w"));
+        assert_eq!(
+            resources(&plan, "filesystem.write"),
+            vec!["/w/out"],
+            "{command}"
+        );
+        assert!(!has_boundary(&plan, "unparsed_script"), "{command}");
+    }
+    // `-m` disables writes but not the shell.
+    let plan = analyze(&["vim", "-m", "-c", "w out", "target"], Some("/w"));
+    assert!(resources(&plan, "filesystem.write").is_empty());
+
+    // Line jumps, searches and quits have no effect outside the editor.
+    for command in ["42", "$", "/needle", "q!", "qa", "wq"] {
+        let plan = analyze(&["vim", "-c", command, "target"], Some("/w"));
+        assert!(!has_boundary(&plan, "unparsed_script"), "{command}");
+    }
+    // Any other command, or a file name Vim expands, keeps a boundary.
+    for command in [
+        "source x.vim",
+        "%s/a/b/e",
+        "call system('id')",
+        "w %.bak",
+        "r !id",
+    ] {
+        let plan = analyze(&["vim", "-es", "-c", command, "target"], Some("/w"));
+        assert!(has_boundary(&plan, "unparsed_script"), "{command}");
+    }
+}
+
+#[test]
 fn awk_literal_commands_are_shell_source_and_others_a_boundary() {
     for program in [
         "{ system(\"rm x\") }",
