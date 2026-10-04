@@ -101915,6 +101915,22 @@
       ]
     },
     {
+      "id": "db-destroy.dropdb-unknown-flag-help-w1b-r1",
+      "guard": "db-destroy",
+      "derivation": "accepted conservative over-block: an option the model does not know may be one a newer dropdb accepts, so the drop of app is kept beside the unrecognized-arguments boundary",
+      "require": [
+        {
+          "op": "database.schema_drop",
+          "resource": {
+            "eq": "db:app"
+          },
+          "attributes": {
+            "object_kind": "database"
+          }
+        }
+      ]
+    },
+    {
       "id": "db-destroy.mysqladmin-command-drop-w1b",
       "guard": "db-destroy",
       "derivation": "W2b family coverage: command drop w1b must preserve the destructive effect reached by the client.",
