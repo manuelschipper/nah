@@ -524,11 +524,17 @@ pub fn plan_evidence(
     })
 }
 
-/// Whether each repository configuration a host filesystem effect reads or
-/// moves holds a credential, by the path the effect names. A path alone
+/// Whether each configuration file a host filesystem effect reads or moves
+/// discloses a credential, by the path the effect names. A path alone
 /// cannot say, so its bytes are demanded from `sources` like any other
-/// source, which records them in the observation manifest. A missing file
-/// holds none; `None` is a file whose bytes were not served.
+/// source, which records them in the observation manifest.
+///
+/// A read or move of a repository's `config` takes the whole file. A read
+/// the Git model states for a command that prints configuration values
+/// (`printed_configuration`) is of whatever file it names and discloses only
+/// the values that command prints. Several effects on one path keep the
+/// worst answer. A missing file holds none; `None` is a file whose bytes
+/// were not served.
 fn git_config_credentials(
     plan: &Plan,
     sources: &dyn SourceProvider,
@@ -538,7 +544,11 @@ fn git_config_credentials(
         SourceNamespace, SourcePurpose, SourceRefusal, SourceRequest, SourceResponse,
         UnavailableReason,
     };
-    let mut credentials = BTreeMap::new();
+    use effinterp_proto::AttrValue;
+    use nah_proto::labels::git_config::{
+        PrintedConfiguration, git_config_prints_credential, is_git_config_path,
+    };
+    let mut credentials = BTreeMap::<String, Option<bool>>::new();
     for effect in plan.effects.iter().filter(|effect| {
         effect.realm.is_host()
             && matches!(
@@ -546,6 +556,31 @@ fn git_config_credentials(
                 "filesystem.read" | "filesystem.move"
             )
     }) {
+        let keys = match effect.attributes.get("configuration_keys") {
+            Some(AttrValue::List(keys)) => keys
+                .iter()
+                .filter_map(|key| match key {
+                    AttrValue::String(key) => Some(key.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let printed = match effect.attributes.get("printed_configuration") {
+            Some(AttrValue::String(kind)) => Some(match (kind.as_str(), keys.as_slice()) {
+                ("remotes", _) => PrintedConfiguration::Remotes,
+                ("remote_urls", keys) => PrintedConfiguration::RemoteUrls(keys),
+                ("keys", keys) => PrintedConfiguration::Keys(keys),
+                ("matching", [word]) => PrintedConfiguration::Matching(word),
+                _ => PrintedConfiguration::All,
+            }),
+            _ => None,
+        };
+        // The repository's own configuration is found by Git, which may
+        // look elsewhere than the path the engine names: a file missing
+        // there proves nothing.
+        let found_by_git =
+            effect.attributes.get("repository_configuration") == Some(&AttrValue::Bool(true));
         for member in crate::observation_request::finite_members(&effect.resource)
             .unwrap_or(std::slice::from_ref(&effect.resource))
         {
@@ -555,14 +590,7 @@ fn git_config_credentials(
             else {
                 continue;
             };
-            // The configuration Git prints (`git config --list`) is the
-            // repository's, which Git may find elsewhere than the path the
-            // engine names: a file missing there proves nothing.
-            let printed = effect.attributes.get("repository_configuration")
-                == Some(&effinterp_proto::AttrValue::Bool(true));
-            if credentials.contains_key(path) && !printed
-                || !nah_proto::labels::git_config::is_git_config_path(path, platform)
-            {
+            if printed.is_none() && !is_git_config_path(path, platform) {
                 continue;
             }
             let held = match sources.resolve(SourceRequest {
@@ -571,17 +599,25 @@ fn git_config_credentials(
                 purpose: SourcePurpose::InvocationInput,
                 requester_language: None,
             }) {
-                SourceResponse::Source(bytes) => {
-                    Some(nah_proto::labels::git_config::git_config_holds_credential(
-                        &String::from_utf8_lossy(&bytes),
-                    ))
-                }
+                SourceResponse::Source(bytes) => Some(git_config_prints_credential(
+                    &String::from_utf8_lossy(&bytes),
+                    printed.as_ref().unwrap_or(&PrintedConfiguration::All),
+                )),
                 SourceResponse::Refused(SourceRefusal::Unavailable(UnavailableReason::Missing)) => {
-                    (!printed).then_some(false)
+                    (!found_by_git).then_some(false)
                 }
                 SourceResponse::Refused(_) => None,
             };
-            credentials.insert(path.clone(), held);
+            credentials
+                .entry(path.clone())
+                .and_modify(|known| {
+                    *known = match (*known, held) {
+                        (Some(true), _) | (_, Some(true)) => Some(true),
+                        (None, _) | (_, None) => None,
+                        _ => Some(false),
+                    }
+                })
+                .or_insert(held);
         }
     }
     credentials

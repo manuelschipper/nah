@@ -277,7 +277,8 @@ pub(super) fn propagate_sensitivity<'a>(
             && let effinterp_proto::ResourceExpr::Concrete {
                 identity: effinterp_proto::ResourceIdentity::FsPath { path },
             } = &effect.resource
-            && nah_proto::labels::git_config::is_git_config_path(path, platform)
+            && (nah_proto::labels::git_config::is_git_config_path(path, platform)
+                || git_config_credentials.contains_key(path))
         {
             match git_config_credentials.get(path) {
                 Some(Some(true)) => {

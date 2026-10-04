@@ -923,7 +923,7 @@ impl CommandModel for HeadTail {
                 *index,
                 operand,
                 "filesystem.read",
-                if scanned.unknown_flags.is_empty() {
+                if unknown.is_empty() {
                     program_input_attrs()
                 } else {
                     Default::default()

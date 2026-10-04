@@ -4846,6 +4846,11 @@ fn disclosed_paths<'a>(
                     .partition(|(_, path)| observed_file(builder, s, path))
             };
             let historical = recorded || !revisions.is_empty();
+            // A pathspec the shell still has to expand names files this
+            // model cannot spell, so their contents read is not stated.
+            if paths.iter().any(|(_, path)| path.as_literal().is_none()) {
+                git_argument_boundary(builder, s, "git grep pathspec is not statically known");
+            }
             paths
                 .into_iter()
                 .map(|(index, word)| DisclosedPath {
@@ -5801,16 +5806,44 @@ fn key_may_hold_credential(key: &Word) -> bool {
 /// of its start directory. `repository_configuration` marks that second
 /// read: git finds the repository upward from the start directory and
 /// through a linked worktree's `.git` file, so a file missing at that path
-/// means the values come from one this model does not name. A read of one
+/// means the values come from one this model does not name.
+///
+/// `printed_configuration` says which of the file's values reach the output,
+/// with the keys or the pattern in `configuration_keys`: `all` of them;
+/// `remotes`, every remote's URLs; `remote_urls`, the URLs under the keys
+/// named, as git rewrites them; `keys`, the values of the keys named;
+/// `matching`, the keys a plain-word pattern is found in. A read of one
 /// literal key that holds no URL or header states nothing, and neither does
 /// one of the global, system or blob scope.
 fn printed_configuration(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
+    let mut attributes = super::common::program_input_attrs();
+    let mut print = |kind: &str, keys: &[String]| {
+        attributes.insert(
+            "printed_configuration".into(),
+            AttrValue::String(kind.into()),
+        );
+        if !keys.is_empty() {
+            attributes.insert("configuration_keys".into(), string_list(keys));
+        }
+    };
+    let mut named_file = None;
     if sub == "remote" {
-        let action = s.operands(false).first().and_then(|(_, w)| w.as_literal());
-        if !matches!(action, Some("get-url" | "show"))
-            && !s.scanned(&["-v", "--verbose"]).has(&["-v", "--verbose"])
-        {
-            return;
+        let operands = s.operands(false);
+        let action = operands.first().and_then(|(_, word)| word.as_literal());
+        match (
+            action,
+            operands.get(1).and_then(|(_, word)| word.as_literal()),
+        ) {
+            (Some("get-url"), Some(name)) => {
+                let mut keys = vec![format!("remote.{name}.url")];
+                if s.scanned(&["--push", "--all"]).has(&["--push", "--all"]) {
+                    keys.push(format!("remote.{name}.pushurl"));
+                }
+                print("remote_urls", &keys);
+            }
+            (Some("get-url" | "show"), _) => print("remotes", &[]),
+            _ if s.scanned(&["-v", "--verbose"]).has(&["-v", "--verbose"]) => print("remotes", &[]),
+            _ => return,
         }
     } else {
         let parsed = git_options(
@@ -5826,31 +5859,49 @@ fn printed_configuration(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         }
         let operands = parsed.operands.as_slice();
         let action = operands.first().and_then(|(_, word)| word.as_literal());
-        let whole = parsed.has(&["--list", "-l", "--get-regexp", "--get-urlmatch", "--regexp"])
-            || action == Some("list");
-        let key = if action == Some("get") {
+        let named = if action == Some("get") {
             operands.get(1)
-        } else if operands.len() == 1 || parsed.has(&["--get", "--get-all"]) && !operands.is_empty()
+        } else if operands.len() == 1
+            || parsed.has(&["--get", "--get-all", "--get-regexp"]) && !operands.is_empty()
         {
             operands.first()
         } else {
             None
         };
-        if !whole && !key.is_some_and(|(_, key)| key_may_hold_credential(key)) {
-            return;
+        if parsed.has(&["--list", "-l", "--get-urlmatch"]) || action == Some("list") {
+            print("all", &[]);
+        } else if parsed.has(&["--get-regexp", "--regexp"]) {
+            // Only a pattern of plain word characters is decided here: it
+            // matches the keys it is found in. Any other may match any key.
+            match named.and_then(|(_, pattern)| pattern.as_literal()) {
+                Some(pattern)
+                    if !pattern.is_empty()
+                        && pattern.chars().all(|c| c.is_ascii_alphanumeric()) =>
+                {
+                    print("matching", &[pattern.to_owned()])
+                }
+                _ => print("all", &[]),
+            }
+        } else {
+            match named {
+                Some((_, key)) if !key_may_hold_credential(key) => return,
+                Some((_, key)) => match key.as_literal() {
+                    Some(key) => print("keys", &[key.to_owned()]),
+                    None => print("all", &[]),
+                },
+                None => return,
+            }
         }
-        if let Some((index, file)) = parsed.values_of(&["-f", "--file"]).into_iter().last() {
-            s.filesystem_path_effect(
-                builder,
-                s.rest_offset - 1 + index,
-                file,
-                "filesystem.read",
-                super::common::program_input_attrs(),
-            );
-            return;
-        }
+        named_file = parsed
+            .values_of(&["-f", "--file"])
+            .into_iter()
+            .last()
+            .map(|(index, file)| (s.rest_offset - 1 + index, file.clone()));
     }
-    let mut attributes = super::common::program_input_attrs();
+    if let Some((index, file)) = named_file {
+        s.filesystem_path_effect(builder, index, &file, "filesystem.read", attributes);
+        return;
+    }
     let resource = match git_dir_resource(&s.repo) {
         Some(git_dir) => resolve_fs_word_with_cwd(&Word::literal("config"), Some(git_dir.clone())),
         None => match worktree_resource(&s.repo) {

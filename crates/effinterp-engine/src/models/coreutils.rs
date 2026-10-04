@@ -290,9 +290,6 @@ impl CommandModel for Sort {
                 known_flags: &[],
             },
         );
-        if scanned.has(&["-o", "--output"]) {
-            return Vec::new();
-        }
         if scanned.has(&["--files0-from"]) {
             return Vec::new();
         }
@@ -306,6 +303,15 @@ impl CommandModel for Sort {
             .any(|(_, operand)| operand.as_literal() != Some("-"))
         {
             bindings.push(filesystem_read_stdout_binding());
+        }
+        // `-o FILE` receives the sorted input in place of stdout.
+        if scanned.has(&["-o", "--output"]) {
+            for binding in &mut bindings {
+                binding.to = crate::models::ModelBindingEnd::Effect {
+                    operation: "filesystem.write".into(),
+                    selection: effinterp_model_schema::EffectSelection::All,
+                };
+            }
         }
         bindings
     }
