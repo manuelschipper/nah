@@ -1116,7 +1116,8 @@ impl<'a> Evaluator<'a> {
 
     /// The occurrences in `from`'s realm that some chain of byte edges of
     /// the traversal's kinds reaches from it, `from` included, whatever their
-    /// conditions. A byte route needs such a chain, so a destination outside
+    /// conditions, and the code a launch argument among them hands another
+    /// realm (see [`Self::launch_argument`]). A byte route needs such a chain, so a destination outside
     /// this set is never searched; one search per source then serves every
     /// destination. Like the route search it narrows, it costs no steps: a
     /// step is charged for each destination it reaches instead.
@@ -1138,15 +1139,16 @@ impl<'a> Evaluator<'a> {
         reached.insert(from);
         while let Some(id) = pending.pop() {
             for edge in self.edges_from.get(id).into_iter().flatten() {
-                if self.byte_edge_kind(edge, assurance, edges) == Truth::False
-                    || self
-                        .nodes
-                        .get(&edge.to)
-                        .is_none_or(|node| node.realm != source.realm)
-                {
+                let Some(node) = self.nodes.get(&edge.to) else {
+                    continue;
+                };
+                if self.byte_edge_kind(edge, assurance, edges) == Truth::False {
                     continue;
                 }
-                if reached.insert(&edge.to) {
+                // Nothing is followed onward from the other realm.
+                if node.realm != source.realm {
+                    reached.insert(&edge.to);
+                } else if reached.insert(&edge.to) {
                     pending.push(&edge.to);
                 }
             }
@@ -1162,7 +1164,9 @@ impl<'a> Evaluator<'a> {
         source: &OccurrenceNode,
         destination: &OccurrenceNode,
     ) -> Result<Truth, Refusal> {
-        if node.realm != source.realm {
+        // Only the destination may lie in another realm, and only a launch
+        // argument edge leads there (`byte_edge_kind`).
+        if node.realm != source.realm && node.id != destination.id {
             return Ok(Truth::False);
         }
         self.route_condition(
@@ -1215,6 +1219,10 @@ impl<'a> Evaluator<'a> {
         assurance: ByteFlowAssurance,
         edges: &[ByteFlowEdgeKind],
     ) -> Truth {
+        let realm = |id| self.nodes.get(id).map(|node| &node.realm);
+        if realm(&edge.from) != realm(&edge.to) && !self.launch_argument(edge) {
+            return Truth::False;
+        }
         match edge.reason {
             CausalReason::ValueDependency if edges.contains(&ByteFlowEdgeKind::ValueDependency) => {
                 match assurance {
@@ -1243,6 +1251,29 @@ impl<'a> Evaluator<'a> {
             | CausalReason::Launch
             | CausalReason::Containment => Truth::False,
         }
+    }
+
+    /// A launcher's own argument that the command it starts in another realm
+    /// runs as code, as `docker exec box sh -c "$SCRIPT"` hands the script to
+    /// the container's shell. Realms keep their resources apart, so a byte
+    /// route otherwise stays in its source's realm; these bytes are the one
+    /// thing the launch itself carries across, and the plan states both the
+    /// launch and the argument the launched command executes.
+    fn launch_argument(&self, edge: &CausalEdge) -> bool {
+        let (Some(from), Some(to)) = (self.nodes.get(&edge.from), self.nodes.get(&edge.to)) else {
+            return false;
+        };
+        matches!(from.occurrence, OccurrenceKind::Port { port: Port::Arg(_) })
+            && occurrence_operation(to) == Some("process.code_execution")
+            && occurrence_attribute(to, "source") == Some(&AttrValue::String("argument".into()))
+            && from
+                .execution
+                .zip(to.execution)
+                .is_some_and(|(launcher, launched)| {
+                    self.plan.execution_graph.edges.iter().any(|launch| {
+                        launch.from == launcher && launch.to == launched && !launch.cycle
+                    })
+                })
     }
 
     fn state_transition(&self, edge: &CausalEdge) -> bool {
