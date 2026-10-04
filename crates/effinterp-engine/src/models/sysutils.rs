@@ -262,6 +262,12 @@ impl CommandModel for Find {
                     unmodeled_tests |= depths.max.is_some_and(|max| max > 0);
                     return None;
                 }
+                // Every regular file below the start path is the whole of
+                // what the tree holds, so the delete stays one of the tree.
+                if find_selects_every_file(tests, depths) {
+                    unmodeled_tests = true;
+                    return None;
+                }
                 // The name globs do not spell a case-insensitive test here.
                 if conjunction.is_some_and(|conjunction| {
                     conjunction
@@ -282,6 +288,7 @@ impl CommandModel for Find {
                     root_fact.as_ref(),
                     depths,
                     traversal,
+                    false,
                 );
                 let whole_root = matches.iter().any(|matched| {
                     matched == root || *matched == find_root_matches(ctx, root, roots_only)
@@ -406,6 +413,7 @@ impl CommandModel for Find {
                 fact,
                 output_depths,
                 traversal,
+                false,
             );
             unmodeled_tests |= unmodeled;
             if !unmodeled {
@@ -427,6 +435,13 @@ impl CommandModel for Find {
                     root_fact.as_ref(),
                     depths,
                     traversal,
+                    // The command an action runs removes what it is passed.
+                    ctx.argv[*start].as_literal().is_some_and(|command| {
+                        matches!(
+                            crate::models::args::basename(command),
+                            "rm" | "unlink" | "shred"
+                        )
+                    }),
                 );
                 unmodeled_tests |= unmodeled;
                 prepared.push((*start, *end, root_index, matches));
@@ -1150,6 +1165,7 @@ fn find_action_matches(
     root_fact: Option<&PathFact>,
     depths: FindDepths,
     traversal: FindTraversal,
+    removes: bool,
 ) -> (Vec<Word>, bool) {
     let roots_only = depths.max == Some(0);
     let conjunction = find_conjunction(tests);
@@ -1163,8 +1179,12 @@ fn find_action_matches(
         _ => None,
     };
     // A glob carries a name. An entry type, or an expression with negation or
-    // alternatives, is applied to the entries the host lists.
+    // alternatives, is applied to the entries the host lists. A command that
+    // removes every regular file below the start path empties the tree
+    // however few entries it holds now, so it keeps the tree's glob, reported
+    // as possibly narrower, rather than a list of files.
     if let Some((spelled, path)) = &resolved
+        && !(removes && find_selects_every_file(tests, depths))
         && conjunction
             .as_ref()
             .is_none_or(|tests| !tests.types.is_empty())
@@ -1340,6 +1360,24 @@ fn find_action_matches(
         select(builder, depths.min.max(1), &mut matches);
     }
     (matches, unmodeled)
+}
+
+/// Whether the tests leave every regular file below a start path selected:
+/// only `-type` tests that admit regular files, with no name, path or other
+/// filter, and depth bounds that reach below the first level.
+fn find_selects_every_file(tests: &[Word], depths: FindDepths) -> bool {
+    depths.min <= 1
+        && depths.max.is_none_or(|max| max >= 2)
+        && find_conjunction(tests).is_some_and(|tests| {
+            tests.names.is_empty()
+                && tests.paths.is_empty()
+                && !tests.filtered
+                && !tests.types.is_empty()
+                && tests
+                    .types
+                    .iter()
+                    .all(|types| types.split(',').any(|letter| letter == "f"))
+        })
 }
 
 /// A find expression up to one action, read for whether that action runs for

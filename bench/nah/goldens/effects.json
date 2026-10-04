@@ -105854,6 +105854,58 @@
       ]
     },
     {
+      "id": "fs-project-root.find-type-file-delete-root",
+      "guard": "fs-project-root",
+      "derivation": "`-type f` alone selects every regular file beneath the start path `.`, so `-delete` empties the project tree of its files; that directories stay is not carried",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/workspace/project"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.find-type-file-exec-rm-root",
+      "guard": "fs-project-root",
+      "derivation": "`-type f` alone selects every regular file beneath the start path `.`, so `rm -f {}` receives all of them, every entry below the project root",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/workspace/project/**"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.find-type-file-delete-home",
+      "guard": "fs-home",
+      "derivation": "`-type f` alone selects every regular file beneath the home directory, so `-delete` empties it of its files; that directories stay is not carried",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-system-tree.find-type-file-delete-etc",
+      "guard": "fs-system-tree",
+      "derivation": "`-type f` alone selects every regular file beneath /etc, so `-delete` empties the system tree of its files; that directories stay is not carried",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/etc"
+          }
+        }
+      ]
+    },
+    {
       "id": "fs-auth-identity.find-maxdepth-type-file-delete-etc",
       "guard": "fs-auth-identity",
       "derivation": "`-maxdepth 1 -type f` selects the regular files /private/etc's listing holds directly in it, `sudoers` and `passwd` among them, so `-delete` removes them",
