@@ -1329,10 +1329,12 @@ impl CommandModel for Velero {
     }
 }
 
+// `--delete` confirms the deletion: without it Kopia only lists what it would
+// remove. `--unsafe-ignore-source` lets a manifest ID from any source match.
 const KOPIA_SPEC: FlagSpec = FlagSpec {
     allow_abbreviation: false,
     value_flags: &[],
-    known_flags: &[],
+    known_flags: &["--delete", "--unsafe-ignore-source"],
 };
 
 struct Kopia;
@@ -1407,9 +1409,24 @@ impl CommandModel for Kopia {
     }
 }
 
+// The value options of `expire` that select the stanza, the repository, the
+// backup set and the configuration and log locations. `--dry-run` stays
+// outside coverage, since it expires nothing.
 const PGBACKREST_SPEC: FlagSpec = FlagSpec {
     allow_abbreviation: false,
-    value_flags: &["--repo"],
+    value_flags: &[
+        "--repo",
+        "--stanza",
+        "--set",
+        "--config",
+        "--config-path",
+        "--config-include-path",
+        "--log-level-console",
+        "--log-level-file",
+        "--log-level-stderr",
+        "--log-path",
+        "--lock-path",
+    ],
     known_flags: &[],
 };
 
@@ -1435,7 +1452,7 @@ impl CommandModel for PgBackRest {
         if !valid_options(ctx, &scanned, &PGBACKREST_SPEC, &[])
             || scanned.operands.len() != 1
             || command != Some("expire")
-            || repo.is_none_or(|value| {
+            || repo.is_some_and(|value| {
                 value
                     .parse::<u16>()
                     .map_or(true, |number| number == 0 || number > 256)
@@ -1460,8 +1477,11 @@ impl CommandModel for PgBackRest {
             None,
             "pgBackRest repository path and retention policy require runtime configuration",
         );
+        // Without `--repo`, expire runs against every configured repository.
         let mut attrs = resource_attrs;
-        string(&mut attrs, "repository_index", repo.unwrap());
+        if let Some(repo) = repo {
+            string(&mut attrs, "repository_index", repo);
+        }
         arg_effect(
             builder,
             ctx,
