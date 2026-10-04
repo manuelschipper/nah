@@ -606,7 +606,7 @@ Accepted limitations with no corpus row that asserts a desired block.
   row exists. A fix states a `dynamic_source` boundary when the descriptor's
   content is not literal.
 - A Perl HTTP::Tiny request whose data the bounded grammar does not follow.
-  The frontend (`crates/effinterp-engine/src/lang/perl/mod.rs`) tracks an
+  The frontend (`crates/effinterp-engine/src/lang/perl/compiler.rs`) tracks an
   HTTP::Tiny client, its responses and their `{content}`, a file opened for
   reading and what `<$handle>` reads from it, through `my` bindings, `do`
   blocks and method chains. A body computed from file data
