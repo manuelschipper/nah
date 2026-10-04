@@ -2374,6 +2374,149 @@ fn emit_mongo_op(
 
 // ---- mongorestore ----
 
+/// State the data a POST to an Elasticsearch or OpenSearch REST route
+/// removes. `<index>/_delete_by_query` deletes the documents its `query`
+/// selects, and `_aliases` deletes each index a `remove_index` action
+/// names; both route names and body shapes are the search API's own, so
+/// they identify it on any host. `body` is the request's one data body,
+/// `None` when curl reads it from a file or joins several. Every other
+/// route states nothing here.
+pub(super) fn elasticsearch_request(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    node: ProvenanceRef,
+    (url_index, url): (u32, &Word),
+    body: Option<&Word>,
+) {
+    let Some(url) = url.as_literal() else {
+        return;
+    };
+    // `[scheme://][user@]host[:port]/path[?query]`.
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let (path, query) = path.split_once('?').unwrap_or((path, ""));
+    let (host, _) = split_host_port(authority.rsplit('@').next().unwrap_or(authority));
+    let segments = path
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    let body = body
+        .and_then(Word::as_literal)
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok());
+    // An index the request names outright; a pattern, a list entry that
+    // excludes, or `_all` names no one index.
+    let index = |name: &str| {
+        if name.is_empty()
+            || name == "_all"
+            || name.starts_with(['-', '+', '<'])
+            || name.contains('*')
+        {
+            unresolved_resource("db")
+        } else {
+            db_table(Some(host.clone()), None, None, name.to_string())
+        }
+    };
+    let (operation, targets, attributes, unread) = match segments[..] {
+        [target, "_delete_by_query"] => {
+            // `q=` selects documents from the URL, and `max_docs` caps how
+            // many are deleted.
+            let narrowed = query
+                .split('&')
+                .any(|pair| pair.starts_with("q=") || pair.starts_with("max_docs="))
+                || body
+                    .as_ref()
+                    .is_some_and(|body| body.get("max_docs").is_some());
+            let filtered = body
+                .as_ref()
+                .filter(|_| !narrowed)
+                .and_then(|body| body.get("query"))
+                .map(|query| !elasticsearch_matches_all(query));
+            let mut attributes = text_attrs(&[("action", "delete")]);
+            if let Some(filtered) = filtered {
+                attributes.insert("filtered".into(), AttrValue::Bool(filtered));
+            }
+            let targets = target.split(',').map(str::to_string).collect::<Vec<_>>();
+            let unread = filtered
+                .is_none()
+                .then_some("Elasticsearch delete-by-query selection is not a literal query");
+            ("database.write", targets, attributes, unread)
+        }
+        ["_aliases"] => {
+            let actions = body
+                .as_ref()
+                .and_then(|body| body.get("actions"))
+                .and_then(serde_json::Value::as_array);
+            let targets = actions.map(|actions| {
+                actions
+                    .iter()
+                    .filter_map(|action| action.get("remove_index"))
+                    .flat_map(|remove| {
+                        let names = [remove.get("index"), remove.get("indices")];
+                        names.into_iter().flatten().flat_map(|names| match names {
+                            serde_json::Value::Array(names) => names.clone(),
+                            name => vec![name.clone()],
+                        })
+                    })
+                    .map(|name| name.as_str().unwrap_or_default().to_string())
+                    .collect::<Vec<_>>()
+            });
+            let unread = targets
+                .is_none()
+                .then_some("Elasticsearch alias actions are not a literal body");
+            (
+                "database.schema_drop",
+                targets.unwrap_or_default(),
+                // An index holds its documents, as a collection does.
+                text_attrs(&[("object_kind", "collection")]),
+                unread,
+            )
+        }
+        _ => return,
+    };
+    builder.declare_coverage(Domain::new("database"), CoverageLevel::Full);
+    let provenance = vec![node, arg_node(builder, ctx, url_index)];
+    for target in targets {
+        datastore_effect(
+            builder,
+            provenance.clone(),
+            operation,
+            index(&target),
+            attributes.clone(),
+        );
+    }
+    if let Some(detail) = unread {
+        boundary(
+            builder,
+            node,
+            BoundaryReason::PARTIAL_ANALYSIS,
+            BoundaryClass::Unresolved,
+            &["database"],
+            detail,
+        );
+    }
+}
+
+/// Whether an Elasticsearch query selects every document: `match_all`, or a
+/// `bool` whose only clauses are `must` and `filter` of such queries.
+fn elasticsearch_matches_all(query: &serde_json::Value) -> bool {
+    let Some(query) = query.as_object().filter(|query| query.len() == 1) else {
+        return false;
+    };
+    match (query.get("match_all"), query.get("bool")) {
+        (Some(_), _) => true,
+        (_, Some(serde_json::Value::Object(clauses))) => clauses.iter().all(|(kind, clause)| {
+            matches!(kind.as_str(), "must" | "filter")
+                && match clause {
+                    serde_json::Value::Array(clauses) => {
+                        clauses.iter().all(elasticsearch_matches_all)
+                    }
+                    clause => elasticsearch_matches_all(clause),
+                }
+        }),
+        _ => false,
+    }
+}
+
 struct Mongorestore;
 
 const MONGORESTORE_VALUE_FLAGS: &[&str] = &[
