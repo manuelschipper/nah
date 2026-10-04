@@ -241,7 +241,7 @@ pub(crate) fn analyze(
                         continue;
                     }
                     Pending::DecodedEval => {
-                        decoded_eval(builder, node);
+                        record_decoded_eval(builder, node);
                         slots.push(None);
                         continue;
                     }
@@ -295,7 +295,7 @@ pub(crate) fn analyze(
                         };
                         let read = builder.effect(effect.clone());
                         effect.operation = Operation::new("process.code_execution");
-                        effect.resource = interpreter(builder, false);
+                        effect.resource = code_runner_process(builder, false);
                         effect.attributes =
                             [("source".to_string(), AttrValue::String("file".into()))]
                                 .into_iter()
@@ -326,7 +326,7 @@ pub(crate) fn analyze(
                         continue;
                     }
                     Pending::RemoteCode { shell } => {
-                        let resource = interpreter(builder, shell);
+                        let resource = code_runner_process(builder, shell);
                         slots.push(
                             builder.effect(Effect {
                                 id: Default::default(),
@@ -430,7 +430,7 @@ pub(crate) fn analyze(
 /// The process that runs code the program supplies: this interpreter for
 /// `eval`, `do` and `require`, or the shell `system` and `exec` hand a string
 /// to, whose identity is not established here.
-fn interpreter(builder: &PlanBuilder, shell: bool) -> ResourceExpr {
+fn code_runner_process(builder: &PlanBuilder, shell: bool) -> ResourceExpr {
     match builder.launching_command() {
         Some(command) if !shell => ResourceExpr::Concrete {
             identity: crate::paths::process_identity_with_cwd(
@@ -444,8 +444,8 @@ fn interpreter(builder: &PlanBuilder, shell: bool) -> ResourceExpr {
 
 /// The interpreter decodes the text and runs the result as its own code: the
 /// decode is a stream transform whose output is the code the eval executes.
-fn decoded_eval(builder: &mut PlanBuilder, node: ProvenanceRef) {
-    let resource = interpreter(builder, false);
+fn record_decoded_eval(builder: &mut PlanBuilder, node: ProvenanceRef) {
+    let resource = code_runner_process(builder, false);
     let model = builder.node(
         ProvenanceKind::ModelApplication {
             model: "perl/mime-base64@v0".to_string(),
@@ -511,7 +511,9 @@ enum PerlToken {
     Words(Vec<String>),
 }
 
-const SPECIAL_VARIABLE: &str = "Perl special or runtime-selected variable is not modeled";
+/// The refusal reason for a Perl special variable (`$/`, `$1`) or one the
+/// run selects by name, which the frontend does not model.
+const SPECIAL_VARIABLE_UNMODELED: &str = "Perl special or runtime-selected variable is not modeled";
 
 /// Words that declare code which runs at compile time, or subs and imports
 /// that take effect for the whole unit, before any of its statements run.
@@ -649,7 +651,7 @@ fn tokenize(
                 };
                 tokens.push(match rest.chars().next() {
                     Some(c) if skip == 1 => PerlToken::Special(c),
-                    _ => PerlToken::Unknown(SPECIAL_VARIABLE.into()),
+                    _ => PerlToken::Unknown(SPECIAL_VARIABLE_UNMODELED.into()),
                 });
                 rest = &rest[skip..];
                 continue;
@@ -1305,13 +1307,16 @@ impl Compiler<'_, '_> {
         self.conditional += 1;
         let result = self.run(tokens);
         self.conditional -= 1;
-        self.restore(outer);
+        self.restore_bindings(outer);
         result
     }
 
     /// Return to the bindings held before code that may not have run, keeping
     /// only those it left unchanged.
-    fn restore(&mut self, outer: (BTreeMap<String, String>, BTreeMap<String, PerlObject>)) {
+    fn restore_bindings(
+        &mut self,
+        outer: (BTreeMap<String, String>, BTreeMap<String, PerlObject>),
+    ) {
         let variables = std::mem::replace(&mut self.variables, outer.0);
         self.variables
             .retain(|name, value| variables.get(name) == Some(value));
@@ -1383,7 +1388,7 @@ impl Compiler<'_, '_> {
         {
             return self.logical(left, operator, right);
         }
-        if let Some(result) = self.value_statement(statement) {
+        if let Some(result) = self.tracked_value_statement(statement) {
             return result;
         }
         if statement.contains(&PerlToken::Punct('{')) {
@@ -1747,7 +1752,7 @@ impl Compiler<'_, '_> {
 
     /// Whether `tokens` is an expression over tracked values: an HTTP::Tiny
     /// method chain, a tracked variable, a `<$handle>` read or a `do` block.
-    fn is_value(&self, tokens: &[PerlToken]) -> bool {
+    fn is_tracked_value(&self, tokens: &[PerlToken]) -> bool {
         match tokens {
             [
                 PerlToken::Name(class),
@@ -1780,7 +1785,10 @@ impl Compiler<'_, '_> {
     /// a binding, an `eval`, `system` or `exec` of a response body, a `print`
     /// of received or read bytes, a bare expression, or `local $/`, which
     /// only changes how `<$handle>` splits what it reads.
-    fn value_statement(&mut self, statement: &[PerlToken]) -> Option<Result<(), PerlFailure>> {
+    fn tracked_value_statement(
+        &mut self,
+        statement: &[PerlToken],
+    ) -> Option<Result<(), PerlFailure>> {
         if let [PerlToken::Name(local), PerlToken::Special('/'), rest @ ..] = statement
             && local == "local"
             && matches!(rest, [] | [PerlToken::Punct('='), PerlToken::Name(_)])
@@ -1794,11 +1802,11 @@ impl Compiler<'_, '_> {
             .strip_prefix(&[PerlToken::Name("my".into())])
             .unwrap_or(statement);
         if let [PerlToken::Variable(name), PerlToken::Punct('='), value @ ..] = binding
-            && self.is_value(value)
+            && self.is_tracked_value(value)
         {
             self.variables.remove(name);
             self.objects.remove(name);
-            return Some(self.value(value).map(|value| {
+            return Some(self.tracked_value(value).map(|value| {
                 if value != PerlObject::Opaque {
                     self.objects.insert(name.clone(), value);
                 }
@@ -1815,10 +1823,10 @@ impl Compiler<'_, '_> {
                 }
                 other => other,
             };
-            if !self.is_value(argument) {
+            if !self.is_tracked_value(argument) {
                 return None;
             }
-            return Some(self.value(argument).and_then(|value| {
+            return Some(self.tracked_value(argument).and_then(|value| {
                 if matches!(name.as_str(), "print" | "say") {
                     if let PerlObject::Content(source) | PerlObject::FileData(source) = value {
                         self.pending.push(Pending::Output(source));
@@ -1842,13 +1850,13 @@ impl Compiler<'_, '_> {
                 Ok(())
             }));
         }
-        self.is_value(statement)
-            .then(|| self.value(statement).map(|_| ()))
+        self.is_tracked_value(statement)
+            .then(|| self.tracked_value(statement).map(|_| ()))
     }
 
-    /// Evaluate an expression `is_value` accepts, publishing the requests
+    /// Evaluate an expression `is_tracked_value` accepts, publishing the requests
     /// and reads it performs.
-    fn value(&mut self, tokens: &[PerlToken]) -> Result<PerlObject, PerlFailure> {
+    fn tracked_value(&mut self, tokens: &[PerlToken]) -> Result<PerlObject, PerlFailure> {
         if self.nesting >= MAX_NESTING {
             return Err("Perl expression nests too deeply to model".into());
         }
@@ -1870,7 +1878,7 @@ impl Compiler<'_, '_> {
                 PerlToken::Punct('}'),
             ] if keyword == "do" => {
                 self.nesting += 1;
-                let result = self.block(body);
+                let result = self.do_block_value(body);
                 self.nesting -= 1;
                 return result;
             }
@@ -1915,7 +1923,7 @@ impl Compiler<'_, '_> {
                         Some(end) => (&after[2..end - 1], &after[end..]),
                         None => (&[][..], tail),
                     };
-                    value = self.method(&value, method, arguments)?;
+                    value = self.http_tiny_method_call(&value, method, arguments)?;
                     rest = tail;
                 }
                 _ => break,
@@ -1932,15 +1940,15 @@ impl Compiler<'_, '_> {
 
     /// A `do { ... }` block: its statements run in order and the last one is
     /// its value.
-    fn block(&mut self, body: &[PerlToken]) -> Result<PerlObject, PerlFailure> {
+    fn do_block_value(&mut self, body: &[PerlToken]) -> Result<PerlObject, PerlFailure> {
         let statements = statements(body)?;
         let mut value = PerlObject::Opaque;
         for (index, statement) in statements.iter().enumerate() {
             let PerlStatement::Simple(statement) = statement else {
                 return Err("Perl nested named sub is not modeled".into());
             };
-            if index + 1 == statements.len() && self.is_value(statement) {
-                value = self.value(statement)?;
+            if index + 1 == statements.len() && self.is_tracked_value(statement) {
+                value = self.tracked_value(statement)?;
             } else {
                 self.statement(statement)?;
             }
@@ -1949,13 +1957,13 @@ impl Compiler<'_, '_> {
     }
 
     /// One HTTP::Tiny method call on `receiver`.
-    fn method(
+    fn http_tiny_method_call(
         &mut self,
         receiver: &PerlObject,
         name: &str,
         arguments: &[PerlToken],
     ) -> Result<PerlObject, PerlFailure> {
-        let arguments = list_items(arguments);
+        let arguments = split_list_items(arguments);
         let refused = || -> PerlFailure {
             format!(
                 "Perl {name} method call or argument shape is outside the bounded literal grammar"
@@ -1963,7 +1971,7 @@ impl Compiler<'_, '_> {
             .into()
         };
         if *receiver == PerlObject::Class && name == "new" {
-            return if arguments.iter().all(|argument| literal_data(argument)) {
+            return if arguments.iter().all(|argument| is_literal_data(argument)) {
                 Ok(PerlObject::Client)
             } else {
                 Err(refused())
@@ -1989,7 +1997,7 @@ impl Compiler<'_, '_> {
                 return Err(refused());
             };
             let file = perl_literal_text(file, &self.variables, self.budget)?;
-            self.options(options, false)?;
+            self.http_tiny_request_options(options, false)?;
             let download = self.pending.len() as u32;
             self.pending.push(Pending::Request {
                 operation: "network.download",
@@ -2005,16 +2013,16 @@ impl Compiler<'_, '_> {
         // What the request sends: `None` when it has no body.
         let sent = match verb.as_str() {
             "get" | "head" | "delete" | "options" => {
-                self.options(rest, false)?;
+                self.http_tiny_request_options(rest, false)?;
                 None
             }
-            "post" | "put" | "patch" => self.options(rest, true)?,
+            "post" | "put" | "patch" => self.http_tiny_request_options(rest, true)?,
             "post_form" => {
                 let [form, options @ ..] = rest else {
                     return Err(refused());
                 };
-                let sources = self.payload(form)?;
-                self.options(options, false)?;
+                let sources = self.request_payload_slots(form)?;
+                self.http_tiny_request_options(options, false)?;
                 Some(sources)
             }
             _ => return Err(refused()),
@@ -2039,7 +2047,7 @@ impl Compiler<'_, '_> {
 
     /// A request's trailing options hash. With `body`, the slots whose bytes
     /// its `content` entry sends, or `None` when it has no such entry.
-    fn options(
+    fn http_tiny_request_options(
         &mut self,
         options: &[&[PerlToken]],
         body: bool,
@@ -2049,11 +2057,11 @@ impl Compiler<'_, '_> {
             [[PerlToken::Punct('{'), entries @ .., PerlToken::Punct('}')]]
                 if matching_brace(options[0]) == Ok(options[0].len() - 1) =>
             {
-                list_items(entries)
+                split_list_items(entries)
             }
             [option] => {
                 // Options built elsewhere may carry a body or a callback.
-                self.unestablished(option);
+                self.refuse_unestablished_request_data(option);
                 return Ok(body.then(Vec::new));
             }
             _ => return Err("Perl HTTP::Tiny call has more arguments than it takes".into()),
@@ -2067,10 +2075,10 @@ impl Compiler<'_, '_> {
                     PerlToken::Punct('>'),
                     value @ ..,
                 ] if body && key == "content" => {
-                    sent = Some(self.payload(value)?);
+                    sent = Some(self.request_payload_slots(value)?);
                 }
-                entry if literal_data(entry) => {}
-                entry => self.unestablished(entry),
+                entry if is_literal_data(entry) => {}
+                entry => self.refuse_unestablished_request_data(entry),
             }
         }
         Ok(sent)
@@ -2078,8 +2086,8 @@ impl Compiler<'_, '_> {
 
     /// The slots whose bytes `tokens` carries into a request: a tracked
     /// value, or the values of a literal hash or array.
-    fn payload(&mut self, tokens: &[PerlToken]) -> Result<Vec<u32>, PerlFailure> {
-        if literal_data(tokens) {
+    fn request_payload_slots(&mut self, tokens: &[PerlToken]) -> Result<Vec<u32>, PerlFailure> {
+        if is_literal_data(tokens) {
             return Ok(Vec::new());
         }
         match perl_literal_text(tokens, &self.variables, self.budget) {
@@ -2087,8 +2095,8 @@ impl Compiler<'_, '_> {
             Err(PerlFailure::Refused(_)) => {}
             Err(failure) => return Err(failure),
         }
-        if self.is_value(tokens) {
-            return Ok(match self.value(tokens)? {
+        if self.is_tracked_value(tokens) {
+            return Ok(match self.tracked_value(tokens)? {
                 PerlObject::FileData(slot) | PerlObject::Content(slot) => vec![slot],
                 _ => Vec::new(),
             });
@@ -2101,23 +2109,23 @@ impl Compiler<'_, '_> {
             && balanced(entries)
         {
             let mut sources = Vec::new();
-            for entry in list_items(entries) {
+            for entry in split_list_items(entries) {
                 let value = match entry {
                     [_, PerlToken::Punct('='), PerlToken::Punct('>'), value @ ..] => value,
                     value => value,
                 };
-                sources.extend(self.payload(value)?);
+                sources.extend(self.request_payload_slots(value)?);
             }
             return Ok(sources);
         }
-        self.unestablished(tokens);
+        self.refuse_unestablished_request_data(tokens);
         Ok(Vec::new())
     }
 
     /// Record request data the grammar cannot establish. The request itself
     /// is kept. Only a plain variable is known to change nothing else; any
     /// other expression may, so nothing after it is compiled.
-    fn unestablished(&mut self, tokens: &[PerlToken]) {
+    fn refuse_unestablished_request_data(&mut self, tokens: &[PerlToken]) {
         self.refusals
             .insert("Perl HTTP::Tiny request data is not established".into());
         if !matches!(tokens, [PerlToken::Variable(_)]) {
@@ -2155,7 +2163,7 @@ impl Compiler<'_, '_> {
             });
         self.depth -= 1;
         self.active_subs.remove(name);
-        self.restore(outer);
+        self.restore_bindings(outer);
         result
     }
 
@@ -2182,7 +2190,7 @@ impl Compiler<'_, '_> {
 
 /// Split a list at its top-level commas, dropping the empty item a trailing
 /// comma leaves.
-fn list_items(tokens: &[PerlToken]) -> Vec<&[PerlToken]> {
+fn split_list_items(tokens: &[PerlToken]) -> Vec<&[PerlToken]> {
     let mut depth = 0i64;
     let mut items: Vec<_> = tokens
         .split(|token| {
@@ -2202,7 +2210,7 @@ fn list_items(tokens: &[PerlToken]) -> Vec<&[PerlToken]> {
 
 /// Whether `tokens` is literal data: strings, numbers, hash keys and the
 /// punctuation of nested hash and array literals, with nothing evaluated.
-fn literal_data(tokens: &[PerlToken]) -> bool {
+fn is_literal_data(tokens: &[PerlToken]) -> bool {
     tokens.iter().enumerate().all(|(index, token)| match token {
         PerlToken::Text(_) | PerlToken::Number(_) => true,
         PerlToken::Punct(c) => matches!(c, '{' | '}' | '[' | ']' | ',' | '=' | '>'),
@@ -2239,7 +2247,7 @@ fn perl_literal_text(
                 .get(name)
                 .ok_or_else(|| format!("Perl variable ${name} has no literal binding"))?,
             [PerlToken::Unknown(detail)] => return Err(detail.clone().into()),
-            [PerlToken::Special(_)] => return Err(SPECIAL_VARIABLE.into()),
+            [PerlToken::Special(_)] => return Err(SPECIAL_VARIABLE_UNMODELED.into()),
             _ => return Err("Perl path or value is a runtime-selected expression".into()),
         });
     }
