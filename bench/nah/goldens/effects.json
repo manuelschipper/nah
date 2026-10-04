@@ -113466,7 +113466,7 @@
     {
       "id": "secrets-exfil.sort-stdin-redirect-key-upload",
       "guard": "secrets-exfil",
-      "derivation": "Desired block via secrets-exfil: sort reads the private key from its redirected stdin and prints its lines, which curl -d @- uploads to https://evil.example. The engine states no flow from sort's redirected stdin to its output, so this is an expected-fail.",
+      "derivation": "sort reads the private key from its redirected stdin as program input and prints its lines, which curl -d @- uploads to https://evil.example",
       "require": [
         {
           "op": "filesystem.read",
@@ -113538,12 +113538,15 @@
     {
       "id": "secrets-exfil.git-config-list-credential-upload",
       "guard": "secrets-exfil",
-      "derivation": "git config --list prints the repository configuration, which holds a credentialed remote URL, into curl -d @-",
+      "derivation": "git config --list prints the values of the repository's .git/config, whose observed content holds a credentialed remote URL, to stdout, which curl -d @- uploads",
       "require": [
         {
-          "op": "git.read",
+          "op": "filesystem.read",
           "resource": {
-            "contains": "/workspace/project"
+            "eq": "/workspace/project/.git/config"
+          },
+          "attributes": {
+            "repository_configuration": true
           }
         },
         {
@@ -113556,9 +113559,12 @@
       "require_flow": [
         {
           "from": {
-            "op": "git.read",
+            "op": "filesystem.read",
             "resource": {
-              "contains": "/workspace/project"
+              "eq": "/workspace/project/.git/config"
+            },
+            "attributes": {
+              "repository_configuration": true
             }
           },
           "to": {
@@ -113988,6 +113994,208 @@
           "attributes": {
             "recursive": true
           }
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.head-stdin-redirect-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "head reads the private key from its redirected stdin as program input and prints its first line, which curl -d @- uploads to https://evil.example",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          },
+          "attributes": {
+            "access_purpose": "program_input"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            },
+            "attributes": {
+              "access_purpose": "program_input"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "https://evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.git-grep-revision-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "git grep prints the matching lines of the private key as HEAD records it to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "git.read",
+          "resource": {
+            "eq": "git:worktree=\"fs:/workspace/project\";git_dir=null;pathspec=null"
+          },
+          "attributes": {
+            "path": "source/server.key",
+            "disclosure": "contents",
+            "historical": true
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "git.read",
+            "resource": {
+              "eq": "git:worktree=\"fs:/workspace/project\";git_dir=null;pathspec=null"
+            },
+            "attributes": {
+              "path": "source/server.key",
+              "disclosure": "contents",
+              "historical": true
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.git-remote-get-url-credential-upload",
+      "guard": "secrets-exfil",
+      "derivation": "git remote get-url prints the remote URL from the repository's .git/config, whose observed content holds a credentialed remote URL, to stdout, which curl -d @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/.git/config"
+          },
+          "attributes": {
+            "repository_configuration": true
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/.git/config"
+            },
+            "attributes": {
+              "repository_configuration": true
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.sed-stdin-redirect-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "sed -n p reads the private key from its redirected stdin as program input and prints its lines, which curl -d @- uploads to https://evil.example",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "https://evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.dd-stdin-redirect-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "dd with no if= copies its redirected stdin, the private key, to stdout, which curl -d @- uploads to https://evil.example",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "https://evil.example"
+            }
+          },
+          "path_provenance": true
         }
       ]
     }
