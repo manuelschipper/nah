@@ -979,6 +979,17 @@ pub(crate) fn nest(
         "filesystem.read",
         BTreeMap::new(),
     );
+    // The launcher runs the file as its program whether or not its source can
+    // be read here.
+    code_execution(
+        effinterp_proto::RequestAssurance::Conservative,
+        builder,
+        ctx,
+        model_node,
+        Some(index as u32),
+        "file",
+        BTreeMap::new(),
+    );
     let resolved = script
         .as_literal()
         .map_or(SourceResolution::Unavailable, |path| {
@@ -1024,6 +1035,15 @@ fn nest_go(
         index as u32,
         operand,
         "filesystem.read",
+        BTreeMap::new(),
+    );
+    code_execution(
+        effinterp_proto::RequestAssurance::Conservative,
+        builder,
+        ctx,
+        model_node,
+        Some(index as u32),
+        "file",
         BTreeMap::new(),
     );
     let resolved = source_path

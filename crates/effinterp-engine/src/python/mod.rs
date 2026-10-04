@@ -177,7 +177,10 @@ fn star_exports(module: &str) -> Option<&'static [&'static str]> {
 
 /// Cap on effects retained in one function summary, so a pathological function
 /// (or an unconverged recursive one) cannot make a summary grow without bound.
-const MAX_SUMMARY_EFFECTS: usize = 128;
+/// Each retained effect is also charged to the shared analysis byte budget.
+/// A summary that reaches the cap records a `max_summary_effects` limit
+/// boundary for what it leaves out.
+const MAX_SUMMARY_EFFECTS: usize = 1024;
 const MAX_SUMMARY_BOUNDARIES: usize = 128;
 
 /// A module-level function definition: name, parameter names, body.
@@ -5054,13 +5057,6 @@ fn is_path_specific_method(method: &str) -> bool {
 
 fn is_branch_mixed_path_method(method: &str) -> bool {
     is_path_method(method) && !matches!(method, "open" | "replace")
-}
-
-fn keyword_str(call: &ast::ExprCall, name: &str) -> Option<String> {
-    call.keywords
-        .iter()
-        .find(|k| k.arg.as_ref().map(|a| a.as_str()) == Some(name))
-        .and_then(|k| str_literal(&k.value))
 }
 
 /// A small non-negative integer literal (a port number), when the expression

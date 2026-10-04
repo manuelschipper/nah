@@ -3405,6 +3405,12 @@ fn sed_in_place_writes_operand() {
         vec!["sed", "-i", "", "/undefined,$/d", "f"],
         vec!["sed", "-E", "-n", "-i", "", "s/a/b/", "f"],
         vec!["sed", "-i", "", "-e", "s/a/b/", "f"],
+        // `-i` clustered behind other short options, with and without a
+        // backup suffix.
+        vec!["sed", "-Ei", "s/a/b/", "f"],
+        vec!["sed", "-ni.bak", "s/a/b/p", "f"],
+        // A clustered `-e` takes the next word as its script, not as a file.
+        vec!["sed", "-rie", "s/a/b/", "f"],
     ] {
         let plan = analyze(&argv, Some("/w"));
         assert_eq!(
@@ -3448,6 +3454,9 @@ fn sed_pure_script_has_no_boundary() {
         vec!["sed", "-n", "s/.* -> \\(.*\\)/\\1/p"],
         vec!["sed", "-e", "s/^[[:space:]]*//", "-e", "/^#/d", "f"],
         vec!["sed", "-e", "1d;$d", "f"],
+        // Labels end at `;` or a blank, and the commands after them are pure.
+        vec!["sed", ":a;N;$!ba;s/\\n/ /g", "f"],
+        vec!["sed", "-e", ":top", "-e", "s/a/b/;t top", "f"],
     ] {
         let plan = analyze(&argv, Some("/w"));
         assert!(
@@ -3467,6 +3476,10 @@ fn sed_effectful_or_opaque_script_keeps_boundary() {
         vec!["sed", "e ls", "f"],
         vec!["sed", "-f", "cmds.sed", "f"],
         vec!["sed", "--weird", "s/a/b/", "f"],
+        // GNU sed ends a branch label at `;`, so the command after it runs.
+        vec!["sed", "$!b;e id", "f"],
+        vec!["sed", "s/a/b/;t;w out", "f"],
+        vec!["sed", "T;e id", "f"],
     ] {
         let plan = analyze(&argv, Some("/w"));
         assert!(
