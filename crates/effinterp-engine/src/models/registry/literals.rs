@@ -1182,9 +1182,11 @@ impl<'a> JqReader<'a> {
                 if self.peek() == Some(JqToken::StringOpen) {
                     return self.string(input);
                 }
-                // These formats serialize an object; the others refuse one.
+                // These formats serialize an object. The others (`@csv`,
+                // `@tsv`, `@sh`) refuse one and print an array's values.
+                let serializes = matches!(name, "json" | "text" | "base64" | "html" | "uri");
                 Some(
-                    if input.discloses() && matches!(name, "json" | "text" | "base64") {
+                    if input == JqValue::Whole || (input.discloses() && serializes) {
                         JqValue::Whole
                     } else {
                         input.computed()
@@ -1293,18 +1295,20 @@ impl<'a> JqReader<'a> {
             return Some(match (name, input) {
                 ("env", _) => JqValue::Environment,
                 ("to_entries", JqValue::Environment) => JqValue::Entries,
+                ("from_entries", JqValue::Entries) => JqValue::Environment,
                 ("add", JqValue::Environment | JqValue::Whole) => JqValue::Whole,
                 ("tojson" | "tostring", input) if input.discloses() => JqValue::Whole,
                 ("debug" | "stderr" | "values" | "objects", input) => input,
                 (_, input) => input.computed(),
             });
         }
-        // `map(f)` is `[.[] | f]`; any other filter's arguments run on its
+        // `map(f)` is `[.[] | f]` and `with_entries(f)` is `to_entries |
+        // map(f) | from_entries`; any other filter's arguments run on its
         // own input.
-        let argument_input = if name == "map" {
-            input.iterated()
-        } else {
-            input
+        let argument_input = match (name, input) {
+            ("map", input) => input.iterated(),
+            ("with_entries", JqValue::Environment) => JqValue::Entries,
+            (_, input) => input,
         };
         let mut arguments = self.pipe(argument_input)?;
         let mut count = 1;
@@ -1317,6 +1321,10 @@ impl<'a> JqReader<'a> {
         }
         Some(match name {
             "map" if count == 1 => arguments,
+            // Entries passed through whole rebuild the object.
+            "with_entries" if count == 1 && arguments == JqValue::Entries => input,
+            // Deleting named paths keeps every other value.
+            "del" if count == 1 && arguments == JqValue::Touched => input,
             // Joining an array of every value keeps every value.
             "join" if input == JqValue::Whole => JqValue::Whole,
             _ => input.with(arguments).computed(),
@@ -1347,6 +1355,10 @@ mod tests {
             "env|to_entries[]|\"\\(.key)=\\(.value)\"",
             "env|to_entries|map(\"\\(.key)=\\(.value)\")|.[]",
             "[env[]]|join(\",\")",
+            "env | to_entries[] | [.key, .value] | @tsv",
+            "env | to_entries[] | [.key, .value] | @sh",
+            "env | del(.PATH)",
+            "env | with_entries(.)",
         ] {
             assert_eq!(
                 jq_environment_read(filter),
@@ -1363,6 +1375,9 @@ mod tests {
             "env|length",
             "[env][0].HOME",
             "env|to_entries[]|.key",
+            "env | to_entries[] | [.key] | @csv",
+            "env | del(.[])",
+            "env | with_entries(select(.key == \"PATH\"))",
             "\"\\(env.HOME)\"",
             "env as $e | $e",
             "if . then env else 1 end",
