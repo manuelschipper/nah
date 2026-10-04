@@ -17,7 +17,7 @@ use super::git_options::{
     git_options, git_options_known,
 };
 use super::git_repository::{effective_cwd, empty_repository_global, repo_expr};
-use super::{ALL_DOMAINS, Git, Globals, SubCtx, dispatch, request_attrs};
+use super::{ALL_DOMAINS, Git, Globals, SubCtx, dispatch, git_runs_through_shell, request_attrs};
 
 /// The one external `git-<name>` program this model dispatches.
 pub(super) const GIT_FILTER_REPO: &str = "filter-repo";
@@ -421,10 +421,7 @@ fn rebase_exec_commands(builder: &mut PlanBuilder, s: &SubCtx, parsed: &Scanned<
             );
             continue;
         };
-        let invokes_shell = source.contains([
-            '|', '&', ';', '<', '>', '(', ')', '$', '`', '\\', '"', '\'', ' ', '\t', '\n', '*',
-            '?', '[', '#', '~', '=', '%',
-        ]);
+        let invokes_shell = git_runs_through_shell(source);
         let argv = if invokes_shell {
             vec![
                 Word::literal("/bin/sh"),

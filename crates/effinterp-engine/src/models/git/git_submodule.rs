@@ -16,7 +16,7 @@ use super::git_options::{
 };
 use super::git_pathspec::git_request_path;
 use super::git_repository::{discovers_from_worktree, root_uses_invocation_cwd};
-use super::{SubCtx, git_argument_boundary, request_attrs, string_list};
+use super::{SubCtx, git_argument_boundary, git_runs_through_shell, request_attrs, string_list};
 
 /// `git submodule add <repository> [<path>]` clones the repository
 /// into the path and stages it with `.gitmodules`.
@@ -250,12 +250,7 @@ pub(super) fn submodule_foreach(builder: &mut PlanBuilder, s: &SubCtx) -> bool {
     let command_node = arg_node(builder, s.ctx, base as u32);
     let mut provenance: Vec<Vec<ProvenanceRef>> = Vec::new();
     let mut argv = match first.as_literal() {
-        Some(source)
-            if source.contains([
-                '|', '&', ';', '<', '>', '(', ')', '$', '`', '\\', '"', '\'', ' ', '\t', '\n', '*',
-                '?', '[', '#', '~', '=', '%',
-            ]) =>
-        {
+        Some(source) if git_runs_through_shell(source) => {
             let words = vec![
                 Word::literal("/bin/sh"),
                 Word::literal("-c"),

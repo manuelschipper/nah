@@ -574,10 +574,7 @@ impl CommandModel for Git {
                 );
                 let command_node =
                     builder.node(ProvenanceKind::Argument { index: sub_index }, &command_node);
-                let invokes_shell = source.contains([
-                    '|', '&', ';', '<', '>', '(', ')', '$', '`', '\\', '"', '\'', ' ', '\t', '\n',
-                    '*', '?', '[', '#', '~', '=', '%',
-                ]);
+                let invokes_shell = git_runs_through_shell(source);
                 // Git runs a shell alias through its compiled-in SHELL_PATH
                 // (`/bin/sh` by default), not an `sh` found on PATH; an alias
                 // without shell syntax is exec'd directly and searched on PATH.
@@ -679,6 +676,18 @@ impl CommandModel for Git {
             alias_provenance.as_deref(),
         );
     }
+}
+
+/// Whether git runs the command `source` through the shell: git's
+/// run-command hands a command with any shell syntax character to
+/// `/bin/sh -c` and execs any other directly (run-command.c
+/// `prepare_shell_cmd`). Aliases, `submodule foreach` and `rebase --exec`
+/// all run their command this way.
+fn git_runs_through_shell(source: &str) -> bool {
+    source.contains([
+        '|', '&', ';', '<', '>', '(', ')', '$', '`', '\\', '"', '\'', ' ', '\t', '\n', '*', '?',
+        '[', '#', '~', '=', '%',
+    ])
 }
 
 /// Run the subcommand `sub` at `sub_index`, over the alias-expanded argv
