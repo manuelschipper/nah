@@ -29,7 +29,7 @@ pub(super) fn platform_models() -> Vec<Box<dyn CommandModel>> {
 /// The Wrangler and Supabase documents model their database deletes (D1,
 /// projects and branches) and leave the rest of the CLI unmodeled. The other
 /// reviewed deletes are read here, and so is the SQL input a document cannot
-/// read (`sql_input`); anything else continues to the document.
+/// read (`platform_cli_sql_input`); anything else continues to the document.
 pub(super) fn with_platform_deletes(owner: Box<dyn CommandModel>) -> Box<dyn CommandModel> {
     let tool = match owner.id() {
         "p18b/cloud/wrangler@v1" => &WRANGLER,
