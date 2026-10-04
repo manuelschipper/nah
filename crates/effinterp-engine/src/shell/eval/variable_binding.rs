@@ -1673,13 +1673,7 @@ pub(in crate::shell) fn for_list_producers(
             .get(&name)
             .map(|entry| entry.producers_in_condition(builder, &env.chain_held))
             .unwrap_or_default();
-        if let Some(reads) = &env.loop_reads {
-            reads
-                .borrow_mut()
-                .entry(name.clone())
-                .or_default()
-                .extend(observed.iter().cloned());
-        }
+        crate::shell::record_loop_read(env.loop_reads.as_ref(), &name, &observed);
         producers.extend(observed);
         match env.arrays.get(&name) {
             Some(ArrayValue::Unknown(read)) => producers.extend(read.iter().cloned()),

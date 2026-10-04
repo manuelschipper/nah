@@ -44,7 +44,7 @@ mod source_and_eval;
 pub(super) mod variable_binding;
 mod word_expansion;
 
-use command_substitution::{heredoc_body_expands, quoted_field};
+use command_substitution::{heredoc_body_expands, one_word_quoted_expansion};
 use directory_change::{
     DirectoryChange, directory_change, directory_target, host_runtime_cwd, physical_depth_after,
     pwd_follows_cwd,
@@ -836,7 +836,8 @@ impl Shell<'_> {
                     // where quoting keeps it within one argument.
                     if cmd.words.iter().all(|word| {
                         word.segs.iter().all(|segment| {
-                            matches!(segment, Seg::Literal { .. }) || quoted_field(segment)
+                            matches!(segment, Seg::Literal { .. })
+                                || one_word_quoted_expansion(segment)
                         })
                     }) {
                         literal_output_word(
@@ -865,7 +866,7 @@ impl Shell<'_> {
                                     Seg::Literal { text, quoted } => {
                                         *quoted || !text.contains(['*', '?', '[', '{', '~'])
                                     }
-                                    segment => quoted_field(segment),
+                                    segment => one_word_quoted_expansion(segment),
                                 })
                                 .then(|| {
                                     let wrapper = converted.len() - words.len();

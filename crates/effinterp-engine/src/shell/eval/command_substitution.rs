@@ -17,7 +17,7 @@ use super::literal_output;
 /// Whether a segment is a quoted expansion, which stays part of one word
 /// whatever its value. An unquoted one, or one that expands to a list
 /// (`"$@"`), may be several words.
-pub(in crate::shell) fn quoted_field(segment: &Seg) -> bool {
+pub(in crate::shell) fn one_word_quoted_expansion(segment: &Seg) -> bool {
     matches!(
         segment,
         Seg::Env { quoted: true, .. }
@@ -646,7 +646,7 @@ impl Shell<'_> {
             );
             parts.push(match (fixed, segment) {
                 (Some(text), _) => WordPart::Literal(text),
-                (None, segment) if quoted_field(segment) => WordPart::Unknown,
+                (None, segment) if one_word_quoted_expansion(segment) => WordPart::Unknown,
                 _ => return None,
             });
         }

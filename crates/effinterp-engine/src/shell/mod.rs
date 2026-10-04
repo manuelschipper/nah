@@ -473,9 +473,7 @@ impl VarEntry {
         producers.dedup();
         producers
     }
-}
 
-impl VarEntry {
     /// The writes that bound this name's producers, oldest first.
     fn producer_writes(&self) -> Vec<(Option<effinterp_proto::Condition>, Vec<FlowRef>)> {
         let mut writes = self.earlier_producers.clone();
@@ -531,7 +529,23 @@ fn condition_atoms<'a>(
     }
 }
 
+/// The loop reads of one loop body pass: for each variable name a use in the
+/// body expanded, the producers that use observed. A name unbound at its use
+/// is recorded with none.
 type LoopReads = Rc<RefCell<BTreeMap<String, BTreeSet<FlowRef>>>>;
+
+/// Record a loop read: a use of `name` that observed `producers`, where a
+/// loop body's first pass is collecting them (`ShellEnv::loop_reads`).
+/// `walk_loop` compares them with what the next iteration would observe.
+fn record_loop_read(loop_reads: Option<&LoopReads>, name: &str, producers: &[FlowRef]) {
+    if let Some(reads) = loop_reads {
+        reads
+            .borrow_mut()
+            .entry(name.to_string())
+            .or_default()
+            .extend(producers.iter().cloned());
+    }
+}
 
 /// One operand of an `&&`/`||` chain, as the operand after it sees it.
 struct ChainOperand {
@@ -540,8 +554,13 @@ struct ChainOperand {
     step: Option<(ShellSpan, bool)>,
     /// Reached through `&&`, or the chain's first operand.
     positive: bool,
+    /// The run conditions of the earlier operands of this chain that
+    /// certainly ran before this one, at most `MAX_CHAIN_HELD`.
     held: Vec<effinterp_proto::Condition>,
+    /// This operand's run condition and the simpler one it is equivalent to,
+    /// as `ShellEnv::chain_alias` states it.
     alias: Option<Box<(effinterp_proto::Condition, effinterp_proto::Condition)>>,
+    /// The operand is an assignment of fixed text, which cannot fail.
     infallible: bool,
     /// What the enclosing list had established, which holds for every item
     /// of this one.
@@ -1193,7 +1212,7 @@ enum StdoutSink {
 /// Where the last redirection of descriptor 1 leaves a stage's stdout, read
 /// over the redirections it inherits and then its own. `piped` is a stage
 /// that feeds the next one.
-fn stage_stdout(env: &ShellEnv, spec: &crate::flow::StageSpec, piped: bool) -> StdoutSink {
+fn stage_stdout_sink(env: &ShellEnv, spec: &crate::flow::StageSpec, piped: bool) -> StdoutSink {
     if piped || env.stdout_channel.is_some() {
         return StdoutSink::Other;
     }
@@ -1250,7 +1269,7 @@ fn mark_disclosed_environment_reads(
     if spec.name.as_deref() != Some("xargs")
         && builder.stdin_consumed_within(spec.effect_start, spec.effect_end)
     {
-        match stage_stdout(env, spec, piped) {
+        match stage_stdout_sink(env, spec, piped) {
             StdoutSink::Terminal => printed.extend(stdin_producers.iter().cloned()),
             StdoutSink::Capture => {
                 if let Some(captured) = &env.captured_values {
@@ -2483,7 +2502,7 @@ impl Shell<'_> {
             };
             let selected =
                 selection.and_then(|(_, polarity)| env.status.map(|status| status == polarity));
-            self.chain_operand(builder, env, &mut chain, item, selection, selected);
+            self.enter_chain_operand(builder, env, &mut chain, item, selection, selected);
             if selected == Some(false) {
                 continue;
             }
@@ -3806,7 +3825,7 @@ impl Shell<'_> {
     /// exactly when `A` failed, since the assignment cannot fail: the two
     /// operands are the two outcomes of `A`.
     #[inline(never)]
-    fn chain_operand(
+    fn enter_chain_operand(
         &self,
         builder: &PlanBuilder,
         env: &mut ShellEnv,
