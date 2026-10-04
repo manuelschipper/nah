@@ -12,6 +12,7 @@ include!(concat!(env!("OUT_DIR"), "/promoted_models.rs"));
 
 mod compile;
 mod invocation;
+mod jq_environment_read;
 pub(crate) mod launcher;
 mod literals;
 mod mcp;
