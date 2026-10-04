@@ -125,8 +125,47 @@ jobs:
           $result = Invoke-Pester -Container $container -CI -PassThru
           if ($result.FailedCount -ne 0) { exit 1 }
 
+  # Installs each Unix archive with the installer users run, on a runner of the
+  # archive's own target, and starts the binary before anything is published.
+  unix-acceptance:
+    name: accept ${{ matrix.target }}
+    needs: checksums
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets
+
+      # install.sh chooses the asset from the machine it runs on. Serving it
+      # only this target's archive fails the job if the runner is another one.
+      - name: Install the archive and check its version
+        run: |
+          mkdir stub served
+          cp homepage/tests/local-release-curl.sh stub/curl
+          chmod +x stub/curl
+          cp "release-assets/nah-${{ matrix.target }}.tar.gz" release-assets/sha256sums.txt served/
+          PATH="$PWD/stub:$PATH" NAH_TEST_RELEASE_DIR="$PWD/served" \
+            NAH_INSTALL_DIR="$PWD/installed" NAH_VERSION="$GITHUB_REF_NAME" \
+            sh homepage/install.sh
+          test "$(installed/nah --version)" = "nah ${GITHUB_REF_NAME#v}"
+
   release:
-    needs: windows-acceptance
+    needs: [windows-acceptance, unix-acceptance]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
