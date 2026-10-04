@@ -452,10 +452,26 @@ const REMOVED: &str = "removed";
 /// How Nah establishes that the invocation asks for a filesystem access's
 /// contents: a model that states they leave, a model that states a program
 /// takes them as input without moving the same path, a program-input read
-/// that is the copy half of a move, or the plan's use of the bytes. Each is
-/// the attributes the access carries and what else holds.
+/// that is the copy half of a move, or the plan's use of the bytes. A write
+/// also counts when its model states that it replaces the file's content.
+/// Each is the attributes the access carries and what else holds.
 fn purposes(operation: &str) -> Vec<(Vec<AttributePredicate>, Option<Assertion>)> {
-    vec![
+    // A write that empties or overwrites the file replaces what it held,
+    // whatever the new bytes are: `truncate -s 0`, `shred`, `dd of=`.
+    let mut purposes = if operation == "filesystem.write" {
+        ["truncate", "overwrite"]
+            .into_iter()
+            .map(|replaced| {
+                (
+                    vec![present_attr(replaced), bool_attr(replaced, true)],
+                    None,
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    purposes.extend([
         (
             vec![
                 present_attr("disclosure"),
@@ -490,7 +506,8 @@ fn purposes(operation: &str) -> Vec<(Vec<AttributePredicate>, Option<Assertion>)
             Some(read_by_complete_move()),
         ),
         (vec![], Some(consumed(operation))),
-    ]
+    ]);
+    purposes
 }
 
 /// A move of the bound read's own path in the same call, bound as `MOVED`,

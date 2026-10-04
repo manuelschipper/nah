@@ -10537,6 +10537,137 @@
           "path": "C:\\workspace\\project"
         }
       ]
+    },
+    "git-config-extraheader-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "contents": "[core]\n\trepositoryformatversion = 0\n[remote \"origin\"]\n\turl = https://github.com/example/project.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[http]\n\textraheader = Authorization: Bearer ghp_0123456789abcdefghij\n",
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/config",
+          "requested": "/workspace/project/.git/config",
+          "resolved": "/workspace/project/.git/config"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "git-config-upstream-credential-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "contents": "[core]\n\trepositoryformatversion = 0\n[remote \"origin\"]\n\turl = https://github.com/example/project.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[remote \"upstream\"]\n\turl = https://deploy:ghp_0123456789abcdefghij@github.com/upstream/project.git\n",
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/config",
+          "requested": "/workspace/project/.git/config",
+          "resolved": "/workspace/project/.git/config"
+        },
+        {
+          "contents": "[remote \"origin\"]\n\turl = https://deploy:ghp_0123456789abcdefghij@github.com/example/project.git\n",
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/copied.gitconfig",
+          "requested": "/workspace/project/copied.gitconfig",
+          "resolved": "/workspace/project/copied.gitconfig"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "sort-output-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "requested": "/workspace/project/source/server.key",
+          "resolved": "/workspace/project/source/server.key",
+          "realpath": "/workspace/project/source/server.key",
+          "kind": "file",
+          "exists": true
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/out",
+          "requested": "/workspace/project/out",
+          "resolved": "/workspace/project/out"
+        },
+        {
+          "requested": "/workspace/project/out/sorted",
+          "resolved": "/workspace/project/out/sorted",
+          "kind": "missing",
+          "exists": false
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
     }
   }
 }

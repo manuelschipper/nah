@@ -900,6 +900,18 @@ impl CommandModel for HeadTail {
             ],
         };
         let scanned = scan(ctx.argv, &SPEC);
+        // Historic `head -5` numeric flags are harmless; ignore them.
+        let unknown: Vec<(u32, String)> = scanned
+            .unknown_flags
+            .iter()
+            .filter(|(_, name)| !name[1..].chars().all(|c| c.is_ascii_digit()))
+            .cloned()
+            .collect();
+        // With no operand, or `-`, standard input is what is printed, so a
+        // file redirected onto it is program input as an operand is.
+        if operands_read_stdin(&scanned.operands) && unknown.is_empty() {
+            builder.note_stdin_consumed();
+        }
         for (index, operand) in &scanned.operands {
             if operand.as_literal() == Some("-") {
                 continue;
@@ -911,20 +923,13 @@ impl CommandModel for HeadTail {
                 *index,
                 operand,
                 "filesystem.read",
-                if scanned.unknown_flags.is_empty() {
+                if unknown.is_empty() {
                     program_input_attrs()
                 } else {
                     Default::default()
                 },
             );
         }
-        // Historic `head -5` numeric flags are harmless; ignore them.
-        let unknown: Vec<(u32, String)> = scanned
-            .unknown_flags
-            .iter()
-            .filter(|(_, name)| !name[1..].chars().all(|c| c.is_ascii_digit()))
-            .cloned()
-            .collect();
         fs_full_no_spawn(builder);
         unrecognized_arguments_boundary(builder, model_node, &["filesystem"], &unknown);
     }

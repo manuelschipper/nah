@@ -290,9 +290,6 @@ impl CommandModel for Sort {
                 known_flags: &[],
             },
         );
-        if scanned.has(&["-o", "--output"]) {
-            return Vec::new();
-        }
         if scanned.has(&["--files0-from"]) {
             return Vec::new();
         }
@@ -306,6 +303,15 @@ impl CommandModel for Sort {
             .any(|(_, operand)| operand.as_literal() != Some("-"))
         {
             bindings.push(filesystem_read_stdout_binding());
+        }
+        // `-o FILE` receives the sorted input in place of stdout.
+        if scanned.has(&["-o", "--output"]) {
+            for binding in &mut bindings {
+                binding.to = crate::models::ModelBindingEnd::Effect {
+                    operation: "filesystem.write".into(),
+                    selection: effinterp_model_schema::EffectSelection::All,
+                };
+            }
         }
         bindings
     }
@@ -496,6 +502,11 @@ impl CommandModel for Sort {
             );
         }
         if !has_files0_from {
+            // With no operand, or `-`, standard input is what sort sorts, so
+            // a file redirected onto it is program input as an operand is.
+            if operands_read_stdin(&scanned.operands) && scanned.unknown_flags.is_empty() {
+                builder.note_stdin_consumed();
+            }
             for (index, operand) in &scanned.operands {
                 if operand.as_literal() == Some("-") {
                     continue;
@@ -850,6 +861,16 @@ impl CommandModel for Grep {
             });
         let mut filter_attributes = attrs(&[("content_filter", true)]);
         let mut input_attributes = attrs(&[("recursive", recursive), ("content_filter", true)]);
+        // GNU `-R` opens what every link below an operand leads to, where
+        // `-r` follows only the links named on the command line. BSD grep's
+        // `-R` follows none without `-S`; nothing here tells the two apart,
+        // so `-R` is read as following on every host.
+        if scanned.has(&["-R", "--dereference-recursive"]) {
+            input_attributes.insert(
+                "follow_links".into(),
+                effinterp_proto::AttrValue::Bool(true),
+            );
+        }
         input_attributes.insert(
             "input_role".into(),
             effinterp_proto::AttrValue::String("content".into()),
@@ -1221,6 +1242,117 @@ fn basename_complement(
 /// (`+10`, `+/pattern`) is a jump command, not a file.
 struct Pager;
 
+const LESS_SPEC: FlagSpec<'static> = FlagSpec {
+    allow_abbreviation: false,
+    value_flags: &[
+        "--lesskey-file",
+        "--lesskey-src",
+        "-b",
+        "-h",
+        "-j",
+        "-k",
+        "-n",
+        "-o",
+        "-O",
+        "-p",
+        "-P",
+        "-t",
+        "-T",
+        "-x",
+        "-y",
+        "-z",
+    ],
+    known_flags: &[
+        "-a",
+        "-A",
+        "-c",
+        "-C",
+        "-d",
+        "-e",
+        "-E",
+        "-f",
+        "-F",
+        "-g",
+        "-G",
+        "-i",
+        "-I",
+        "-J",
+        "-K",
+        "-l",
+        "-L",
+        "-m",
+        "-M",
+        "-N",
+        "-q",
+        "-Q",
+        "-r",
+        "-R",
+        "-s",
+        "-S",
+        "-u",
+        "-U",
+        "-V",
+        "--version",
+        "-w",
+        "-W",
+        "-X",
+    ],
+};
+const MORE_SPEC: FlagSpec<'static> = FlagSpec {
+    allow_abbreviation: true,
+    value_flags: &["-n", "--lines"],
+    known_flags: &[
+        "-d",
+        "--silent",
+        "-f",
+        "--logical",
+        "-l",
+        "--no-pause",
+        "-c",
+        "--print-over",
+        "-p",
+        "--clean-print",
+        "-e",
+        "--exit-on-eof",
+        "-s",
+        "--squeeze",
+        "-u",
+        "--plain",
+        "-V",
+        "--version",
+        "-h",
+        "--help",
+    ],
+};
+
+fn is_more(argv: &[Word]) -> bool {
+    argv[0]
+        .as_literal()
+        .and_then(|name| name.rsplit('/').next())
+        == Some("more")
+}
+
+/// The files a pager shows: every operand but `-` and a `+CMD` start command.
+fn pager_files<'a>(scanned: &Scanned<'a>) -> Vec<(u32, &'a Word)> {
+    scanned
+        .operands
+        .iter()
+        .filter(|(_, operand)| {
+            !matches!(operand.as_literal(), Some(text) if text == "-" || text.starts_with('+'))
+        })
+        .copied()
+        .collect()
+}
+
+/// Whether the pager shows its standard input: no file operand, or `-`.
+fn pager_reads_stdin(scanned: &Scanned<'_>) -> bool {
+    pager_files(scanned).is_empty()
+        || scanned
+            .operands
+            .iter()
+            .any(|(_, operand)| operand.as_literal() == Some("-"))
+}
+
 impl CommandModel for Pager {
     fn domains(&self) -> &'static [&'static str] {
         &["filesystem", "process"]
@@ -1234,93 +1366,30 @@ impl CommandModel for Pager {
         &["less", "more"]
     }
 
+    /// A pager whose output is not a terminal writes its input through, as
+    /// `cat` does, so what it shows reaches the call's standard output. The
+    /// binding takes every file the call reads, a lesskey file among them.
+    fn causal_bindings(&self, argv: &[Word]) -> Vec<ModelCausalBinding> {
+        let scanned = scan(
+            argv,
+            if is_more(argv) {
+                &MORE_SPEC
+            } else {
+                &LESS_SPEC
+            },
+        );
+        let mut bindings = Vec::new();
+        if pager_reads_stdin(&scanned) {
+            bindings.push(stdin_stdout_binding());
+        }
+        if !pager_files(&scanned).is_empty() {
+            bindings.push(filesystem_read_stdout_binding());
+        }
+        bindings
+    }
+
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        const LESS_SPEC: FlagSpec<'static> = FlagSpec {
-            allow_abbreviation: false,
-            value_flags: &[
-                "--lesskey-file",
-                "--lesskey-src",
-                "-b",
-                "-h",
-                "-j",
-                "-k",
-                "-n",
-                "-o",
-                "-O",
-                "-p",
-                "-P",
-                "-t",
-                "-T",
-                "-x",
-                "-y",
-                "-z",
-            ],
-            known_flags: &[
-                "-a",
-                "-A",
-                "-c",
-                "-C",
-                "-d",
-                "-e",
-                "-E",
-                "-f",
-                "-F",
-                "-g",
-                "-G",
-                "-i",
-                "-I",
-                "-J",
-                "-K",
-                "-l",
-                "-L",
-                "-m",
-                "-M",
-                "-N",
-                "-q",
-                "-Q",
-                "-r",
-                "-R",
-                "-s",
-                "-S",
-                "-u",
-                "-U",
-                "-V",
-                "--version",
-                "-w",
-                "-W",
-                "-X",
-            ],
-        };
-        const MORE_SPEC: FlagSpec<'static> = FlagSpec {
-            allow_abbreviation: true,
-            value_flags: &["-n", "--lines"],
-            known_flags: &[
-                "-d",
-                "--silent",
-                "-f",
-                "--logical",
-                "-l",
-                "--no-pause",
-                "-c",
-                "--print-over",
-                "-p",
-                "--clean-print",
-                "-e",
-                "--exit-on-eof",
-                "-s",
-                "--squeeze",
-                "-u",
-                "--plain",
-                "-V",
-                "--version",
-                "-h",
-                "--help",
-            ],
-        };
-        let more = ctx.argv[0]
-            .as_literal()
-            .and_then(|name| name.rsplit('/').next())
-            == Some("more");
+        let more = is_more(ctx.argv);
         let mut scanned = scan_with_value_indices(
             ctx.argv,
             if more { &MORE_SPEC } else { &LESS_SPEC },
@@ -1362,16 +1431,18 @@ impl CommandModel for Pager {
                 );
             }
         }
-        for (index, operand) in &scanned.operands {
-            match operand.as_literal() {
-                Some(text) if text == "-" || text.starts_with('+') => continue,
-                _ => {}
-            }
+        // With no file operand, or `-`, standard input is what the pager
+        // shows, so a file redirected onto it is program input as an operand
+        // is.
+        if pager_reads_stdin(&scanned) && scanned.unknown_flags.is_empty() {
+            builder.note_stdin_consumed();
+        }
+        for (index, operand) in pager_files(&scanned) {
             operand_effect(
                 builder,
                 ctx,
                 model_node,
-                *index,
+                index,
                 operand,
                 "filesystem.read",
                 if scanned.unknown_flags.is_empty() {
@@ -1414,10 +1485,22 @@ fn base64_decodes(scanned: &Scanned<'_>) -> bool {
     scanned.has(&["-d", "-D", "--decode"])
 }
 
+/// The invocation as a reviewed stream: every option literal and at most one
+/// operand. The operand may be a pattern or a symbolic path where option
+/// parsing cannot reinterpret it, or beside a literal decode option, where
+/// no option it could spell instead makes the call do anything but decode,
+/// print help or fail.
 fn base64_stream(argv: &[Word]) -> Option<crate::models::args::Scanned<'_>> {
     let scanned = scan(argv, &BASE64_SPEC);
-    (argv.iter().all(|word| word.as_literal().is_some())
-        && scanned.unknown_flags.is_empty()
+    (argv.iter().enumerate().all(|(index, word)| {
+        word.as_literal().is_some()
+            || scanned
+                .operands
+                .iter()
+                .any(|(operand, _)| *operand == index as u32)
+                && (base64_decodes(&scanned)
+                    || super::registry::reviewed_read_operand(word, index as u32, scanned.dashdash))
+    }) && scanned.unknown_flags.is_empty()
         && !scanned.has(&["--help", "--version"])
         && scanned.operands.len() <= 1
         && scanned.flags.iter().all(|flag| {
@@ -1471,37 +1554,47 @@ impl CommandModel for Base64 {
             }
             return bindings;
         };
-        let source = if operands_read_stdin(&scanned.operands) {
-            ModelBindingEnd::Port(Port::Stdin)
-        } else {
-            ModelBindingEnd::Effect {
+        // An operand that is not literal may name a file or spell `-`.
+        let symbolic = scanned
+            .operands
+            .iter()
+            .any(|(_, operand)| operand.as_literal().is_none());
+        let mut sources = Vec::new();
+        if operands_read_stdin(&scanned.operands) || symbolic {
+            sources.push(ModelBindingEnd::Port(Port::Stdin));
+        }
+        if !operands_read_stdin(&scanned.operands) {
+            sources.push(ModelBindingEnd::Effect {
                 operation: "filesystem.read".into(),
                 selection: EffectSelection::All,
-            }
-        };
+            });
+        }
         let output = ModelBindingEnd::Port(Port::Stdout);
         let transform = ModelBindingEnd::Effect {
             operation: "process.stream_transform".into(),
             selection: EffectSelection::All,
         };
-        let mut bindings = vec![ModelCausalBinding {
-            assurance: CausalAssurance::Exact,
-            from: source.clone(),
-            to: output.clone(),
-        }];
-        if base64_decodes(&scanned) {
-            bindings.extend([
-                ModelCausalBinding {
+        let mut bindings = Vec::new();
+        for source in sources {
+            bindings.push(ModelCausalBinding {
+                assurance: CausalAssurance::Exact,
+                from: source.clone(),
+                to: output.clone(),
+            });
+            if base64_decodes(&scanned) {
+                bindings.push(ModelCausalBinding {
                     assurance: CausalAssurance::Exact,
                     from: source,
                     to: transform.clone(),
-                },
-                ModelCausalBinding {
-                    assurance: CausalAssurance::Exact,
-                    from: transform,
-                    to: output,
-                },
-            ]);
+                });
+            }
+        }
+        if base64_decodes(&scanned) {
+            bindings.push(ModelCausalBinding {
+                assurance: CausalAssurance::Exact,
+                from: transform,
+                to: output,
+            });
         }
         bindings
     }
@@ -1639,6 +1732,11 @@ impl CommandModel for Cut {
             ],
         };
         let scanned = scan(ctx.argv, &SPEC);
+        // With no operand, or `-`, standard input is what cut selects from,
+        // so a file redirected onto it is program input as an operand is.
+        if operands_read_stdin(&scanned.operands) && scanned.unknown_flags.is_empty() {
+            builder.note_stdin_consumed();
+        }
         for (index, operand) in &scanned.operands {
             if operand.as_literal() == Some("-") {
                 continue;
@@ -1835,8 +1933,13 @@ impl CommandModel for Awk {
             files,
             unknown,
             in_place,
-            ..
+            reads_stdin,
         } = awk_invocation(ctx.argv);
+        // With no input file, or `-`, standard input holds the records, so
+        // a file redirected onto it is program input as an operand is.
+        if (files.is_empty() || reads_stdin) && unknown.is_empty() {
+            builder.note_stdin_consumed();
+        }
 
         // awk runs a program file's text as its program, as `sh FILE` runs a
         // script; the text itself stays uninspected below.

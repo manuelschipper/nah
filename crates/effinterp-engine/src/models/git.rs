@@ -647,11 +647,28 @@ impl CommandModel for Git {
         // file the command reads; a diff or blame that reads only recorded
         // history has no filesystem read for the binding to carry.
         if let Some((index, word)) = sub
-            && let Some(sub @ ("diff" | "blame")) = word.as_literal()
+            && let Some(sub @ ("diff" | "blame" | "grep")) = word.as_literal()
         {
-            if printed(sub, &argv[*index as usize + 1..]) != Printed::Lines {
+            let rest = &argv[*index as usize + 1..];
+            if printed(sub, rest) != Printed::Lines || sub == "grep" && grep_arguments(rest).summary
+            {
                 return Vec::new();
             }
+            return vec![crate::models::ModelCausalBinding {
+                assurance: effinterp_proto::CausalAssurance::Conservative,
+                from: crate::models::ModelBindingEnd::Effect {
+                    operation: "filesystem.read".into(),
+                    selection: effinterp_model_schema::EffectSelection::All,
+                },
+                to: crate::models::ModelBindingEnd::Port(effinterp_proto::Port::Stdout),
+            }];
+        }
+        // `git config` and `git remote` print values of the configuration
+        // file they read.
+        if sub
+            .and_then(|(_, word)| word.as_literal())
+            .is_some_and(|sub| matches!(sub, "config" | "remote"))
+        {
             return vec![crate::models::ModelCausalBinding {
                 assurance: effinterp_proto::CausalAssurance::Conservative,
                 from: crate::models::ModelBindingEnd::Effect {
@@ -1891,6 +1908,9 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
             if sub == "show" {
                 show_objects(builder, s);
             }
+            if matches!(sub, "config" | "remote") {
+                printed_configuration(builder, sub, s);
+            }
         }
         "add" => {
             s.repo_effect(builder, "git.index_write", Attrs::new());
@@ -2841,6 +2861,8 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
             // is_read_form filtered pure reads.
             s.repo_effect(builder, "git.config_write", Attrs::new());
             record_config_write(builder, s);
+            // A single name, `get` and `list` print values all the same.
+            printed_configuration(builder, sub, s);
         }
         "remote" => remote(builder, s),
         "worktree" => {
@@ -4635,7 +4657,91 @@ fn observed_file(builder: &mut PlanBuilder, s: &SubCtx, path: &Word) -> bool {
         )
 }
 
+/// What a `git grep` names, as positions in the words after `grep`.
+struct GrepArguments {
+    /// It prints file names, counts or nothing instead of matching lines.
+    summary: bool,
+    /// The revisions and pathspecs before `--`, the pattern left out.
+    operands: Vec<usize>,
+    /// The pathspecs after `--`.
+    pathspecs: Vec<usize>,
+}
+
+/// `git grep [<options>] [-e] <pattern> [<rev>...] [[--] <pathspec>...]`.
+///
+/// The first operand is the pattern unless `-e` or `-f` gives one. Short
+/// options combine (`-hn`, `-he PATTERN`), and one that takes a value takes
+/// the rest of its word or else the next word. `-l`, `-L`, `-c` and `-q`
+/// replace the matching lines with names, counts or nothing.
+fn grep_arguments(rest: &[Word]) -> GrepArguments {
+    let mut arguments = GrepArguments {
+        summary: false,
+        operands: Vec::new(),
+        pathspecs: Vec::new(),
+    };
+    let mut pattern_given = false;
+    let mut at = 0;
+    while at < rest.len() {
+        let text = rest[at].as_literal();
+        if text == Some("--") {
+            arguments.pathspecs = (at + 1..rest.len()).collect();
+            break;
+        }
+        let Some(option) = text.filter(|text| text.starts_with('-') && text.len() > 1) else {
+            // A word that is not literal may still spell an option.
+            if text.is_some() || !rest[at].literal_prefix().starts_with('-') {
+                arguments.operands.push(at);
+            }
+            at += 1;
+            continue;
+        };
+        if let Some(long) = option.strip_prefix("--") {
+            let (name, value) = match long.split_once('=') {
+                Some((name, _)) => (name, true),
+                None => (long, false),
+            };
+            match name {
+                "files-with-matches" | "name-only" | "files-without-match" | "count" | "quiet" => {
+                    arguments.summary = true
+                }
+                "max-depth" | "threads" | "max-count" | "after-context" | "before-context"
+                | "context"
+                    if !value =>
+                {
+                    at += 1
+                }
+                _ => {}
+            }
+        } else {
+            for (offset, letter) in option.char_indices().skip(1) {
+                match letter {
+                    'l' | 'L' | 'c' | 'q' => arguments.summary = true,
+                    'e' | 'f' | 'A' | 'B' | 'C' | 'm' => {
+                        pattern_given |= matches!(letter, 'e' | 'f');
+                        if offset + 1 == option.len() {
+                            at += 1;
+                        }
+                        break;
+                    }
+                    // The rest of the word is the pager it opens files in.
+                    'O' => break,
+                    _ => {}
+                }
+            }
+        }
+        at += 1;
+    }
+    if !pattern_given && !arguments.operands.is_empty() {
+        arguments.operands.remove(0);
+    }
+    arguments
+}
+
 /// The path operands whose file content a read form prints.
+///
+/// `git grep` prints the matching lines of each pathspec, from the working
+/// tree, or from the index with `--cached`, or from each revision named.
+/// Without a pathspec it searches the whole tree and names no path.
 ///
 /// `git diff [<commit>...] [--] [<path>...]` and `git log [<options>] [--]
 /// [<path>...]` take pathspecs after the `--` separator git documents for
@@ -4714,6 +4820,44 @@ fn disclosed_paths<'a>(
                     word,
                     historical: true,
                     working_file: false,
+                })
+                .collect()
+        }
+        "grep" => {
+            let grep = grep_arguments(s.rest);
+            if grep.summary {
+                return Vec::new();
+            }
+            let recorded = s.scanned(&["--cached"]).has(&["--cached"]);
+            let offset = s.rest_offset;
+            let operand = |at: &usize| (offset + *at as u32, &s.rest[*at]);
+            let separated = s.rest.iter().any(|word| word.as_literal() == Some("--"));
+            // Past `--` every operand is a pathspec. Without it git reads an
+            // operand as a path when a file is there, as it does for a diff.
+            let (paths, revisions): (Vec<_>, Vec<_>) = if separated {
+                (
+                    grep.pathspecs.iter().map(operand).collect(),
+                    grep.operands.iter().map(operand).collect(),
+                )
+            } else {
+                grep.operands
+                    .iter()
+                    .map(operand)
+                    .partition(|(_, path)| observed_file(builder, s, path))
+            };
+            let historical = recorded || !revisions.is_empty();
+            // A pathspec the shell still has to expand names files this
+            // model cannot spell, so their contents read is not stated.
+            if paths.iter().any(|(_, path)| path.as_literal().is_none()) {
+                git_argument_boundary(builder, s, "git grep pathspec is not statically known");
+            }
+            paths
+                .into_iter()
+                .map(|(index, word)| DisclosedPath {
+                    index,
+                    word,
+                    historical,
+                    working_file: !historical && observed_file(builder, s, word),
                 })
                 .collect()
         }
@@ -5593,6 +5737,199 @@ fn record_config_write(builder: &mut PlanBuilder, s: &SubCtx) {
         }
     };
     builder.record_git_config_write(scope, repository, key, value);
+}
+
+/// `git config` options that take the next word as their value.
+const CONFIG_VALUE_FLAGS: &[&str] = &[
+    "--type",
+    "--default",
+    "--comment",
+    "--value",
+    "--url",
+    "-f",
+    "--file",
+    "--blob",
+];
+
+/// `git config` options that write, so a single name beside one is not read.
+const CONFIG_WRITE_FLAGS: &[&str] = &[
+    "--add",
+    "--replace-all",
+    "--unset",
+    "--unset-all",
+    "--rename-section",
+    "--remove-section",
+    "-e",
+    "--edit",
+];
+
+/// The `git config` options that choose what the call does or which file it
+/// acts on: the writes, the reads and the scopes without a value.
+const CONFIG_ACTION_FLAGS: &[&str] = &[
+    "--add",
+    "--replace-all",
+    "--unset",
+    "--unset-all",
+    "--rename-section",
+    "--remove-section",
+    "-e",
+    "--edit",
+    "--list",
+    "-l",
+    "--get",
+    "--get-all",
+    "--get-regexp",
+    "--get-urlmatch",
+    "--regexp",
+    "--global",
+    "--system",
+];
+
+/// Whether the variable a configuration key ends in is one whose value is a
+/// URL or a request header, where a repository keeps a credential: a
+/// remote's `url` and `pushurl`, a `proxy`, an `extraheader`. A key that is
+/// not literal may name any of them.
+fn key_may_hold_credential(key: &Word) -> bool {
+    key.as_literal().is_none_or(|key| {
+        let variable = key.rsplit('.').next().unwrap_or(key);
+        ["url", "pushurl", "proxy", "extraheader"]
+            .iter()
+            .any(|name| variable.eq_ignore_ascii_case(name))
+    })
+}
+
+/// State the read of the configuration file whose values the call prints:
+/// `git config --list`, `--get`, `--get-all`, `--get-regexp`, `--get-urlmatch`,
+/// the `list` and `get` actions and a single name; `git remote -v`, `get-url`
+/// and `show`. The read is of the file `--file` names, or else of the
+/// repository's own `config` under the git dir the call names or the `.git`
+/// of its start directory. `repository_configuration` marks that second
+/// read: git finds the repository upward from the start directory and
+/// through a linked worktree's `.git` file, so a file missing at that path
+/// means the values come from one this model does not name.
+///
+/// `printed_configuration` says which of the file's values reach the output,
+/// with the keys or the pattern in `configuration_keys`: `all` of them;
+/// `remotes`, every remote's URLs; `remote_urls`, the URLs under the keys
+/// named, as git rewrites them; `keys`, the values of the keys named;
+/// `matching`, the keys a plain-word pattern is found in. A read of one
+/// literal key that holds no URL or header states nothing, and neither does
+/// one of the global, system or blob scope.
+fn printed_configuration(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
+    let mut attributes = super::common::program_input_attrs();
+    let mut print = |kind: &str, keys: &[String]| {
+        attributes.insert(
+            "printed_configuration".into(),
+            AttrValue::String(kind.into()),
+        );
+        if !keys.is_empty() {
+            attributes.insert("configuration_keys".into(), string_list(keys));
+        }
+    };
+    let mut named_file = None;
+    if sub == "remote" {
+        let operands = s.operands(false);
+        let action = operands.first().and_then(|(_, word)| word.as_literal());
+        match (
+            action,
+            operands.get(1).and_then(|(_, word)| word.as_literal()),
+        ) {
+            (Some("get-url"), Some(name)) => {
+                let mut keys = vec![format!("remote.{name}.url")];
+                if s.scanned(&["--push", "--all"]).has(&["--push", "--all"]) {
+                    keys.push(format!("remote.{name}.pushurl"));
+                }
+                print("remote_urls", &keys);
+            }
+            (Some("get-url" | "show"), _) => print("remotes", &[]),
+            _ if s.scanned(&["-v", "--verbose"]).has(&["-v", "--verbose"]) => print("remotes", &[]),
+            _ => return,
+        }
+    } else {
+        let parsed = git_options(
+            s,
+            &FlagSpec {
+                value_flags: CONFIG_VALUE_FLAGS,
+                known_flags: CONFIG_ACTION_FLAGS,
+                allow_abbreviation: true,
+            },
+        );
+        if parsed.has(&["--global", "--system", "--blob"]) || parsed.has(CONFIG_WRITE_FLAGS) {
+            return;
+        }
+        let operands = parsed.operands.as_slice();
+        let action = operands.first().and_then(|(_, word)| word.as_literal());
+        let named = if action == Some("get") {
+            operands.get(1)
+        } else if operands.len() == 1
+            || parsed.has(&["--get", "--get-all", "--get-regexp"]) && !operands.is_empty()
+        {
+            operands.first()
+        } else {
+            None
+        };
+        if parsed.has(&["--list", "-l", "--get-urlmatch"]) || action == Some("list") {
+            print("all", &[]);
+        } else if parsed.has(&["--get-regexp", "--regexp"]) {
+            // Only a pattern of plain word characters is decided here: it
+            // matches the keys it is found in. Any other may match any key.
+            match named.and_then(|(_, pattern)| pattern.as_literal()) {
+                Some(pattern)
+                    if !pattern.is_empty()
+                        && pattern.chars().all(|c| c.is_ascii_alphanumeric()) =>
+                {
+                    print("matching", &[pattern.to_owned()])
+                }
+                _ => print("all", &[]),
+            }
+        } else {
+            match named {
+                Some((_, key)) if !key_may_hold_credential(key) => return,
+                Some((_, key)) => match key.as_literal() {
+                    Some(key) => print("keys", &[key.to_owned()]),
+                    None => print("all", &[]),
+                },
+                None => return,
+            }
+        }
+        named_file = parsed
+            .values_of(&["-f", "--file"])
+            .into_iter()
+            .last()
+            .map(|(index, file)| (s.rest_offset - 1 + index, file.clone()));
+    }
+    if let Some((index, file)) = named_file {
+        s.filesystem_path_effect(builder, index, &file, "filesystem.read", attributes);
+        return;
+    }
+    let resource = match git_dir_resource(&s.repo) {
+        Some(git_dir) => resolve_fs_word_with_cwd(&Word::literal("config"), Some(git_dir.clone())),
+        None => match worktree_resource(&s.repo) {
+            Some(worktree) => {
+                resolve_fs_word_with_cwd(&Word::literal(".git/config"), Some(worktree.clone()))
+            }
+            None => return,
+        },
+    };
+    if !matches!(
+        resource,
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { .. }
+        }
+    ) {
+        return;
+    }
+    attributes.insert("repository_configuration".into(), AttrValue::Bool(true));
+    fs_arg_effect(
+        builder,
+        s.ctx,
+        s.model_node,
+        s.sub_index,
+        &s.ctx.argv[s.sub_index as usize],
+        "filesystem.read",
+        resource,
+        attributes,
+    );
 }
 
 fn remote(builder: &mut PlanBuilder, s: &SubCtx) {

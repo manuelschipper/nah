@@ -414,7 +414,7 @@
 {"v":1,"id":"git-read.log-one","command":"git log --oneline -1","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate","coverage":"full"}}
 {"v":1,"id":"git-read.diff-file","command":"git diff -- src/lib.rs","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate","coverage":"full"}}
 {"v":1,"id":"git-read.show-file","command":"git show HEAD:src/lib.rs","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate","coverage":"full"}}
-{"v":1,"id":"git-read.remote-verbose","command":"git remote -v","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate","coverage":"full"}}
+{"v":1,"id":"git-read.remote-verbose","command":"git remote -v","ctx_fixture":"default-linux-v1","observation_fixture":"git-config-include-linux-v1","expected":{"verdict":"delegate","coverage":"full"}}
 {"v":1,"id":"git-read.checkout-main","command":"git checkout main","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate","coverage":"full"}}
 {"v":1,"id":"git-read.commit-am","command":"git commit -am update","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate","coverage":"partial"}}
 {"v":1,"id":"git-read.commit-file","command":"git commit -m update src/lib.rs","ctx_fixture":"default-linux-v1","observation_fixture":"git-linux-v1","expected":{"verdict":"delegate","coverage":"partial"}}
