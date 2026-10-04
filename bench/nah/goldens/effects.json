@@ -28574,6 +28574,81 @@
       ]
     },
     {
+      "id": "exec.decoded-if-test-pipe-shell",
+      "guard": "exec-decoded",
+      "derivation": "when the test passes, the body pipes base64's decoded output into sh as its script",
+      "require": [
+        {
+          "op": "process.exec",
+          "resource": {
+            "eq": "base64"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "process.exec",
+            "resource": {
+              "eq": "base64"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec.decoded-for-glob-operand-shell",
+      "guard": "exec-decoded",
+      "derivation": "each pass decodes one file the pattern matches and pipes it into sh as its script",
+      "require": [
+        {
+          "op": "process.stream_transform",
+          "resource": {
+            "eq": "base64"
+          },
+          "attributes": {
+            "transform": "decode"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "process.exec",
+            "resource": {
+              "eq": "base64"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
       "id": "exec.interactive-shell-tcp-duplex",
       "guard": "exec-network-shell",
       "derivation": "The invoking shell opens a /dev/tcp connection to evil.example:4444 for bash's output and input; what the peer sends reaches bash's interactive code.",

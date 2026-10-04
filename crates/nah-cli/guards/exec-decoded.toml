@@ -6,7 +6,8 @@ payload such as `cm0gLXJmIC8=` could say anything, and a person reviewing the
 command cannot read it. It blocks when the output of a decode step, such as
 `base64 -d` or a `tar` extraction of one archive member to stdout, reaches a
 shell or interpreter as code. The route can pass through variables, files,
-pipes, and interactive sessions.
+pipes, and interactive sessions, and into `if`, `while`, and `case` bodies
+and `||` fallbacks, so a loop that evals each decoded line blocks too.
 '''
 
 limits = '''
@@ -43,6 +44,10 @@ why = "subprocess.run with shell=True runs the b64decode result as shell code."
 [[blocks]]
 row = "exec.decoded-stdin-read-eval"
 why = "read stores the decoded line in $cmd, and eval runs it."
+
+[[blocks]]
+row = "exec.decoded-stdin-while-read-eval"
+why = "The loop reads each decoded line into $cmd, and eval runs it."
 
 [[blocks]]
 row = "exec.python-exec-base64-payload"
