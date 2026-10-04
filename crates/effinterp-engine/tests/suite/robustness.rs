@@ -671,7 +671,6 @@ fn chain_source(head: &str, link: &str, tail: &str) -> String {
 
 fn assert_deep_chains_reach_the_boundary(interpreter: &str, chains: &[(&str, &str, &str)]) {
     for (head, link, tail) in chains {
-        println!("chain link: {link:?}");
         let code = chain_source(head, link, tail);
         assert_deep_frontend_boundary(format!("{interpreter} '{code}'\nrm -rf /data\n"));
     }
@@ -716,7 +715,6 @@ fn ts_deep_type_chains() {
         ("let x: ", "A<B, ", format!("C{};", ">".repeat(CHAIN))),
         ("type X = ", "keyof ", "T;".to_string()),
     ] {
-        println!("chain link: {link:?}");
         let plan = analyze(Subject::Source {
             language: "js".into(),
             source: chain_source(head, link, &tail),
@@ -724,7 +722,7 @@ fn ts_deep_type_chains() {
             cwd: Some("/w".into()),
             context: Default::default(),
         });
-        assert!(truncated(&plan), "the deep type produced no boundary");
+        assert!(truncated(&plan), "{link:?} chain produced no boundary");
     }
 }
 
