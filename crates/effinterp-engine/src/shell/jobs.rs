@@ -7,6 +7,7 @@
 //! (`wait`, `disown`) that decide whether a started job is reaped. A shape
 //! this module cannot read off the tree is inconclusive, not a fork bomb.
 
+use super::lex::Seg;
 use super::parse::{self, GroupKind, ShellItem, Simple};
 
 /// Bound on recursion into nested groups while reading a loop body.
@@ -261,27 +262,41 @@ pub(super) fn command_status(cmd: &Simple) -> Option<bool> {
     if !cmd.assignments.is_empty() || !cmd.redirs.is_empty() {
         return None;
     }
-    let words = cmd
-        .words
+    let (head, rest) = cmd.words.split_first()?;
+    let head = parse::literal_text(head)?;
+    // An operand is fixed text when quoted, or unquoted without a character
+    // the shell expands; `test -n ""` tests the empty string.
+    let rest = rest
         .iter()
-        .map(parse::literal_text)
+        .map(|word| {
+            word.segs
+                .iter()
+                .map(|segment| match segment {
+                    Seg::Literal { text, quoted }
+                        if *quoted || !text.contains(['*', '?', '[', '{', '~']) =>
+                    {
+                        Some(text.as_str())
+                    }
+                    _ => None,
+                })
+                .collect::<Option<String>>()
+        })
         .collect::<Option<Vec<_>>>()?;
-    let (head, rest) = words.split_first()?;
+    let rest = rest.as_slice();
     match head.as_str() {
         "true" | ":" | "/bin/true" | "/usr/bin/true" if rest.is_empty() => Some(true),
         "false" | "/bin/false" | "/usr/bin/false" if rest.is_empty() => Some(false),
         // A one-operand test is a string test: true when the string is not
-        // empty; `=` and `!=` compare two strings. The parser drops `[[`'s
-        // closing word.
+        // empty; `-n` and `-z` test one string's length; `=` and `!=` compare
+        // two strings. The parser drops `[[`'s closing word, and `[[` matches
+        // the right side of a comparison as a pattern, so only its string
+        // tests are decided.
         "[" => match rest {
             [operands @ .., closer] if closer == "]" => test_status(operands),
             _ => None,
         },
         "test" => test_status(rest),
-        "[[" => match rest {
-            [operand] => Some(!operand.is_empty()),
-            _ => None,
-        },
+        "[[" if rest.len() <= 2 => test_status(rest),
         _ => None,
     }
 }
@@ -289,6 +304,8 @@ pub(super) fn command_status(cmd: &Simple) -> Option<bool> {
 fn test_status(operands: &[String]) -> Option<bool> {
     match operands {
         [operand] => Some(!operand.is_empty()),
+        [op, operand] if op == "-n" => Some(!operand.is_empty()),
+        [op, operand] if op == "-z" => Some(operand.is_empty()),
         [left, op, right] if op == "=" || op == "==" => Some(left == right),
         [left, op, right] if op == "!=" => Some(left != right),
         _ => None,

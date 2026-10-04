@@ -28574,6 +28574,81 @@
       ]
     },
     {
+      "id": "exec.decoded-if-test-pipe-shell",
+      "guard": "exec-decoded",
+      "derivation": "when the test passes, the body pipes base64's decoded output into sh as its script",
+      "require": [
+        {
+          "op": "process.exec",
+          "resource": {
+            "eq": "base64"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "process.exec",
+            "resource": {
+              "eq": "base64"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec.decoded-for-glob-operand-shell",
+      "guard": "exec-decoded",
+      "derivation": "each pass decodes one file the pattern matches and pipes it into sh as its script",
+      "require": [
+        {
+          "op": "process.stream_transform",
+          "resource": {
+            "eq": "base64"
+          },
+          "attributes": {
+            "transform": "decode"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "process.exec",
+            "resource": {
+              "eq": "base64"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
       "id": "exec.interactive-shell-tcp-duplex",
       "guard": "exec-network-shell",
       "derivation": "The invoking shell opens a /dev/tcp connection to evil.example:4444 for bash's output and input; what the peer sends reaches bash's interactive code.",
@@ -29915,6 +29990,42 @@
       "id": "secrets-exfil.cat-pattern-links-curl-data-binary-evil-example",
       "guard": "secrets-exfil",
       "derivation": "sensitive input reaches an external sink",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "filesystem:/workspace/project/pattern-links/*"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "filesystem:/workspace/project/pattern-links/*"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.cp-pattern-links-staging-tar-upload",
+      "guard": "secrets-exfil",
+      "derivation": "plain cp follows the links the pattern names, so the key they lead to is copied into staging, archived and uploaded",
       "require": [
         {
           "op": "filesystem.read",
@@ -31809,6 +31920,19 @@
           "op": "filesystem.metadata",
           "resource": {
             "eq": "/"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.terminal.overclaim-tmux-new-session-d-rm-rf-home",
+      "guard": "fs-home",
+      "derivation": "a new tmux server takes the starting client's environment, so $HOME in the session's command is the caller's home and rm -rf deletes it; the leading ! only negates the status",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
           }
         }
       ]
@@ -101894,6 +102018,22 @@
           "op": "database.schema_drop",
           "resource": {
             "eq": "db:prod.example.com.app"
+          },
+          "attributes": {
+            "object_kind": "database"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db-destroy.dropdb-unknown-flag-help-w1b-r1",
+      "guard": "db-destroy",
+      "derivation": "accepted conservative over-block: an option the model does not know may be one a newer dropdb accepts, so the drop of app is kept beside the unrecognized-arguments boundary",
+      "require": [
+        {
+          "op": "database.schema_drop",
+          "resource": {
+            "eq": "db:app"
           },
           "attributes": {
             "object_kind": "database"

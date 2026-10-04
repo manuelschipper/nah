@@ -1746,6 +1746,14 @@ fn declaration_generated_operand_flag_and_unsupported_cases_conform() {
                 if let Some(name) = rule.when.flag_present.first() {
                     add_flag(name);
                 }
+                for name in &rule.when.flag_all_present {
+                    add_flag(name);
+                }
+                if let Some(occurrence) = &rule.when.flag_occurrence
+                    && occurrence.present
+                {
+                    add_flag(&occurrence.flags[0]);
+                }
                 if let Some(name) = rule.when.flag_value_present.first() {
                     add_flag(name);
                 }
@@ -1811,7 +1819,7 @@ fn declaration_generated_operand_flag_and_unsupported_cases_conform() {
                     "captured-value"
                 };
                 argv.extend((0..operand_count).map(|index| format!("operand-{index}")));
-                let plan = analyze(argv);
+                let plan = analyze(argv.clone());
                 for emission in &rule.emit {
                     let expected_attributes = emission
                         .attributes
@@ -1831,6 +1839,11 @@ fn declaration_generated_operand_flag_and_unsupported_cases_conform() {
                                 "constant_bool" => declaration["value"].clone(),
                                 "constant_int" | "constant_string" => declaration["value"].clone(),
                                 "flag_absent" | "flag_present" => json!(true),
+                                "flag_enabled" => json!(
+                                    declaration["flags"].as_array().unwrap().iter().any(|flag| {
+                                        argv.iter().any(|argument| argument == flag)
+                                    })
+                                ),
                                 kind => panic!("unexpected attribute kind {kind}"),
                             };
                             (name.clone(), value)

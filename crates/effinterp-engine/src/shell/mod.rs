@@ -2788,9 +2788,12 @@ impl Shell<'_> {
                     Some("true" | ":") if cmd.assignments.is_empty() => Some(true),
                     Some("false" | "") if cmd.assignments.is_empty() => Some(false),
                     // `[` reaches here without a command name.
-                    Some("test") | None
+                    Some("test" | "[[") | None
                         if cmd.words.first().and_then(parse::literal_text).is_some_and(
-                            |head| (head == "test" || head == "[") && !env.may_redefine(&head),
+                            |head| {
+                                matches!(head.as_str(), "test" | "[" | "[[")
+                                    && !env.may_redefine(&head)
+                            },
                         ) =>
                     {
                         jobs::command_status(cmd)
