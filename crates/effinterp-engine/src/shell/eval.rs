@@ -524,13 +524,27 @@ impl Shell<'_> {
                     // command gets the file, which a model that runs stdin
                     // as a script reads.
                     let read = name.as_deref() == Some("read");
+                    // `< <(printf ...)` of fixed words supplies known text.
+                    let written = redir
+                        .target
+                        .as_ref()
+                        .and_then(|target| match target.segs.as_slice() {
+                            [Seg::ProcSub { span }] => {
+                                self.source.get(span.start as usize..span.end as usize)
+                            }
+                            _ => None,
+                        })
+                        .filter(|raw| raw.starts_with("<(") && raw.ends_with(')'))
+                        .and_then(|raw| self.literal_process_output(env, &raw[2..raw.len() - 1]));
                     stdin = Some(StdinValue {
                         paths: None,
                         piped: false,
                         file: (!read).then(|| {
                             redirected_file(redir.target.as_ref(), env.cwd_resource.clone())
                         }),
-                        word: Word::new(vec![WordPart::Unknown]),
+                        word: written
+                            .map(Word::literal)
+                            .unwrap_or_else(|| Word::new(vec![WordPart::Unknown])),
                         provenance: vec![self.span_node(builder, redir.span)],
                     });
                 }
@@ -2351,9 +2365,11 @@ impl Shell<'_> {
                 }
                 // Without its own input redirection, `read` reads the
                 // channel the enclosing compound's stdin is, such as the
-                // pipe in `producer | { read line; ...; }`.
+                // pipe in `producer | { read line; ...; }` or the
+                // redirection in `while read line; do ...; done < <(producer)`,
+                // whose bytes the compound hands its first command unread.
                 if input_producers.is_empty()
-                    && stdin.is_none()
+                    && stdin.is_none_or(|stdin| stdin.word.as_literal().is_none())
                     && !converted
                         .iter()
                         .any(|word| word.word.as_literal() == Some("-u"))

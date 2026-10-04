@@ -148,7 +148,7 @@ use crate::nest::Nest;
 use crate::paths::process_identity_with_cwd;
 use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
-use eval::variable_binding::bind_for_var;
+use eval::variable_binding::{bind_for_var, for_list_producers};
 use lex::{RedirKind, Seg, ShellDupTarget, ShellSpan, WordTok};
 use parse::{GroupKind, ShellItem, Simple};
 
@@ -315,6 +315,10 @@ struct VarEntry {
     /// Pending flow values this binding carries, such as captured output or an
     /// inherited environment value. Any rebinding drops them.
     producers: Vec<FlowRef>,
+    /// A write inside a region that runs only on some paths binds its
+    /// producers for uses under that region's condition; elsewhere the write
+    /// may not have run, so the name carries none of them.
+    producers_condition: Option<effinterp_proto::Condition>,
     /// The script assigned this name on every path to here (any write kind),
     /// so an expansion reads the script's value, not the environment's.
     script_set: bool,
@@ -334,35 +338,53 @@ struct VarEntry {
     transparent_writes: Vec<(effinterp_proto::Condition, String)>,
 }
 
+/// Whether everything running under `current` also runs under `required`.
+fn condition_implies(
+    current: &effinterp_proto::Condition,
+    required: &effinterp_proto::Condition,
+) -> bool {
+    use effinterp_proto::Condition;
+    if matches!(current, Condition::Widened) || matches!(required, Condition::Widened) {
+        return false;
+    }
+    if current == required {
+        return true;
+    }
+    if let Condition::All { conditions } = required {
+        return conditions
+            .iter()
+            .all(|required| condition_implies(current, required));
+    }
+    if let Condition::All { conditions } = current {
+        return conditions
+            .iter()
+            .any(|current| condition_implies(current, required));
+    }
+    false
+}
+
 impl VarEntry {
     fn word_in_condition(&self, builder: &PlanBuilder) -> Option<&Word> {
-        fn implies(
-            current: &effinterp_proto::Condition,
-            required: &effinterp_proto::Condition,
-        ) -> bool {
-            use effinterp_proto::Condition;
-            if matches!(current, Condition::Widened) || matches!(required, Condition::Widened) {
-                return false;
-            }
-            if current == required {
-                return true;
-            }
-            if let Condition::All { conditions } = required {
-                return conditions.iter().all(|required| implies(current, required));
-            }
-            if let Condition::All { conditions } = current {
-                return conditions.iter().any(|current| implies(current, required));
-            }
-            false
-        }
         if let Some(required) = &self.word_condition
             && !builder
                 .current_condition()
-                .is_some_and(|current| implies(&current, required))
+                .is_some_and(|current| condition_implies(&current, required))
         {
             return None;
         }
         self.word.as_ref()
+    }
+
+    /// The producers a use at the builder's current condition observes.
+    fn producers_in_condition(&self, builder: &PlanBuilder) -> &[FlowRef] {
+        if let Some(required) = &self.producers_condition
+            && !builder
+                .current_condition()
+                .is_some_and(|current| condition_implies(&current, required))
+        {
+            return &[];
+        }
+        &self.producers
     }
 }
 
@@ -1263,6 +1285,7 @@ pub(crate) fn analyze_shell(
                     node: Some(node),
                     antecedents: Vec::new(),
                     producers: Vec::new(),
+                    producers_condition: None,
                     script_set: false,
                     script_may_set: false,
                     captured_name_hidden: false,
@@ -1294,6 +1317,7 @@ pub(crate) fn analyze_shell(
                 node: Some(node),
                 antecedents: Vec::new(),
                 producers: Vec::new(),
+                producers_condition: None,
                 script_set: false,
                 script_may_set: false,
                 captured_name_hidden: false,
@@ -1347,6 +1371,7 @@ pub(crate) fn analyze_shell(
                 antecedents: Vec::new(),
                 producers: builder
                     .environment_value_producers(&node.into_iter().collect::<Vec<_>>()),
+                producers_condition: None,
                 // PHP interpolation declares unknown locals without a value.
                 // Valued entries still represent environment reads, including
                 // symbolic host pass-through values from container launches.
@@ -1437,6 +1462,7 @@ pub(crate) fn analyze_shell(
                     node: Some(node),
                     antecedents: Vec::new(),
                     producers: Vec::new(),
+                    producers_condition: None,
                     script_set: false,
                     script_may_set: false,
                     captured_name_hidden: false,
@@ -1899,6 +1925,7 @@ impl Shell<'_> {
             _ => None,
         };
         let mut feed = None;
+        let mut outer_stdin = env.stdin.take();
         for (index, stage) in stages.iter().enumerate() {
             let feeds_compound = matches!(inner(stage), Some(ShellItem::Pipeline { .. }))
                 && matches!(
@@ -1911,18 +1938,32 @@ impl Shell<'_> {
                 );
             if feeds_compound
                 && let Some(span) = parse::items_span(std::slice::from_ref(stage))
-                && let Some(channel) = self.defer_process(
-                    builder,
-                    env,
-                    &self.source[span.start as usize..span.end as usize],
-                    span,
-                )
+                && let source = &self.source[span.start as usize..span.end as usize]
+                && let Some(channel) = self.defer_process(builder, env, source, span)
             {
-                feed = Some(channel);
+                // The producer is analyzed after its consumer, so text it is
+                // known to write is handed over as the consumer's stdin now.
+                let written = self
+                    .literal_process_output(env, source)
+                    .map(|bytes| StdinValue {
+                        paths: None,
+                        piped: true,
+                        file: None,
+                        word: Word::literal(bytes),
+                        provenance: vec![self.span_node(builder, span)],
+                    });
+                feed = Some((channel, written));
                 continue;
             }
             let fed = feed.take();
-            if let Some(channel) = fed {
+            // Only the first stage reads the stdin the pipeline started with.
+            env.stdin = match &fed {
+                Some((_, written)) => written.clone(),
+                None if index == 0 => outer_stdin.take(),
+                None => None,
+            };
+            if let Some((channel, _)) = &fed {
+                let channel = *channel;
                 env.redirections.push(crate::flow::Redirection {
                     role: crate::flow::RedirRole::Channel {
                         stage: channel,
@@ -1945,6 +1986,7 @@ impl Shell<'_> {
                 walk_depth,
             );
             builder.pop_pipeline_stage();
+            env.stdin = None;
             if fed.is_some() {
                 env.redirections.pop();
             }
@@ -2363,6 +2405,9 @@ impl Shell<'_> {
                         child.close_coprocess_descriptors();
                         if matches!(kind, GroupKind::Background) {
                             child.background_depth += 1;
+                        } else {
+                            // A subshell reads the stdin its parent was given.
+                            child.stdin = env.stdin.take();
                         }
                         if matches!(kind, GroupKind::CompoundPipeline) {
                             self.walk_compound_pipeline(
@@ -2425,6 +2470,10 @@ impl Shell<'_> {
                     }
                     if let Some((name, span)) = var {
                         let original_values = values;
+                        let list_producers = values
+                            .as_deref()
+                            .map(|values| for_list_producers(builder, env, values))
+                            .unwrap_or_default();
                         let values = values.as_ref().map(|values| {
                             values
                                 .iter()
@@ -2457,6 +2506,7 @@ impl Shell<'_> {
                                         name.clone(),
                                         Some(value.word),
                                         *span,
+                                        value.producers,
                                     );
                                     self.walk_may_region(builder, env, items, walk_depth + 1);
                                 }
@@ -2481,7 +2531,7 @@ impl Shell<'_> {
                                         .is_some_and(|words| words == ["break"] || words == ["break", "1"])))
                             && body_runs_every_iteration(&items[..stop])
                         {
-                            bind_for_var(builder, env, name.clone(), Some(Word::literal(literal_word_text(&values[0]).unwrap())), *span);
+                            bind_for_var(builder, env, name.clone(), Some(Word::literal(literal_word_text(&values[0]).unwrap())), *span, Vec::new());
                             let termination = self.walk(builder, env, &items[..stop], force_conditional, walk_depth + 1);
                             if let Some(depth) = hazard_depth { builder.truncate_source_hazards(depth); }
                             if termination.is_some() { return termination; }
@@ -2514,7 +2564,14 @@ impl Shell<'_> {
                             && !body_has_remote_command(items)
                         {
                             for value in fixed {
-                                bind_for_var(builder, env, name.clone(), Some(value), *span);
+                                bind_for_var(
+                                    builder,
+                                    env,
+                                    name.clone(),
+                                    Some(value),
+                                    *span,
+                                    Vec::new(),
+                                );
                                 let termination = self.walk(
                                     builder,
                                     env,
@@ -2531,7 +2588,7 @@ impl Shell<'_> {
                             }
                             continue;
                         }
-                        bind_for_var(builder, env, name.clone(), value, *span);
+                        bind_for_var(builder, env, name.clone(), value, *span, list_producers);
                     }
                     // A `for (( ))` whose condition holds for its initial
                     // values certainly runs a body that always reaches its end.
@@ -2934,7 +2991,14 @@ impl Shell<'_> {
             return None;
         }
         for member in members {
-            bind_for_var(builder, env, name.clone(), Some(member.word), *span);
+            bind_for_var(
+                builder,
+                env,
+                name.clone(),
+                Some(member.word),
+                *span,
+                member.producers,
+            );
             let termination = self.walk(builder, env, items, force_conditional, walk_depth + 1);
             if let Some(depth) = hazard_depth {
                 builder.truncate_source_hazards(depth);
@@ -3528,6 +3592,7 @@ impl Shell<'_> {
             node: entry.node,
             antecedents: entry.antecedents.clone(),
             producers: entry.producers.clone(),
+            producers_condition: entry.producers_condition.clone(),
             script_set: entry.script_set,
             script_may_set: entry.script_may_set,
             captured_name_hidden: entry.captured_name_hidden,

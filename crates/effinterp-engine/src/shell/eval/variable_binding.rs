@@ -302,8 +302,6 @@ impl Shell<'_> {
                     entry.word_condition = builder.current_condition();
                     if entry.word_condition.is_none() {
                         entry.word = None;
-                    } else {
-                        entry.producers = converted.producers;
                     }
                 }
             }
@@ -1139,6 +1137,30 @@ impl Shell<'_> {
                 fields
             })
             .map(Vec::into_iter);
+        // The condition of a `while read` loop reads one line per iteration,
+        // so inside the loop its one variable holds any line of the input.
+        let condition = conditional.then(|| builder.current_condition()).flatten();
+        let loop_lines = stdin
+            .and_then(|stdin| stdin.word.as_literal())
+            .filter(|text| {
+                targets.len() == 1
+                    && !shaped_input
+                    && !text.contains('\\')
+                    && condition.as_ref().is_some_and(innermost_is_loop)
+            })
+            .map(|text| {
+                let mut lines = text
+                    .strip_suffix('\n')
+                    .unwrap_or(text)
+                    .split('\n')
+                    .map(|line| Word::literal(line.trim_matches([' ', '\t'])))
+                    .collect::<Vec<_>>();
+                lines.dedup();
+                lines
+            })
+            .filter(|lines| {
+                lines.len() > 1 && lines.len() as u64 <= self.nest.limits.max_value_cardinality
+            });
         for (name, span) in targets {
             let line = fields.as_mut().and_then(Iterator::next);
             let resource = match name {
@@ -1166,6 +1188,33 @@ impl Shell<'_> {
                             input_nodes.clone(),
                             descriptor_producers.clone(),
                         );
+                        // A conditional read still precedes every use inside
+                        // its own region, where the line it stored is known.
+                        let word = match &loop_lines {
+                            Some(lines) => Some(Word::new(vec![WordPart::Union(lines.clone())])),
+                            None => line.clone().map(Word::literal),
+                        };
+                        if let Some(word) = word
+                            && let Some(condition) = &condition
+                            && let Some(entry) = env.vars.get_mut(name)
+                            && entry.value.is_none()
+                        {
+                            entry.word = Some(word);
+                            entry.word_condition = Some(condition.clone());
+                            let mut hash = blake3::Hasher::new();
+                            hash.update(
+                                variable_saturation_key(
+                                    None,
+                                    &entry.may,
+                                    entry.word.as_ref(),
+                                    entry.script_may_set,
+                                    entry.unresolved_default_override,
+                                )
+                                .as_bytes(),
+                            );
+                            hash.update(condition.identity_key().as_bytes());
+                            entry.saturation_key = hash.finalize();
+                        }
                     }
                     ResourceExpr::Concrete {
                         identity: ResourceIdentity::EnvironmentVariable {
@@ -1351,6 +1400,19 @@ fn record_transparent_write(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Whether the region a condition most narrowly names is a loop.
+fn innermost_is_loop(condition: &effinterp_proto::Condition) -> bool {
+    match condition {
+        effinterp_proto::Condition::Atom { atom } => {
+            atom.origin.kind == effinterp_proto::ConditionKind::Loop
+        }
+        effinterp_proto::Condition::All { conditions } => {
+            conditions.last().is_some_and(innermost_is_loop)
+        }
+        _ => false,
+    }
+}
+
 pub(super) fn bind_var(
     builder: &mut PlanBuilder,
     env: &mut ShellEnv,
@@ -1457,6 +1519,12 @@ pub(super) fn bind_var(
     };
     let unresolved_default_override =
         conditional && previous.is_some_and(|entry| entry.unresolved_default_override);
+    // A conditional write still precedes every use inside its own region, so
+    // its producers reach those uses. A guarded write, or one under no
+    // recorded condition, has no region to scope them to.
+    let producers_condition = (conditional && !guarded && !producers.is_empty())
+        .then(|| builder.current_condition())
+        .flatten();
     env.vars.insert(
         name,
         VarEntry {
@@ -1477,7 +1545,12 @@ pub(super) fn bind_var(
             span,
             node: None,
             antecedents,
-            producers: if conditional { Vec::new() } else { producers },
+            producers: if conditional && producers_condition.is_none() {
+                Vec::new()
+            } else {
+                producers
+            },
+            producers_condition,
             script_set,
             script_may_set: true,
             captured_name_hidden: false,
@@ -1486,12 +1559,53 @@ pub(super) fn bind_var(
     );
 }
 
+/// The pending flow values the words of a `for` list expand from: each
+/// iteration binds the loop variable to one of them, so its value carries
+/// what a captured variable or a `mapfile` array was read from.
+pub(in crate::shell) fn for_list_producers(
+    builder: &PlanBuilder,
+    env: &ShellEnv,
+    values: &[WordTok],
+) -> Vec<FlowRef> {
+    let mut producers = Vec::new();
+    for seg in values.iter().flat_map(|value| &value.segs) {
+        let (Seg::Env { name, .. }
+        | Seg::Param { name, .. }
+        | Seg::ArrayAll { name, .. }
+        | Seg::ArrayIndex { name, .. }) = seg
+        else {
+            continue;
+        };
+        let Some(name) = env.reference_target(name) else {
+            continue;
+        };
+        if let Some(entry) = env.vars.get(&name) {
+            producers.extend(entry.producers_in_condition(builder).iter().cloned());
+        }
+        match env.arrays.get(&name) {
+            Some(ArrayValue::Unknown(read)) => producers.extend(read.iter().cloned()),
+            Some(array) => producers.extend(
+                array
+                    .candidates()
+                    .iter()
+                    .flatten()
+                    .flat_map(|element| element.producers.iter().cloned()),
+            ),
+            None => {}
+        }
+    }
+    producers.sort();
+    producers.dedup();
+    producers
+}
+
 pub(in crate::shell) fn bind_for_var(
     builder: &mut PlanBuilder,
     env: &mut ShellEnv,
     name: String,
     word: Option<Word>,
     span: ShellSpan,
+    producers: Vec<FlowRef>,
 ) {
     let nameref = env.vars.get(&name).is_some_and(|entry| entry.nameref);
     if nameref && let Some(entry) = env.vars.get_mut(&name) {
@@ -1507,7 +1621,7 @@ pub(in crate::shell) fn bind_for_var(
         false,
         span,
         Vec::new(),
-        Vec::new(),
+        producers,
     );
     if let Some(entry) = env.vars.get_mut(&name) {
         entry.nameref = nameref;

@@ -422,9 +422,14 @@ impl Shell<'_> {
         literal_stdout(&words, self.nest.limits.max_source_bytes)
     }
 
-    /// The exact bytes a `<(…)` body of one literal `echo` or `printf` writes,
-    /// so a later read of its descriptor sees them before the body is analyzed.
-    pub(super) fn literal_process_output(&self, env: &ShellEnv, source: &str) -> Option<String> {
+    /// The exact bytes a `<(…)` body or a pipeline stage feeding a compound
+    /// command writes when it is one `echo` or `printf` of fixed words, so a
+    /// later read of its output sees them before the body is analyzed.
+    pub(in crate::shell) fn literal_process_output(
+        &self,
+        env: &ShellEnv,
+        source: &str,
+    ) -> Option<String> {
         let lexed = lex::lex(source);
         if lexed.error.is_some() {
             return None;
@@ -443,7 +448,7 @@ impl Shell<'_> {
         let [cmd] = cmds.as_slice() else {
             return None;
         };
-        let words = literal_command_words(cmd)?;
+        let words = self.fixed_command_words(env, cmd)?;
         let (name, arguments) = words.split_first()?;
         let name = name.as_literal()?;
         if env.functions.contains_key(name)
@@ -465,6 +470,44 @@ impl Shell<'_> {
             self.nest.limits.max_source_bytes,
         )
         .filter(|output| !output.contains('\0'))
+    }
+
+    /// A command's words when each is fixed text: literal segments, and
+    /// quoted variables whose value the shell has already established.
+    fn fixed_command_words(&self, env: &ShellEnv, cmd: &Simple) -> Option<Vec<Word>> {
+        if !cmd.assignments.is_empty() || !cmd.redirs.is_empty() {
+            return None;
+        }
+        cmd.words
+            .iter()
+            .map(|word| {
+                let mut value = String::new();
+                for segment in &word.segs {
+                    match segment {
+                        Seg::Literal { text, quoted }
+                            if *quoted || !text.contains(['*', '?', '[', '~']) =>
+                        {
+                            value.push_str(text)
+                        }
+                        // A definite value expands to itself, whether the
+                        // script assigned it or the shell started with it.
+                        Seg::Env { name, quoted: true } => {
+                            let target = env.reference_target(name)?;
+                            match env
+                                .vars
+                                .get(&target)
+                                .and_then(|entry| entry.value.as_deref())
+                            {
+                                Some(known) => value.push_str(known),
+                                None => value.push_str(&self.parameter_literal(env, name, None)?),
+                            }
+                        }
+                        _ => return None,
+                    }
+                }
+                Some(Word::literal(value))
+            })
+            .collect()
     }
 
     /// A command substitution whose body has a modeled stdout producer, or
