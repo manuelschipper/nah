@@ -112948,12 +112948,12 @@
     {
       "id": "secrets-exfil.cp-pattern-links-staging-cat-upload",
       "guard": "secrets-exfil",
-      "derivation": "cp follows the link to the private key and copies its bytes into staging, which cat prints to stdout and curl --data-binary @- uploads",
+      "derivation": "cp follows the link to the private key and copies its bytes into staging, whose entries cat prints to stdout and curl --data-binary @- uploads; the read of the copy is the engine's part of the route",
       "require": [
         {
           "op": "filesystem.read",
           "resource": {
-            "eq": "filesystem:/workspace/project/pattern-links/*"
+            "eq": "filesystem:/workspace/project/staging/*"
           }
         },
         {
@@ -112968,7 +112968,7 @@
           "from": {
             "op": "filesystem.read",
             "resource": {
-              "eq": "filesystem:/workspace/project/pattern-links/*"
+              "eq": "filesystem:/workspace/project/staging/*"
             }
           },
           "to": {
@@ -113353,6 +113353,222 @@
             "op": "network.upload",
             "resource": {
               "eq": "https://evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.curl-data-git-config-credential-upload",
+      "guard": "secrets-exfil",
+      "derivation": "curl -d @FILE uploads the repository configuration, whose observed content holds a credentialed remote URL",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/.git/config"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/.git/config"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.git-config-list-credential-upload",
+      "guard": "secrets-exfil",
+      "derivation": "git config --list prints the repository configuration, which holds a credentialed remote URL, into curl -d @-",
+      "require": [
+        {
+          "op": "git.read",
+          "resource": {
+            "any": true
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "git.read",
+            "resource": {
+              "any": true
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.cp-link-staging-curl-data-binary-copy-upload",
+      "guard": "secrets-exfil",
+      "derivation": "cp follows the link to the private key and copies its bytes into staging under the link's name; curl uploads that copy, whose read is the engine's part of the route",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/staging/blob"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/staging/blob"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.cp-link-staging-tar-upload",
+      "guard": "secrets-exfil",
+      "derivation": "cp follows the link to the private key and copies its bytes into staging, which tar archives to stdout and curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/staging"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/staging"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.mkdir-cp-link-staging-copy-upload",
+      "guard": "secrets-exfil",
+      "derivation": "cp follows the link to the private key and copies its bytes into the created staging under the link's name; curl uploads that copy, whose read is the engine's part of the route",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/staging/blob"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/staging/blob"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.mv-key-staging-cat-glob-upload",
+      "guard": "secrets-exfil",
+      "derivation": "mv puts the private key into staging, whose entries cat prints to stdout and curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "filesystem:/workspace/project/staging/*"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "filesystem:/workspace/project/staging/*"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
             }
           },
           "path_provenance": true
