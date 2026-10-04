@@ -12,10 +12,13 @@ use crate::nest::Nest;
 use crate::resource_transfer::TransferBinding;
 use crate::value::unresolved_resource;
 
-use super::cmdlet_parameters::{PsBoundParameters, WEB_REQUEST, bind};
+use super::cmdlet_parameters::{PsBoundParameters, WEB_REQUEST, bind_cmdlet_parameters};
 use super::path_resolution::{filesystem_effect, resolved_path};
-use super::ps_words::{PsWord, word, words};
-use super::{Session, VARIABLE_PARAMETERS, powershell_boundary, session_variable, unsupported};
+use super::ps_words::{PsWord, ps_statement_words, ps_word};
+use super::{
+    Session, VARIABLE_PARAMETERS, powershell_boundary, powershell_unsupported_boundary,
+    session_variable,
+};
 
 /// `Invoke-WebRequest` and `Invoke-RestMethod` with `-OutFile` store the
 /// response body in that file; with `-InFile` or `-Body` and a POST, PUT or
@@ -28,7 +31,7 @@ pub(super) fn web_request(
     location: Option<&str>,
     node: ProvenanceRef,
 ) -> bool {
-    let bound = match bind(arguments, &WEB_REQUEST) {
+    let bound = match bind_cmdlet_parameters(arguments, &WEB_REQUEST) {
         Ok(bound) => bound,
         Err(detail) => {
             powershell_boundary(builder, node, detail);
@@ -221,7 +224,7 @@ pub(super) fn webclient_download(
     // same span of the original statement.
     let arguments = statement[statement.len() - call.len()..]
         .strip_suffix(')')
-        .map(|arguments| word(arguments.trim()));
+        .map(|arguments| ps_word(arguments.trim()));
     let elements = match &arguments {
         Some(Ok((word, rest))) if rest.is_empty() && word.quoted && !word.expandable => {
             word.elements.as_slice()
@@ -250,7 +253,7 @@ pub(super) fn webclient_download(
 }
 
 /// A download expression [`remote_content`] recognized.
-pub(super) enum Remote {
+pub(super) enum DownloadExpression {
     /// A web response body, from the literal URL when there is one.
     Content(Option<String>),
     /// Nested past the unwrap limit; the limit boundary is recorded.
@@ -265,7 +268,7 @@ pub(super) fn invoked_remote_content(
     session: &Session,
     statement: &str,
     node: ProvenanceRef,
-) -> Option<Remote> {
+) -> Option<DownloadExpression> {
     let statement = statement.trim();
     let name_len = statement
         .find(|character: char| character.is_whitespace() || character == '(')
@@ -305,12 +308,12 @@ pub(super) fn remote_content(
     session: &Session,
     expression: &str,
     node: ProvenanceRef,
-) -> Option<Remote> {
+) -> Option<DownloadExpression> {
     let mut expression = expression.trim();
     let mut layers = 0;
     loop {
         if !crate::nest::charge_analysis_steps(builder, nest.budget, 1, None) {
-            return Some(Remote::Saturated);
+            return Some(DownloadExpression::Saturated);
         }
         let lowercase = expression.to_ascii_lowercase();
         let inner = match parenthesized(expression) {
@@ -323,12 +326,12 @@ pub(super) fn remote_content(
         let Some(inner) = inner else { break };
         layers += 1;
         if layers > nest.limits.max_value_depth {
-            let mut saturated = unsupported(node);
+            let mut saturated = powershell_unsupported_boundary(node);
             saturated.reason = BoundaryReason::LIMIT_SATURATED;
             saturated.class = BoundaryClass::Limit;
             saturated.limit = Some("max_value_depth".into());
             builder.boundary(saturated);
-            return Some(Remote::Saturated);
+            return Some(DownloadExpression::Saturated);
         }
         expression = inner.trim();
     }
@@ -342,12 +345,16 @@ pub(super) fn remote_content(
             return None;
         }
         let argument = expression[expression.len() - call.len()..].strip_suffix(')')?;
-        return Some(Remote::Content(match word(argument.trim()) {
-            Ok((url, rest)) if rest.is_empty() && url.quoted && !url.expandable => Some(url.text),
-            _ => None,
-        }));
+        return Some(DownloadExpression::Content(
+            match ps_word(argument.trim()) {
+                Ok((url, rest)) if rest.is_empty() && url.quoted && !url.expandable => {
+                    Some(url.text)
+                }
+                _ => None,
+            },
+        ));
     }
-    let parsed = words(expression).ok()?;
+    let parsed = ps_statement_words(expression).ok()?;
     let (head, arguments) = parsed.words.split_first()?;
     if !parsed.redirections.is_empty()
         || head.quoted
@@ -358,7 +365,7 @@ pub(super) fn remote_content(
     }
     // A request that sends a body keeps the upload grammar, and one that
     // stores the response in a file returns none of it.
-    let bound = bind(arguments, &WEB_REQUEST).ok()?;
+    let bound = bind_cmdlet_parameters(arguments, &WEB_REQUEST).ok()?;
     if bound.unbound > 0
         || ["OutFile", "InFile", "Body"]
             .iter()
@@ -367,7 +374,7 @@ pub(super) fn remote_content(
         return None;
     }
     let uri = bound.value("Uri").ok()??;
-    Some(Remote::Content(
+    Some(DownloadExpression::Content(
         (!uri.contains('$')).then(|| uri.to_string()),
     ))
 }
@@ -428,7 +435,7 @@ pub(super) fn invoked_scriptblock_content(
     session: &Session,
     statement: &str,
     node: ProvenanceRef,
-) -> Option<Remote> {
+) -> Option<DownloadExpression> {
     let statement = statement.trim();
     let name_len = statement
         .find(|character: char| character.is_whitespace() || character == '(')
@@ -483,7 +490,7 @@ pub(super) fn invoked_scriptblock_content(
     };
     match block {
         Block::Create(argument) => remote_content(builder, nest, session, argument, node),
-        Block::Variable(url) => Some(Remote::Content(url)),
+        Block::Variable(url) => Some(DownloadExpression::Content(url)),
     }
 }
 
@@ -587,7 +594,7 @@ pub(super) fn remote_execution(
     if let (Some(source), Some(execution)) = (source, execution) {
         builder.transfer_binding(TransferBinding::new(source, execution));
     }
-    let mut code = unsupported(node);
+    let mut code = powershell_unsupported_boundary(node);
     code.reason = BoundaryReason::UNMODELED_DYNAMIC_CODE;
     code.class = BoundaryClass::Unresolved;
     code.detail = Some("PowerShell Invoke-Expression runs downloaded code".into());

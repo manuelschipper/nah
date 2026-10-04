@@ -8,6 +8,7 @@ use crate::builder::PlanBuilder;
 use super::powershell_boundary;
 use super::ps_words::PsWord;
 
+/// The declared parameter a written `-Name` resolves to.
 enum Parameter {
     Switch(&'static str),
     Valued(&'static str),
@@ -246,17 +247,20 @@ pub(super) struct PsBoundParameters {
 }
 
 impl PsBoundParameters {
+    /// Whether the invocation bound the parameter `name`, as a switch or a value.
     pub(super) fn bound(&self, name: &str) -> bool {
         self.switches.iter().any(|(bound, _)| *bound == name)
             || self.values.iter().any(|(bound, _)| *bound == name)
     }
 
+    /// Whether the switch `name` is on: bound, and not written `-Name:$false`.
     pub(super) fn switch(&self, name: &str) -> bool {
         self.switches
             .iter()
             .any(|(bound, value)| *bound == name && *value)
     }
 
+    /// The index of the argument word that the value parameter `name` bound.
     pub(super) fn word(&self, name: &str) -> Option<usize> {
         self.words
             .iter()
@@ -264,6 +268,7 @@ impl PsBoundParameters {
             .map(|(_, index)| *index)
     }
 
+    /// Every value the parameter `name` bound: one, or a comma collection.
     pub(super) fn values(&self, name: &str) -> Option<&[String]> {
         self.values
             .iter()
@@ -271,6 +276,7 @@ impl PsBoundParameters {
             .map(|(_, values)| values.as_slice())
     }
 
+    /// The single value the parameter `name` bound. A collection is an error.
     pub(super) fn value(&self, name: &str) -> Result<Option<&str>, &'static str> {
         match self.values(name) {
             None => Ok(None),
@@ -315,7 +321,7 @@ impl PsBoundParameters {
 /// including `-Name:value` with the value attached, then positional arguments
 /// in position order. An argument that fails to bind stops the cmdlet from
 /// running, so it is an error rather than a partial binding.
-pub(super) fn bind(
+pub(super) fn bind_cmdlet_parameters(
     arguments: &[PsWord],
     cmdlet: &Cmdlet,
 ) -> Result<PsBoundParameters, &'static str> {

@@ -7,8 +7,8 @@ use crate::builder::PlanBuilder;
 use crate::nest::Nest;
 use crate::resource_transfer::TransferBinding;
 
-use super::cmdlet_parameters::{FileCmdlet, NEW_ITEM, bind};
-use super::path_resolution::{filesystem_effect, resolved_path, single};
+use super::cmdlet_parameters::{FileCmdlet, NEW_ITEM, bind_cmdlet_parameters};
+use super::path_resolution::{binds_single_path, filesystem_effect, resolved_path};
 use super::powershell_boundary;
 use super::ps_words::PsWord;
 
@@ -25,7 +25,7 @@ pub(super) fn file_cmdlet(
     assigned: bool,
 ) -> (bool, Vec<u32>) {
     let cmdlet = &file.cmdlet;
-    let bound = match bind(arguments, cmdlet) {
+    let bound = match bind_cmdlet_parameters(arguments, cmdlet) {
         Ok(bound) => bound,
         Err(detail) => {
             powershell_boundary(builder, node, detail);
@@ -51,7 +51,8 @@ pub(super) fn file_cmdlet(
     if bound.switch("WhatIf") {
         return (bound.complete(builder, node, cmdlet.name), Vec::new());
     }
-    let mut complete = bound.complete(builder, node, cmdlet.name) & single(builder, node, paths);
+    let mut complete =
+        bound.complete(builder, node, cmdlet.name) & binds_single_path(builder, node, paths);
     let mut attributes = crate::models::common::Attrs::new();
     if cmdlet.name.eq_ignore_ascii_case("Add-Content") || bound.switch("Append") {
         attributes.insert("append".into(), effinterp_proto::AttrValue::Bool(true));
@@ -91,7 +92,7 @@ pub(super) fn new_item(
     location: Option<&str>,
     node: ProvenanceRef,
 ) -> bool {
-    let bound = match bind(arguments, &NEW_ITEM) {
+    let bound = match bind_cmdlet_parameters(arguments, &NEW_ITEM) {
         Ok(bound) => bound,
         Err(detail) => {
             powershell_boundary(builder, node, detail);

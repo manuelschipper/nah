@@ -9,15 +9,17 @@ use effinterp_proto::{
 use crate::builder::PlanBuilder;
 use crate::nest::Nest;
 
-use super::cmdlet_parameters::{REMOVE_ITEM, bind};
+use super::cmdlet_parameters::{REMOVE_ITEM, bind_cmdlet_parameters};
 use super::path_resolution::{
-    filesystem_effect, names_location_or_ancestor, resolved_path, single,
+    binds_single_path, filesystem_effect, names_location_or_ancestor, resolved_path,
 };
 use super::ps_words::PsWord;
 use super::wildcards::{admitted_entries, filters_admit, glob_components_below, wildcard_root};
 use super::{Session, powershell_boundary};
 
-pub(super) fn removal(
+/// `Remove-Item`: a delete of each path it binds, relative to the session
+/// `location`. Returns whether the removal was fully understood.
+pub(super) fn remove_item(
     builder: &mut PlanBuilder,
     nest: &Nest,
     session: &mut Session,
@@ -25,7 +27,7 @@ pub(super) fn removal(
     location: Option<&str>,
     node: ProvenanceRef,
 ) -> bool {
-    let bound = match bind(arguments, &REMOVE_ITEM) {
+    let bound = match bind_cmdlet_parameters(arguments, &REMOVE_ITEM) {
         Ok(bound) => bound,
         Err(detail) => {
             powershell_boundary(builder, node, detail);
@@ -71,7 +73,8 @@ pub(super) fn removal(
     if what_if {
         return bound.complete(builder, node, "Remove-Item");
     }
-    let mut complete = bound.complete(builder, node, "Remove-Item") & single(builder, node, paths);
+    let mut complete =
+        bound.complete(builder, node, "Remove-Item") & binds_single_path(builder, node, paths);
     let recursive = bound.switch("Recurse");
     // -Include, -Exclude and -Filter admit items by name. A wildcard removes
     // the entries they admit among those the host lists for it, as a filtered

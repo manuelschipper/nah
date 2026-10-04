@@ -25,21 +25,23 @@ mod wildcards;
 use cmdlet_parameters::{
     COPY_ITEM, Cmdlet, FILE_CMDLETS, MOVE_ITEM, NEW_ITEM, PsBoundParameters, REMOVE_ITEM,
     RENAME_ITEM, SET_ALIAS, SET_LOCATION, START_PROCESS, WEB_REQUEST, WRITE_HOST, WRITE_OUTPUT,
-    bind,
+    bind_cmdlet_parameters,
 };
-use copy_or_move_item::move_item;
+use copy_or_move_item::copy_or_move_item;
 use file_cmdlets::{file_cmdlet, new_item};
 use path_resolution::{absolute_filesystem_path, expand_environment_words, resolved_path};
-use ps_words::{PsRedirection, PsWord, Variable, statements, variable, words};
-use remove_item::removal;
+use ps_words::{PsRedirection, PsVariable, PsWord, ps_statement_words, ps_statements, ps_variable};
+use remove_item::remove_item;
 use web_requests::{
-    Remote, invoked_remote_content, invoked_scriptblock_content, remote_content, remote_execution,
-    scriptblock_create, web_request, webclient_download,
+    DownloadExpression, invoked_remote_content, invoked_scriptblock_content, remote_content,
+    remote_execution, scriptblock_create, web_request, webclient_download,
 };
 
 /// Statements nested through `Invoke-Expression` that themselves nest again.
 const MAX_NESTED_SOURCE_DEPTH: u32 = 4;
 
+/// Analyze PowerShell source as the program itself. `cwd` is the session's
+/// starting location; `scope` is the provenance the source was reached from.
 pub(super) fn analyze(
     builder: &mut PlanBuilder,
     nest: &Nest,
@@ -55,7 +57,7 @@ pub(super) fn analyze(
         scope.as_slice(),
     );
     if source.len() as u64 > nest.limits.max_source_bytes {
-        let mut boundary = unsupported(node);
+        let mut boundary = powershell_unsupported_boundary(node);
         boundary.reason = BoundaryReason::LIMIT_SATURATED;
         boundary.class = BoundaryClass::Limit;
         boundary.limit = Some("max_source_bytes".into());
@@ -89,7 +91,7 @@ pub(super) fn nested(
     // Refuse it before reading with a partial-analysis boundary; the rest of
     // the command still analyzes and coverage stays partial.
     if grouping_depth_exceeds(source) {
-        let mut boundary = unsupported(node);
+        let mut boundary = powershell_unsupported_boundary(node);
         boundary.reason = BoundaryReason::PARTIAL_ANALYSIS;
         boundary.class = BoundaryClass::Unmodeled;
         boundary.detail = Some("PowerShell source nesting exceeds the walk limit".into());
@@ -108,7 +110,7 @@ pub(super) fn nested(
 }
 
 /// Whether the bracket nesting of PowerShell source exceeds the walk limit,
-/// skipping the string and comment forms [`statements`] recognizes so their
+/// skipping the string and comment forms [`ps_statements`] recognizes so their
 /// contents never count. Conservative: it only ever over-counts.
 fn grouping_depth_exceeds(source: &str) -> bool {
     let mut depth: u32 = 0;
@@ -231,6 +233,9 @@ impl Session {
     }
 }
 
+/// Run each statement of `source` in order through one session. Returns
+/// whether every statement was understood; a statement that was not clears
+/// the session's content bindings and marks the location as moved.
 fn script(
     builder: &mut PlanBuilder,
     nest: &Nest,
@@ -240,7 +245,7 @@ fn script(
     node: ProvenanceRef,
     depth: u32,
 ) -> bool {
-    let statements = match statements(source) {
+    let statements = match ps_statements(source) {
         Ok(statements) => statements,
         Err(detail) => {
             powershell_boundary(builder, node, detail);
@@ -257,7 +262,7 @@ fn script(
             && let Some(remote) = remote_content(builder, nest, session, &source, node)
         {
             statements.next();
-            if let Remote::Content(url) = remote {
+            if let DownloadExpression::Content(url) = remote {
                 remote_execution(builder, url, node);
             }
             session.contents.clear();
@@ -340,11 +345,13 @@ fn identifier(name: &str) -> bool {
 fn session_variable(word: &PsWord) -> bool {
     !word.quoted
         && word.text.strip_prefix('$').is_some_and(|name| {
-            identifier(name) && matches!(variable(name), Some((Variable::Session, _)))
+            identifier(name) && matches!(ps_variable(name), Some((PsVariable::Session, _)))
         })
 }
 
-fn unsupported(node: ProvenanceRef) -> Boundary {
+/// The PowerShell unsupported boundary without a detail: unrecognized
+/// arguments over every known domain. Callers set the detail or the limit.
+fn powershell_unsupported_boundary(node: ProvenanceRef) -> Boundary {
     Boundary {
         reason: BoundaryReason::UNRECOGNIZED_ARGUMENTS,
         class: BoundaryClass::Unsupported,
@@ -361,12 +368,16 @@ fn unsupported(node: ProvenanceRef) -> Boundary {
     }
 }
 
+/// Record the PowerShell unsupported boundary with `detail`, which states
+/// what the grammar did not read.
 fn powershell_boundary(builder: &mut PlanBuilder, node: ProvenanceRef, detail: &str) {
-    let mut boundary = unsupported(node);
+    let mut boundary = powershell_unsupported_boundary(node);
     boundary.detail = Some(detail.into());
     builder.boundary(boundary);
 }
 
+/// Run one statement. `piped` says its output feeds the next pipeline
+/// element. Returns whether the statement was fully understood.
 #[allow(clippy::too_many_arguments)]
 fn statement(
     builder: &mut PlanBuilder,
@@ -400,7 +411,7 @@ fn statement(
     if let Some(remote) = invoked_remote_content(builder, nest, session, statement, node)
         .or_else(|| invoked_scriptblock_content(builder, nest, session, statement, node))
     {
-        if let Remote::Content(url) = remote {
+        if let DownloadExpression::Content(url) = remote {
             remote_execution(builder, url, node);
         }
         return false;
@@ -417,7 +428,7 @@ fn statement(
         // The block only compiles here; a later statement may run it.
         if let Some((argument, after)) = scriptblock_create(command)
             && after.trim().is_empty()
-            && let Some(Remote::Content(url)) =
+            && let Some(DownloadExpression::Content(url)) =
                 remote_content(builder, nest, session, argument, node)
         {
             session.remote_blocks.push((name.to_ascii_lowercase(), url));
@@ -445,7 +456,7 @@ fn statement(
         }
         _ => (false, statement),
     };
-    let mut parsed = match words(statement) {
+    let mut parsed = match ps_statement_words(statement) {
         Ok(parsed) => parsed,
         Err(detail) => {
             powershell_boundary(builder, node, detail);
@@ -506,7 +517,7 @@ fn statement(
     // A cmdlet writes its common-parameter variables once it has run, so the
     // request above still read what they held before.
     let written = cmdlet(command)
-        .and_then(|cmdlet| bind(arguments, cmdlet).ok())
+        .and_then(|cmdlet| bind_cmdlet_parameters(arguments, cmdlet).ok())
         .is_none_or(|bound| variable_writes(builder, session, &bound, node));
     dispatched && written && complete
 }
@@ -562,7 +573,7 @@ fn cmdlet(command: &str) -> Option<&'static Cmdlet> {
     })
 }
 
-/// Run one parsed command: `words` is its name followed by its arguments.
+/// Run one parsed command: `ps_statement_words` is its name followed by its arguments.
 #[allow(clippy::too_many_arguments)]
 fn dispatch_command(
     builder: &mut PlanBuilder,
@@ -596,13 +607,13 @@ fn dispatch_command(
         return file_cmdlet(builder, nest, arguments, location, node, file, false).0;
     }
     if command.eq_ignore_ascii_case("Remove-Item") {
-        return removal(builder, nest, session, arguments, location, node);
+        return remove_item(builder, nest, session, arguments, location, node);
     }
     if command.eq_ignore_ascii_case("Copy-Item")
         || command.eq_ignore_ascii_case("Move-Item")
         || command.eq_ignore_ascii_case("Rename-Item")
     {
-        return move_item(builder, nest, arguments, location, node, command);
+        return copy_or_move_item(builder, nest, arguments, location, node, command);
     }
     if command.eq_ignore_ascii_case("New-Item") {
         return new_item(builder, nest, arguments, location, node);
@@ -623,7 +634,7 @@ fn dispatch_command(
         // Write-Output puts its arguments on the success stream. A file it
         // reaches is named by a redirection, which the caller models; its
         // arguments are bound only for the variables they write.
-        if let Err(detail) = bind(arguments, &WRITE_OUTPUT) {
+        if let Err(detail) = bind_cmdlet_parameters(arguments, &WRITE_OUTPUT) {
             powershell_boundary(builder, node, detail);
             return false;
         }
@@ -636,7 +647,7 @@ fn dispatch_command(
         .into_iter()
         .find(|cmdlet| cmdlet.name.eq_ignore_ascii_case(command))
     {
-        if let Err(detail) = bind(arguments, quiet) {
+        if let Err(detail) = bind_cmdlet_parameters(arguments, quiet) {
             powershell_boundary(builder, node, detail);
             return false;
         }
@@ -666,7 +677,7 @@ fn assignment(statement: &str) -> Option<(&str, &str)> {
         .unwrap_or(rest.len());
     let (name, rest) = rest.split_at(end);
     let command = rest.trim_start().strip_prefix('=')?;
-    (matches!(variable(name), Some((Variable::Session, _))) && !command.starts_with('='))
+    (matches!(ps_variable(name), Some((PsVariable::Session, _))) && !command.starts_with('='))
         .then_some((name, command))
 }
 
@@ -718,7 +729,7 @@ fn content_assignment(
     cwd: Option<&str>,
     node: ProvenanceRef,
 ) -> Option<bool> {
-    let mut parsed = words(command).ok()?;
+    let mut parsed = ps_statement_words(command).ok()?;
     let head = parsed.words.first()?;
     let cmdlet = ALIASES
         .iter()
@@ -742,7 +753,7 @@ fn content_assignment(
     let (complete, reads) = file_cmdlet(builder, nest, arguments, location, node, file, true);
     // The cmdlet's own variable writes land before the assignment stores its
     // output, so `$c = Get-Content PATH -OutVariable c` still holds PATH.
-    let written = bind(arguments, &file.cmdlet)
+    let written = bind_cmdlet_parameters(arguments, &file.cmdlet)
         .is_ok_and(|bound| variable_writes(builder, session, &bound, node));
     if piped {
         powershell_boundary(
@@ -917,6 +928,8 @@ fn redirected_write(
     true
 }
 
+/// `Invoke-Expression CODE` runs its argument as PowerShell in this session:
+/// literal code is analyzed as nested source, up to the nested source depth.
 fn invoke_expression(
     builder: &mut PlanBuilder,
     nest: &Nest,
@@ -935,7 +948,7 @@ fn invoke_expression(
         return false;
     };
     if depth >= MAX_NESTED_SOURCE_DEPTH {
-        let mut saturated = unsupported(node);
+        let mut saturated = powershell_unsupported_boundary(node);
         saturated.reason = BoundaryReason::LIMIT_SATURATED;
         saturated.class = BoundaryClass::Limit;
         saturated.limit = Some("max_execution_depth".into());
@@ -986,7 +999,7 @@ fn nested_cmd(
         .collect::<Vec<_>>()
         .join(" ");
     if depth >= MAX_NESTED_SOURCE_DEPTH {
-        let mut saturated = unsupported(node);
+        let mut saturated = powershell_unsupported_boundary(node);
         saturated.reason = BoundaryReason::LIMIT_SATURATED;
         saturated.class = BoundaryClass::Limit;
         saturated.limit = Some("max_execution_depth".into());
@@ -1041,7 +1054,7 @@ fn start_process(
     node: ProvenanceRef,
     depth: u32,
 ) -> bool {
-    let bound = match bind(arguments, &START_PROCESS) {
+    let bound = match bind_cmdlet_parameters(arguments, &START_PROCESS) {
         Ok(bound) => bound,
         Err(detail) => {
             powershell_boundary(builder, node, detail);
@@ -1094,7 +1107,7 @@ fn set_alias(
     arguments: &[PsWord],
     node: ProvenanceRef,
 ) -> bool {
-    let bound = match bind(arguments, &SET_ALIAS) {
+    let bound = match bind_cmdlet_parameters(arguments, &SET_ALIAS) {
         Ok(bound) => bound,
         Err(detail) => {
             powershell_boundary(builder, node, detail);

@@ -67,7 +67,7 @@ pub(super) enum Unestablished {
 }
 
 /// A filesystem boundary for what a command does that is not modeled.
-pub(super) fn model_gap(node: ProvenanceRef, detail: String) -> Boundary {
+pub(super) fn filesystem_model_gap(node: ProvenanceRef, detail: String) -> Boundary {
     Boundary {
         reason: BoundaryReason::MODEL_COVERAGE,
         class: BoundaryClass::Unresolved,

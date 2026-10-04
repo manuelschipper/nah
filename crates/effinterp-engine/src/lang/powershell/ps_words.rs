@@ -4,7 +4,7 @@
 /// The commands of the source: its statements and each element of their
 /// pipelines, with comments removed and line continuations joined.
 /// Each command is returned with whether it pipes into the next one.
-pub(super) fn statements(source: &str) -> Result<Vec<(String, bool)>, &'static str> {
+pub(super) fn ps_statements(source: &str) -> Result<Vec<(String, bool)>, &'static str> {
     if source.contains(['\u{2018}', '\u{2019}', '\u{201c}', '\u{201d}']) {
         return Err("PowerShell smart-quote delimiters are not modeled");
     }
@@ -99,6 +99,8 @@ pub(super) fn statements(source: &str) -> Result<Vec<(String, bool)>, &'static s
     Ok(statements)
 }
 
+/// One PowerShell argument word, with the quoting that decides whether it
+/// expands variables or names a parameter.
 pub(super) struct PsWord {
     pub(super) text: String,
     pub(super) quoted: bool,
@@ -128,6 +130,7 @@ pub(super) struct PsStatement {
     pub(super) redirections: Vec<PsRedirection>,
 }
 
+/// One redirection of a statement's output stream.
 pub(super) struct PsRedirection {
     /// `>>` adds to the file; `>` replaces it.
     pub(super) append: bool,
@@ -138,7 +141,7 @@ pub(super) struct PsRedirection {
 
 /// Split one statement into its words and redirections, refusing any expansion
 /// or expression operator whose value the literal grammar cannot recover.
-pub(super) fn words(statement: &str) -> Result<PsStatement, &'static str> {
+pub(super) fn ps_statement_words(statement: &str) -> Result<PsStatement, &'static str> {
     let mut parsed = PsStatement::default();
     let mut rest = statement.trim();
     while !rest.is_empty() {
@@ -147,7 +150,7 @@ pub(super) fn words(statement: &str) -> Result<PsStatement, &'static str> {
             rest = remainder.trim_start();
             continue;
         }
-        let (word, remainder) = word(rest)?;
+        let (word, remainder) = ps_word(rest)?;
         parsed.words.push(word);
         rest = remainder.trim_start();
     }
@@ -185,7 +188,7 @@ fn redirection(rest: &str) -> Result<Option<(PsRedirection, &str)>, &'static str
     if after.is_empty() {
         return Err("PowerShell redirection names no file");
     }
-    let (target, after) = word(after)?;
+    let (target, after) = ps_word(after)?;
     if !target.elements.is_empty() {
         return Err("PowerShell redirection names a collection");
     }
@@ -202,7 +205,7 @@ fn redirection(rest: &str) -> Result<Option<(PsRedirection, &str)>, &'static str
 /// (about_parsing), so `"C:\Users\test"$rest` is a single word; the word ends
 /// at whitespace or at the redirection operator that follows it. Elements
 /// joined by commas form one collection argument.
-pub(super) fn word(rest: &str) -> Result<(PsWord, &str), &'static str> {
+pub(super) fn ps_word(rest: &str) -> Result<(PsWord, &str), &'static str> {
     let mut text = String::new();
     let mut elements = Vec::new();
     let mut quoted = false;
@@ -265,7 +268,7 @@ pub(super) fn word(rest: &str) -> Result<(PsWord, &str), &'static str> {
                 {
                     let after = &scan[index + 1..];
                     let Some((_, length)) =
-                        variable(after).filter(|_| scan[index..].starts_with('$'))
+                        ps_variable(after).filter(|_| scan[index..].starts_with('$'))
                     else {
                         return Err(
                             "PowerShell argument contains an expansion, comment, or expression operator",
@@ -305,7 +308,7 @@ pub(super) fn word(rest: &str) -> Result<(PsWord, &str), &'static str> {
     ))
 }
 
-pub(super) enum Variable<'a> {
+pub(super) enum PsVariable<'a> {
     Home,
     Environment(&'a str),
     /// `$true` or `$false`.
@@ -318,7 +321,7 @@ pub(super) enum Variable<'a> {
 /// The variable named after a `$`, and how many bytes name it: `HOME`, an
 /// environment variable `env:NAME`, `true` or `false`, or a session variable,
 /// each optionally in braces. Any other drive-qualified name is not read.
-pub(super) fn variable(text: &str) -> Option<(Variable<'_>, usize)> {
+pub(super) fn ps_variable(text: &str) -> Option<(PsVariable<'_>, usize)> {
     let identifier = |text: &str| {
         text.find(|character: char| !character.is_ascii_alphanumeric() && character != '_')
             .unwrap_or(text.len())
@@ -342,14 +345,14 @@ pub(super) fn variable(text: &str) -> Option<(Variable<'_>, usize)> {
                 && !name.is_empty()
                 && identifier(name) == name.len() =>
         {
-            Variable::Environment(name)
+            PsVariable::Environment(name)
         }
         Some(_) => return None,
-        None if name.eq_ignore_ascii_case("HOME") => Variable::Home,
+        None if name.eq_ignore_ascii_case("HOME") => PsVariable::Home,
         None if name.eq_ignore_ascii_case("true") || name.eq_ignore_ascii_case("false") => {
-            Variable::Boolean
+            PsVariable::Boolean
         }
-        None if !name.is_empty() && identifier(name) == name.len() => Variable::Session,
+        None if !name.is_empty() && identifier(name) == name.len() => PsVariable::Session,
         None => return None,
     };
     Some((found, length))

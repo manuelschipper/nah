@@ -10,7 +10,7 @@ use effinterp_proto::{
 use crate::builder::PlanBuilder;
 use crate::nest::Nest;
 
-use super::ps_words::{PsStatement, Variable, variable};
+use super::ps_words::{PsStatement, PsVariable, ps_variable};
 use super::{Session, powershell_boundary, session_variable};
 
 /// A filesystem resource for a Windows or POSIX path that a command expanded
@@ -119,6 +119,10 @@ fn environment(nest: &Nest, name: &str) -> Option<Option<String>> {
         .map(Some)
 }
 
+/// Expand `$HOME`, `$env:NAME` and the boolean constants in the expandable
+/// words and redirection targets of `statement`, in place. Returns whether
+/// every expansion was established; a word that was not keeps its text
+/// behind a boundary.
 pub(super) fn expand_environment_words(
     builder: &mut PlanBuilder,
     nest: &Nest,
@@ -153,6 +157,8 @@ pub(super) fn expand_environment_words(
     complete
 }
 
+/// The text of an expandable string with its variables replaced, or the
+/// reason a variable in it is not modeled.
 fn expand_home_variable(
     builder: &mut PlanBuilder,
     nest: &Nest,
@@ -171,16 +177,16 @@ fn expand_home_variable(
     while let Some(start) = rest.find('$') {
         expanded.push_str(&rest[..start]);
         let after = &rest[start + 1..];
-        let (found, length) =
-            variable(after).ok_or("PowerShell expandable string contains an unmodeled variable")?;
+        let (found, length) = ps_variable(after)
+            .ok_or("PowerShell expandable string contains an unmodeled variable")?;
         let token = &rest[start..start + 1 + length];
         rest = &after[length..];
         match found {
             // A switch value stays the literal the parameter binder reads.
-            Variable::Boolean => expanded.push_str(token),
+            PsVariable::Boolean => expanded.push_str(token),
             // `$HOME` is PowerShell's automatic variable for the user's home
             // directory: HOME where the host sets it, otherwise USERPROFILE.
-            Variable::Home => {
+            PsVariable::Home => {
                 environment_read_once(builder, "HOME");
                 if environment(nest, "HOME").is_none() {
                     environment_read_once(builder, "USERPROFILE");
@@ -189,10 +195,10 @@ fn expand_home_variable(
                     &home(nest).ok_or("PowerShell HOME is not supplied by the host environment")?,
                 );
             }
-            Variable::Session => {
+            PsVariable::Session => {
                 return Err("PowerShell expandable string contains an unmodeled variable");
             }
-            Variable::Environment(name) => {
+            PsVariable::Environment(name) => {
                 environment_read_once(builder, name);
                 expanded.push_str(&environment(nest, name).flatten().ok_or(
                     "PowerShell environment variable is not supplied by the host environment",
@@ -205,6 +211,8 @@ fn expand_home_variable(
     Ok(expanded)
 }
 
+/// An `environment.read` of the host variable `name`, which a `$env:NAME`
+/// expansion reads.
 fn ps_environment_read(builder: &mut PlanBuilder, node: ProvenanceRef, name: &str) {
     builder.effect(Effect {
         id: Default::default(),
@@ -275,6 +283,9 @@ pub(super) fn resolved_path(
     Some(path_resource(&path, windows, wildcards))
 }
 
+/// Record one filesystem effect a cmdlet model states. `model` is the model
+/// id recorded as the effect's provenance. Returns the effect slot, or
+/// `None` when the plan refused the effect.
 pub(super) fn filesystem_effect(
     builder: &mut PlanBuilder,
     operation: &str,
@@ -343,7 +354,11 @@ fn expand_home(
 /// Raise a boundary where a collection binds several paths: PowerShell
 /// accesses each of them, but the grammar does not model the collection's
 /// own evaluation.
-pub(super) fn single(builder: &mut PlanBuilder, node: ProvenanceRef, paths: &[String]) -> bool {
+pub(super) fn binds_single_path(
+    builder: &mut PlanBuilder,
+    node: ProvenanceRef,
+    paths: &[String],
+) -> bool {
     if paths.len() > 1 {
         powershell_boundary(
             builder,

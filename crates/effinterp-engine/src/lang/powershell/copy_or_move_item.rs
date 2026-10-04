@@ -10,10 +10,10 @@ use crate::builder::PlanBuilder;
 use crate::nest::Nest;
 use crate::resource_transfer::TransferBinding;
 
-use super::cmdlet_parameters::{COPY_ITEM, MOVE_ITEM, RENAME_ITEM, bind};
+use super::cmdlet_parameters::{COPY_ITEM, MOVE_ITEM, RENAME_ITEM, bind_cmdlet_parameters};
 use super::item_landing::{
-    LandingShape, MAX_LANDED_ENTRIES, Unestablished, entry_name, landed_entries, model_gap,
-    observed_directory,
+    LandingShape, MAX_LANDED_ENTRIES, Unestablished, entry_name, filesystem_model_gap,
+    landed_entries, observed_directory,
 };
 use super::path_resolution::{
     drive_rooted, filesystem_effect, filesystem_item, names_location_or_ancestor, resolved_path,
@@ -38,7 +38,7 @@ use super::wildcards::{
 /// `entries_only`. A listing the host does not give leaves the landing
 /// written and an observation boundary. A source that does not
 /// resolve still leaves the destination it names established.
-pub(super) fn move_item(
+pub(super) fn copy_or_move_item(
     builder: &mut PlanBuilder,
     nest: &Nest,
     arguments: &[PsWord],
@@ -59,7 +59,7 @@ pub(super) fn move_item(
     } else {
         (&MOVE_ITEM, "powershell/move-item@v1")
     };
-    let bound = match bind(arguments, cmdlet) {
+    let bound = match bind_cmdlet_parameters(arguments, cmdlet) {
         Ok(bound) => bound,
         Err(detail) => {
             powershell_boundary(builder, node, detail);
@@ -245,7 +245,7 @@ pub(super) fn move_item(
                         continue;
                     }
                     complete = false;
-                    builder.boundary(model_gap(
+                    builder.boundary(filesystem_model_gap(
                         node,
                         format!(
                             "PowerShell {command} -Include or -Filter does not match a named directory, and whether it still copies what the directory holds is not established"
@@ -255,7 +255,7 @@ pub(super) fn move_item(
                 // Admitted under one case rule only: the source is kept.
                 Some(_) => {
                     complete = false;
-                    builder.boundary(model_gap(
+                    builder.boundary(filesystem_model_gap(
                         node,
                         format!(
                             "PowerShell {command} filters admit a named source only under one case rule, which is not modeled"
@@ -696,10 +696,10 @@ pub(super) fn move_item(
                         detail: Some(format!(
                             "PowerShell {command} source listing is unavailable, so what lands is not established"
                         )),
-                        ..model_gap(node, String::new())
+                        ..filesystem_model_gap(node, String::new())
                     },
                     Unestablished::Model(why) => {
-                        model_gap(node, format!("PowerShell {command} source {why}"))
+                        filesystem_model_gap(node, format!("PowerShell {command} source {why}"))
                     }
                 },
                 CoverageLevel::Partial,
