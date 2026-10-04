@@ -113,6 +113,25 @@ fn find_without_delete_only_reads() {
     let p = plan(&["find", "/etc", "-type", "f"]);
     assert!(has(&p, "filesystem.read", "/etc"));
     assert!(!has_op(&p, "filesystem.delete"));
+    assert!(!has_op(&p, "filesystem.write"));
+}
+
+#[test]
+fn find_output_file_actions_write_the_file_they_name() {
+    for action in ["-fprint", "-fprint0", "-fls"] {
+        let p = plan(&["find", "/srv", "-name", "*.log", action, "/out/list"]);
+        assert!(has(&p, "filesystem.write", "/out/list"), "{action}");
+        assert!(has(&p, "filesystem.read", "/srv"), "{action}");
+    }
+    // The format after the file is neither written nor read as a test.
+    let p = plan(&["find", "/srv", "-fprintf", "/out/list", "%p\\n", "-delete"]);
+    assert!(has(&p, "filesystem.write", "/out/list"));
+    assert!(has(&p, "filesystem.delete", "/srv"));
+    let writes = p
+        .effects
+        .iter()
+        .filter(|e| e.operation.0 == "filesystem.write");
+    assert_eq!(writes.count(), 1);
 }
 
 #[test]
