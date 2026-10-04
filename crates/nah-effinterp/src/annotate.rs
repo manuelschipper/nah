@@ -1040,8 +1040,11 @@ fn stream_copy_source<'a>(
             }
         }
         // A redirection replaces the standard input its command would
-        // otherwise inherit from the call.
-        if exact.len() > 1 {
+        // otherwise inherit from the call, so that inherited input is left
+        // out only where it meets a redirection at a standard input. Reached
+        // anywhere else (`cat nah - > alias`) it is input no file names.
+        if exact.len() > 1 && matches!(&node.occurrence, OccurrenceKind::Port { port: Port::Stdin })
+        {
             exact.retain(|from| {
                 !matches!(&from.occurrence, OccurrenceKind::Port { port: Port::Stdin })
                     || inputs(from).next().is_some()
