@@ -2178,6 +2178,117 @@
         }
       ]
     },
+    "git-config-account-url-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "contents": "[core]\n\trepositoryformatversion = 0\n[remote \"origin\"]\n\turl = https://contoso-engineering-team@dev.azure.com/contoso-engineering-team/project/_git/repo\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n",
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/config",
+          "requested": "/workspace/project/.git/config",
+          "resolved": "/workspace/project/.git/config"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "git-config-token-user-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "contents": "[core]\n\trepositoryformatversion = 0\n[remote \"origin\"]\n\turl = https://ghp_0123456789abcdefghij@github.com/example/project.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n",
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/config",
+          "requested": "/workspace/project/.git/config",
+          "resolved": "/workspace/project/.git/config"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "git-config-token-empty-password-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "contents": "[core]\n\trepositoryformatversion = 0\n[remote \"origin\"]\n\turl = https://ghp_0123456789abcdefghij:@github.com/example/project.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n",
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/config",
+          "requested": "/workspace/project/.git/config",
+          "resolved": "/workspace/project/.git/config"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
     "secrets-linux-v1": {
       "platform": "linux",
       "cwd": "/workspace/project",

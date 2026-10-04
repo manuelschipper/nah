@@ -16,8 +16,8 @@ pub fn is_git_config_path(path: &str, platform: Platform) -> bool {
 }
 
 /// Whether Git configuration text holds a credential: a URL whose userinfo
-/// carries a password or token (a remote's `url`, a `[url "..."]` rewrite),
-/// or an `extraheader` that sets `Authorization`.
+/// carries a password or a token of a known format (a remote's `url`, a
+/// `[url "..."]` rewrite), or an `extraheader` that sets `Authorization`.
 ///
 /// It reads the text it is given and nothing an `include` names.
 pub fn git_config_holds_credential(text: &str) -> bool {
@@ -28,18 +28,28 @@ pub fn git_config_holds_credential(text: &str) -> bool {
     })
 }
 
-/// The shortest password-less userinfo read as a token. `https://tok@host`
-/// and `https://user@host` are spelled alike, and hosts that put the account
-/// in the clone URL (Bitbucket, Azure DevOps) make the second ordinary; the
-/// tokens Git hosts issue are at least this long and account names rarely are.
-const TOKEN_USERINFO_LENGTH: usize = 20;
+/// The prefixes of the access tokens Git hosts issue in a documented format:
+/// GitHub's personal, OAuth, user-to-server, server-to-server and refresh
+/// tokens and fine-grained personal tokens, and GitLab's personal, OAuth
+/// application, trigger and deploy tokens. A username spelled this way is the
+/// credential itself. Any other password-less userinfo is spelled like an
+/// account name, which hosts such as Bitbucket and Azure DevOps put in the
+/// clone URL, so it is not read as one.
+const TOKEN_PREFIXES: &[&str] = &[
+    "ghp_",
+    "gho_",
+    "ghu_",
+    "ghs_",
+    "ghr_",
+    "github_pat_",
+    "glpat-",
+    "gloas-",
+    "glptt-",
+    "gldt-",
+];
 
 fn holds_credentialed_url(line: &str) -> bool {
     line.match_indices("://").any(|(at, _)| {
-        let scheme = line[..at]
-            .rsplit(|character: char| !character.is_ascii_alphanumeric())
-            .next()
-            .unwrap_or_default();
         let authority = line[at + 3..]
             .split(|character: char| {
                 character.is_whitespace() || matches!(character, '/' | '"' | '\'' | '?' | '#')
@@ -49,13 +59,11 @@ fn holds_credentialed_url(line: &str) -> bool {
         let Some((userinfo, _)) = authority.rsplit_once('@') else {
             return false;
         };
-        match userinfo.split_once(':') {
-            Some((_, password)) => !password.is_empty(),
-            None => {
-                (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"))
-                    && userinfo.len() >= TOKEN_USERINFO_LENGTH
-            }
-        }
+        let (user, password) = userinfo.split_once(':').unwrap_or((userinfo, ""));
+        !password.is_empty()
+            || TOKEN_PREFIXES
+                .iter()
+                .any(|prefix| user.len() > prefix.len() && user.starts_with(prefix))
     })
 }
 
@@ -108,7 +116,28 @@ mod tests {
                 "[remote \"origin\"]\n\turl = ssh://deploy:pw@host/x.git\n",
                 true,
             ),
-            // An account name, an SSH login and a commented-out URL are no secret.
+            (
+                "[remote \"origin\"]\n\turl = https://ghp_0123456789abcdefghij:@github.com/x/y\n",
+                true,
+            ),
+            (
+                "[remote \"origin\"]\n\turl = https://glpat-0123456789abcdefghij@gitlab.com/x/y\n",
+                true,
+            ),
+            // An account name of any length, an opaque password-less userinfo,
+            // an SSH login and a commented-out URL are no secret.
+            (
+                "[remote \"origin\"]\n\turl = https://contoso-engineering-team@dev.azure.com/contoso-engineering-team/p/_git/r\n",
+                false,
+            ),
+            (
+                "[remote \"origin\"]\n\turl = https://tok@github.com/x/y.git\n",
+                false,
+            ),
+            (
+                "[remote \"origin\"]\n\turl = https://team:@bitbucket.org/team/repo.git\n",
+                false,
+            ),
             (
                 "[remote \"origin\"]\n\turl = https://team@bitbucket.org/team/repo.git\n",
                 false,

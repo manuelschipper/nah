@@ -64,10 +64,11 @@ pub(super) fn propagate_sensitivity<'a>(
             member_effects[index - plan.effects.len()].0
         };
         // An unconditional overwrite or delete ends the bytes an earlier copy
-        // left at that path, so a later read of it takes none of them. A
-        // write that names the destination replaces a copied file; where the
-        // destination is a directory it adds an entry, and the copied
-        // entries stand.
+        // left at that path, so a later read of it takes none of them. The
+        // engine names a copy into a directory as a write of that directory:
+        // a write that is itself a copy's destination adds an entry beside
+        // the copied ones, which stand. Any other write to the destination
+        // replaces a copied file.
         if effect.condition.is_none()
             && let effinterp_proto::ResourceExpr::Concrete {
                 identity: effinterp_proto::ResourceIdentity::FsPath { path },
@@ -78,12 +79,23 @@ pub(super) fn propagate_sensitivity<'a>(
             )
         {
             let deletes = effect.operation.as_str() == "filesystem.delete";
+            let copies_into = graph.relations.iter().any(|relation| {
+                relation.kind == RelationKind::ContentPreservingTransfer
+                    && graph.occurrences[relation.to.0 as usize].fact == Some(effect_facts[index])
+            });
             copies.retain_mut(|copy| {
                 if copy.written >= order || *copy.realm != effect.realm {
                     return true;
                 }
                 if deletes
                     && nah_proto::labels::lexically_contains(path, copy.destination, platform)
+                    || !deletes
+                        && !copies_into
+                        && nah_proto::labels::lexical_path::same_path(
+                            path,
+                            copy.destination,
+                            platform,
+                        )
                 {
                     return false;
                 }
@@ -96,13 +108,7 @@ pub(super) fn propagate_sensitivity<'a>(
                         platform,
                     )
                 });
-                copy.whole &= copy.entries.len() == named
-                    && !nah_proto::labels::lexical_path::same_path(
-                        path,
-                        copy.destination,
-                        platform,
-                    );
-                copy.whole || !copy.entries.is_empty()
+                named == 0 || !copy.entries.is_empty()
             });
         }
         let target = effect_resources[index];
@@ -412,7 +418,6 @@ pub(super) fn propagate_sensitivity<'a>(
                         realm: &effect.realm,
                         destination: path,
                         entries: entries.clone(),
-                        whole: true,
                         labels: carried.clone(),
                     });
                 }
@@ -580,10 +585,6 @@ struct CopiedContent<'a> {
     /// The names the content keeps when `destination` is a directory. Empty
     /// when the read names none, as a recursive one does not.
     entries: BTreeSet<String>,
-    /// Whether a read of a tree that holds `destination` still takes the
-    /// copy: nothing has since overwritten the destination or removed one of
-    /// its entries.
-    whole: bool,
     labels: Vec<nah_proto::labels::Sensitivity>,
 }
 
@@ -607,21 +608,17 @@ impl CopiedContent<'_> {
             } => {
                 entries()
                     .any(|entry| nah_proto::labels::lexical_path::same_path(&entry, path, platform))
-                    || self.whole
-                        && (effect.attributes.get("recursive")
-                            == Some(&effinterp_proto::AttrValue::Bool(true))
-                            || effect.operation.as_str() == "filesystem.move")
+                    || (effect.attributes.get("recursive")
+                        == Some(&effinterp_proto::AttrValue::Bool(true))
+                        || effect.operation.as_str() == "filesystem.move")
                         && nah_proto::labels::lexically_contains(path, self.destination, platform)
             }
             effinterp_proto::ResourceExpr::Pattern {
                 pattern: effinterp_proto::ResourcePattern::FsPath { glob },
             } => entries().any(|entry| effinterp_proto::glob_match(glob, &entry) == Ok(true)),
-            selection => {
-                self.whole
-                    && crate::observation_request::subtree_root(selection).is_some_and(|root| {
-                        nah_proto::labels::lexically_contains(root, self.destination, platform)
-                    })
-            }
+            selection => crate::observation_request::subtree_root(selection).is_some_and(|root| {
+                nah_proto::labels::lexically_contains(root, self.destination, platform)
+            }),
         }
     }
 }
