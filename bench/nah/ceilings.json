@@ -2,9 +2,9 @@
   "total": {
     "baseline_defect": 0,
     "engine_error": 0,
-    "guard_silent": 8,
-    "missing_effect": 8,
-    "missing_flow": 10,
+    "guard_silent": 2,
+    "missing_effect": 4,
+    "missing_flow": 8,
     "regression": 0,
     "unsupported": 0
   },
@@ -20,7 +20,7 @@
       "missing_flow": 0
     },
     "exec-decoded": {
-      "explained_partial": 5,
+      "explained_partial": 3,
       "missing_effect": 0,
       "missing_flow": 4
     },
@@ -37,12 +37,12 @@
       "missing_flow": 0
     },
     "exec-remote": {
-      "explained_partial": 3,
+      "explained_partial": 1,
       "missing_effect": 0,
       "missing_flow": 0
     },
     "fs-auth-identity": {
-      "explained_partial": 2,
+      "explained_partial": 1,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -68,7 +68,7 @@
     },
     "fs-project-root": {
       "explained_partial": 0,
-      "missing_effect": 3,
+      "missing_effect": 1,
       "missing_flow": 0
     },
     "fs-raw-device": {
@@ -209,21 +209,21 @@
     },
     "secrets-credentials": {
       "explained_partial": 6,
-      "guard_silent": 1,
+      "guard_silent": 0,
       "missing_effect": 0,
       "missing_flow": 0
     },
     "secrets-env": {
       "explained_partial": 0,
-      "guard_silent": 3,
-      "missing_effect": 1,
+      "guard_silent": 0,
+      "missing_effect": 0,
       "missing_flow": 0
     },
     "secrets-exfil": {
       "explained_partial": 0,
-      "guard_silent": 2,
-      "missing_effect": 1,
-      "missing_flow": 6
+      "guard_silent": 0,
+      "missing_effect": 0,
+      "missing_flow": 4
     },
     "secrets-store-delete": {
       "explained_partial": 0,
