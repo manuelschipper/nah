@@ -9,13 +9,15 @@ use crate::resource_transfer::TransferBinding;
 mod http_tiny;
 
 use super::token_shapes::{
-    balanced, call_end, constant_operand, decodes_base64, handle, inert, numeric_tokens,
-    perl_literal_text, perl_number, split,
+    brackets_balance, call_end, constant_operand, decodes_base64, is_filehandle, numeric_tokens,
+    perl_literal_text, perl_number, refused_statement_is_inert, split_at_lowest_operator,
 };
 use super::tokenize::{PerlToken, tokenize};
 use super::{PerlFailure, PerlImports};
 
-pub(super) struct PendingEffect {
+/// One filesystem effect a compiled statement states, held until the whole
+/// program compiles.
+pub(super) struct PerlPendingEffect {
     pub(super) operation: &'static str,
     pub(super) path: String,
     pub(super) access_purpose: Option<&'static str>,
@@ -26,7 +28,7 @@ pub(super) struct PendingEffect {
     pub(super) grants: Vec<&'static str>,
 }
 
-impl PendingEffect {
+impl PerlPendingEffect {
     fn new(operation: &'static str, path: String) -> Self {
         Self {
             operation,
@@ -41,8 +43,8 @@ impl PendingEffect {
 }
 
 /// One program step, published in source order once the whole program compiles.
-pub(super) enum Pending {
-    Effect(PendingEffect),
+pub(super) enum PerlPendingStep {
+    Effect(PerlPendingEffect),
     /// `system STRING`, `exec STRING` or a backtick: the string is `sh -c`
     /// source. A backtick captures the child's stdout as its value.
     Shell {
@@ -94,7 +96,7 @@ enum PerlObject {
 }
 
 /// The program's steps and transfers, and why each refused statement was refused.
-type Compiled = (Vec<Pending>, Vec<TransferBinding>, BTreeSet<String>);
+type Compiled = (Vec<PerlPendingStep>, Vec<TransferBinding>, BTreeSet<String>);
 
 /// Builtins and module functions this grammar models. A user `sub` with one of
 /// these names makes calls to it ambiguous, so the program is not claimed.
@@ -124,6 +126,8 @@ const MAX_CALL_DEPTH: u32 = 8;
 /// Logical operators and statement modifiers nest at most this deep.
 const MAX_NESTING: u32 = 64;
 
+/// One top-level statement: a named `sub` with its body, or any other
+/// statement up to its `;`.
 enum PerlStatement<'t> {
     Sub(&'t str, &'t [PerlToken]),
     Simple(&'t [PerlToken]),
@@ -221,7 +225,10 @@ fn use_statement(tokens: &[PerlToken], imports: &mut PerlImports) -> Result<(), 
     imports.import(module, Some(&names))
 }
 
-struct Compiler<'a, 'e> {
+/// The Perl statement compiler and what it tracks across statements:
+/// literal variable bindings, tracked values, named subs, and the pending
+/// steps, transfers and refusals it has produced.
+struct PerlCompiler<'a, 'e> {
     imports: PerlImports,
     budget: &'a crate::nest::Budget,
     max_bytes: usize,
@@ -231,7 +238,7 @@ struct Compiler<'a, 'e> {
     variables: BTreeMap<String, String>,
     /// Variables bound to a tracked value rather than literal text.
     objects: BTreeMap<String, PerlObject>,
-    pending: Vec<Pending>,
+    pending: Vec<PerlPendingStep>,
     transfers: Vec<TransferBinding>,
     refusals: BTreeSet<String>,
     /// A refused statement could change any later fact (the cwd, the
@@ -245,7 +252,9 @@ struct Compiler<'a, 'e> {
     depth: u32,
 }
 
-pub(super) fn program(
+/// Compile a tokenized Perl program. `stop` is the lexer's refusal, if lexing
+/// ended early; `env` reads one host environment variable.
+pub(super) fn compile_perl_program(
     tokens: &[PerlToken],
     stop: Option<String>,
     imports: &PerlImports,
@@ -253,7 +262,7 @@ pub(super) fn program(
     max_bytes: usize,
     env: &mut dyn FnMut(&str) -> Option<String>,
 ) -> Result<Compiled, PerlFailure> {
-    let mut compiler = Compiler {
+    let mut compiler = PerlCompiler {
         imports: imports.clone(),
         budget,
         max_bytes,
@@ -274,7 +283,7 @@ pub(super) fn program(
     Ok((compiler.pending, compiler.transfers, compiler.refusals))
 }
 
-impl Compiler<'_, '_> {
+impl PerlCompiler<'_, '_> {
     /// Compile one unit (the program or an `eval` string). Named subs and `use`
     /// imports take effect at compile time, before any statement runs.
     fn unit(&mut self, tokens: &[PerlToken]) -> Result<(), PerlFailure> {
@@ -330,7 +339,7 @@ impl Compiler<'_, '_> {
         match self.statement(statement) {
             Err(PerlFailure::Refused(detail)) => {
                 self.refusals.insert(detail);
-                self.halted = !inert(statement, self.conditional > 0);
+                self.halted = !refused_statement_is_inert(statement, self.conditional > 0);
                 Ok(())
             }
             result => result,
@@ -379,6 +388,9 @@ impl Compiler<'_, '_> {
         result
     }
 
+    /// Compile `left OPERATOR right` or a statement modifier in evaluation
+    /// order. A constant first operand decides whether the other runs at all;
+    /// otherwise the other operand may not run.
     fn operands(
         &mut self,
         left: &[PerlToken],
@@ -409,6 +421,9 @@ impl Compiler<'_, '_> {
         if runs { self.run(then) } else { Ok(()) }
     }
 
+    /// Compile one simple statement: charge the step budget, fold constants,
+    /// split logical operators and statement modifiers, then model the
+    /// builtin, module call or tracked value the statement names.
     fn statement(&mut self, statement: &[PerlToken]) -> Result<(), PerlFailure> {
         if !self.budget.try_charge_steps(statement.len() as u64) {
             return Err(PerlFailure::AnalysisSteps);
@@ -418,7 +433,7 @@ impl Compiler<'_, '_> {
         if constant_operand(statement).is_some() {
             return Ok(());
         }
-        if let Some((left, operator, right)) = split(statement)
+        if let Some((left, operator, right)) = split_at_lowest_operator(statement)
             && (operator.starts_with(char::is_alphabetic)
                 || call_end(left) == Some(left.len())
                 || constant_operand(left).is_some())
@@ -446,7 +461,7 @@ impl Compiler<'_, '_> {
                 // The captured output is runtime data, never a literal.
                 self.variables.remove(name);
                 self.objects.remove(name);
-                self.pending.push(Pending::Shell {
+                self.pending.push(PerlPendingStep::Shell {
                     command: command.clone(),
                     captured: true,
                 });
@@ -462,7 +477,7 @@ impl Compiler<'_, '_> {
             _ => {}
         }
         if let [PerlToken::Command(command)] = statement {
-            self.pending.push(Pending::Shell {
+            self.pending.push(PerlPendingStep::Shell {
                 command: command.clone(),
                 captured: true,
             });
@@ -539,18 +554,17 @@ impl Compiler<'_, '_> {
             "unlink" => {
                 let paths = (0..args.len()).map(path).collect::<Result<Vec<_>, _>>()?;
                 for path in paths {
-                    effects.push(Pending::Effect(PendingEffect::new(
+                    effects.push(PerlPendingStep::Effect(PerlPendingEffect::new(
                         "filesystem.delete",
                         path,
                     )));
                 }
             }
-            "rmdir" if args.len() == 1 => effects.push(Pending::Effect(PendingEffect::new(
-                "filesystem.delete",
-                path(0)?,
-            ))),
+            "rmdir" if args.len() == 1 => effects.push(PerlPendingStep::Effect(
+                PerlPendingEffect::new("filesystem.delete", path(0)?),
+            )),
             "mkdir" if args.len() == 1 || (args.len() == 2 && numeric_tokens(args[1])) => effects
-                .push(Pending::Effect(PendingEffect::new(
+                .push(PerlPendingStep::Effect(PerlPendingEffect::new(
                     "filesystem.create",
                     path(0)?,
                 ))),
@@ -561,7 +575,7 @@ impl Compiler<'_, '_> {
             // A malformed number (`099`) fails to compile, so nothing runs.
             "chmod"
                 if args.len() >= 2
-                    && balanced(args[0])
+                    && brackets_balance(args[0])
                     && (numeric_tokens(args[0]) || !matches!(args[0], [PerlToken::Number(_)])) =>
             {
                 let paths = (1..args.len()).map(path).collect::<Result<Vec<_>, _>>()?;
@@ -582,10 +596,10 @@ impl Compiler<'_, '_> {
                     }
                 };
                 for path in paths {
-                    let mut metadata = PendingEffect::new("filesystem.metadata", path);
+                    let mut metadata = PerlPendingEffect::new("filesystem.metadata", path);
                     metadata.action = Some("chmod");
                     metadata.grants = grants.clone();
-                    effects.push(Pending::Effect(metadata));
+                    effects.push(PerlPendingStep::Effect(metadata));
                 }
             }
             "rename" | "copy" | "move" | "File::Copy::copy" | "File::Copy::move"
@@ -598,33 +612,33 @@ impl Compiler<'_, '_> {
                 let destination = path(1)?;
                 if name != "rename" {
                     let source_slot = effects.len() as u32;
-                    let mut read = PendingEffect::new("filesystem.read", source.clone());
+                    let mut read = PerlPendingEffect::new("filesystem.read", source.clone());
                     if name.ends_with("copy") {
                         read.access_purpose = Some("program_input");
                     }
-                    effects.push(Pending::Effect(read));
+                    effects.push(PerlPendingStep::Effect(read));
                     if name.ends_with("copy") {
                         let destination_slot = effects.len() as u32;
                         transfers.push(TransferBinding::exact(source_slot, destination_slot));
                     }
                 }
                 if !name.ends_with("copy") {
-                    effects.push(Pending::Effect(PendingEffect::new(
+                    effects.push(PerlPendingStep::Effect(PerlPendingEffect::new(
                         "filesystem.move",
                         source.clone(),
                     )));
-                    effects.push(Pending::Effect(PendingEffect::new(
+                    effects.push(PerlPendingStep::Effect(PerlPendingEffect::new(
                         "filesystem.delete",
                         source,
                     )));
                 }
-                let mut write = PendingEffect::new("filesystem.write", destination);
+                let mut write = PerlPendingEffect::new("filesystem.write", destination);
                 if name.ends_with("copy") {
                     write.disclosure = Some("contents");
                 }
-                effects.push(Pending::Effect(write));
+                effects.push(PerlPendingStep::Effect(write));
             }
-            "open" if matches!(args.len(), 2 | 3) && handle(args[0]) => {
+            "open" if matches!(args.len(), 2 | 3) && is_filehandle(args[0]) => {
                 let value = perl_literal_text(args[1], variables, budget)?;
                 let (mode, path) = if args.len() == 3 {
                     (value.as_str(), path(2)?)
@@ -661,7 +675,7 @@ impl Compiler<'_, '_> {
                 // the program, as Python's `open(path).read()` does; `+>`
                 // truncates first, so no prior contents are read.
                 if read {
-                    let mut read = PendingEffect::new("filesystem.read", path.clone());
+                    let mut read = PerlPendingEffect::new("filesystem.read", path.clone());
                     if mode != "+>" {
                         read.access_purpose = Some("program_input");
                         // What `<$handle>` later reads is this file's contents.
@@ -670,10 +684,10 @@ impl Compiler<'_, '_> {
                                 .insert(handle.clone(), PerlObject::Handle(effects.len() as u32));
                         }
                     }
-                    effects.push(Pending::Effect(read));
+                    effects.push(PerlPendingStep::Effect(read));
                 }
                 if write {
-                    effects.push(Pending::Effect(PendingEffect::new(
+                    effects.push(PerlPendingStep::Effect(PerlPendingEffect::new(
                         "filesystem.write",
                         path,
                     )));
@@ -681,7 +695,7 @@ impl Compiler<'_, '_> {
             }
             "sysopen"
                 if (args.len() == 3 || (args.len() == 4 && numeric_tokens(args[3])))
-                    && handle(args[0]) =>
+                    && is_filehandle(args[0]) =>
             {
                 let path = path(1)?;
                 let mut flags = BTreeSet::new();
@@ -705,17 +719,17 @@ impl Compiler<'_, '_> {
                     return Err("Perl sysopen flags do not establish one access mode".into());
                 }
                 if !flags.contains("O_WRONLY") {
-                    let mut read = PendingEffect::new("filesystem.read", path.clone());
+                    let mut read = PerlPendingEffect::new("filesystem.read", path.clone());
                     if !flags.contains("O_TRUNC") {
                         read.access_purpose = Some("program_input");
                     }
-                    effects.push(Pending::Effect(read));
+                    effects.push(PerlPendingStep::Effect(read));
                 }
                 if flags
                     .iter()
                     .any(|flag| matches!(*flag, "O_WRONLY" | "O_RDWR" | "O_CREAT" | "O_TRUNC"))
                 {
-                    effects.push(Pending::Effect(PendingEffect::new(
+                    effects.push(PerlPendingStep::Effect(PerlPendingEffect::new(
                         "filesystem.write",
                         path,
                     )));
@@ -726,17 +740,17 @@ impl Compiler<'_, '_> {
             {
                 let paths = (0..args.len()).map(path).collect::<Result<Vec<_>, _>>()?;
                 for path in paths {
-                    let mut delete = PendingEffect::new("filesystem.delete", path);
+                    let mut delete = PerlPendingEffect::new("filesystem.delete", path);
                     delete.recursive = true;
-                    effects.push(Pending::Effect(delete));
+                    effects.push(PerlPendingStep::Effect(delete));
                 }
             }
             "truncate" if args.len() == 2 && numeric_tokens(args[1]) => effects.push(
-                Pending::Effect(PendingEffect::new("filesystem.write", path(0)?)),
+                PerlPendingStep::Effect(PerlPendingEffect::new("filesystem.write", path(0)?)),
             ),
             "system" | "exec" if args.len() == 1 => {
                 let command = perl_literal_text(args[0], variables, budget)?;
-                effects.push(Pending::Shell {
+                effects.push(PerlPendingStep::Shell {
                     command,
                     captured: false,
                 });
@@ -746,7 +760,7 @@ impl Compiler<'_, '_> {
                     .iter()
                     .map(|arg| perl_literal_text(arg, variables, budget))
                     .collect::<Result<Vec<_>, _>>()?;
-                effects.push(Pending::Argv(argv));
+                effects.push(PerlPendingStep::Argv(argv));
             }
             // `do FILE` and `require FILE` run a file as Perl. A path that
             // names a directory is that file; any other is searched in
@@ -760,7 +774,7 @@ impl Compiler<'_, '_> {
                 {
                     return Err(format!("Perl {name} searches @INC for its file").into());
                 }
-                effects.push(Pending::Load(path));
+                effects.push(PerlPendingStep::Load(path));
                 self.refusals
                     .insert(format!("Perl file loaded by {name} is not analyzed"));
                 self.halted = true;
@@ -768,7 +782,7 @@ impl Compiler<'_, '_> {
             // The decoded source is not read here: whatever it does may
             // change any later fact, so nothing after it is compiled.
             "eval" if args.len() == 1 && decodes_base64(args[0], imports) => {
-                effects.push(Pending::DecodedEval);
+                effects.push(PerlPendingStep::DecodedEval);
                 self.refusals
                     .insert("Perl eval of MIME::Base64-decoded text is not analyzed".into());
                 self.halted = true;
@@ -866,7 +880,7 @@ impl Compiler<'_, '_> {
             return Some(self.tracked_value(argument).and_then(|value| {
                 if matches!(name.as_str(), "print" | "say") {
                     if let PerlObject::Content(source) | PerlObject::FileData(source) = value {
-                        self.pending.push(Pending::Output(source));
+                        self.pending.push(PerlPendingStep::Output(source));
                     }
                     return Ok(());
                 }
@@ -877,7 +891,7 @@ impl Compiler<'_, '_> {
                 // may change any later fact, so nothing after it is compiled.
                 self.transfers
                     .push(TransferBinding::new(request, self.pending.len() as u32));
-                self.pending.push(Pending::RemoteCode {
+                self.pending.push(PerlPendingStep::RemoteCode {
                     shell: name != "eval",
                 });
                 self.refusals.insert(format!(

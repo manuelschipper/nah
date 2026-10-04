@@ -3,14 +3,14 @@
 
 use crate::resource_transfer::TransferBinding;
 
-use super::{Compiler, Pending, PendingEffect, PerlObject, matching_brace};
+use super::{PerlCompiler, PerlObject, PerlPendingEffect, PerlPendingStep, matching_brace};
 use crate::lang::perl::PerlFailure;
 use crate::lang::perl::token_shapes::{
-    balanced, is_literal_data, perl_literal_text, split_list_items,
+    brackets_balance, is_literal_data, perl_literal_text, split_list_items,
 };
 use crate::lang::perl::tokenize::PerlToken;
 
-impl Compiler<'_, '_> {
+impl PerlCompiler<'_, '_> {
     /// One HTTP::Tiny method call on `receiver`.
     pub(super) fn http_tiny_method_call(
         &mut self,
@@ -54,13 +54,13 @@ impl Compiler<'_, '_> {
             let file = perl_literal_text(file, &self.variables, self.budget)?;
             self.http_tiny_request_options(options, false)?;
             let download = self.pending.len() as u32;
-            self.pending.push(Pending::Request {
+            self.pending.push(PerlPendingStep::Request {
                 operation: "network.download",
                 url,
             });
-            let mut write = PendingEffect::new("filesystem.write", file);
+            let mut write = PerlPendingEffect::new("filesystem.write", file);
             write.disclosure = Some("contents");
-            self.pending.push(Pending::Effect(write));
+            self.pending.push(PerlPendingStep::Effect(write));
             self.transfers
                 .push(TransferBinding::exact(download, download + 1));
             return Ok(PerlObject::Opaque);
@@ -83,7 +83,7 @@ impl Compiler<'_, '_> {
             _ => return Err(refused()),
         };
         let request = self.pending.len() as u32;
-        self.pending.push(Pending::Request {
+        self.pending.push(PerlPendingStep::Request {
             operation: "network.request",
             url: url.clone(),
         });
@@ -92,7 +92,7 @@ impl Compiler<'_, '_> {
                 self.transfers
                     .push(TransferBinding::new(source, request + 1));
             }
-            self.pending.push(Pending::Request {
+            self.pending.push(PerlPendingStep::Request {
                 operation: "network.upload",
                 url,
             });
@@ -161,7 +161,7 @@ impl Compiler<'_, '_> {
             entries @ ..,
             PerlToken::Punct('}' | ']'),
         ] = tokens
-            && balanced(entries)
+            && brackets_balance(entries)
         {
             let mut sources = Vec::new();
             for entry in split_list_items(entries) {

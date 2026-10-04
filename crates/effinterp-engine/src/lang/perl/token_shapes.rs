@@ -47,11 +47,14 @@ pub(super) fn decodes_base64(tokens: &[PerlToken], imports: &PerlImports) -> boo
     matches!(
         tokens,
         [PerlToken::Name(name), PerlToken::Punct('('), argument @ .., PerlToken::Punct(')')]
-            if name == "decode_base64" && imports.owns(name) && balanced(argument)
+            if name == "decode_base64" && imports.owns(name) && brackets_balance(argument)
                 && !argument.contains(&PerlToken::Punct(','))
     )
 }
 
+/// The literal text of an expression: strings and literally bound variables
+/// joined by `.`. Anything else is a runtime-selected value and is refused.
+/// The text is charged to the analysis byte budget.
 pub(super) fn perl_literal_text(
     tokens: &[PerlToken],
     variables: &BTreeMap<String, String>,
@@ -79,7 +82,7 @@ pub(super) fn perl_literal_text(
 
 /// Whether an argument's parentheses, brackets and braces balance. Arguments
 /// are split at every comma, so an unbalanced one spans a nested list.
-pub(super) fn balanced(tokens: &[PerlToken]) -> bool {
+pub(super) fn brackets_balance(tokens: &[PerlToken]) -> bool {
     let mut depth = 0_i32;
     for token in tokens {
         match token {
@@ -100,12 +103,14 @@ pub(super) fn perl_number(value: &str) -> Result<u32, PerlFailure> {
     u32::from_str_radix(value, radix).map_err(|_| "Perl numeric literal is out of range".into())
 }
 
+/// Whether `tokens` is one numeric literal `perl_number` reads: decimal, or
+/// octal digits after a leading zero.
 pub(super) fn numeric_tokens(tokens: &[PerlToken]) -> bool {
     matches!(tokens, [PerlToken::Number(value)] if !value.starts_with('0') || value.bytes().all(|c| matches!(c, b'0'..=b'7')))
 }
 
 /// A lexical, scalar or bareword filehandle.
-pub(super) fn handle(tokens: &[PerlToken]) -> bool {
+pub(super) fn is_filehandle(tokens: &[PerlToken]) -> bool {
     matches!(tokens, [PerlToken::Variable(_) | PerlToken::Name(_)])
         || matches!(tokens, [PerlToken::Name(my), PerlToken::Variable(_)] if my == "my")
 }
@@ -114,7 +119,7 @@ pub(super) fn handle(tokens: &[PerlToken]) -> bool {
 /// closing a handle, or a `die`/`exit` that may not run, whose arguments are
 /// only literals and plain variables. An unconditional `die` or `exit` ends
 /// the program, unless an enclosing `eval` catches it.
-pub(super) fn inert(statement: &[PerlToken], conditional: bool) -> bool {
+pub(super) fn refused_statement_is_inert(statement: &[PerlToken], conditional: bool) -> bool {
     let [PerlToken::Name(name), args @ ..] = statement else {
         return false;
     };
@@ -165,7 +170,7 @@ pub(super) fn constant_operand(tokens: &[PerlToken]) -> Option<(bool, bool)> {
         [PerlToken::Name(undef)] if undef == "undef" => Some((false, false)),
         _ if tokens.len() > MAX_CONSTANT_TOKENS => None,
         _ => {
-            let (left, operator, right) = split(tokens)?;
+            let (left, operator, right) = split_at_lowest_operator(tokens)?;
             let value = constant_operand(left)?;
             if operator == "xor" {
                 // Both operands run; the result is defined.
@@ -192,7 +197,9 @@ pub(super) fn constant_operand(tokens: &[PerlToken]) -> Option<(bool, bool)> {
 /// The split is structural: a symbolic operator binds tighter than a list
 /// operator or assignment, so a caller accepts it only after a whole call or a
 /// constant.
-pub(super) fn split(statement: &[PerlToken]) -> Option<(&[PerlToken], &'static str, &[PerlToken])> {
+pub(super) fn split_at_lowest_operator(
+    statement: &[PerlToken],
+) -> Option<(&[PerlToken], &'static str, &[PerlToken])> {
     let mut last: [Option<(usize, &'static str)>; 5] = [None; 5];
     let mut depth = 0i64;
     for (index, token) in statement.iter().enumerate() {

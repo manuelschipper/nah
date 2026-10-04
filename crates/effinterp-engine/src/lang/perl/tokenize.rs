@@ -3,6 +3,8 @@
 
 use super::PerlFailure;
 
+/// One Perl token. Literal text is already unquoted; a value the lexer
+/// cannot establish is `Unknown` with its refusal reason.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum PerlToken {
     Text(String),
@@ -349,6 +351,9 @@ pub(super) fn tokenize(
     Ok((tokens, stop))
 }
 
+/// The source after the POD section that opens `source`, which starts at a
+/// line-leading `=`. An unterminated section, or `=cut` with no opening
+/// directive, is refused.
 fn pod_tail(source: &str) -> Result<&str, String> {
     let first_end = source.find('\n').map_or(source.len(), |index| index + 1);
     let first = source[..first_end].trim_end_matches(['\r', '\n']);

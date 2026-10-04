@@ -22,9 +22,12 @@ use crate::nest::{Nest, charge_analysis_bytes, charge_analysis_steps};
 use crate::resource_transfer::TransferBinding;
 use crate::value::{unresolved_resource, url_endpoint_resource};
 
-use compiler::{Pending, program};
+use compiler::{PerlPendingStep, compile_perl_program};
 use tokenize::tokenize;
 
+/// The modeled modules a Perl program has loaded (File::Copy, File::Path,
+/// HTTP::Tiny) and the function names it imported from them or from Fcntl
+/// and MIME::Base64.
 #[derive(Clone, Default)]
 pub(crate) struct PerlImports {
     copy_loaded: bool,
@@ -127,6 +130,8 @@ impl From<&str> for PerlFailure {
     }
 }
 
+/// Record a Perl dynamic source boundary over every known domain. `detail`
+/// states the construct the bounded grammar did not read.
 pub(crate) fn perl_boundary(builder: &mut PlanBuilder, node: ProvenanceRef, detail: &str) {
     builder.boundary(Boundary {
         reason: BoundaryReason::DYNAMIC_SOURCE,
@@ -144,6 +149,9 @@ pub(crate) fn perl_boundary(builder: &mut PlanBuilder, node: ProvenanceRef, deta
     });
 }
 
+/// Analyze Perl source: lex it, compile it, then publish its effects in
+/// source order. `imports` are the modules the launcher loaded with `-M`;
+/// `depth` is how deep this source nests inside other analyzed source.
 pub(crate) fn analyze(
     builder: &mut PlanBuilder,
     nest: &Nest,
@@ -208,7 +216,7 @@ pub(crate) fn analyze(
     // later declarations or syntax can change the meaning of earlier calls.
     let max_bytes = nest.limits.max_source_bytes as usize;
     let parsed = tokenize(source, max_bytes, &mut env).and_then(|(tokens, stop)| {
-        program(&tokens, stop, imports, nest.budget, max_bytes, &mut env)
+        compile_perl_program(&tokens, stop, imports, nest.budget, max_bytes, &mut env)
     });
     for name in environment_names {
         let mut provenance = vec![node];
@@ -238,23 +246,23 @@ pub(crate) fn analyze(
             let mut requests = false;
             for step in steps {
                 let pending = match step {
-                    Pending::Effect(pending) => pending,
-                    Pending::Shell { command, captured } => {
+                    PerlPendingStep::Effect(pending) => pending,
+                    PerlPendingStep::Shell { command, captured } => {
                         nest_shell(builder, nest, command, cwd, node, depth, captured);
                         slots.push(None);
                         continue;
                     }
-                    Pending::Argv(argv) => {
+                    PerlPendingStep::Argv(argv) => {
                         nest_argv(builder, nest, &argv, cwd, node, depth);
                         slots.push(None);
                         continue;
                     }
-                    Pending::DecodedEval => {
+                    PerlPendingStep::DecodedEval => {
                         record_decoded_eval(builder, node);
                         slots.push(None);
                         continue;
                     }
-                    Pending::Request { operation, url } => {
+                    PerlPendingStep::Request { operation, url } => {
                         requests = true;
                         slots.push(builder.effect(Effect {
                             id: Default::default(),
@@ -270,7 +278,7 @@ pub(crate) fn analyze(
                         }));
                         continue;
                     }
-                    Pending::Load(path) => {
+                    PerlPendingStep::Load(path) => {
                         // The execution carries the read's provenance, which
                         // is what binds a file read to the code it supplies.
                         let load = builder.node(
@@ -318,7 +326,7 @@ pub(crate) fn analyze(
                         slots.push(None);
                         continue;
                     }
-                    Pending::Output(source) => {
+                    PerlPendingStep::Output(source) => {
                         if let Some(source) = slots.get(source as usize).copied().flatten() {
                             builder.flow_stage(crate::flow::FlowStage {
                                 execution: Some(builder.current_execution()),
@@ -334,7 +342,7 @@ pub(crate) fn analyze(
                         slots.push(None);
                         continue;
                     }
-                    Pending::RemoteCode { shell } => {
+                    PerlPendingStep::RemoteCode { shell } => {
                         let resource = code_runner_process(builder, shell);
                         slots.push(
                             builder.effect(Effect {
