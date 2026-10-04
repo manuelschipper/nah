@@ -9480,6 +9480,12 @@
           "realpath": "/workspace/proj[1]/.env",
           "kind": "file",
           "exists": true
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/proj[1]/.e",
+          "resolved": "/workspace/proj[1]/.e"
         }
       ],
       "roots": [
@@ -9887,6 +9893,372 @@
         {
           "kind": "project",
           "path": "/workspace/project"
+        }
+      ]
+    },
+    "cloud-token-files-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "users": {
+        "test": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/.azure/msal_token_cache.json",
+          "resolved": "/home/test/.azure/msal_token_cache.json",
+          "realpath": "/home/test/.azure/msal_token_cache.json"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/.azure/accessTokens.json",
+          "resolved": "/home/test/.azure/accessTokens.json",
+          "realpath": "/home/test/.azure/accessTokens.json"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/.terraform.d/credentials.tfrc.json",
+          "resolved": "/home/test/.terraform.d/credentials.tfrc.json",
+          "realpath": "/home/test/.terraform.d/credentials.tfrc.json"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "prefix-sibling-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "users": {
+        "test": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/",
+          "resolved": "/",
+          "realpath": "/"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace",
+          "resolved": "/workspace",
+          "realpath": "/workspace"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project-old",
+          "resolved": "/workspace/project-old",
+          "realpath": "/workspace/project-old"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "home-dotfiles-git-linux-v1": {
+      "platform": "linux",
+      "cwd": "/home/test",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "users": {
+        "test": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/",
+          "resolved": "/",
+          "realpath": "/"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/home/test",
+          "resolved": "/home/test",
+          "realpath": "/home/test"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/home/test/.git",
+          "resolved": "/home/test/.git",
+          "realpath": "/home/test/.git"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/home/test/.git/..",
+          "resolved": "/home/test/.git/..",
+          "realpath": "/home/test"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/home/test/.ssh",
+          "resolved": "/home/test/.ssh",
+          "realpath": "/home/test/.ssh"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/.ssh/authorized_keys",
+          "resolved": "/home/test/.ssh/authorized_keys",
+          "realpath": "/home/test/.ssh/authorized_keys"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/.bashrc",
+          "resolved": "/home/test/.bashrc",
+          "realpath": "/home/test/.bashrc"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/.config/systemd/user/backup.service",
+          "resolved": "/home/test/.config/systemd/user/backup.service",
+          "realpath": "/home/test/.config/systemd/user/backup.service"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/notes.txt",
+          "resolved": "/home/test/notes.txt",
+          "realpath": "/home/test/notes.txt"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/home/test"
+        }
+      ]
+    },
+    "auth-listing-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "users": {
+        "test": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/",
+          "resolved": "/",
+          "realpath": "/"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/home/test",
+          "resolved": "/home/test",
+          "realpath": "/home/test"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/etc",
+          "resolved": "/etc",
+          "realpath": "/etc",
+          "descendants": [
+            "/etc/hostname",
+            "/etc/passwd",
+            "/etc/shadow",
+            "/etc/sudoers",
+            "/etc/sudoers.d/90-admin"
+          ]
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/etc/hostname",
+          "resolved": "/etc/hostname",
+          "realpath": "/etc/hostname"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/etc/passwd",
+          "resolved": "/etc/passwd",
+          "realpath": "/etc/passwd"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/etc/shadow",
+          "resolved": "/etc/shadow",
+          "realpath": "/etc/shadow"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/etc/sudoers",
+          "resolved": "/etc/sudoers",
+          "realpath": "/etc/sudoers"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/etc/sudoers.d",
+          "resolved": "/etc/sudoers.d",
+          "realpath": "/etc/sudoers.d",
+          "descendants": [
+            "/etc/sudoers.d/90-admin"
+          ]
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/etc/sudoers.d/90-admin",
+          "resolved": "/etc/sudoers.d/90-admin",
+          "realpath": "/etc/sudoers.d/90-admin"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/home/test/.ssh",
+          "resolved": "/home/test/.ssh",
+          "realpath": "/home/test/.ssh",
+          "descendants": [
+            "/home/test/.ssh/authorized_keys",
+            "/home/test/.ssh/config",
+            "/home/test/.ssh/id_ed25519",
+            "/home/test/.ssh/id_ed25519.pub"
+          ]
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/.ssh/authorized_keys",
+          "resolved": "/home/test/.ssh/authorized_keys",
+          "realpath": "/home/test/.ssh/authorized_keys"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/.ssh/config",
+          "resolved": "/home/test/.ssh/config",
+          "realpath": "/home/test/.ssh/config"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/.ssh/id_ed25519",
+          "resolved": "/home/test/.ssh/id_ed25519",
+          "realpath": "/home/test/.ssh/id_ed25519"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/.ssh/id_ed25519.pub",
+          "resolved": "/home/test/.ssh/id_ed25519.pub",
+          "realpath": "/home/test/.ssh/id_ed25519.pub"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "temp-roots-windows-v1": {
+      "platform": "windows",
+      "cwd": "C:\\workspace\\project",
+      "env": {
+        "USERPROFILE": "C:\\Users\\test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "C:/",
+          "resolved": "C:\\",
+          "realpath": "C:\\"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "C:/Windows",
+          "resolved": "C:\\Windows",
+          "realpath": "C:\\Windows"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "C:/Users/test",
+          "resolved": "C:\\Users\\test",
+          "realpath": "C:\\Users\\test"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "C:/workspace/project",
+          "resolved": "C:\\workspace\\project",
+          "realpath": "C:\\workspace\\project"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "C:/Windows/Temp/nah-old-build",
+          "resolved": "C:\\Windows\\Temp\\nah-old-build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "C:/Users/test/AppData/Local/Temp/nah-old-build",
+          "resolved": "C:\\Users\\test\\AppData\\Local\\Temp\\nah-old-build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "C:/Windows/Temporary/data",
+          "resolved": "C:\\Windows\\Temporary\\data"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "C:\\workspace\\project"
         }
       ]
     }
