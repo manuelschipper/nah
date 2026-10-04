@@ -108,7 +108,7 @@ because the owner accepted the conservative rule over a narrower model.
   of narrower parsers missed real flushes.
 - `db-destroy.dropdb-unknown-flag-help-w1b-r1` — `dropdb --bogus --help app`
   is rejected by today's client before it connects, but the model (`Dropdb` in
-  `crates/effinterp-engine/src/models/db.rs`) cannot tell an option dropdb
+  `crates/effinterp-engine/src/models/db/db_admin.rs`) cannot tell an option dropdb
   rejects from one a newer release adds, so it keeps the drop beside its
   unrecognized-arguments boundary. Trusting the option table as complete
   would miss a real DROP DATABASE whenever it is behind the installed client,
@@ -689,7 +689,7 @@ Accepted limitations with no corpus row that asserts a desired block.
 - psql's startup file. `~/.psqlrc` runs before `-c` and `-f` input unless
   `-X` is given; its SQL is not analyzed and a `\set` there is not seen, so
   a script's `:name` is interpolated from `-v` and the script's own `\set`
-  only (`Run::psql_sql` in `crates/effinterp-engine/src/models/db.rs`).
+  only (`Run::psql_sql` in `crates/effinterp-engine/src/models/db/sql_client_run.rs`).
 - A `WITH` statement whose main statement names a CTE outside parentheses
   (`WITH x AS (…) DELETE FROM users USING x`) is left unread behind the
   common-table-expression boundary (`with_writes` in
@@ -709,12 +709,12 @@ Accepted limitations with no corpus row that asserts a desired block.
   documented without a query and go-sqlcmd rejects one; what the ODBC
   sqlcmd does with it is not established, so the argument is not read as
   SQL and analysis ends there behind a boundary (`sqlcmd_command` in
-  `crates/effinterp-engine/src/models/db.rs`).
+  `crates/effinterp-engine/src/models/db/sql_client_commands.rs`).
 - A mysql `--delimiter` value the client would unquote or reject (quoted,
   or holding a backslash) keeps its boundary, and the input is split on `;`.
 - sqlite3 and duckdb dot-command abbreviations other than `.shell`,
   `.system`, `.read`, `.restore` and `.open` (`dot_name` in
-  `crates/effinterp-engine/src/models/db.rs`) stay a boundary, as does a
+  `crates/effinterp-engine/src/models/db/sql_client_commands.rs`) stay a boundary, as does a
   `.shell` argument in double quotes that holds a backslash escape.
 - A rejected request is established only lexically. A psql `-c` request is
   dropped when a byte outside literals is one Postgres accepts nowhere there
