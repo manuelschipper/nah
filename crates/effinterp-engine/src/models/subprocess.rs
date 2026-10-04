@@ -2644,6 +2644,13 @@ impl CommandModel for Ssh {
                     },
                     provenance: vec![model_node],
                 });
+            } else {
+                // The remote command reads what ssh itself is given on stdin,
+                // so bytes piped to ssh reach a remote shell that runs them.
+                streams.stdin = Some(effinterp_proto::ExecutionStreamRef {
+                    node: builder.current_execution(),
+                    stream: effinterp_proto::ExecutionStream::Stdin,
+                });
             }
             ctx.nest.nest(
                 builder,

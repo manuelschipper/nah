@@ -112537,7 +112537,7 @@
     {
       "id": "exec-decoded.ssh-remote-decoded-stdin-shell",
       "guard": "exec-decoded",
-      "derivation": "Desired block via exec-decoded: the host decodes the script and ssh's stdin carries it to the remote shell, which runs it. The engine states the decode and the remote shell's code from stdin, but no byte route crosses the realm on stdin, so this is an expected-fail.",
+      "derivation": "the host decodes the script and ssh's stdin carries it to the remote shell, which runs its stdin as code",
       "require": [
         {
           "op": "process.exec",
@@ -112560,7 +112560,7 @@
             "eq": "remote:host!sh"
           },
           "attributes": {
-            "source": "stdin"
+            "source": "interactive"
           }
         }
       ],
@@ -112579,6 +112579,114 @@
             "op": "process.code_execution",
             "resource": {
               "eq": "remote:host!sh"
+            },
+            "attributes": {
+              "source": "interactive"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-decoded.ssh-remote-decoded-stdin-bash-s",
+      "guard": "exec-decoded",
+      "derivation": "the host decodes the script and ssh's stdin carries it to the remote `bash -s`, which runs its stdin as code",
+      "require": [
+        {
+          "op": "process.exec",
+          "resource": {
+            "eq": "base64"
+          }
+        },
+        {
+          "op": "process.stream_transform",
+          "resource": {
+            "eq": "base64"
+          },
+          "attributes": {
+            "transform": "decode"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "remote:host!bash"
+          },
+          "attributes": {
+            "source": "interactive"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "process.stream_transform",
+            "resource": {
+              "eq": "base64"
+            },
+            "attributes": {
+              "transform": "decode"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "remote:host!bash"
+            },
+            "attributes": {
+              "source": "interactive"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-decoded.docker-exec-stdin-decoded-shell",
+      "guard": "exec-decoded",
+      "derivation": "the host decodes the script and `docker exec -i` passes its stdin to the container's shell, which runs it as code",
+      "require": [
+        {
+          "op": "process.exec",
+          "resource": {
+            "eq": "base64"
+          }
+        },
+        {
+          "op": "process.stream_transform",
+          "resource": {
+            "eq": "base64"
+          },
+          "attributes": {
+            "transform": "decode"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "docker:box!sh"
+          },
+          "attributes": {
+            "source": "stdin"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "process.stream_transform",
+            "resource": {
+              "eq": "base64"
+            },
+            "attributes": {
+              "transform": "decode"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "docker:box!sh"
             },
             "attributes": {
               "source": "stdin"
