@@ -598,10 +598,16 @@ impl PythonWalker<'_, '_> {
                 self.stdin_connection =
                     endpoint.and_then(|endpoint| self.emit("network.connect", endpoint, &[], node));
             }
+            // Any other `os.dup2` onto descriptor 0 replaces that input.
+            "os.dup2" if call.args.get(1).and_then(int_literal) == Some(0) => {
+                self.stdin_connection = None;
+                return false;
+            }
             // `pty.spawn(argv)` runs the program on a new terminal and copies
-            // this process's standard input to it. The copy loop and its
-            // callbacks are not modeled, so the call keeps its boundary.
-            "pty.spawn" => {
+            // this process's standard input to it. Only that route is
+            // modeled, so the launch is read when standard input is a
+            // connection, and the call keeps its boundary either way.
+            "pty.spawn" if self.stdin_connection.is_some() => {
                 self.subprocess(call, python_call_argument(call, 0, "argv"), false, span);
                 return false;
             }

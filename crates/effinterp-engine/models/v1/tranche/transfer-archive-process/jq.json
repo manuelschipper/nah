@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:6f48bcc1f1707dffc02b5c180923fc5c87724024cfcbf014ed4a264ea535f6b2",
+  "identity": "blake3:3d436bd4d5b9a36c016fff0cbf9e7417c00184608890847267023113c516f66a",
   "provenance": {
     "author": "human",
     "sources": [
@@ -469,7 +469,7 @@
                     "shape": {
                       "kind": "nonempty"
                     },
-                    "allow_missing": false,
+                    "allow_missing": true,
                     "matches": false
                   },
                   {
@@ -483,7 +483,7 @@
                         ""
                       ]
                     },
-                    "allow_missing": false,
+                    "allow_missing": true,
                     "matches": false
                   }
                 ],
