@@ -396,18 +396,33 @@ fn summary_past_its_effect_cap_leaves_a_limit_boundary() {
 fn open_modes_map_to_read_write_append() {
     assert!(has(&py("open('/a')"), "filesystem.read", "/a"));
     assert!(has(&py("open('/a','w')"), "filesystem.write", "/a"));
-    // A name bound to one literal is that mode.
-    let bound = py("mode = 'w'\nopen('/a', mode)");
-    assert!(has(&bound, "filesystem.write", "/a"));
-    assert!(!has(&bound, "filesystem.read", "/a"));
-    // A mode with no known value decides nothing; it must not read as "r".
-    let unknown = py("import sys\nopen('/a', sys.argv[1])");
-    assert!(unknown.effects.is_empty());
-    assert!(has_boundary(&unknown, "unmodeled_dynamic"));
-    assert_eq!(
-        unknown.coverage.0[&Domain::new("filesystem")].level,
-        CoverageLevel::Partial
-    );
+    // A mode whose every part is known is that mode, however it is spelled.
+    for source in [
+        "mode = 'w'\nopen('/a', mode)",
+        "open('/a', f'w')",
+        "open('/a', 'w' + 'b')",
+        "mode = f'w'\nopen('/a', mode)",
+        "mode = 'w' + 'b'\nopen('/a', mode)",
+        "kind = 'w'\nopen('/a', kind + 'b')",
+    ] {
+        let known = py(source);
+        assert!(has(&known, "filesystem.write", "/a"), "{source}");
+        assert!(!has(&known, "filesystem.read", "/a"), "{source}");
+    }
+    // A mode with an unknown part decides nothing; it must not read as "r".
+    for source in [
+        "import sys\nopen('/a', sys.argv[1])",
+        "import sys\nopen('/a', 'w' + sys.argv[1])",
+    ] {
+        let unknown = py(source);
+        assert!(unknown.effects.is_empty(), "{source}");
+        assert!(has_boundary(&unknown, "unmodeled_dynamic"), "{source}");
+        assert_eq!(
+            unknown.coverage.0[&Domain::new("filesystem")].level,
+            CoverageLevel::Partial,
+            "{source}"
+        );
+    }
     let append = py("open('/a','a')");
     assert!(has(&append, "filesystem.write", "/a"));
     assert!(

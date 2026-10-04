@@ -969,7 +969,8 @@ fn ipython_constant_text(expr: &Expr) -> Option<String> {
     }
 }
 
-fn ipython_flatten_literal(resource: &ResourceExpr) -> Option<String> {
+/// The text of a literal, or of a join made only of literals.
+pub(super) fn ipython_flatten_literal(resource: &ResourceExpr) -> Option<String> {
     match resource {
         ResourceExpr::Literal { value } => Some(value.clone()),
         ResourceExpr::Join { parts } => {

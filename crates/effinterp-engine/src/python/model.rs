@@ -10,6 +10,7 @@ use effinterp_proto::{
 use rustpython_parser::ast::{self, Constant, Expr, Stmt};
 use rustpython_parser::text_size::TextRange;
 
+use super::ipython::ipython_flatten_literal;
 use super::resolve::{self, host_endpoint, net_resource, str_literal};
 use super::{
     DeferredArgv, PythonWalker, collect_returns, int_literal, keyword_bool, program_argv,
@@ -738,22 +739,28 @@ impl PythonWalker<'_, '_> {
         }
     }
 
-    /// The string `expr` evaluates to: a literal, or a name whose one
-    /// reaching value in the current scope is a literal.
+    /// The string `expr` evaluates to, when every part of it is known: a
+    /// literal, an f-string or `+` concatenation whose parts lower to
+    /// literals as path lowering does, or a name bound to one of those.
     fn known_string(&self, expr: &Expr) -> Option<String> {
         if let Some(value) = str_literal(expr) {
             return Some(value);
         }
-        let Expr::Name(name) = expr else {
-            return None;
+        let resource = match self.lowered_concatenation(expr) {
+            Some(resource) => resource,
+            None => {
+                let Expr::Name(name) = expr else {
+                    return None;
+                };
+                if self.widened_vars.contains(name.id.as_str()) {
+                    return None;
+                }
+                self.var_scope.get(name.id.as_str())?.clone()
+            }
         };
-        if self.widened_vars.contains(name.id.as_str()) {
-            return None;
-        }
-        match self.var_scope.get(name.id.as_str()) {
-            Some(ResourceExpr::Literal { value }) => Some(value.clone()),
-            _ => None,
-        }
+        // Names inside the concatenation lower to parameters; bind the ones
+        // this scope knows. Any part still symbolic leaves no known string.
+        ipython_flatten_literal(&substitute_resource_expr(&resource, &self.var_scope))
     }
 
     /// A filesystem op on the argument at `index`. The returned slot lets a
