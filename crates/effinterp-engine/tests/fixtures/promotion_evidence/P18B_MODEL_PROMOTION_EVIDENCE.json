@@ -2688,8 +2688,8 @@
     {
       "id": "p18b/transfer-archive-process/jq@v1",
       "family": "transfer-archive-process",
-      "document_identity": "blake3:aed789f797229d5f27a4010b8c5ad7dc161128d03f243930e5e71c2786a7761c",
-      "revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+      "document_identity": "blake3:3d436bd4d5b9a36c016fff0cbf9e7417c00184608890847267023113c516f66a",
+      "revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
       "selection_basis": "p11-unmodeled-command-miss",
       "p11_observations": [
         "p11b_v1:cli/cli:all-entrypoints:unmodeled_command:jq"
@@ -3963,7 +3963,7 @@
       "p18b/package-build-vcs/npx@v1#blake3:ff3399cf743d313647e74d54706d6f57155f4768cc724405e832a2631b92214a",
       "p18b/transfer-archive-process/col@v1#blake3:1b6ac7f28514727126feab38b8d3d00f742e21c5b363c869896c825548943309",
       "p18b/transfer-archive-process/cygpath@v1#blake3:d1603b201e408a6ef8c6bc2efe5443cd30ca3c60c377e86b1117d545f976b028",
-      "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+      "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
       "p18b/transfer-archive-process/pmcycles@v1#blake3:20e52c11b2d03471ae09204eb61026933ef97592a50f0abebac9328c89aa0bf0",
       "p18b/transfer-archive-process/print@v1#blake3:9bab9c95a3e2c5b35170ecb33a79a2db68f5b9c2a8ab9e3949b0866e0840dc53",
       "p18b/transfer-archive-process/ps@v1#blake3:bc7ba9559fb059712abba6b355f86391ed982f6defb595e26fa9b72ee9b851b5",
@@ -3989,7 +3989,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "entrypoint": ".github/workflows/fuzz.yml:run.3",
         "modality": "may",
         "operation": "filesystem.read",
@@ -4005,7 +4005,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
         "modality": "may",
         "operation": "filesystem.read",
@@ -4030,7 +4030,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
         "modality": "may",
         "operation": "filesystem.read",
@@ -4284,7 +4284,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "detail": "recognized command form has no reviewed behavior",
         "entrypoint": ".github/workflows/nodejs-org.yml:run.3",
         "reason": "unrecognized_arguments",
@@ -4292,7 +4292,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "detail": "recognized command form has no reviewed behavior",
         "entrypoint": ".github/workflows/nvm-install-test.yml:run.1",
         "reason": "unrecognized_arguments",
@@ -4300,7 +4300,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "detail": "recognized command form has no reviewed behavior",
         "entrypoint": ".github/workflows/release-linux-standalone.yml:run.2",
         "reason": "unrecognized_arguments",
@@ -4308,7 +4308,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "detail": "recognized command form has no reviewed behavior",
         "entrypoint": ".github/workflows/scripts/bump-go.sh",
         "reason": "unrecognized_arguments",
@@ -4316,7 +4316,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "detail": "recognized command form has no reviewed behavior",
         "entrypoint": "script/nolint-insert",
         "reason": "unrecognized_arguments",
@@ -4324,7 +4324,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "detail": "unrecognized flags: --arg, --arg, --arg, --argjson, --arg",
         "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
         "reason": "unrecognized_arguments",
@@ -4332,7 +4332,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "detail": "unrecognized flags: --arg, --arg, --argjson, --argjson, --arg",
         "entrypoint": ".github/workflows/dependabot-triage.lock.yml:run.45",
         "reason": "unrecognized_arguments",
@@ -4340,7 +4340,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "detail": "unrecognized flags: --arg, --arg, --argjson, --argjson, --arg",
         "entrypoint": ".github/workflows/issue-triage.lock.yml:run.43",
         "reason": "unrecognized_arguments",
@@ -4348,7 +4348,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "detail": "unrecognized flags: --arg, --argjson",
         "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
         "reason": "unrecognized_arguments",
@@ -4356,7 +4356,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "detail": "unrecognized flags: --slurpfile, --slurpfile",
         "entrypoint": ".github/workflows/scripts/spam-detection/eval.sh",
         "reason": "unrecognized_arguments",
@@ -4364,7 +4364,7 @@
       },
       {
         "model_id": "p18b/transfer-archive-process/jq@v1",
-        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:ebde444784b1d1a1edcaec00e7bcc66cf7404e2b1ff80a73650663713202591a",
+        "model_revision": "p18b/transfer-archive-process/jq@v1#blake3:8a0c0790c806e4869a5c4819ea94ace67c9d2fc8147bcaf1d60ba31a90e20fdb",
         "detail": "unrecognized flags: -R",
         "entrypoint": ".github/workflows/nvm-install-test.yml:run.1",
         "reason": "unrecognized_arguments",

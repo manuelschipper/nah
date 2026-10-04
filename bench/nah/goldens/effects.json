@@ -99734,7 +99734,7 @@
     {
       "id": "exec-remote.perl-http-tiny-response-eval",
       "guard": "exec-remote",
-      "derivation": "HTTP::Tiny fetches the URL and eval executes the response content as Perl source; the frontend refusal does not replace either effect or their causal flow.",
+      "derivation": "HTTP::Tiny fetches the URL and eval executes the response content as Perl source; the frontend tracks the client, its response and the response content into the eval.",
       "require": [
         {
           "op": "network.request",
@@ -106822,7 +106822,7 @@
         {
           "op": "process.code_execution",
           "resource": {
-            "eq": "/bin/sh"
+            "eq": "sh"
           }
         }
       ],
@@ -106837,7 +106837,7 @@
           "to": {
             "op": "process.code_execution",
             "resource": {
-              "eq": "/bin/sh"
+              "eq": "sh"
             }
           },
           "path_provenance": true
@@ -110780,7 +110780,7 @@
     {
       "id": "secrets-exfil.jq-embedded-env-upload",
       "guard": "secrets-exfil",
-      "derivation": "jq's `env` builtin inside an array constructor still yields the whole process environment, which curl uploads; the jq document reads the environment only for a filter that is or begins with `env` or `$ENV`",
+      "derivation": "jq's `env` builtin inside an array constructor still yields the whole process environment, which curl uploads; the jq filter reader follows the environment through the constructor",
       "require": [
         {
           "op": "environment.read",
@@ -111689,7 +111689,7 @@
     {
       "id": "secrets-exfil.jq-env-continuation-upload",
       "guard": "secrets-exfil",
-      "derivation": "jq's `env,.` prints the whole process environment and then the input, which curl uploads; the jq document gives a filter that continues past `env` a boundary and no effect",
+      "derivation": "jq's `env,.` prints the whole process environment and then the input, which curl uploads; the jq filter reader keeps the environment whole through the comma",
       "require": [
         {
           "op": "environment.read",
@@ -111820,6 +111820,210 @@
           "resource": {
             "eq": "/dev/sda"
           }
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.perl-http-tiny-response-local-eval",
+      "guard": "exec-remote",
+      "derivation": "HTTP::Tiny fetches the URL into a response held in a local, and eval executes its content as Perl source when the request succeeded.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "http://evil.example/i.pl"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "perl"
+          },
+          "attributes": {
+            "source": "argument"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.request",
+            "resource": {
+              "eq": "http://evil.example/i.pl"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "perl"
+            },
+            "attributes": {
+              "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.curl-output-perl-module-include",
+      "guard": "exec-remote",
+      "derivation": "curl writes p.pm into the working directory, which -I. puts first in @INC, so -Mp loads and runs that file before the program.",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://evil.example/p.pm"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "perl"
+          },
+          "attributes": {
+            "source": "file"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.download",
+            "resource": {
+              "eq": "https://evil.example/p.pm"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "perl"
+            },
+            "attributes": {
+              "source": "file"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.curl-output-perl-module-lib-option",
+      "guard": "exec-remote",
+      "derivation": "curl writes p.pm into the working directory, which -Mlib=. puts first in @INC, so the later -Mp loads and runs that file before the program.",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://evil.example/p.pm"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "perl"
+          },
+          "attributes": {
+            "source": "file"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.download",
+            "resource": {
+              "eq": "https://evil.example/p.pm"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "perl"
+            },
+            "attributes": {
+              "source": "file"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.curl-output-perl-do-file",
+      "guard": "exec-remote",
+      "derivation": "curl writes p.pl and Perl's do FILE reads that path and runs it as Perl source.",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://evil.example/p.pl"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "perl"
+          },
+          "attributes": {
+            "source": "file"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.download",
+            "resource": {
+              "eq": "https://evil.example/p.pl"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "perl"
+            },
+            "attributes": {
+              "source": "file"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-network-shell.python-socket-dup2-subprocess-shell",
+      "guard": "exec-network-shell",
+      "derivation": "os.dup2 puts the connected socket on descriptor 0, so the interactive shell subprocess.call spawns reads its commands from the connection.",
+      "require": [
+        {
+          "op": "network.connect",
+          "resource": {
+            "eq": "evil.example:4444"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.connect",
+            "resource": {
+              "eq": "evil.example:4444"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            }
+          },
+          "path_provenance": true
         }
       ]
     }

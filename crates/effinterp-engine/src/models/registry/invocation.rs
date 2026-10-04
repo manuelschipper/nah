@@ -20,7 +20,8 @@ use crate::word::{Word, WordPart};
 
 use super::literals::{
     audited_go_duration, audited_go_integer, audited_http_header_field,
-    audited_repository_selector, proven_go_template_subset, proven_permission_mode,
+    audited_repository_selector, jq_environment_read, proven_go_template_subset,
+    proven_permission_mode,
 };
 use super::routes::api_route_matches;
 
@@ -126,6 +127,9 @@ fn literal_has_shape(value: &str, shape: &LiteralShapeDeclaration) -> bool {
             valid
                 && min_components.is_none_or(|min| value.split('/').count() >= min)
                 && max_components.is_none_or(|max| value.split('/').count() <= max)
+        }
+        LiteralShapeDeclaration::JqEnvironmentRead { read } => {
+            jq_environment_read(value) == Some(*read)
         }
         LiteralShapeDeclaration::Suffix { value: suffix } => value.ends_with(suffix),
         LiteralShapeDeclaration::Prefix { value: prefix } => value.starts_with(prefix),

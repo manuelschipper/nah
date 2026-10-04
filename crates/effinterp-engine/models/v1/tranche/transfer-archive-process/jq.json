@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:aed789f797229d5f27a4010b8c5ad7dc161128d03f243930e5e71c2786a7761c",
+  "identity": "blake3:3d436bd4d5b9a36c016fff0cbf9e7417c00184608890847267023113c516f66a",
   "provenance": {
     "author": "human",
     "sources": [
@@ -305,11 +305,8 @@
                       "name": "filter"
                     },
                     "shape": {
-                      "kind": "one_of",
-                      "values": [
-                        "$ENV",
-                        "env"
-                      ]
+                      "kind": "jq_environment_read",
+                      "read": "whole"
                     },
                     "allow_missing": false,
                     "matches": true
@@ -441,25 +438,11 @@
                       "name": "filter"
                     },
                     "shape": {
-                      "kind": "prefix",
-                      "value": "$ENV"
+                      "kind": "jq_environment_read",
+                      "read": "unresolved"
                     },
                     "allow_missing": false,
                     "matches": true
-                  },
-                  {
-                    "source": {
-                      "kind": "positional",
-                      "name": "filter"
-                    },
-                    "shape": {
-                      "kind": "one_of",
-                      "values": [
-                        "$ENV"
-                      ]
-                    },
-                    "allow_missing": false,
-                    "matches": false
                   }
                 ],
                 "flag_present": [],
@@ -473,7 +456,7 @@
               "domains": [
                 "environment"
               ],
-              "detail": "the filter starts with $ENV and reads the process environment in a form this model does not resolve"
+              "detail": "the filter reads the process environment in a form this model does not resolve"
             },
             {
               "when": {
@@ -484,11 +467,10 @@
                       "name": "filter"
                     },
                     "shape": {
-                      "kind": "prefix",
-                      "value": "env"
+                      "kind": "nonempty"
                     },
-                    "allow_missing": false,
-                    "matches": true
+                    "allow_missing": true,
+                    "matches": false
                   },
                   {
                     "source": {
@@ -498,10 +480,10 @@
                     "shape": {
                       "kind": "one_of",
                       "values": [
-                        "env"
+                        ""
                       ]
                     },
-                    "allow_missing": false,
+                    "allow_missing": true,
                     "matches": false
                   }
                 ],
@@ -511,12 +493,11 @@
                 "flag_value_absent": [],
                 "reads_stdin": false
               },
-              "reason": "unparsed_script",
-              "class": "unmodeled",
+              "reason": "dynamic_source",
+              "class": "unresolved",
               "domains": [
                 "environment"
-              ],
-              "detail": "the filter starts with env and reads the process environment in a form this model does not resolve"
+              ]
             }
           ],
           "unsupported": {

@@ -16,7 +16,7 @@ pub use declarative::{
     EnvironmentGateDeclaration, EvidenceDeclaration, FixtureDeclaration, FlagDeclaration,
     FlagOccurrenceDeclaration, FlagValueAssignmentConditionDeclaration,
     FlagValueConditionDeclaration, FlagValueEqualsDeclaration,
-    FlagValueKeysUniqueConditionDeclaration, LauncherAttachmentDeclaration,
+    FlagValueKeysUniqueConditionDeclaration, JqEnvironmentRead, LauncherAttachmentDeclaration,
     LauncherFrontendDeclaration, LauncherGrammarDeclaration, LauncherOperandRoleDeclaration,
     LauncherOptionClassDeclaration, LauncherOptionDeclaration, LibraryApiDeclaration,
     LibraryApiSymbolDeclaration, LifecycleDeclaration, LifecycleLanguage,
