@@ -555,7 +555,12 @@ fn git_config_credentials(
             else {
                 continue;
             };
-            if credentials.contains_key(path)
+            // The configuration Git prints (`git config --list`) is the
+            // repository's, which Git may find elsewhere than the path the
+            // engine names: a file missing there proves nothing.
+            let printed = effect.attributes.get("repository_configuration")
+                == Some(&effinterp_proto::AttrValue::Bool(true));
+            if credentials.contains_key(path) && !printed
                 || !nah_proto::labels::git_config::is_git_config_path(path, platform)
             {
                 continue;
@@ -572,7 +577,7 @@ fn git_config_credentials(
                     ))
                 }
                 SourceResponse::Refused(SourceRefusal::Unavailable(UnavailableReason::Missing)) => {
-                    Some(false)
+                    (!printed).then_some(false)
                 }
                 SourceResponse::Refused(_) => None,
             };
