@@ -207,6 +207,19 @@ pub(crate) fn facts(result: &DecisionResult) -> &[EffectFact] {
     }
 }
 
+/// Whether `interpreter` can run a generated JavaScript plugin here. A
+/// developer machine without it skips the plugin's behavior checks. CI sets
+/// `CI`, and there a missing interpreter fails the test, so the plugin never
+/// ships unexercised behind a passing run.
+pub(crate) fn interpreter_available(interpreter: &str) -> bool {
+    let available = Command::new(interpreter).arg("--version").output().is_ok();
+    assert!(
+        available || std::env::var_os("CI").is_none(),
+        "{interpreter} is not installed, and CI must run the plugin tests that need it"
+    );
+    available
+}
+
 /// A PATH a test owns: an empty `decoy` directory a test may fill with
 /// another `nah`, then a stand-in `nah` at the home's standard install
 /// location, then stand-ins for the `launchers` its commands run through.

@@ -108,7 +108,7 @@ fn install_preserves_openclaw_config_and_unowned_files() {
 #[cfg(unix)]
 #[test]
 fn generated_plugin_maps_openclaw_hook_results() {
-    if Command::new("node").arg("--version").output().is_err() {
+    if !support::interpreter_available("node") {
         return;
     }
     let home_temp = tempfile::tempdir().unwrap();
