@@ -10,10 +10,11 @@ use effinterp_proto::{
 use rustpython_parser::ast::{self, Constant, Expr, Stmt};
 use rustpython_parser::text_size::TextRange;
 
+use super::ipython::ipython_flatten_literal;
 use super::resolve::{self, host_endpoint, net_resource, str_literal};
 use super::{
-    DeferredArgv, PythonWalker, collect_returns, int_literal, keyword_bool, keyword_str,
-    program_argv, python_call_argument, resource_command_string, shell_program,
+    DeferredArgv, PythonWalker, collect_returns, int_literal, keyword_bool, program_argv,
+    python_call_argument, resource_command_string, shell_program,
 };
 use crate::paths::fs_resource_uses_cwd;
 use crate::resource_transfer::TransferBinding;
@@ -702,7 +703,9 @@ impl PythonWalker<'_, '_> {
     /// Emit read/write effects on `resource` from an open-style call's mode
     /// argument (positional `mode_index` or the `mode=` keyword, defaulting to
     /// "r"). Shared by the builtin `open` and `pathlib.Path(p).open(mode)`,
-    /// whose mode arguments sit at different positions.
+    /// whose mode arguments sit at different positions. A mode that is
+    /// neither a literal nor a name bound to one decides nothing about the
+    /// access, so it leaves a boundary instead of a guessed read.
     fn open_by_mode(
         &mut self,
         call: &ast::ExprCall,
@@ -710,12 +713,16 @@ impl PythonWalker<'_, '_> {
         resource: ResourceExpr,
         node: ProvenanceRef,
     ) {
-        let mode = call
-            .args
-            .get(mode_index)
-            .and_then(str_literal)
-            .or_else(|| keyword_str(call, "mode"))
-            .unwrap_or_else(|| "r".to_string());
+        let mode = match python_call_argument(call, mode_index, "mode") {
+            None => "r".to_string(),
+            Some(mode) => match self.known_string(mode) {
+                Some(mode) => mode,
+                None => {
+                    self.opaque_boundary("open mode is not statically bounded", node);
+                    return;
+                }
+            },
+        };
         let write = mode.contains(['w', 'a', 'x', '+']);
         let read = mode.contains('r') || mode.contains('+');
         if read {
@@ -730,6 +737,30 @@ impl PythonWalker<'_, '_> {
             };
             self.emit("filesystem.write", resource, attrs, node);
         }
+    }
+
+    /// The string `expr` evaluates to, when every part of it is known: a
+    /// literal, an f-string or `+` concatenation whose parts lower to
+    /// literals as path lowering does, or a name bound to one of those.
+    fn known_string(&self, expr: &Expr) -> Option<String> {
+        if let Some(value) = str_literal(expr) {
+            return Some(value);
+        }
+        let resource = match self.lowered_concatenation(expr) {
+            Some(resource) => resource,
+            None => {
+                let Expr::Name(name) = expr else {
+                    return None;
+                };
+                if self.widened_vars.contains(name.id.as_str()) {
+                    return None;
+                }
+                self.var_scope.get(name.id.as_str())?.clone()
+            }
+        };
+        // Names inside the concatenation lower to parameters; bind the ones
+        // this scope knows. Any part still symbolic leaves no known string.
+        ipython_flatten_literal(&substitute_resource_expr(&resource, &self.var_scope))
     }
 
     /// A filesystem op on the argument at `index`. The returned slot lets a
@@ -1811,11 +1842,12 @@ impl PythonWalker<'_, '_> {
 
     /// A module-level HTTP call (`requests.get`, `httpx.post`,
     /// `urllib.request.urlopen`, ...). The verb is the method segment of the
-    /// canonical name; for `.request(method, url)` the URL is the second
-    /// argument and the verb the first literal argument.
+    /// canonical name; for the verb-first `.request(method, url)` and
+    /// `.stream(method, url)` the URL is the second argument and the verb the
+    /// first literal argument. Either may be passed by keyword.
     fn network(&mut self, name: &str, call: &ast::ExprCall, span: TextRange) {
         if name == "urllib.request.urlopen"
-            && let Some(argument) = call.args.first()
+            && let Some(argument) = python_call_argument(call, 0, "url")
             && let Some(ModeledValue::Request { url, upload }) = self.modeled_value(argument)
         {
             let body = python_call_argument(call, 1, "data")
@@ -1834,10 +1866,13 @@ impl PythonWalker<'_, '_> {
             return;
         }
         let method = name.rsplit('.').next().unwrap_or(name);
-        let (url_expr, verb) = if method == "request" {
-            (call.args.get(1), call.args.first().and_then(str_literal))
+        let (url_expr, verb) = if matches!(method, "request" | "stream") {
+            (
+                python_call_argument(call, 1, "url"),
+                python_call_argument(call, 0, "method").and_then(str_literal),
+            )
         } else {
-            (call.args.first(), None)
+            (python_call_argument(call, 0, "url"), None)
         };
         let resource = url_expr
             .map(|a| self.resolve_net(a))
@@ -1956,20 +1991,16 @@ impl PythonWalker<'_, '_> {
         match recv.kind {
             ReceiverKind::HttpClient => match method {
                 "get" | "post" | "put" | "delete" | "patch" | "head" | "options" => {
-                    let resource = call
-                        .args
-                        .first()
+                    let resource = python_call_argument(call, 0, "url")
                         .map(|a| self.resolve_net(a))
                         .unwrap_or_else(|| unresolved_resource("network"));
                     self.emit(net_op(method), resource, &[], node);
                 }
                 "request" | "send" | "stream" => {
-                    let resource = call
-                        .args
-                        .get(1)
+                    let resource = python_call_argument(call, 1, "url")
                         .map(|a| self.resolve_net(a))
                         .unwrap_or_else(|| unresolved_resource("network"));
-                    let verb = call.args.first().and_then(str_literal);
+                    let verb = python_call_argument(call, 0, "method").and_then(str_literal);
                     self.emit(
                         net_op(verb.as_deref().unwrap_or("request")),
                         resource,
