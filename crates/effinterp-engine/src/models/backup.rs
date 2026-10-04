@@ -1331,10 +1331,36 @@ impl CommandModel for Velero {
 
 // `--delete` confirms the deletion: without it Kopia only lists what it would
 // remove. `--unsafe-ignore-source` lets a manifest ID from any source match.
+// The rest are Kopia's global options, which choose the configuration, the
+// password and the logging and leave the deletion as it is.
 const KOPIA_SPEC: FlagSpec = FlagSpec {
     allow_abbreviation: false,
-    value_flags: &[],
-    known_flags: &["--delete", "--unsafe-ignore-source"],
+    value_flags: &[
+        "--config-file",
+        "--password",
+        "-p",
+        "--log-level",
+        "--file-log-level",
+        "--log-dir",
+        "--log-file",
+        "--content-log-file",
+        "--log-dir-max-files",
+        "--log-dir-max-age",
+        "--content-log-dir-max-files",
+        "--content-log-dir-max-age",
+        "--timezone",
+    ],
+    known_flags: &[
+        "--delete",
+        "--unsafe-ignore-source",
+        "--progress",
+        "--no-progress",
+        "--auto-maintenance",
+        "--no-auto-maintenance",
+        "--json-log-console",
+        "--json-log-file",
+        "--disable-color",
+    ],
 };
 
 struct Kopia;
@@ -1361,6 +1387,10 @@ impl CommandModel for Kopia {
             return;
         };
         if !scanned.unknown_flags.is_empty()
+            || scanned.flags.iter().any(|flag| {
+                KOPIA_SPEC.value_flags.contains(&flag.name)
+                    && flag.value.as_ref().and_then(Word::as_literal).is_none()
+            })
             || operands.len() < 3
             || operands[..2] != ["snapshot", "delete"]
             || operands[2..].iter().any(|id| id.is_empty())
@@ -1409,9 +1439,11 @@ impl CommandModel for Kopia {
     }
 }
 
-// The value options of `expire` that select the stanza, the repository, the
-// backup set and the configuration and log locations. `--dry-run` stays
-// outside coverage, since it expires nothing.
+// The options `expire` accepts besides the indexed `--repoN-*` and `--pgN-*`
+// families, which `pgbackrest_indexed_option` reads: they select the stanza,
+// the repository, the backup set, the retention, and the configuration, log,
+// lock and transport settings. None of them stops the expiration except
+// `--dry-run`.
 const PGBACKREST_SPEC: FlagSpec = FlagSpec {
     allow_abbreviation: false,
     value_flags: &[
@@ -1426,9 +1458,56 @@ const PGBACKREST_SPEC: FlagSpec = FlagSpec {
         "--log-level-stderr",
         "--log-path",
         "--lock-path",
+        "--retention-full",
+        "--retention-full-type",
+        "--retention-diff",
+        "--retention-archive",
+        "--retention-archive-type",
+        "--retention-history",
+        "--process-max",
+        "--buffer-size",
+        "--io-timeout",
+        "--protocol-timeout",
+        "--db-timeout",
+        "--compress-level-network",
+        "--cmd",
+        "--cmd-ssh",
+        "--tcp-keep-alive-count",
+        "--tcp-keep-alive-idle",
+        "--tcp-keep-alive-interval",
+        "--tls-cipher-12",
+        "--tls-cipher-13",
     ],
-    known_flags: &[],
+    known_flags: &[
+        "--dry-run",
+        "--no-dry-run",
+        "--neutral-umask",
+        "--no-neutral-umask",
+        "--log-timestamp",
+        "--no-log-timestamp",
+        "--log-subprocess",
+        "--no-log-subprocess",
+        "--sck-keep-alive",
+        "--no-sck-keep-alive",
+    ],
 };
+
+/// Whether an option the spec does not list is one of pgBackRest's indexed
+/// repository or cluster settings (`--repo1-path=…`, `--pg2-host=…`, and the
+/// unindexed `--repo-path=…`) with its value attached. A detached value is
+/// not accepted: the scan would have read it as an operand.
+fn pgbackrest_indexed_option(word: &Word) -> bool {
+    word.as_literal()
+        .and_then(|word| word.split_once('='))
+        .is_some_and(|(name, _)| {
+            ["--repo", "--pg"].iter().any(|family| {
+                name.strip_prefix(family).is_some_and(|rest| {
+                    let setting = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+                    setting.len() > 1 && setting.starts_with('-')
+                })
+            })
+        })
+}
 
 struct PgBackRest;
 impl CommandModel for PgBackRest {
@@ -1449,7 +1528,22 @@ impl CommandModel for PgBackRest {
             .first()
             .and_then(|(_, word)| word.as_literal());
         let repo = scanned_option_value(&scanned, &["--repo"]);
-        if !valid_options(ctx, &scanned, &PGBACKREST_SPEC, &[])
+        // An unlisted flag is read only as an indexed setting. A listed
+        // value option needs a literal value, and a listed switch takes none.
+        let options_read = scanned
+            .unknown_flags
+            .iter()
+            .all(|(index, _)| pgbackrest_indexed_option(&ctx.argv[*index as usize]))
+            && scanned.flags.iter().all(|flag| {
+                if PGBACKREST_SPEC.value_flags.contains(&flag.name) {
+                    flag.value.as_ref().and_then(Word::as_literal).is_some()
+                } else {
+                    ctx.argv[flag.index as usize]
+                        .as_literal()
+                        .is_some_and(|word| !word.contains('='))
+                }
+            });
+        if !options_read
             || scanned.operands.len() != 1
             || command != Some("expire")
             || repo.is_some_and(|value| {
@@ -1462,6 +1556,21 @@ impl CommandModel for PgBackRest {
                 builder,
                 node,
                 "pgBackRest arguments are outside repository expiration coverage",
+            );
+            return;
+        }
+        // The last of `--dry-run` and `--no-dry-run` decides.
+        if scanned
+            .flags
+            .iter()
+            .rev()
+            .find(|flag| matches!(flag.name, "--dry-run" | "--no-dry-run"))
+            .is_some_and(|flag| flag.name == "--dry-run")
+        {
+            backup_boundary(
+                builder,
+                node,
+                "pgBackRest expire dry-run removes no backups; ancillary effects are not enumerated",
             );
             return;
         }
