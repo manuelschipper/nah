@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:0f27ca213bba7b81ae75d72aa972c5a954cfaa94214e2db73c657efca532bdc1",
+  "identity": "blake3:ba52c32fba405668091422d27325eb98bb0972ad7416f603c603fd5bb6014ab1",
   "provenance": {
     "author": "migrated_handwritten",
     "sources": [
@@ -453,6 +453,10 @@
                 "access_purpose": {
                   "kind": "constant_string",
                   "value": "program_input"
+                },
+                "follow_links": {
+                  "kind": "constant_bool",
+                  "value": true
                 }
               },
               "modality": "may"
