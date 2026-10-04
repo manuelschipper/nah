@@ -246,7 +246,7 @@ impl SqlCtx<'_> {
         if head == "WITH" {
             self.unsupported(builder, stmt.span, "common table expression");
             for part in with_writes(self.dialect, toks) {
-                self.statement(builder, &fragment(part), state);
+                self.statement(builder, &statement_fragment(part), state);
             }
             return;
         }
@@ -369,13 +369,13 @@ impl SqlCtx<'_> {
             stmt.span,
             "DO block statements are analyzed as if executed",
         );
-        self.embedded(builder, code, stmt.span, state, true);
+        self.analyze_embedded_sql(builder, code, stmt.span, state, true);
     }
 
     /// Analyze SQL text a statement carries (a DO block's body, the string a
     /// PL/pgSQL `EXECUTE` runs) under every lexical reading, attributing
     /// what it does to `span`, the carrying statement.
-    fn embedded(
+    fn analyze_embedded_sql(
         &self,
         builder: &mut PlanBuilder,
         source: &str,
@@ -393,7 +393,7 @@ impl SqlCtx<'_> {
         for lexing in lex::readings(self.dialect) {
             for stmt in lex::lex(source, &lexing) {
                 let toks = if plpgsql {
-                    plpgsql_sql(&stmt.toks)
+                    plpgsql_statement_sql(&stmt.toks)
                 } else {
                     Some(&stmt.toks[..])
                 };
@@ -404,8 +404,8 @@ impl SqlCtx<'_> {
                     continue;
                 }
                 if plpgsql && keyword(toks, 0).as_deref() == Some("EXECUTE") {
-                    match execute_sql(toks) {
-                        Some(sql) => inner.embedded(builder, &sql, span, state, false),
+                    match plpgsql_execute_sql(toks) {
+                        Some(sql) => inner.analyze_embedded_sql(builder, &sql, span, state, false),
                         None => inner.unsupported(
                             builder,
                             span,
@@ -1743,7 +1743,7 @@ fn read_name(dialect: SqlDialect, toks: &[Lexeme], i: usize) -> Option<(Name, us
 }
 
 /// A statement made of `toks`, a non-empty part of a longer statement.
-fn fragment(toks: &[Lexeme]) -> SqlStatement {
+fn statement_fragment(toks: &[Lexeme]) -> SqlStatement {
     SqlStatement {
         kind: StatementKind::Sql,
         span: SqlSpan {
@@ -1807,7 +1807,7 @@ fn with_writes(dialect: SqlDialect, toks: &[Lexeme]) -> Vec<&[Lexeme]> {
 /// The SQL statement one PL/pgSQL statement runs: its text from a statement
 /// keyword that starts it or follows a block or branch opener (`BEGIN DROP
 /// …`, `IF … THEN DELETE …`). None for PL/pgSQL's own statements.
-fn plpgsql_sql(toks: &[Lexeme]) -> Option<&[Lexeme]> {
+fn plpgsql_statement_sql(toks: &[Lexeme]) -> Option<&[Lexeme]> {
     const OPENERS: &[&str] = &["BEGIN", "THEN", "ELSE", "LOOP"];
     const HEADS: &[&str] = &[
         "INSERT", "UPDATE", "DELETE", "MERGE", "TRUNCATE", "DROP", "CREATE", "ALTER", "COPY",
@@ -1823,7 +1823,7 @@ fn plpgsql_sql(toks: &[Lexeme]) -> Option<&[Lexeme]> {
 /// The SQL a PL/pgSQL `EXECUTE` statement runs, with `?` for each part
 /// computed at run time: a string literal concatenated with expressions, or
 /// `format('…%I…', …)`. None when no literal text starts the command.
-fn execute_sql(toks: &[Lexeme]) -> Option<String> {
+fn plpgsql_execute_sql(toks: &[Lexeme]) -> Option<String> {
     let end = top_level_positions_of(toks, &["INTO", "USING"])
         .next()
         .unwrap_or(toks.len());

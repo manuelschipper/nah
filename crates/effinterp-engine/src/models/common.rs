@@ -155,7 +155,7 @@ pub(crate) fn runtime_selected_source(
     let resolved =
         ctx.nest
             .resolve_execution_input(builder, path.clone(), namespace, purpose, input);
-    if runs_unobserved(phase)
+    if phase_runs_before_program(phase)
         && !matches!(
             resolved,
             SourceResolution::Source { .. } | SourceResolution::AlreadySelected
@@ -168,7 +168,7 @@ pub(crate) fn runtime_selected_source(
 
 /// The phases in which the invocation itself names the file the runtime runs
 /// before the program: a preload option or a startup variable.
-fn runs_unobserved(phase: ExecutionPhase) -> bool {
+fn phase_runs_before_program(phase: ExecutionPhase) -> bool {
     matches!(phase, ExecutionPhase::Preload | ExecutionPhase::Startup)
 }
 
@@ -289,7 +289,7 @@ pub(crate) fn runtime_searched_source(
             RuntimeSourceOutcome::Selected
         }
         SourceResolution::Refused(_) | SourceResolution::Unavailable => {
-            if runs_unobserved(phase)
+            if phase_runs_before_program(phase)
                 && let Some(path) = written
             {
                 unobserved_code_sink(builder, ctx, model_node, path);
