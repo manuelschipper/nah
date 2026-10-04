@@ -592,6 +592,19 @@ impl PythonWalker<'_, '_> {
                 self.base64_decode(span)
             }
             "os.system" | "os.popen" => self.os_system(call, span),
+            "os.dup2" if self.capture.is_none() && self.socket_onto_stdin(call) => {
+                let endpoint = self.socket_fileno(&call.args[0]);
+                let node = self.span_node(span);
+                self.stdin_connection =
+                    endpoint.and_then(|endpoint| self.emit("network.connect", endpoint, &[], node));
+            }
+            // `pty.spawn(argv)` runs the program on a new terminal and copies
+            // this process's standard input to it. The copy loop and its
+            // callbacks are not modeled, so the call keeps its boundary.
+            "pty.spawn" => {
+                self.subprocess(call, python_call_argument(call, 0, "argv"), false, span);
+                return false;
+            }
             "subprocess.run"
             | "subprocess.call"
             | "subprocess.check_call"
@@ -599,12 +612,35 @@ impl PythonWalker<'_, '_> {
             | "subprocess.Popen" => {
                 // Popen's first parameter is `args`, so it may also be passed by name.
                 let args = python_call_argument(call, 0, "args");
+                // `stdin=` replaces the input the child would inherit: with a
+                // connected socket, and otherwise with something that is not
+                // the connection standard input was replaced with.
+                let inherited = self.stdin_connection;
+                let stdin = call
+                    .keywords
+                    .iter()
+                    .find(|keyword| keyword.arg.as_ref().map(|arg| arg.as_str()) == Some("stdin"));
+                if let Some(stdin) = stdin {
+                    let endpoint =
+                        self.socket_fileno(&stdin.value)
+                            .or_else(|| match &stdin.value {
+                                Expr::Name(name) => {
+                                    self.connected_sockets.get(name.id.as_str()).cloned()
+                                }
+                                _ => None,
+                            });
+                    let node = self.span_node(span);
+                    self.stdin_connection = endpoint
+                        .filter(|_| self.capture.is_none())
+                        .and_then(|endpoint| self.emit("network.connect", endpoint, &[], node));
+                }
                 self.subprocess(
                     call,
                     args,
                     keyword_bool(call, "shell").unwrap_or(false),
                     span,
-                )
+                );
+                self.stdin_connection = inherited;
             }
             // Both always run `cmd` through the shell.
             "subprocess.getoutput" | "subprocess.getstatusoutput" => {
@@ -2028,6 +2064,12 @@ impl PythonWalker<'_, '_> {
                         .first()
                         .map(|a| self.socket_addr(a))
                         .unwrap_or_else(|| unresolved_resource("network"));
+                    if let Expr::Attribute(attribute) = call.func.as_ref()
+                        && let Expr::Name(socket) = attribute.value.as_ref()
+                    {
+                        self.connected_sockets
+                            .insert(socket.id.to_string(), resource.clone());
+                    }
                     self.emit("network.request", resource, &[], node);
                 }
             }
@@ -2059,6 +2101,40 @@ impl PythonWalker<'_, '_> {
                 _ => {}
             },
         }
+    }
+
+    /// The endpoint of the connected socket whose descriptor `expr` is:
+    /// `s.fileno()`.
+    fn socket_fileno(&self, expr: &Expr) -> Option<ResourceExpr> {
+        let Expr::Call(call) = expr else {
+            return None;
+        };
+        let Expr::Attribute(attribute) = call.func.as_ref() else {
+            return None;
+        };
+        let Expr::Name(socket) = attribute.value.as_ref() else {
+            return None;
+        };
+        (attribute.attr.as_str() == "fileno" && call.args.is_empty())
+            .then(|| self.connected_sockets.get(socket.id.as_str()).cloned())
+            .flatten()
+    }
+
+    /// Whether `os.dup2(fd, fd2)` puts a connected socket on descriptor 0.
+    /// The target is a literal, or the variable of a loop over a literal
+    /// sequence holding 0, as in `for fd in (0, 1, 2): os.dup2(s.fileno(), fd)`.
+    fn socket_onto_stdin(&self, call: &ast::ExprCall) -> bool {
+        let [descriptor, target] = call.args.as_slice() else {
+            return false;
+        };
+        let stdin = match target {
+            Expr::Name(name) => match self.var_scope.get(name.id.as_str()) {
+                Some(ResourceExpr::Literal { value }) => value == "0",
+                _ => self.zero_loop_vars.contains(name.id.as_str()),
+            },
+            target => int_literal(target) == Some(0),
+        };
+        stdin && call.keywords.is_empty() && self.socket_fileno(descriptor).is_some()
     }
 
     /// The endpoint of a `socket.connect((host, port))` address tuple.

@@ -90,6 +90,7 @@ const STAR_EXPORTS: &[(&str, &[&str])] = &[
             "chown",
             "lchown",
             "chdir",
+            "dup2",
             "stat",
             "lstat",
             "listdir",
@@ -815,6 +816,9 @@ impl<'a, 'b> PythonWalker<'a, 'b> {
             sessions: std::collections::HashMap::new(),
             modeled_values: std::collections::HashMap::new(),
             return_receivers: std::collections::HashMap::new(),
+            connected_sockets: std::collections::HashMap::new(),
+            stdin_connection: None,
+            zero_loop_vars: HashSet::new(),
             return_instances: std::collections::HashMap::new(),
             summary_instances: std::collections::HashMap::new(),
             instance_sequences: std::collections::HashMap::new(),
@@ -1075,6 +1079,15 @@ struct PythonWalker<'a, 'b> {
     /// call `s = build_requests_session()` binds `s` to a session even though
     /// the constructor is hidden behind the helper's return.
     return_receivers: std::collections::HashMap<String, ReceiverKind>,
+    /// Local sockets that called `connect`, by name, with the endpoint.
+    connected_sockets: std::collections::HashMap<String, ResourceExpr>,
+    /// The `network.connect` of the socket this process's standard input was
+    /// replaced with (`os.dup2(s.fileno(), 0)`): a program spawned afterwards
+    /// reads its input from that connection.
+    stdin_connection: Option<u32>,
+    /// Variables of the enclosing loops and comprehensions that iterate a
+    /// literal integer sequence holding 0, as `for fd in (0, 1, 2)` does.
+    zero_loop_vars: HashSet<String>,
     /// Exact class returned by a same-file factory on every return path.
     return_instances: std::collections::HashMap<String, String>,
     /// Module receiver environment used by the current summary fixpoint.
@@ -1784,6 +1797,7 @@ impl PythonWalker<'_, '_> {
     }
 
     fn walk_for(&mut self, target: &Expr, iter: &Expr, body: &[Stmt], orelse: &[Stmt]) {
+        let zero_loop = self.enter_zero_loop(target, iter);
         let before = self.capture.as_ref().map(|capture| capture.effects.len());
         self.walk_deferred(iter);
         // In a summarized body a single loop target holds an element of
@@ -1910,6 +1924,32 @@ impl PythonWalker<'_, '_> {
         if !literal_nonempty(iter) || self.capture_conditional() {
             self.restore_printed(prior_printed);
         }
+        if let Some(name) = zero_loop {
+            self.zero_loop_vars.remove(&name);
+        }
+    }
+
+    /// Record a loop variable that iterates a literal integer sequence
+    /// holding 0 (`(0, 1, 2)`, `[0, 1, 2]`, `range(3)`), returning its name
+    /// when this loop is the one that recorded it.
+    fn enter_zero_loop(&mut self, target: &Expr, iter: &Expr) -> Option<String> {
+        let Expr::Name(name) = target else {
+            return None;
+        };
+        let holds_zero = match iter {
+            Expr::Tuple(ast::ExprTuple { elts, .. }) | Expr::List(ast::ExprList { elts, .. }) => {
+                elts.iter().all(|element| int_literal(element).is_some())
+                    && elts.iter().any(|element| int_literal(element) == Some(0))
+            }
+            // `range(stop)` starts at 0.
+            Expr::Call(call) => {
+                self.imports.resolve_callee(&call.func).as_deref() == Some("range")
+                    && call.keywords.is_empty()
+                    && matches!(call.args.as_slice(), [stop] if int_literal(stop).is_some_and(|stop| stop > 0))
+            }
+            _ => false,
+        };
+        (holds_zero && self.zero_loop_vars.insert(name.id.to_string())).then(|| name.id.to_string())
     }
 
     fn bind_context(&mut self, item: &ast::WithItem) {
@@ -2979,6 +3019,23 @@ impl PythonWalker<'_, '_> {
     }
 
     fn walk_comprehension(
+        &mut self,
+        element: &Expr,
+        value: Option<&Expr>,
+        generators: &[ast::Comprehension],
+    ) -> bool {
+        let zero_loops: Vec<_> = generators
+            .iter()
+            .filter_map(|generator| self.enter_zero_loop(&generator.target, &generator.iter))
+            .collect();
+        let walked = self.walk_comprehension_values(element, value, generators);
+        for name in zero_loops {
+            self.zero_loop_vars.remove(&name);
+        }
+        walked
+    }
+
+    fn walk_comprehension_values(
         &mut self,
         element: &Expr,
         value: Option<&Expr>,

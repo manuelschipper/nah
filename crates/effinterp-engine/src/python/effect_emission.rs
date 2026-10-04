@@ -370,6 +370,7 @@ impl PythonWalker<'_, '_> {
             self.emit_process_unresolved(node);
             return;
         }
+        let spawned = self.builder.effects_len();
         self.nest.nest(
             self.builder,
             Transition::exec(words.iter().map(word_resource).collect(), words.to_vec())
@@ -380,8 +381,30 @@ impl PythonWalker<'_, '_> {
             &[node],
             self.depth,
         );
+        self.bind_stdin_connection(spawned);
         if symbolic_arg {
             self.opaque_boundary(symbolic_detail, node);
+        }
+    }
+
+    /// A program spawned while standard input is a connected socket reads
+    /// its input from that connection: the code a shell or interpreter among
+    /// the effects from `spawned` on takes from standard input arrives over
+    /// it.
+    fn bind_stdin_connection(&mut self, spawned: usize) {
+        let Some(connection) = self.stdin_connection else {
+            return;
+        };
+        for effect in spawned..self.builder.effects_len() {
+            if self.builder.effect_operation(effect) == Some("process.code_execution")
+                && matches!(
+                    self.builder.effect_string_attribute(effect, "source"),
+                    Some("stdin" | "interactive")
+                )
+            {
+                self.builder
+                    .transfer_binding(TransferBinding::new(connection, effect as u32));
+            }
         }
     }
 
@@ -432,6 +455,7 @@ impl PythonWalker<'_, '_> {
                     context: Default::default(),
                 };
                 let runtime_cwd = crate::nest::subject_cwd(&subject).map(str::to_string);
+                let spawned = self.builder.effects_len();
                 self.nest.nest(
                     self.builder,
                     Transition::file(subject)
@@ -445,6 +469,7 @@ impl PythonWalker<'_, '_> {
                     &[node],
                     self.depth,
                 );
+                self.bind_stdin_connection(spawned);
             }
             // The shell runs a command this frontend cannot recover as its
             // `-c` script; the shell model reports that script as unrecoverable.

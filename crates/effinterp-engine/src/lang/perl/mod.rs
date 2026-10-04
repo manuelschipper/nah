@@ -1873,7 +1873,9 @@ impl Compiler<'_, '_> {
                         }
                         PerlObject::Response(_) => PerlObject::Opaque,
                         _ => {
-                            return Err("Perl subscript of an untracked value is not modeled".into());
+                            return Err(
+                                "Perl subscript of an untracked value is not modeled".into()
+                            );
                         }
                     };
                     rest = tail;

