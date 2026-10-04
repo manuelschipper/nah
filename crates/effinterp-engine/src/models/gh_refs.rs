@@ -164,14 +164,19 @@ pub(super) fn api_ref_request(
     };
     // A nonempty `--input` names the body, and gh then sends the fields as
     // query parameters, so only a body without one states `force`. gh reads
-    // the last `--input`, and an empty one names no body.
-    let body_from_input = input.is_some_and(|input| input.as_literal() != Some(""));
-    let mut force = if body_from_input {
-        Force::Unknown
-    } else {
-        Force::No
+    // the last `--input`, and an empty one names no body. `--input -` is
+    // standard input, whose bytes a pipe, here-document or here-string may
+    // establish; a file's are not read here.
+    let body_from_input = input
+        .as_ref()
+        .is_some_and(|input| input.as_literal() != Some(""));
+    let (mut force, mut source) = match (&input, ctx.stdin) {
+        (Some(input), Some(stdin)) if input.as_literal() == Some("-") => {
+            json_body_force(&stdin.word)
+        }
+        _ if body_from_input => (Force::Unknown, None),
+        _ => (Force::No, None),
     };
-    let mut source = None;
     if !body_from_input {
         for (typed, field) in &fields {
             let (key, value) = match field.split_assignment() {
@@ -208,7 +213,7 @@ pub(super) fn api_ref_request(
         source,
         node,
         arg,
-        "GitHub ref name or update force is symbolic, or comes from a string field or --input body",
+        "GitHub ref name or update force is symbolic, or comes from a string field or an --input body that is not read",
     );
 }
 
