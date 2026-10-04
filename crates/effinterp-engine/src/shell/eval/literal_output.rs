@@ -18,20 +18,7 @@ pub(super) fn render_words(
     stdin: Option<&str>,
     max_bytes: u64,
 ) -> Option<Word> {
-    let arguments = arguments
-        .iter()
-        .map(|word| {
-            word.parts
-                .iter()
-                .map(|part| match part {
-                    WordPart::Literal(text) if !text.contains(SUPPLIED) => Some(text.clone()),
-                    // A pattern may expand to several words.
-                    WordPart::Literal(_) | WordPart::Glob(_) => None,
-                    _ => Some(SUPPLIED.to_string()),
-                })
-                .collect::<Option<String>>()
-        })
-        .collect::<Option<Vec<_>>>()?;
+    let arguments = supplied_texts(arguments)?;
     let arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
     let output = render(name, &arguments, stdin, max_bytes)?;
     let mut parts = Vec::new();
@@ -44,6 +31,80 @@ pub(super) fn render_words(
         }
     }
     Some(Word::new(parts))
+}
+
+/// Each argument's text, with `SUPPLIED` standing for each part the shell
+/// supplies at run time.
+fn supplied_texts(arguments: &[&Word]) -> Option<Vec<String>> {
+    arguments
+        .iter()
+        .map(|word| {
+            word.parts
+                .iter()
+                .map(|part| match part {
+                    WordPart::Literal(text) if !text.contains(SUPPLIED) => Some(text.clone()),
+                    // A pattern may expand to several words.
+                    WordPart::Literal(_) | WordPart::Glob(_) => None,
+                    _ => Some(SUPPLIED.to_string()),
+                })
+                .collect::<Option<String>>()
+        })
+        .collect()
+}
+
+/// `render_words` for a `printf` whose last argument is unquoted, so the
+/// shell may make it no word or several, and whose first word fills the
+/// format's last conversion (`printf '{"sha":"%s","force":true}' $(git
+/// rev-parse HEAD)`); `fixed` holds the arguments before it. No word writes
+/// one pass with an empty value, and each further word repeats the format, so
+/// every output starts with the first pass up to that conversion and ends
+/// with the format's text after it. The output keeps those two texts around
+/// one unknown part; it is not the exact output.
+pub(super) fn render_printf_open_tail(
+    name: Option<&str>,
+    fixed: &[&Word],
+    max_bytes: u64,
+) -> Option<Word> {
+    if !name.is_some_and(|name| name == "printf" || system_twin(name) == Some("printf")) {
+        return None;
+    }
+    let tail = Word::new(vec![WordPart::Unknown]);
+    let arguments = fixed.iter().copied().chain([&tail]).collect::<Vec<_>>();
+    let texts = supplied_texts(&arguments)?;
+    let (format, values) = match texts.as_slice() {
+        [separator, format, values @ ..] if separator == "--" => (format, values),
+        [format, values @ ..] => (format, values),
+        [] => return None,
+    };
+    tail_fills_last_conversion(format, values.len())
+        .then(|| render_words(name, &arguments, None, max_bytes))
+        .flatten()
+}
+
+/// Whether a printf format's last conversion is a `%s` that the last of
+/// `values` arguments fills. A `%b` anywhere is refused: a later pass may hand
+/// it a word whose `\c` ends the output before the format's closing text.
+fn tail_fills_last_conversion(format: &str, values: usize) -> bool {
+    let mut chars = format.chars();
+    let mut conversions = 0;
+    let mut last = None;
+    while let Some(character) = chars.next() {
+        match character {
+            '\\' => {
+                chars.next();
+            }
+            '%' => match chars.next() {
+                Some('%') => {}
+                Some(conversion @ ('s' | 'c')) => {
+                    conversions += 1;
+                    last = Some(conversion);
+                }
+                _ => return false,
+            },
+            _ => {}
+        }
+    }
+    conversions == values && last == Some('s')
 }
 
 pub(super) fn render(

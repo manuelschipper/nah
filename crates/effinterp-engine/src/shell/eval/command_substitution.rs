@@ -559,7 +559,8 @@ impl Shell<'_> {
     /// writes when it is one `echo` or `printf`, so a later read of its
     /// output sees it before the body is analyzed. Fixed words give the exact
     /// bytes; a quoted expansion the shell has not established stays an
-    /// unknown part between them.
+    /// unknown part between them, as does an unquoted last argument that
+    /// fills a `printf` format's last conversion.
     pub(in crate::shell) fn literal_process_output(
         &self,
         env: &ShellEnv,
@@ -599,17 +600,31 @@ impl Shell<'_> {
         {
             return None;
         }
-        let arguments = arguments
-            .iter()
-            .map(|word| self.process_output_word(env, word))
-            .collect::<Option<Vec<_>>>()?;
-        literal_output::render_words(
-            Some(&name),
-            &arguments.iter().collect::<Vec<_>>(),
-            None,
-            self.nest.limits.max_source_bytes,
-        )
-        .filter(|output| {
+        let max_bytes = self.nest.limits.max_source_bytes;
+        let fixed = |arguments: &[WordTok]| {
+            arguments
+                .iter()
+                .map(|word| self.process_output_word(env, word))
+                .collect::<Option<Vec<_>>>()
+        };
+        let output = match fixed(arguments) {
+            Some(arguments) => literal_output::render_words(
+                Some(&name),
+                &arguments.iter().collect::<Vec<_>>(),
+                None,
+                max_bytes,
+            ),
+            // Only the last argument may be unquoted and unestablished.
+            None => {
+                let (_, before) = arguments.split_last()?;
+                literal_output::render_printf_open_tail(
+                    Some(&name),
+                    &fixed(before)?.iter().collect::<Vec<_>>(),
+                    max_bytes,
+                )
+            }
+        };
+        output.filter(|output| {
             !output
                 .parts
                 .iter()

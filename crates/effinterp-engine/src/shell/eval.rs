@@ -850,6 +850,30 @@ impl Shell<'_> {
                             self.nest.limits.max_source_bytes,
                         )
                         .map(Word::literal)
+                        .or_else(|| {
+                            // Every word before the last is one argument, so
+                            // the leading converted words are those arguments
+                            // however many words the last one becomes.
+                            let (_, before) = cmd.words.split_last()?;
+                            let fixed = before
+                                .iter()
+                                .flat_map(|word| &word.segs)
+                                .all(|segment| match segment {
+                                    Seg::Literal { text, quoted } => {
+                                        *quoted || !text.contains(['*', '?', '[', '{', '~'])
+                                    }
+                                    segment => quoted_field(segment),
+                                })
+                                .then(|| {
+                                    let wrapper = converted.len() - words.len();
+                                    converted.get(wrapper + 1..before.len())
+                                })??;
+                            literal_output::render_printf_open_tail(
+                                Some(producer),
+                                &fixed.iter().map(|word| &word.word).collect::<Vec<_>>(),
+                                self.nest.limits.max_source_bytes,
+                            )
+                        })
                     }
                 })
                 .map(|word| {
