@@ -5798,8 +5798,7 @@ fn az_object_target(words: &[&Word]) -> ResourceExpr {
 /// `az storage blob upload-batch --pattern` uploads only the files whose path,
 /// joined under `--source` with the pattern's leading `/` removed, fnmatch
 /// accepts, `*` crossing `/`. The `included_paths` attribute states that
-/// relative glob when the command line is wholly literal and the pattern has
-/// no bracket class, which the bridge does not read. The Azure CLI accepts
+/// relative glob when the command line is wholly literal. The Azure CLI accepts
 /// any unique prefix of an option (`--pat`) and `--pattern=VALUE`, so every
 /// option word must be one the batch scan reads.
 fn az_included_paths(ctx: &InvocationCtx, batch: &Scanned) -> Option<AttrValue> {
@@ -5812,7 +5811,7 @@ fn az_included_paths(ctx: &InvocationCtx, batch: &Scanned) -> Option<AttrValue> 
     }
     let (_, pattern) = batch.values_of(&["--pattern"]).last().copied()?;
     let pattern = pattern.as_literal()?.trim_start_matches('/');
-    (!pattern.is_empty() && !pattern.contains('[')).then(|| {
+    (!pattern.is_empty()).then(|| {
         AttrValue::String(serde_json::to_string(&[pattern]).expect("a list of strings serializes"))
     })
 }
@@ -5823,9 +5822,7 @@ fn az_included_paths(ctx: &InvocationCtx, batch: &Scanned) -> Option<AttrValue> 
 /// command line prove a file is skipped: any include may add one back, and
 /// so may an unread option, since aws accepts any unique prefix of an option
 /// (`--inc`). The
-/// `excluded_paths` attribute states those relative globs, less any with a
-/// bracket class, which the bridge does not read; leaving one out only keeps
-/// more files read.
+/// `excluded_paths` attribute states those relative globs.
 fn aws_excluded_paths(ctx: &InvocationCtx, scanned: &Scanned) -> Option<AttrValue> {
     let filters = scanned
         .flags
@@ -5841,7 +5838,7 @@ fn aws_excluded_paths(ctx: &InvocationCtx, scanned: &Scanned) -> Option<AttrValu
     let patterns = filters
         .iter()
         .filter_map(|flag| flag.value.as_ref()?.as_literal())
-        .filter(|pattern| !pattern.is_empty() && !pattern.contains('['))
+        .filter(|pattern| !pattern.is_empty())
         .collect::<std::collections::BTreeSet<_>>();
     (!patterns.is_empty()).then(|| {
         AttrValue::String(serde_json::to_string(&patterns).expect("a list of strings serializes"))
