@@ -641,6 +641,8 @@ impl Catalog {
                     "p18b/cloud/wrangler@v1" | "p18b/cloud/supabase@v1"
                 ) {
                     platform::with_platform_deletes(model)
+                } else if model.id() == "p18b/transfer-archive-process/gtar@v1" {
+                    archive::with_gnu_create(model)
                 } else if model.id() == "p18b/transfer-archive-process/rclone@v1" {
                     cloud::with_rclone_storage(model)
                 } else if model.id() == "p18b/transfer-archive-process/http@v1" {
