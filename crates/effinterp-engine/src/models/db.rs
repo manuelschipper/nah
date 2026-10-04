@@ -114,7 +114,7 @@ fn endpoint_effect(
 
 /// A file operand's effect (for `-f script.sql`: reading the script file),
 /// as its slot in the effect list.
-fn file_effect(
+pub(super) fn file_effect(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
@@ -1051,7 +1051,7 @@ const SNOW_SQL: ClientSpec = ClientSpec {
 };
 
 /// A unit of SQL input, in the order the client runs it.
-enum Program {
+pub(super) enum Program {
     Sql(Word, usize),
     File(Word, usize),
     Stdin,
@@ -1468,6 +1468,32 @@ fn sql_client(
             "filesystem.write",
         );
     }
+}
+
+/// Run SQL input of a CLI a model document owns, where the document cannot
+/// read it (a script file). It runs as the document nests inline SQL: in no
+/// particular dialect, on a connection the document does not name.
+pub(super) fn document_sql(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    program: Program,
+) {
+    let mut run = Run {
+        ctx,
+        model_node,
+        spec: &CLIENT,
+        meta: CLIENT.meta,
+        conn: SqlConnection::default(),
+        context: Vec::new(),
+        substitute: false,
+        variables: BTreeMap::new(),
+        variables_unknown: false,
+        conditionals: 0,
+        includes: Vec::new(),
+        stopped: false,
+    };
+    run.program(builder, program);
 }
 
 /// The host a server argument names first: sqlcmd's `tcp:host,port` and

@@ -30,7 +30,7 @@
         "kind": "fact_assertions",
         "name": "p18b/cloud/wrangler@v1",
         "path": "../../tests/fixtures/model_tranche/wrangler.json",
-        "digest": "blake3:c3402adca04322ba6be00fb10ced42821755f7037fbb7d71b58ee4168bf927bb"
+        "digest": "blake3:ffc934066b65ca588276c39d5049a9764841cbce9c6beb40740b24aaf29734f4"
       }
     ],
     "negative_tests": [

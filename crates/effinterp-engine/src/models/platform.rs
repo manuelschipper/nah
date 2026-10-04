@@ -13,6 +13,7 @@ use effinterp_proto::{
 
 use crate::builder::PlanBuilder;
 use crate::models::common::{arg_node, boundary};
+use crate::models::db::{Program, document_sql};
 use crate::models::{CommandModel, InvocationCtx};
 use crate::word::Word;
 
@@ -662,10 +663,77 @@ impl CommandModel for DocumentedPlatform {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         // Help stays the document's, which already models it.
-        if matches!(self.tool.request(ctx.argv), Request::Help)
-            || !self.tool.apply(builder, ctx, model_node)
-        {
+        if matches!(self.tool.request(ctx.argv), Request::Help) {
+            self.owner.apply(builder, ctx, model_node);
+        } else if let Some((index, script)) = wrangler_d1_file(ctx.argv) {
+            builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
+            let program = Program::File(Word::literal(script), index);
+            document_sql(builder, ctx, model_node, program);
+        } else if !self.tool.apply(builder, ctx, model_node) {
             self.owner.apply(builder, ctx, model_node);
         }
     }
+}
+
+/// The script `wrangler d1 execute <database> --remote --file <script>` runs
+/// against the remote database, and its argv index. The document nests
+/// `--command` SQL under the same conditions; a document cannot read a file.
+/// None for any other invocation, and for one holding an option this does
+/// not read in full, which stays the document's.
+fn wrangler_d1_file(argv: &[Word]) -> Option<(usize, &str)> {
+    // `--cwd` moves the directory the script resolves against; `--command`
+    // beside `--file` is rejected.
+    const VALUES: &[&str] = &[
+        "--config",
+        "-c",
+        "--env",
+        "-e",
+        "--env-file",
+        "--profile",
+        "--file",
+        "--persist-to",
+    ];
+    const SWITCHES: &[&str] = &[
+        "--local",
+        "--remote",
+        "--preview",
+        "--json",
+        "--skip-confirmation",
+        "--yes",
+        "-y",
+    ];
+    let literals = argv
+        .iter()
+        .map(Word::as_literal)
+        .collect::<Option<Vec<_>>>()?;
+    let mut operands = Vec::new();
+    // (flag, value, argv index of the value)
+    let mut options: Vec<(&str, Option<&str>, usize)> = Vec::new();
+    let mut index = 1;
+    while index < literals.len() {
+        let word = literals[index];
+        match word.split_once('=') {
+            _ if !word.starts_with('-') => operands.push(word),
+            Some((flag, value)) if VALUES.contains(&flag) || SWITCHES.contains(&flag) => {
+                options.push((flag, Some(value), index));
+            }
+            None if VALUES.contains(&word) => {
+                index += 1;
+                options.push((word, Some(literals.get(index).copied()?), index));
+            }
+            None if SWITCHES.contains(&word) => options.push((word, None, index)),
+            _ => return None,
+        }
+        index += 1;
+    }
+    let last = |flag: &str| options.iter().rev().find(|(name, _, _)| *name == flag);
+    // Wrangler's switches take `=true` and `=false`.
+    let on = |flag: &str| last(flag).is_some_and(|(_, value, _)| *value != Some("false"));
+    let remote = matches!(operands[..], ["d1", "execute", _])
+        && on("--remote")
+        && !on("--local")
+        // Wrangler rejects a local state directory with --remote.
+        && !last("--persist-to").is_some_and(|(_, path, _)| *path != Some(""));
+    let (_, script, index) = last("--file").filter(|_| remote)?;
+    Some((*index, (*script)?))
 }

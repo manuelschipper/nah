@@ -13,9 +13,12 @@ use effinterp_proto::{
     ProvenanceRef, ResourceExpr, ResourceIdentity, SourceDialect, Subject,
 };
 
+use crate::SourcePurpose;
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::models::common::{Attrs, arg_node, boundary};
-use crate::models::{CommandModel, InvocationCtx};
+use crate::models::db::file_effect;
+use crate::models::{CommandModel, InvocationCtx, source_refusal_detail};
+use crate::nest::SourceResolution;
 use crate::value::unresolved_resource;
 use crate::word::Word;
 
@@ -697,7 +700,8 @@ impl CommandModel for Mongo {
         builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
         let argv = ctx.argv;
         let mut evals = Vec::new();
-        let mut files = false;
+        // Script files the shell loads after its --eval scripts.
+        let mut files: Vec<(usize, Word)> = Vec::new();
         let mut shell = false;
         let mut nodb = false;
         let mut unknown = Vec::new();
@@ -710,7 +714,7 @@ impl CommandModel for Mongo {
                 if address.is_none() {
                     address = Some((index, word));
                 } else {
-                    files = true;
+                    files.push((index, word.clone()));
                 }
                 index += 1;
                 continue;
@@ -733,7 +737,10 @@ impl CommandModel for Mongo {
                                 host = Some((value_index, value));
                             }
                         }
-                        _ => files = true,
+                        _ => files.extend(match attached {
+                            Some(path) => Some((index, Word::literal(path))),
+                            None => value.map(|value| (value_index, value.clone())),
+                        }),
                     }
                     index = value_index + 1;
                 }
@@ -765,14 +772,14 @@ impl CommandModel for Mongo {
                     index += 1;
                 }
                 _ if text.ends_with(".js") => {
-                    files = true;
+                    files.push((index, word.clone()));
                     index += 1;
                 }
                 _ => {
                     if address.is_none() {
                         address = Some((index, word));
                     } else {
-                        files = true;
+                        files.push((index, word.clone()));
                     }
                     index += 1;
                 }
@@ -832,15 +839,59 @@ impl CommandModel for Mongo {
                 None => mongo_opaque(builder, model_node, "mongo shell --eval is not literal"),
             }
         }
-        if files {
-            mongo_opaque(
+        let has_files = !files.is_empty();
+        for (index, file) in files {
+            let read = file_effect(
                 builder,
+                ctx,
                 model_node,
-                "mongo shell script files are not modeled",
+                index as u32,
+                &file,
+                "filesystem.read",
             );
+            let Some(path) = file.as_literal() else {
+                mongo_opaque(
+                    builder,
+                    model_node,
+                    "mongo shell script file is not literal",
+                );
+                continue;
+            };
+            if let Some(source) = mongo_script_file(builder, ctx, model_node, path) {
+                // This read stands in for the selection's own program-input
+                // read, which the builder skips once the resource is read.
+                if let Some(read) = read {
+                    builder.set_effect_string_attribute(
+                        read as usize,
+                        "access_purpose",
+                        "program_input",
+                    );
+                }
+                let arg = arg_node(builder, ctx, index as u32);
+                scripts.push((source, vec![arg, model_node], false));
+            }
         }
-        if scripts.is_empty() && !files {
-            if let Some(source) = ctx.stdin_literal() {
+        if scripts.is_empty() && !has_files {
+            // `< FILE` runs the file as piped input; the shell's redirection
+            // already records reading it.
+            if let Some(stdin) = ctx.stdin
+                && let Some(file) = &stdin.file
+            {
+                let mut provenance = vec![model_node];
+                provenance.extend(stdin.provenance.iter().copied());
+                match file.as_literal() {
+                    Some(path) => {
+                        if let Some(source) = mongo_script_file(builder, ctx, model_node, path) {
+                            scripts.push((source, provenance, false));
+                        }
+                    }
+                    None => mongo_opaque(
+                        builder,
+                        model_node,
+                        "stdin mongo shell script is not statically recoverable",
+                    ),
+                }
+            } else if let Some(source) = ctx.stdin_literal() {
                 let mut provenance = vec![model_node];
                 provenance.extend(ctx.stdin.unwrap().provenance.iter().copied());
                 // The shell reads piped input line by line, not as one
@@ -933,6 +984,33 @@ const MONGO_BOOL_FLAGS: &[&str] = &[
     "--oidcNoNonce",
     "--deepInspect",
 ];
+
+/// The text of a script file the shell runs, read through source
+/// observation. None, behind a boundary, when it is not available.
+fn mongo_script_file(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    path: &str,
+) -> Option<String> {
+    let unavailable = "mongo shell script file contents are unavailable";
+    match ctx.resolve_source_operand(builder, path, SourcePurpose::InvocationInput) {
+        SourceResolution::Source { source, .. } => return Some(source.to_string()),
+        SourceResolution::Refused(refusal) => {
+            if let Some(detail) = source_refusal_detail(builder, refusal, unavailable) {
+                mongo_opaque(builder, model_node, &detail);
+            }
+        }
+        SourceResolution::UnsupportedEncoding => mongo_opaque(
+            builder,
+            model_node,
+            "mongo shell script file is not valid UTF-8",
+        ),
+        SourceResolution::AlreadySelected => {}
+        SourceResolution::Unavailable => mongo_opaque(builder, model_node, unavailable),
+    }
+    None
+}
 
 fn mongo_opaque(builder: &mut PlanBuilder, model_node: ProvenanceRef, detail: &str) {
     for domain in ["database", "network"] {
