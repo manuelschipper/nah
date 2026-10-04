@@ -1,8 +1,14 @@
-use effinterp_proto::{CoverageLevel, Domain, ProvenanceRef, RequestAssurance};
+use effinterp_proto::{
+    CoverageLevel, Domain, ExecutionInputRole, ExecutionPhase, ExecutionSelector, ProvenanceRef,
+    RequestAssurance, ResourceExpr,
+};
 
 use super::{PerlFailure, PerlImports, analyze, perl_boundary};
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
-use crate::models::common::{code_execution, operand_effect, program_input_attrs};
+use crate::models::common::{
+    RuntimeSourceLanguage, code_execution, operand_effect, program_input_attrs,
+    runtime_searched_source,
+};
 use crate::models::{CommandModel, InvocationCtx};
 
 /// `perlMAJOR.MINOR` or `perlMAJOR.MINOR.PATCH`, as installed beside `perl`.
@@ -60,6 +66,7 @@ impl CommandModel for Perl {
                 return;
             }
         };
+        load_modules(builder, ctx, node, &launch);
         // Startup options and library paths can replace builtin/import ownership.
         if let Some(name) = ["PERL5OPT", "PERL5LIB", "PERLLIB"].into_iter().find(|name| {
             ctx.environment_value(name).is_some_and(|value| {
@@ -204,6 +211,50 @@ impl CommandModel for Perl {
     }
 }
 
+/// A `-M` module found under a `-I`, `PERL5LIB` or `PERLLIB` directory is
+/// that file: those directories precede the installed ones in `@INC`. Its
+/// source is not read as Perl, so it is recorded as code the launch runs. A
+/// module found in none of them comes from the installed directories, which
+/// this search does not cover.
+fn load_modules(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    node: ProvenanceRef,
+    launch: &Launch<'_>,
+) {
+    // Perl reads PERLLIB only when PERL5LIB is not set.
+    let library = ["PERL5LIB", "PERLLIB"]
+        .into_iter()
+        .find_map(|name| ctx.environment_value(name));
+    let mut directories = launch.include.clone();
+    if let Some(ResourceExpr::Literal { value }) = &library {
+        directories.extend(value.split(':').filter(|directory| !directory.is_empty()));
+    }
+    if directories.is_empty() {
+        return;
+    }
+    for module in &launch.modules {
+        let file = format!("{}.pm", module.replace("::", "/"));
+        runtime_searched_source(
+            builder,
+            ctx,
+            node,
+            module,
+            directories
+                .iter()
+                .map(|directory| format!("{directory}/{file}"))
+                .collect(),
+            ExecutionInputRole::UnexpectedSelected,
+            ExecutionPhase::Preload,
+            ExecutionSelector::RuntimeOption {
+                option: "-M".into(),
+            },
+            RuntimeSourceLanguage::Opaque,
+            false,
+        );
+    }
+}
+
 /// The files the implicit `-n`/`-p` input loop reads and `-i` rewrites in
 /// place, from argument `first` on. The loop opens them whatever the program
 /// is, so a script whose source is unknown still names them.
@@ -296,6 +347,10 @@ struct Launch<'a> {
     in_place: Option<&'a str>,
     loop_input: bool,
     imports: PerlImports,
+    /// `-I` directories, in order.
+    include: Vec<&'a str>,
+    /// Modules named by `-M` and `-m`, in order.
+    modules: Vec<&'a str>,
 }
 
 impl<'a> Launch<'a> {
@@ -365,12 +420,15 @@ impl<'a> Launch<'a> {
                     'I' => {
                         launch.unsupported =
                             Some("Perl -I module search path is not modeled".into());
+                        let mut directory = Some(&word[offset + 2..]);
                         if word[offset + 2..].is_empty() {
                             i += 1;
                             if i == ctx.argv.len() {
                                 return Err("Perl -I directory is missing".into());
                             }
+                            directory = ctx.argv[i].as_literal();
                         }
+                        launch.include.extend(directory);
                         break;
                     }
                     'p' | 'n' => launch.loop_input = true,
@@ -404,8 +462,14 @@ impl<'a> Launch<'a> {
                                 return Err(PerlFailure::SourceBytes);
                             }
                             launch.sources.push((i, Some(value)));
-                        } else if let Err(detail) = launch.imports.add(value, flag == 'M') {
-                            launch.unsupported = Some(detail);
+                        } else {
+                            // `-M-Module` unimports, and `-MModule=a,b` or
+                            // `-M'Module qw(a b)'` names an import list.
+                            let module = value.strip_prefix('-').unwrap_or(value);
+                            launch.modules.extend(module.split(['=', ' ']).next());
+                            if let Err(detail) = launch.imports.add(value, flag == 'M') {
+                                launch.unsupported = Some(detail);
+                            }
                         }
                         break;
                     }
