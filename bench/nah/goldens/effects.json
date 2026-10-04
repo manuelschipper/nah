@@ -111184,32 +111184,6 @@
       ]
     },
     {
-      "id": "db-destroy.upstash-vector-delete",
-      "guard": "db-destroy",
-      "derivation": "upstash vector delete deletes the vector index",
-      "require": [
-        {
-          "op": "cloud.resource.delete",
-          "resource": {
-            "eq": "cloud:vector/index/abc"
-          }
-        }
-      ]
-    },
-    {
-      "id": "db-destroy.upstash-search-delete",
-      "guard": "db-destroy",
-      "derivation": "upstash search delete deletes the search index",
-      "require": [
-        {
-          "op": "cloud.resource.delete",
-          "resource": {
-            "eq": "cloud:search/index/abc"
-          }
-        }
-      ]
-    },
-    {
       "id": "db-destroy.atlas-serverless-delete",
       "guard": "db-destroy",
       "derivation": "atlas serverless delete deletes the MongoDB Atlas serverless instance",

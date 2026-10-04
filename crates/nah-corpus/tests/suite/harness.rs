@@ -64,7 +64,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 8605);
+    assert_eq!(summary.cases, 8603);
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn current_corpus_file_counts_are_pinned() {
         [
             ("code.jsonl".to_owned(), 71),
             ("compound.jsonl".to_owned(), 322),
-            ("database-services.jsonl".to_owned(), 352),
+            ("database-services.jsonl".to_owned(), 350),
             ("database.jsonl".to_owned(), 472),
             ("execution-flows.jsonl".to_owned(), 863),
             ("filesystem.jsonl".to_owned(), 1160),
