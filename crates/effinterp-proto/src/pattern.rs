@@ -24,6 +24,80 @@ pub enum TextField {
     Glob { glob: String },
 }
 
+/// The kind of filesystem entry a narrowed selection keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FsEntryKind {
+    File,
+    Directory,
+    Symlink,
+    /// A FIFO, socket or device.
+    Other,
+}
+
+/// How much of what a narrowed glob admits its producer selects. A producer
+/// that could not apply a test (`find` with no listing to test) selects some
+/// subset, possibly empty: it establishes no entry and never the whole of what
+/// the glob matches.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FsSubset {
+    /// Everything the glob, kinds and names admit.
+    #[default]
+    Whole,
+    /// A subset chosen by a path test the glob over-approximates
+    /// (`find ~ -path '*/.ssh/*'` as `HOME/**/.ssh/**`): the glob's literal
+    /// components are the names the producer selects by.
+    Named,
+    /// A subset chosen by a test that says nothing of names (`-newer`,
+    /// `-size`): the glob only bounds where the entries lie.
+    Unnamed,
+}
+
+impl FsSubset {
+    pub fn is_whole(&self) -> bool {
+        *self == Self::Whole
+    }
+}
+
+/// What a filesystem glob's text cannot say about the entries it selects: a
+/// producer that tests each entry (`find -type d`, `find ! -name 'nap.*'`)
+/// states here which of the glob's matches it leaves out. A narrowed selection
+/// is a subset of its glob, so a reader that ignores the narrowing only
+/// over-approximates what is selected; it must not read a narrowed selection
+/// as covering every path its glob matches.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsNarrowing {
+    /// The entry kinds the selection is limited to; empty admits every kind.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kinds: Vec<FsEntryKind>,
+    /// Globs over an entry's own name (its last component); an entry whose
+    /// name matches one is not selected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_names: Vec<String>,
+    /// Whether the producer could apply every test it selects by.
+    #[serde(default, skip_serializing_if = "FsSubset::is_whole")]
+    pub subset: FsSubset,
+}
+
+impl FsNarrowing {
+    /// Whether nothing is left out: the selection is every match of its glob.
+    pub fn is_none(&self) -> bool {
+        self.kinds.is_empty() && self.excluded_names.is_empty() && self.subset.is_whole()
+    }
+
+    /// Whether the selection can hold an entry of `kind` whose last component
+    /// is `name`. A name glob that cannot be read excludes nothing.
+    pub fn admits(&self, kind: FsEntryKind, name: &str) -> bool {
+        (self.kinds.is_empty() || self.kinds.contains(&kind))
+            && !self
+                .excluded_names
+                .iter()
+                .any(|glob| crate::glob_match(glob, name) == Ok(true))
+    }
+}
+
 /// Typed resource patterns retain namespace constraints through nested expressions.
 /// The generic text payload lets model declarations retain their value derivations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +109,9 @@ pub enum ResourcePattern<T = String> {
     },
     FsPath {
         glob: T,
+        /// Which of the glob's matches the selection leaves out.
+        #[serde(default, skip_serializing_if = "FsNarrowing::is_none")]
+        narrowing: FsNarrowing,
     },
     EnvironmentVariable {
         name_glob: T,
@@ -116,7 +193,7 @@ impl<T> ResourcePattern<T> {
 impl std::fmt::Display for ResourcePattern {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::FsPath { glob } => write!(f, "fs:{glob}"),
+            Self::FsPath { glob, .. } => write!(f, "fs:{glob}"),
             Self::EnvironmentVariable { name_glob } => write!(f, "env:{name_glob}"),
             Self::NetworkEndpoint {
                 host_glob,
@@ -140,7 +217,7 @@ impl std::fmt::Display for ResourcePattern {
 impl ResourcePattern {
     pub fn is_empty(&self) -> bool {
         match self {
-            Self::FsPath { glob } | Self::ArtifactField { glob } => glob.is_empty(),
+            Self::FsPath { glob, .. } | Self::ArtifactField { glob } => glob.is_empty(),
             Self::EnvironmentVariable { name_glob }
             | Self::MessageTopic { name_glob, .. }
             | Self::ServiceUnit { name_glob, .. } => name_glob.is_empty(),
@@ -169,7 +246,7 @@ impl ResourcePattern {
         };
         match self {
             Self::ArtifactField { glob } => text(glob),
-            Self::FsPath { glob } => crate::glob::validate_contextual_glob(glob),
+            Self::FsPath { glob, .. } => crate::glob::validate_contextual_glob(glob),
             Self::EnvironmentVariable { name_glob }
             | Self::MessageTopic { name_glob, .. }
             | Self::ServiceUnit { name_glob, .. } => text(name_glob),
@@ -244,7 +321,10 @@ impl<T> ResourcePattern<T> {
     ) -> Option<ResourcePattern<U>> {
         Some(match self {
             Self::ArtifactField { glob } => ResourcePattern::ArtifactField { glob: f(glob)? },
-            Self::FsPath { glob } => ResourcePattern::FsPath { glob: f(glob)? },
+            Self::FsPath { glob, narrowing } => ResourcePattern::FsPath {
+                glob: f(glob)?,
+                narrowing: narrowing.clone(),
+            },
             Self::EnvironmentVariable { name_glob } => ResourcePattern::EnvironmentVariable {
                 name_glob: f(name_glob)?,
             },

@@ -262,7 +262,7 @@ fn source_mutation_reaches(resource: &ResourceExpr, path: &str) -> bool {
             .iter()
             .any(|resource| source_mutation_reaches(resource, path)),
         ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } => {
             let mut ancestor = path;
             loop {
@@ -1197,7 +1197,7 @@ impl PlanBuilder {
             });
         }
         if let ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } = &mut effect.resource
             && let Some(collapsed) = effinterp_proto::collapse_wildcard_parents(glob)
         {
@@ -1731,7 +1731,7 @@ impl PlanBuilder {
                 identity: ResourceIdentity::FsPath { path },
             } => self.source_identity_changed(path, before, may_alias),
             ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
             } if !glob.contains(['*', '?', '[', '{', '\\']) => {
                 self.source_identity_changed(glob, before, may_alias)
             }

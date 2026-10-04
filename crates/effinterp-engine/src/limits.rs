@@ -625,7 +625,7 @@ fn pattern_bytes(pattern: &effinterp_proto::ResourcePattern) -> u64 {
             }
     };
     let inner = match pattern {
-        ResourcePattern::FsPath { glob } => glob.len() as u64,
+        ResourcePattern::FsPath { glob, .. } => glob.len() as u64,
         ResourcePattern::EnvironmentVariable { name_glob } => name_glob.len() as u64,
         ResourcePattern::NetworkEndpoint {
             host_glob,

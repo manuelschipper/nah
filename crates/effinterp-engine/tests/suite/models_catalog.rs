@@ -417,7 +417,7 @@ fn render(expr: &ResourceExpr) -> String {
             }
         },
         ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
         } => format!("pat:{pattern}"),
         ResourceExpr::Unresolved { family } => format!("?{}", family.0),
         ResourceExpr::Join { .. } => "join".to_string(),
@@ -3649,7 +3649,7 @@ fn tar_extract_writes_pattern_under_target_dir() {
         .filter(|effect| effect.operation.0 == "filesystem.write")
     {
         let ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
         } = &effect.resource
         else {
             panic!("expected recursive extraction pattern")

@@ -1075,6 +1075,7 @@ impl CommandModel for Grep {
                     resource: ResourceExpr::Pattern {
                         pattern: effinterp_proto::ResourcePattern::FsPath {
                             glob: format!("{root}/**/{name_glob}"),
+                            narrowing: Default::default(),
                         },
                     },
                     attributes: input_attributes.clone(),

@@ -156,7 +156,7 @@ pub fn rendered_resource(expr: &ResourceExpr) -> String {
             format!("one_of({})", alternatives.join(", "))
         }
         ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } => format!("filesystem:{glob}"),
         ResourceExpr::Pattern {
             pattern: effinterp_proto::ResourcePattern::EnvironmentVariable { name_glob },

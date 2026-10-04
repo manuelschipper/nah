@@ -661,6 +661,7 @@ fn realm_and_selection_predicates_are_typed_and_target_local() {
     plan.effects[effect].resource = ResourceExpr::Pattern {
         pattern: effinterp_proto::ResourcePattern::FsPath {
             glob: "/tmp/*".into(),
+            narrowing: Default::default(),
         },
     };
     remote.resource = ResourcePredicate::Not {

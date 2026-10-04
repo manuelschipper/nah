@@ -88,7 +88,7 @@ fn find_delete_applies_selectors_to_the_deleted_set() {
     assert!(matches!(
         &del.resource,
         ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob }
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. }
         } if glob == "/data/**/*.log"
     ));
     assert!(!del.attributes.contains_key("recursive"));
@@ -162,7 +162,7 @@ fn find_exec_nests_the_command_with_root_and_descendant_matches() {
             .any(|resource| resource_fs_path(resource) == Some("/tmp"))
     );
     assert!(alternatives.iter().any(
-        |resource| matches!(resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/tmp/**")
+        |resource| matches!(resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/tmp/**")
     ));
     assert!(p.execution_graph.nodes.iter().any(|n| matches!(
         &n.subject,
@@ -187,7 +187,7 @@ fn find_exec_without_a_root_uses_the_current_directory() {
             .any(|resource| resource_fs_path(resource) == Some("/w"))
     );
     assert!(alternatives.iter().any(
-        |resource| matches!(resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/w/**")
+        |resource| matches!(resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/w/**")
     ));
 }
 
@@ -305,7 +305,7 @@ fn unzip_reads_archive_and_writes_into_dir() {
     let p = plan(&["unzip", "/tmp/a.zip", "-d", "/out"]);
     assert!(has(&p, "filesystem.read", "/tmp/a.zip"));
     assert!(p.effects.iter().any(|e| e.operation.0 == "filesystem.write"
-        && matches!(&e.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/out/**")));
+        && matches!(&e.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/out/**")));
 }
 
 #[test]
@@ -1045,7 +1045,7 @@ fn bun_install_add_remove_preserve_dependency_environment_effects() {
                 .iter()
                 .any(|e| e.operation.0 == "filesystem.write"
                     && matches!(&e.resource,
-            effinterp_proto::ResourceExpr::Pattern {pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/work/dependency-tree"))
+            effinterp_proto::ResourceExpr::Pattern {pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/work/dependency-tree"))
         );
         assert!(
             plan.boundaries

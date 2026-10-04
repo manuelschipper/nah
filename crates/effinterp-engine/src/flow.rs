@@ -3086,7 +3086,7 @@ pub(crate) fn build_causality(
     for (index, effect) in effects.iter().enumerate() {
         if effect.operation.0 == "filesystem.write"
             && let ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
             } = &effect.resource
         {
             written_patterns.push((index, glob));

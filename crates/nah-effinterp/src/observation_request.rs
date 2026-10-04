@@ -199,16 +199,17 @@ fn process_descriptor_path(path: &str) -> bool {
 }
 
 /// The observed path that bounds a resource's selection, and the glob text
-/// that follows it. A pattern's bound is its literal prefix with the escapes of
-/// the filesystem glob grammar decoded, so `/w/proj\[1]/**/*` is bounded by
-/// `/w/proj[1]` and followed by `/**/*`.
+/// that follows it. A pattern's bound is the directory holding its first
+/// wildcard component, with the escapes of the filesystem glob grammar
+/// decoded, so `/w/proj\[1]/**/*` is bounded by `/w/proj[1]` and followed by
+/// `/**/*`, and `/w/source/serv*` by `/w/source`, followed by `/serv*`.
 pub(crate) fn observation_bound(resource: &ResourceExpr) -> Option<(Cow<'_, str>, &str)> {
     match resource {
         ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },
         } => Some((Cow::Borrowed(path), "")),
         ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } => pattern_observation_bound(glob),
         _ => subtree_root(resource).map(|root| (Cow::Borrowed(root), "")),
     }
@@ -219,11 +220,13 @@ fn pattern_observation_bound(glob: &str) -> Option<(Cow<'_, str>, &str)> {
     // `nah_proto::action::pattern_bound` stops, with its end in `glob`.
     let bytes = glob.as_bytes();
     let mut literal = Vec::<(char, usize)>::new();
+    let mut wildcard = false;
     let mut chars = glob.char_indices();
     while let Some((index, character)) = chars.next() {
         if matches!(character, '*' | '?' | '[' | '{')
             || matches!(character, '@' | '+' | '!') && bytes.get(index + 1) == Some(&b'(')
         {
+            wildcard = true;
             break;
         }
         if character == '\\' {
@@ -237,10 +240,14 @@ fn pattern_observation_bound(glob: &str) -> Option<(Cow<'_, str>, &str)> {
     }
     let spelled = |literal: &[(char, usize)]| literal.iter().map(|(c, _)| *c).collect::<String>();
     let mut kept = literal.len();
-    // The dot in .* belongs to the selection, not to the observed directory
-    // identity. Keep it in the pattern suffix.
-    if spelled(&literal[..kept]).ends_with("/.") {
-        kept = (kept - 2).max(1);
+    // A wildcard that starts inside a component (`source/serv*`, `HOME/.*`)
+    // selects among the entries of the directory holding that component. The
+    // literal start of the name belongs to the selection, not to the observed
+    // directory identity: keep it in the pattern suffix.
+    if wildcard
+        && let Some(separator) = literal.iter().rposition(|(character, _)| *character == '/')
+    {
+        kept = (separator + 1).max(1);
     }
     // Observe the directory that bounds the selection, not a trailing
     // separator introduced by the pattern (for example, HOME/*). A root, `/`
@@ -280,8 +287,69 @@ pub(crate) fn finite_members(resource: &ResourceExpr) -> Option<&[ResourceExpr]>
     .then_some(alternatives)
 }
 
+/// What a filesystem selection's producer says it leaves out: the narrowing of
+/// a pattern, or of the descendants of a root-wide selection.
+pub(crate) fn selection_narrowing(
+    resource: &ResourceExpr,
+) -> Option<&effinterp_proto::FsNarrowing> {
+    match resource {
+        ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath { narrowing, .. },
+        } => Some(narrowing),
+        ResourceExpr::Union { alternatives } if subtree_root(resource).is_some() => {
+            alternatives.iter().find_map(selection_narrowing)
+        }
+        _ => None,
+    }
+}
+
+/// The glob a subset chosen by the names it spells is read as, or `None` for
+/// any other selection. Such a subset reaches what lies under those names
+/// and is not every entry below its bound: read by its literal prefix,
+/// `HOME/**/node_modules/**` would take the home and every protected path in
+/// it. The names are read directly below the bound, `HOME/**/.ssh/**` as
+/// `HOME/.ssh/**`, where the protected paths a path test spells from the
+/// start path lie.
+pub(crate) fn named_subset_reading(resource: &ResourceExpr, glob: &str) -> Option<String> {
+    selection_narrowing(resource)
+        .is_some_and(|narrowing| narrowing.subset == effinterp_proto::FsSubset::Named)
+        .then(|| glob.replace("/**/", "/"))
+}
+
+/// Whether an effect removes only the entries it is passed: a removal that
+/// does not recurse (`rm`, `unlink`, `rmdir`) cannot take a directory that
+/// holds any entry, so a directory's contents stay where they are. The
+/// removal a move states for what it moved away carries them with it.
+pub(crate) fn removes_entries_only(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
+    effect.operation.as_str() == "filesystem.delete"
+        && effect.attributes.get("recursive") != Some(&AttrValue::Bool(true))
+        && !plan.effects.iter().any(|other| {
+            other.operation.as_str() == "filesystem.move"
+                && other.execution == effect.execution
+                && other.resource == effect.resource
+        })
+}
+
+/// Whether an effect on a root-wide selection takes the root's whole tree.
+/// A removal of only the entries it is passed, whose selection leaves out
+/// regular files (`find . -type d -exec rm -f {} +`), leaves every file in
+/// the tree where it is.
+pub(crate) fn subtree_reached_whole(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
+    subtree_root(&effect.resource).is_some()
+        && !(removes_entries_only(plan, effect)
+            && selection_narrowing(&effect.resource).is_some_and(|narrowing| {
+                !narrowing.kinds.is_empty()
+                    && !narrowing
+                        .kinds
+                        .contains(&effinterp_proto::FsEntryKind::File)
+            }))
+}
+
 /// Preserve the exact set of a root and any descendant without treating an
-/// arbitrary union as one path. The root remains a selection bound.
+/// arbitrary union as one path. The root remains a selection bound. A producer
+/// may narrow the descendants (`find DIR -type d`): the selection still works
+/// through the whole tree, so it stays a subtree, and `selection_narrowing`
+/// says what it leaves out.
 pub(crate) fn subtree_root(resource: &ResourceExpr) -> Option<&str> {
     let ResourceExpr::Union { alternatives } = resource else {
         return None;
@@ -295,12 +363,12 @@ pub(crate) fn subtree_root(resource: &ResourceExpr) -> Option<&str> {
                 identity: ResourceIdentity::FsPath { path },
             },
             ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
             },
         )
         | (
             ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
             },
             ResourceExpr::Concrete {
                 identity: ResourceIdentity::FsPath { path },
@@ -388,7 +456,10 @@ mod tests {
             ("/other/**", None),
         ] {
             let pattern = ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob: glob.into() },
+                pattern: effinterp_proto::ResourcePattern::FsPath {
+                    glob: glob.into(),
+                    narrowing: Default::default(),
+                },
             };
             for alternatives in [
                 vec![root.clone(), pattern.clone()],
@@ -400,6 +471,26 @@ mod tests {
                 );
             }
         }
+        // A producer that narrows the descendants still works through the tree.
+        let narrowed = ResourceExpr::Union {
+            alternatives: vec![
+                root.clone(),
+                ResourceExpr::Pattern {
+                    pattern: effinterp_proto::ResourcePattern::FsPath {
+                        glob: r"/tmp/build\[1\]/**".into(),
+                        narrowing: effinterp_proto::FsNarrowing {
+                            kinds: vec![effinterp_proto::FsEntryKind::Directory],
+                            ..Default::default()
+                        },
+                    },
+                },
+            ],
+        };
+        assert_eq!(subtree_root(&narrowed), Some("/tmp/build[1]"));
+        assert_eq!(
+            selection_narrowing(&narrowed).map(|narrowing| narrowing.kinds.as_slice()),
+            Some([effinterp_proto::FsEntryKind::Directory].as_slice())
+        );
         assert_eq!(
             subtree_root(&ResourceExpr::Union {
                 alternatives: vec![root.clone(), root]

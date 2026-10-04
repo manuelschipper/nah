@@ -27,6 +27,41 @@ pub fn nah_protection_tier(
     pattern: bool,
     whole_container: bool,
 ) -> Option<NahProtectionTier> {
+    nah_narrowed_protection_tier(
+        operation,
+        resolved,
+        target,
+        roots,
+        trusted_roots,
+        home,
+        critical_paths,
+        platform,
+        pattern,
+        whole_container,
+        &effinterp_proto::FsNarrowing::default(),
+    )
+}
+
+/// [`nah_protection_tier`] for a selection its producer narrowed: a pattern or
+/// a whole container that leaves out entry kinds or names. The nap state is
+/// regular files, so such a selection reaches it only where it can hold a
+/// regular file of a nap file's name: `find ~/.nah -type d` and
+/// `find ~/.nah ! -name 'nap.*'` do not. Every other tier reads the selection
+/// as if it were not narrowed.
+#[allow(clippy::too_many_arguments)]
+pub fn nah_narrowed_protection_tier(
+    operation: FilesystemOperation,
+    resolved: &AbsolutePath,
+    target: &AbsolutePath,
+    roots: &[Root],
+    trusted_roots: &[AbsolutePath],
+    home: &AbsolutePath,
+    critical_paths: &[AbsolutePath],
+    platform: Platform,
+    pattern: bool,
+    whole_container: bool,
+    narrowing: &effinterp_proto::FsNarrowing,
+) -> Option<NahProtectionTier> {
     if operation == FilesystemOperation::Read {
         return None;
     }
@@ -42,18 +77,21 @@ pub fn nah_protection_tier(
             &fold_path_spelling(file, platform),
         ) == Ok(true)
     };
+    let nap_files = ["nap.json", "nap.key", "nap.lock"];
+    // A narrowed selection holds a nap file only if it admits a regular file
+    // of that name.
+    let admitted = |name: &str| narrowing.admits(effinterp_proto::FsEntryKind::File, name);
+    let nah = join_lexical_path(home.as_str(), ".nah", platform);
     if paths.iter().any(|path| {
         (!pattern
             && whole_container
-            && same_path(
-                &join_lexical_path(home.as_str(), ".nah", platform),
-                path,
-                platform,
-            ))
-            || [".nah/nap.json", ".nah/nap.key", ".nah/nap.lock"]
-                .iter()
-                .map(|entry| join_lexical_path(home.as_str(), entry, platform))
-                .any(|file| same_path(&file, path, platform) || pattern && expands_to(path, &file))
+            && same_path(&nah, path, platform)
+            && nap_files.iter().any(|name| admitted(name)))
+            || nap_files.iter().any(|name| {
+                let file = join_lexical_path(&nah, name, platform);
+                same_path(&file, path, platform)
+                    || pattern && expands_to(path, &file) && admitted(name)
+            })
     }) {
         return Some(NahProtectionTier::Permanent);
     }

@@ -80,6 +80,7 @@ fn digest_correlates_equal_literals() {
                 argv_prefix: vec![ResourceExpr::Pattern {
                     pattern: ResourcePattern::FsPath {
                         glob: "/secret/*".into(),
+                        narrowing: Default::default(),
                     },
                 }],
             },

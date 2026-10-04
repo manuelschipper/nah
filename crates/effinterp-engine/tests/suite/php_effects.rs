@@ -259,11 +259,11 @@ fn glob_uses_a_pattern_resource() {
     let e = find(&plan, "filesystem.read");
     assert!(matches!(
         &e.resource,
-        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/tmp/*.txt"
+        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/tmp/*.txt"
     ));
     let plan = php("<?php glob(\"*.txt\");");
     assert!(matches!(&find(&plan, "filesystem.read").resource,
-        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/w/*.txt"));
+        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/w/*.txt"));
 }
 
 #[test]

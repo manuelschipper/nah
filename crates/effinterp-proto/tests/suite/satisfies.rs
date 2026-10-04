@@ -75,6 +75,7 @@ fn direct_relation_limits_are_deterministic() {
         ResourceExpr::Pattern {
             pattern: ResourcePattern::FsPath {
                 glob: "?".repeat(RELATION_BYTE_LIMIT),
+                narrowing: Default::default(),
             },
         },
     ];
@@ -189,6 +190,7 @@ fn nested_identity_depth_and_glob_work_share_relation_limits() {
         expr: ResourceExpr::Pattern {
             pattern: ResourcePattern::FsPath {
                 glob: format!("/{}", "?".repeat(1100)),
+                narrowing: Default::default(),
             },
         },
     };

@@ -107,7 +107,7 @@ impl LabelProvider for TestLabels {
         }
         match resource.target {
             SelectionTarget::Filesystem(ResourceExpr::Pattern {
-                pattern: ResourcePattern::FsPath { glob },
+                pattern: ResourcePattern::FsPath { glob, .. },
             }) if glob == "/work/*.key" => LabelStatus::Known(vec![label("credential-secret")]),
             SelectionTarget::Filesystem(ResourceExpr::Union { .. })
                 if resource.selection == LabelSelection::ResourceOrAncestorDirectory =>
@@ -141,7 +141,7 @@ impl LabelProvider for TestLabels {
             } => path.as_str(),
             // The directory a pattern's wildcards lie beneath.
             ResourceExpr::Pattern {
-                pattern: ResourcePattern::FsPath { glob },
+                pattern: ResourcePattern::FsPath { glob, .. },
             } => glob.rsplit_once('/').map_or("", |(bound, _)| bound),
             _ => return PathKindStatus::Unknown,
         };

@@ -209,7 +209,7 @@ impl SourceResolver for ShallowSourceResolver {
             }
             ResourceExpr::Concrete { .. } => true,
             ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
             } if !glob.contains(['*', '?', '[', '{', '\\']) => self.source_mutation_disjoint(
                 &ResourceExpr::Concrete {
                     identity: ResourceIdentity::FsPath { path: glob.clone() },

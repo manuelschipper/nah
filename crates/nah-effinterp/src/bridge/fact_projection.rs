@@ -175,13 +175,13 @@ pub(super) fn project_effect_facts(
             resource: target,
             // A pattern ending in `**` selects every entry at every depth
             // below its bound, as a recursive operation does.
-            recursive: crate::observation_request::subtree_root(&effect.resource).is_some()
+            recursive: crate::observation_request::subtree_reached_whole(view.plan(), effect)
                 || effect.attributes.get("recursive")
                     == Some(&effinterp_proto::AttrValue::Bool(true))
                 || matches!(
                     &effect.resource,
                     effinterp_proto::ResourceExpr::Pattern {
-                        pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                        pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
                     } if glob.ends_with("/**")
                 ),
             device: match &effect.resource {
@@ -828,7 +828,7 @@ fn effect_fact_payload(
             },
             target,
             destination: None,
-            recursive: if crate::observation_request::subtree_root(&effect.resource).is_some() {
+            recursive: if crate::observation_request::subtree_reached_whole(view.plan(), effect) {
                 Known(true)
             } else {
                 attr_bool("recursive")

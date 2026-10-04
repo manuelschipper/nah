@@ -59,7 +59,7 @@ pub(crate) fn annotate_path_relation(
             identity: ResourceIdentity::FsPath { path },
         } => (path.as_str(), false),
         ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
         } => (pattern.as_str(), true),
         resource => match crate::observation_request::subtree_root(resource) {
             Some(root) => (root, false),
@@ -71,6 +71,18 @@ pub(crate) fn annotate_path_relation(
             }
         },
     };
+    // A subset its producer chose by a test that names nothing may be empty
+    // and is never all of the pattern's matches, so the pattern's reach says
+    // nothing of what the effect takes.
+    let subset = crate::observation_request::selection_narrowing(&effect.resource)
+        .map(|narrowing| narrowing.subset)
+        .unwrap_or_default();
+    if subset == effinterp_proto::FsSubset::Unnamed {
+        return (
+            selection.unwrap_or(PathSelection::FollowedTarget),
+            PathLabel::Unresolved,
+        );
+    }
     let Some((query_path, selection_suffix)) = observation_bound(&effect.resource) else {
         return (
             selection.unwrap_or(PathSelection::FollowedTarget),
@@ -145,11 +157,26 @@ pub(crate) fn annotate_path_relation(
         matches!(
             &effect.resource,
             ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
             } if glob == requested
         )
         .then_some(selection_suffix)
     });
+    // A subset chosen by the names its glob spells is labeled by those
+    // names. The listing, when there is one, still reads the glob as it is.
+    let listed_suffix = pattern_suffix;
+    let named = crate::observation_request::named_subset_reading(&effect.resource, requested).map(
+        |requested| {
+            (
+                requested,
+                pattern_suffix.map(|suffix| suffix.replace("/**/", "/")),
+            )
+        },
+    );
+    let (requested, pattern_suffix) = match &named {
+        Some((requested, suffix)) => (requested.as_str(), suffix.as_deref()),
+        None => (requested, pattern_suffix),
+    };
     let selected_target = if pattern {
         let Some(suffix) = pattern_suffix else {
             return (selection, PathLabel::Unresolved);
@@ -168,17 +195,37 @@ pub(crate) fn annotate_path_relation(
     // and its whole subtree (find DIR -exec chmod ... {}), or a metadata write.
     // Only the exact two-member union of DIR and DIR/** counts as the whole
     // subtree. This relies on the find producer in effinterp-engine's
-    // sysutils model, which emits that union once per unfiltered root but
-    // still emits it when -type or ! narrow the selection, and emits no
+    // sysutils model, which emits that union once per root the tests may
+    // select and states on it the entry kinds and names that -type and
+    // ! -name leave out; the tier reads that narrowing below. It emits no
     // bounded selection for a HOME search with -path.
-    // The corpus expected-fails for those shapes flip when the producer
-    // keeps its selection bounds.
     let subtree = crate::observation_request::subtree_root(&effect.resource).is_some();
     let whole_container = operation == FilesystemOperation::Delete
         || access_control && (recursive || subtree)
         || recursive && effect.attributes.get("metadata") == Some(&AttrValue::Bool(true));
+    let unnarrowed = effinterp_proto::FsNarrowing::default();
+    let narrowing =
+        crate::observation_request::selection_narrowing(&effect.resource).unwrap_or(&unnarrowed);
+    // The narrowing says which entries the operation is applied to. One that
+    // reaches inside what it is applied to takes the entries the narrowing
+    // left out as well: a recursive operation, a move or the removal it
+    // states for what it moved away, which carry a directory's contents with
+    // them, or an access-control change that does not provably keep a
+    // directory's contents usable. A removal that does not recurse (`rm`,
+    // `unlink`, `rmdir`) leaves a directory's contents where they are, so it
+    // keeps the narrowing.
+    let applied_narrowing = if recursive
+        || operation == FilesystemOperation::Delete
+            && !crate::observation_request::removes_entries_only(plan, effect)
+        || effect.operation.as_str() == "filesystem.move"
+        || access_control && !keeps_enclosed_access(effect)
+    {
+        &unnarrowed
+    } else {
+        narrowing
+    };
     let tier_of = |operation| {
-        tier::nah_protection_tier(
+        tier::nah_narrowed_protection_tier(
             operation,
             &selected_target,
             &selected_target,
@@ -189,6 +236,7 @@ pub(crate) fn annotate_path_relation(
             platform,
             pattern,
             whole_container,
+            applied_narrowing,
         )
     };
     // Revoking access to a directory takes away everything inside it, so an
@@ -211,14 +259,45 @@ pub(crate) fn annotate_path_relation(
         pattern,
         recursive,
     );
+    // A removal across a root-wide selection takes every file below its
+    // root, as one of the pattern `ROOT/**` does, although the operation does
+    // not recurse: `find ~/.ssh -type f -exec rm {} +` removes the keys and
+    // leaves the directory. A selection that leaves out names or regular
+    // files is not read this way, since the classes do not say which entry
+    // kinds and names they protect.
+    let removes_files = subtree
+        && operation == FilesystemOperation::Delete
+        && narrowing.excluded_names.is_empty()
+        && (narrowing.kinds.is_empty()
+            || narrowing
+                .kinds
+                .contains(&effinterp_proto::FsEntryKind::File));
+    let host_integrity = host_integrity.max(
+        removes_files
+            .then(|| {
+                let below = format!("{}/**", target.as_str().trim_end_matches('/'));
+                let selected = AbsolutePath::new(platform, below.as_str()).ok()?;
+                host_integrity_class(
+                    operation, &below, &selected, home, platform, true, recursive,
+                )
+            })
+            .flatten(),
+    );
     // A name selected at any depth reaches the listed entries it matches,
     // not every protected path that shares the literal prefix before its
     // `**`: `HOME/**/.cache` does not reach `~/.ssh`, and `HOME/**/.ss*`
     // does.
-    let selection_listing = pattern
+    // A root-wide selection is its root and every entry below it. Where its
+    // producer says it takes symbolic links (`find -L`, `find -type l`), the
+    // listing adds what they lead to exactly as it does for `ROOT/**`.
+    let takes_links = subtree
+        && narrowing
+            .kinds
+            .contains(&effinterp_proto::FsEntryKind::Symlink);
+    let selection_listing = (pattern || takes_links)
         .then(|| {
             listed_selection(
-                pattern_suffix,
+                if pattern { listed_suffix } else { Some("/**") },
                 observed,
                 &target,
                 platform,
@@ -371,9 +450,8 @@ fn listed_selection(
     if platform == Platform::Windows {
         return None;
     }
-    // Only a bound that is the pattern's directory lists what it selects: a
-    // bound that ends inside a name (`.nah/nap.` for `.nah/nap.*`) lists
-    // nothing of its siblings.
+    // Below a root bound (`/` for `/et*`) the suffix carries no separator of
+    // its own, and the root's listing is not read for such a selection.
     let suffix = pattern_suffix.filter(|suffix| suffix.starts_with('/'))?;
     let segments: Vec<&str> = suffix.split('/').collect();
     let bounded = segments.contains(&"**") || files_only;

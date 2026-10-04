@@ -1613,6 +1613,7 @@ impl CommandModel for Infrastructure {
                 } => ResourceExpr::Pattern {
                     pattern: effinterp_proto::ResourcePattern::FsPath {
                         glob: format!("{}/**", path.trim_end_matches('/')),
+                        narrowing: Default::default(),
                     },
                 },
                 resource => resource,

@@ -442,7 +442,10 @@ impl CmdWalk<'_> {
                         },
                         true,
                     ) => Ok(ResourceExpr::Pattern {
-                        pattern: effinterp_proto::ResourcePattern::FsPath { glob: path.clone() },
+                        pattern: effinterp_proto::ResourcePattern::FsPath {
+                            glob: path.clone(),
+                            narrowing: Default::default(),
+                        },
                     }),
                     _ => Ok(resolved),
                 }

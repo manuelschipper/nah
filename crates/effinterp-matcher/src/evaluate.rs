@@ -1335,7 +1335,7 @@ impl<'a> Evaluator<'a> {
                 OccurrenceKind::ResourceInteraction {
                     resource:
                         ResourceExpr::Pattern {
-                            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
                         },
                     ..
                 } => effinterp_proto::glob_match(glob, to).unwrap_or(true),

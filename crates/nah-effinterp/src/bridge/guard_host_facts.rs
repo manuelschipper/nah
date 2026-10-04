@@ -98,9 +98,10 @@ impl GuardHostFacts for ConversionHostFacts<'_, '_> {
     }
 
     fn selects_recursively(&self, effect: usize) -> bool {
-        let effect = &self.view.plan().effects[effect];
+        let plan = self.view.plan();
+        let effect = &plan.effects[effect];
         effect.attributes.get("recursive") == Some(&effinterp_proto::AttrValue::Bool(true))
-            || crate::observation_request::subtree_root(&effect.resource).is_some()
+            || crate::observation_request::subtree_reached_whole(plan, effect)
     }
 
     fn selected_host_paths(&self, effect: usize) -> Vec<ReachedHostPath<'_>> {

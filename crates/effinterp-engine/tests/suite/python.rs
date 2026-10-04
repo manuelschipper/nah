@@ -837,7 +837,7 @@ fn tracked_pathlib_values_dispatch_methods_and_iterated_children() {
     );
     assert!(plan.effects.iter().any(|effect| {
         effect.operation.0 == "filesystem.read"
-            && matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } }
+            && matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } }
                 if effinterp_proto::glob_match(pattern, "/var/lib/app/out/.hidden.log") == Ok(true))
     }));
     assert!(plan.effects.iter().any(|effect| {
@@ -847,7 +847,7 @@ fn tracked_pathlib_values_dispatch_methods_and_iterated_children() {
                     ResourceExpr::Concrete {
                         identity: ResourceIdentity::FsPath { path }
                     },
-                    ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob } }
+                    ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. } }
                 ] if path == "/var/lib/app/out" && glob == "*.log"))
     }));
 }
@@ -4063,7 +4063,7 @@ fn pathlib_globs_include_hidden_names_in_local_and_external_dispatch() {
         for effects in [&plan.effects, &external] {
             for target in ["/tmp/.hidden.rs", "/tmp/a/.hidden", "/tmp/visible.rs"] {
                 assert!(effects.iter().any(|effect| matches!(&effect.resource,
-                    ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if effinterp_proto::glob_match(pattern, target) == Ok(true)
+                    ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if effinterp_proto::glob_match(pattern, target) == Ok(true)
                 )), "{glob}: {effects:?}");
             }
         }
@@ -4098,7 +4098,7 @@ fn pathlib_globs_include_hidden_names_in_local_and_external_dispatch() {
                 for tail in [".hidden", "visible", ".hidden/nested"] {
                     assert!(effects.iter().any(|effect| {
                         effect.operation.0 == "filesystem.read"
-                            && matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } }
+                            && matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } }
                                 if effinterp_proto::glob_match(pattern, &format!("{root}/{tail}")) == Ok(true))
                     }), "{method} at {root}: {effects:?}");
                 }

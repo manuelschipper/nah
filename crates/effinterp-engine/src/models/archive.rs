@@ -126,6 +126,7 @@ pub(super) fn extraction_target(dir: Option<&Word>, cwd: Option<ResourceExpr>) -
                     "{}/**",
                     crate::paths::escape_fs_glob_path(path.trim_end_matches('/'))
                 ),
+                narrowing: Default::default(),
             },
         },
         other => ResourceExpr::Join {
@@ -134,6 +135,7 @@ pub(super) fn extraction_target(dir: Option<&Word>, cwd: Option<ResourceExpr>) -
                 ResourceExpr::Pattern {
                     pattern: effinterp_proto::ResourcePattern::FsPath {
                         glob: "**".to_string(),
+                        narrowing: Default::default(),
                     },
                 },
             ],

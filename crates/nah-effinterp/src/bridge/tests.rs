@@ -1329,7 +1329,7 @@ fn family_translation_keeps_available_facts_and_names_missing_evidence() {
                 identity: effinterp_proto::ResourceIdentity::FsPath { path: path.into() },
             };
             let glob = effinterp_proto::ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob: "/repo/certs/*.pem".into() },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob: "/repo/certs/*.pem".into(), narrowing: Default::default() },
             };
             labels.add_selection(&archive, &glob, certs, &[]);
             let sensitive = LabelId(NahLabel::Sensitivity(Sensitivity::OtherSensitive).label_id());

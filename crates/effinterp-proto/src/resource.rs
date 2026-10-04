@@ -405,6 +405,24 @@ pub fn normalize_resource(expr: ResourceExpr, platform: PathPlatform) -> Resourc
     normalize_resource_context(expr, platform, false)
 }
 
+/// A glob that ends in a separator (`dir/*/`) selects only directories and
+/// links to them. Normalization drops the separator, so the narrowing keeps
+/// what it said.
+fn directories_only(glob: &str, mut narrowing: crate::FsNarrowing) -> crate::FsNarrowing {
+    let name = glob.trim_end_matches('/');
+    if name.len() < glob.len()
+        && !glob.ends_with(r"\/")
+        && name
+            .rsplit('/')
+            .next()
+            .is_some_and(|name| name.contains(['*', '?', '[']))
+        && narrowing.kinds.is_empty()
+    {
+        narrowing.kinds = vec![crate::FsEntryKind::Directory, crate::FsEntryKind::Symlink];
+    }
+    narrowing
+}
+
 fn normalize_resource_context(
     expr: ResourceExpr,
     platform: PathPlatform,
@@ -418,10 +436,15 @@ fn normalize_resource_context(
             identity: normalize_identity(identity, platform),
         },
         ResourceExpr::Pattern {
-            pattern: crate::ResourcePattern::FsPath { glob: pattern },
+            pattern:
+                crate::ResourcePattern::FsPath {
+                    glob: pattern,
+                    narrowing,
+                },
         } if !fragment => ResourceExpr::Pattern {
             pattern: crate::ResourcePattern::FsPath {
                 glob: crate::glob::normalize_glob(&pattern),
+                narrowing: directories_only(&pattern, narrowing),
             },
         },
         ResourceExpr::Property { base, name } => ResourceExpr::Property {
@@ -442,12 +465,17 @@ fn normalize_resource_context(
                 for index in 0..flat.len() {
                     match &flat[index] {
                         ResourceExpr::Pattern {
-                            pattern: crate::ResourcePattern::FsPath { glob: pattern },
+                            pattern:
+                                crate::ResourcePattern::FsPath {
+                                    glob: pattern,
+                                    narrowing,
+                                },
                         } => {
                             if let Some((path, tail)) = crate::glob::glob_parent_prefix(pattern) {
                                 let tail = ResourceExpr::Pattern {
                                     pattern: crate::ResourcePattern::FsPath {
                                         glob: tail.to_string(),
+                                        narrowing: narrowing.clone(),
                                     },
                                 };
                                 flat.splice(

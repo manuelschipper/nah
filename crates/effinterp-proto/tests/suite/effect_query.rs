@@ -186,6 +186,7 @@ fn recursive_unions_platform_roots_and_limits_preserve_three_valued_truth() {
     let patterned = ResourceExpr::Pattern {
         pattern: ResourcePattern::FsPath {
             glob: "/tmp/*".into(),
+            narrowing: Default::default(),
         },
     };
     let target = effect_target(&operation, &patterned, &attrs, &realm);

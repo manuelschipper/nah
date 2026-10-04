@@ -252,7 +252,7 @@ fn search_and_listing_tools_retain_patterns_filters_and_paths() {
         .unwrap();
     assert!(matches!(
         &glob.effects[0].resource,
-        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } }
+        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } }
             if pattern == "/work/src/**/*.rs"
     ));
 
@@ -280,7 +280,7 @@ fn search_and_listing_tools_retain_patterns_filters_and_paths() {
         ))
         .unwrap();
     assert!(
-        matches!(&absolute.effects[0].resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/src/*.rs")
+        matches!(&absolute.effects[0].resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/src/*.rs")
     );
     let invalid = engine
         .analyze(&subject(
@@ -328,10 +328,10 @@ fn search_and_listing_tools_retain_patterns_filters_and_paths() {
         .unwrap();
     assert!(matches!(
         &subtree.effects[0].resource,
-        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern } } if pattern == "/work/**"
+        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/work/**"
     ));
     let ResourceExpr::Pattern {
-        pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+        pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
     } = &subtree.effects[0].resource
     else {
         unreachable!()
@@ -1203,7 +1203,7 @@ fn native_globs_preserve_literal_roots() {
             .unwrap();
         validate_plan(&plan).unwrap();
         let ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } = &plan.effects[0].resource
         else {
             panic!("expected literal filesystem pattern");
@@ -1257,7 +1257,7 @@ fn native_globs_preserve_literal_roots() {
                     continue;
                 }
                 let ResourceExpr::Pattern {
-                    pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+                    pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
                 } = &plan.effects[0].resource
                 else {
                     panic!("expected rooted glob");
@@ -1291,7 +1291,7 @@ fn native_globs_preserve_literal_roots() {
                 .unwrap();
             validate_plan(&plan).unwrap();
             let ResourceExpr::Pattern {
-                pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern },
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
             } = &plan.effects[0].resource
             else {
                 panic!("expected rooted glob");
@@ -1543,7 +1543,7 @@ fn native_paths_keep_dollar_and_tilde_as_filename_bytes() {
     assert!(matches!(
         &glob.effects[0].resource,
         ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob }
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. }
         } if glob == "/work/$HOME/*.rs"
     ));
 }

@@ -126,6 +126,9 @@ pub(super) fn label_effect_target_path(
                 |(bound, tail)| {
                     let platform = view.authority().platform();
                     let glob = format!("{bound}{tail}");
+                    let glob =
+                        crate::observation_request::named_subset_reading(&effect.resource, &glob)
+                            .unwrap_or(glob);
                     let glob = if platform == nah_proto::ctx::Platform::Windows {
                         glob.replace('/', "\\")
                     } else {
@@ -832,7 +835,7 @@ pub(super) fn add_resource(
             }
         }
         effinterp_proto::ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } => {
             identity.kind = ResourceKind::HostPath;
             selection = Selection::Pattern {
@@ -1199,7 +1202,7 @@ fn selection_reach(
     };
     let extglob = match &effect.resource {
         effinterp_proto::ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
         } if nah_proto::labels::pattern::holds_extglob(glob) => Some(glob),
         _ => None,
     };

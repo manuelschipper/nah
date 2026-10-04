@@ -67240,7 +67240,7 @@
     {
       "id": "fs-auth-identity.find-follow-links-regular-files",
       "guard": "fs-auth-identity",
-      "derivation": "`-L -type f` deletes every file below the project, including `~/.ssh/authorized_keys` reached through `auth-link`",
+      "derivation": "`-L -type f` deletes every file below the project, including `~/.ssh/authorized_keys` reached through `auth-link`; `rm` is passed the project's tree, narrowed to regular files and the links `-L` reads through",
       "require": [
         {
           "op": "filesystem.read",
@@ -67254,7 +67254,7 @@
         {
           "op": "filesystem.delete",
           "resource": {
-            "eq": "filesystem:/workspace/project/**"
+            "eq": "one_of(/workspace/project, filesystem:/workspace/project/**)"
           }
         }
       ]
@@ -67612,12 +67612,12 @@
     {
       "id": "fs-auth-identity.find-name-ssh-path-test",
       "guard": "fs-auth-identity",
-      "derivation": "`-path '*/.ssh/*'` keeps only `authorized_keys` below a `.ssh` directory, which the home listing matches to `~/.ssh/authorized_keys`",
+      "derivation": "`-path '*/.ssh/*'` keeps only `authorized_keys` below a `.ssh` directory, and the home listing holds one such entry, `~/.ssh/authorized_keys`, which `rm` is passed by name",
       "require": [
         {
           "op": "filesystem.delete",
           "resource": {
-            "eq": "filesystem:/home/test/**/.ssh/**/authorized_keys"
+            "eq": "/home/test/.ssh/authorized_keys"
           }
         }
       ]
@@ -112793,12 +112793,12 @@
     {
       "id": "fs-project-root.find-type-file-exec-rm-root",
       "guard": "fs-project-root",
-      "derivation": "`-type f` alone selects every regular file beneath the start path `.`, so `rm -f {}` receives all of them, every entry below the project root",
+      "derivation": "`-type f` alone selects every regular file beneath the start path `.`, so `rm -f {}` receives all of them: the project's tree, narrowed to regular files",
       "require": [
         {
           "op": "filesystem.delete",
           "resource": {
-            "eq": "filesystem:/workspace/project/**"
+            "eq": "one_of(/workspace/project, filesystem:/workspace/project/**)"
           }
         }
       ]
@@ -113820,6 +113820,174 @@
             }
           },
           "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.find-follow-links-unlinks-aliases-root",
+      "guard": "fs-project-root",
+      "derivation": "`-L -type f` selects every link to a regular file below the project, so `rm -f {}` unlinks all of them: the project's tree, narrowed to regular files and links",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "one_of(/workspace/aliases, filesystem:/workspace/aliases/**)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.find-not-type-directory-exec-rm-root",
+      "guard": "fs-project-root",
+      "derivation": "`! -type d` alone selects every entry beneath the start path `.` that is not a directory, so `rm -f {}` receives every file the project holds: the project's tree, narrowed to what is not a directory",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "one_of(/workspace/project, filesystem:/workspace/project/**)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.find-type-file-exec-shred-root",
+      "guard": "fs-project-root",
+      "derivation": "`-type f` alone selects every regular file beneath the start path `.`, so `shred -u {}` overwrites and removes all of them: the project's tree, narrowed to regular files",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "one_of(/workspace/project, filesystem:/workspace/project/**)"
+          }
+        },
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "one_of(/workspace/project, filesystem:/workspace/project/**)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.self-protection-nap.find-type-d-exec-chmod-recursive-nah-container",
+      "guard": null,
+      "derivation": "`find ~/.nah -type d -exec chmod -R ...` applies a recursive access-control change to the nah-state container; `-type d` selects only directories, but `-R` reaches every path beneath each, the nap state included; this is Permanent protection in every enforcement mode",
+      "require": [
+        {
+          "op": "filesystem.metadata",
+          "resource": {
+            "eq": "one_of(/home/test/.nah, filesystem:/home/test/.nah/**)"
+          },
+          "attributes": {
+            "action": "chmod",
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.self-protection-nap.find-type-d-exec-mv-nah-container",
+      "guard": null,
+      "derivation": "`find ~/.nah -type d -exec mv ...` moves the nah-state container away; `-type d` selects only directories, but a moved directory takes every path beneath it, the nap state included; this is Permanent protection in every enforcement mode",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "one_of(/home/test/.nah, filesystem:/home/test/.nah/**)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.self-protection-nap.find-not-name-one-nap-file-exec-chmod-nah-container",
+      "guard": null,
+      "derivation": "`find ~/.nah ! -name nap.json -exec chmod ...` leaves out one nap file and applies the access-control change to the nap key and lock; this is Permanent protection in every enforcement mode",
+      "require": [
+        {
+          "op": "filesystem.metadata",
+          "resource": {
+            "eq": "one_of(/home/test/.nah, filesystem:/home/test/.nah/**)"
+          },
+          "attributes": {
+            "action": "chmod"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.find-not-name-dot-exec-rm-root",
+      "guard": "fs-project-root",
+      "derivation": "`! -name .` leaves out only the start path, so `rm -rf {}` recursively deletes every child of the checkout, as `-mindepth 1` does",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/workspace/project/*"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.find-path-all-type-file-exec-rm-root",
+      "guard": "fs-project-root",
+      "derivation": "`-path './*'` holds for every entry below the start path `.`, so with `-type f` `rm -f {}` receives every regular file the project holds: the project's tree, narrowed to regular files",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "one_of(/workspace/project, filesystem:/workspace/project/**)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.find-path-ssh-incomplete-listing-exec-rm",
+      "guard": "fs-auth-identity",
+      "derivation": "`-path '*/.ssh/*'` passes every entry below a `.ssh` directory under the home, and the home is too large to list, so `rm -rf {}` receives a subset of the entries below any `.ssh` there, the SSH keys and authorized keys among them",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/home/test/**/.ssh/**"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.find-ipath-ssh-incomplete-listing-exec-rm",
+      "guard": null,
+      "derivation": "`-ipath '*/.SSH/*'` ignores case, which no glob spells, and the home is too large to list, so `rm -rf {}` keeps every entry below the home, the nap state and `~/.ssh` among them",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/home/test/**"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.find-path-nah-incomplete-listing-exec-rm",
+      "guard": null,
+      "derivation": "`-path '*/.nah/*'` passes every entry below a `.nah` directory under the home, and the home is too large to list, so `rm -rf {}` receives a subset of the entries below Nah's state directory, the nap state among them",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/home/test/**/.nah/**"
+          },
+          "attributes": {
+            "recursive": true
+          }
         }
       ]
     }

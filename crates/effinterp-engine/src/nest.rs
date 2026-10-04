@@ -2941,6 +2941,7 @@ pub(crate) fn word_resource(word: &Word) -> ResourceExpr {
         crate::word::WordPart::Glob(pattern) => ResourceExpr::Pattern {
             pattern: effinterp_proto::ResourcePattern::FsPath {
                 glob: pattern.clone(),
+                narrowing: Default::default(),
             },
         },
         crate::word::WordPart::Union(alternatives) => ResourceExpr::Union {
