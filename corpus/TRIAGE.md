@@ -588,6 +588,15 @@ Accepted limitations with no corpus row that asserts a desired block.
   than fail one case; a fix counts these chains in the pre-scan (or bounds
   the parser's recursion) and adds generated cases to
   `crates/effinterp-engine/tests/suite/robustness.rs`.
+- A downloaded Perl module loaded by name. `curl -o p.pm URL && perl -I. -Mp
+  -e 1` delegates: `-M`/`use` module imports are not resolved against `@INC`
+  (boundary `Perl module import "p" is not modeled`), so the downloaded file
+  gets no read and no file-sourced `process.code_execution`, while
+  `perl p.pl`, `ruby -r ./p.rb`, `node -r ./p` and `PYTHONSTARTUP=p.py
+  python3` on the same download block. Closing it needs an `@INC` search in
+  the Perl launcher (`-I`, `PERL5LIB`, the working directory) feeding
+  `runtime_searched_source` in
+  `crates/effinterp-engine/src/models/common.rs`.
 
 ## Audit scope
 

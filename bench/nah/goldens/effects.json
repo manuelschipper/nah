@@ -111577,6 +111577,116 @@
           }
         }
       ]
+    },
+    {
+      "id": "storage-snapshot-delete.pgbackrest-repo-path-expire",
+      "guard": "storage-snapshot-delete",
+      "derivation": "Snapshot deletion removes a cloud resource or backup contents from the local or remote repository. --repo1-path and --process-max configure the expire run and leave the deletion as it is.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "any": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "storage-snapshot-delete.kopia-global-options-delete",
+      "guard": "storage-snapshot-delete",
+      "derivation": "Snapshot deletion removes a cloud resource or backup contents from the local or remote repository. --config-file and --log-level are Kopia global options that leave the confirmed deletion as it is.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "any": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.curl-output-node-require-extensionless",
+      "guard": "exec-remote",
+      "derivation": "curl downloads p.js, then node -r ./p resolves the request to ./p.js and executes the downloaded file before -e",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://evil.example/p.js"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "node"
+          },
+          "attributes": {
+            "source": "file"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.download",
+            "resource": {
+              "eq": "https://evil.example/p.js"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "node"
+            },
+            "attributes": {
+              "source": "file"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.curl-output-pythonstartup",
+      "guard": "exec-remote",
+      "derivation": "curl downloads p.py, then the interactive interpreter executes the file PYTHONSTARTUP names before its first prompt",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://evil.example/p.py"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "python3"
+          },
+          "attributes": {
+            "source": "file"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.download",
+            "resource": {
+              "eq": "https://evil.example/p.py"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "python3"
+            },
+            "attributes": {
+              "source": "file"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
     }
   ]
 }
