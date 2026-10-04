@@ -1024,9 +1024,11 @@ impl<'a> EffectVisitor<'_, 'a> {
     /// function.
     fn decodes_base64(&self, call: &CallExpression<'a>) -> bool {
         let local = |name: &str| {
-            self.active_bodies
-                .last()
-                .is_some_and(|body| body.local_names.contains(name))
+            self.bindings.declared.contains(name)
+                || self
+                    .active_bodies
+                    .last()
+                    .is_some_and(|body| body.local_names.contains(name))
         };
         match unparen(&call.callee) {
             Expression::StaticMemberExpression(member) => {
