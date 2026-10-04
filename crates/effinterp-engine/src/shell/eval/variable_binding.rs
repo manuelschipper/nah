@@ -22,7 +22,7 @@ use crate::word::{Word, WordPart};
 
 use super::NestedShellMode;
 use super::redirection::{descriptor_file_read, descriptor_read_producer, word_descriptor};
-use super::word_expansion::{uses_default_ifs, var_node};
+use super::word_expansion::var_node;
 
 /// The case `declare -l` or `declare -u` applies to a declared value.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -1011,6 +1011,7 @@ impl Shell<'_> {
         mut descriptor_producers: Vec<FlowRef>,
         persist: bool,
         conditional: bool,
+        ifs: Option<&str>,
     ) {
         builder.declare_coverage(Domain::new("environment"), CoverageLevel::Full);
         let mut targets = Vec::new();
@@ -1023,13 +1024,14 @@ impl Shell<'_> {
         // literal fields.
         let mut shaped_input = false;
         let mut other_options = false;
+        let mut raw = false;
         let mut i = 1;
         let mut options = true;
         while i < converted.len() {
             let target = &converted[i];
             match target.word.as_literal() {
                 Some("--") if options => options = false,
-                Some("-r") if options => {}
+                Some("-r") if options => raw = true,
                 Some(flag @ ("-p" | "-t" | "-n" | "-N" | "-d" | "-u" | "-i" | "-a")) if options => {
                     other_options = true;
                     shaped_input |= matches!(flag, "-n" | "-N" | "-d");
@@ -1115,16 +1117,38 @@ impl Shell<'_> {
                 .map(|target| (target.word.as_literal(), target.span))
                 .collect()
         };
-        // A literal input's first line, minus the leading and trailing blanks
-        // the shell strips. One variable takes all of it; under the default
-        // IFS, each earlier variable takes one field and the last the rest.
-        let line = stdin
+        // The lines a literal input assigns, each as `read` stores it. One
+        // variable takes a whole line; under the default IFS, each earlier
+        // variable takes one field and the last the rest.
+        let lines = stdin
             .and_then(|stdin| stdin.word.as_literal())
-            .map(|text| text.split('\n').next().unwrap_or_default())
-            .filter(|line| !shaped_input && !line.contains('\\'))
-            .map(|line| line.trim_matches([' ', '\t']));
+            .filter(|_| !shaped_input)
+            .map(|text| assigned_lines(text, raw, ifs));
+        // The condition of a `while read` loop reads one line per iteration,
+        // so inside the loop its one variable holds any line of the input.
+        let condition = conditional.then(|| builder.current_condition()).flatten();
+        let in_loop = condition.as_ref().is_some_and(innermost_is_loop);
+        let loop_lines = lines
+            .as_ref()
+            .filter(|_| in_loop && targets.len() == 1)
+            .and_then(|lines| lines.iter().cloned().collect::<Option<Vec<_>>>())
+            .map(|mut lines| {
+                lines.dedup();
+                lines.into_iter().map(Word::literal).collect::<Vec<_>>()
+            })
+            .filter(|lines| {
+                lines.len() > 1 && lines.len() as u64 <= self.nest.limits.max_value_cardinality
+            });
+        // Later iterations assign lines the first does not show, so a loop
+        // whose lines differ and are not all bound above recovers none.
+        let line = lines
+            .as_ref()
+            .filter(|lines| {
+                !in_loop || loop_lines.is_some() || lines.iter().all(|line| *line == lines[0])
+            })
+            .and_then(|lines| lines[0].as_deref());
         let mut fields = line
-            .filter(|_| targets.len() == 1 || !other_options && uses_default_ifs(env))
+            .filter(|_| targets.len() == 1 || !other_options && ifs == Some(" \t\n"))
             .map(|line| {
                 let mut fields = Vec::new();
                 let mut rest = line;
@@ -1137,30 +1161,6 @@ impl Shell<'_> {
                 fields
             })
             .map(Vec::into_iter);
-        // The condition of a `while read` loop reads one line per iteration,
-        // so inside the loop its one variable holds any line of the input.
-        let condition = conditional.then(|| builder.current_condition()).flatten();
-        let loop_lines = stdin
-            .and_then(|stdin| stdin.word.as_literal())
-            .filter(|text| {
-                targets.len() == 1
-                    && !shaped_input
-                    && !text.contains('\\')
-                    && condition.as_ref().is_some_and(innermost_is_loop)
-            })
-            .map(|text| {
-                let mut lines = text
-                    .strip_suffix('\n')
-                    .unwrap_or(text)
-                    .split('\n')
-                    .map(|line| Word::literal(line.trim_matches([' ', '\t'])))
-                    .collect::<Vec<_>>();
-                lines.dedup();
-                lines
-            })
-            .filter(|lines| {
-                lines.len() > 1 && lines.len() as u64 <= self.nest.limits.max_value_cardinality
-            });
         for (name, span) in targets {
             let line = fields.as_mut().and_then(Iterator::next);
             let resource = match name {
@@ -1397,6 +1397,47 @@ fn record_transparent_write(
         }
         _ => entry.transparent_writes.clear(),
     }
+}
+
+/// What `read` assigns for each line of the literal input `text`, when its
+/// one variable takes the whole line. Without `-r` a line ending in a
+/// backslash continues on the next. `read` strips only the leading and
+/// trailing blanks IFS holds, so `IFS= read` keeps them. A line is `None`
+/// where IFS is unknown, or another backslash escape or a non-blank IFS
+/// delimiter shapes the value.
+fn assigned_lines(text: &str, raw: bool, ifs: Option<&str>) -> Vec<Option<String>> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut continued = false;
+    for line in text.strip_suffix('\n').unwrap_or(text).split('\n') {
+        if continued && let Some(last) = lines.last_mut() {
+            last.push_str(line);
+        } else {
+            lines.push(line.to_string());
+        }
+        let trailing = line.chars().rev().take_while(|c| *c == '\\').count();
+        continued = !raw && trailing % 2 == 1;
+        if continued && let Some(last) = lines.last_mut() {
+            last.pop();
+        }
+    }
+    lines
+        .into_iter()
+        .map(|line| {
+            let ifs = ifs?;
+            if !raw && line.contains('\\')
+                || line
+                    .chars()
+                    .any(|c| ifs.contains(c) && !c.is_ascii_whitespace())
+            {
+                return None;
+            }
+            let blanks: Vec<char> = [' ', '\t']
+                .into_iter()
+                .filter(|blank| ifs.contains(*blank))
+                .collect();
+            Some(line.trim_matches(blanks.as_slice()).to_string())
+        })
+        .collect()
 }
 
 /// Whether the region a condition most narrowly names is a loop.

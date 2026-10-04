@@ -2400,6 +2400,13 @@ impl Shell<'_> {
                     input_producers.push(producer);
                 }
                 if builtin == "read" {
+                    // `IFS= read` splits and strips with the prefix
+                    // assignment's value, which lasts only for this command.
+                    let ifs = match cmd.assignments.iter().rfind(|a| a.name == "IFS") {
+                        Some(assignment) if assignment.value.segs.is_empty() => Some(String::new()),
+                        Some(assignment) => parse::command_name_text(&assignment.value),
+                        None => effective_ifs(env),
+                    };
                     self.read_builtin(
                         builder,
                         env,
@@ -2408,6 +2415,7 @@ impl Shell<'_> {
                         input_producers,
                         persist,
                         conditional,
+                        ifs.as_deref(),
                     );
                 } else {
                     self.mapfile_builtin(
@@ -3642,7 +3650,9 @@ impl Shell<'_> {
                 let content = match own {
                     Some(redir) if redir.kind == RedirKind::HereString => {
                         let target = redir.target.as_ref()?;
-                        format!("{}\n", parse::command_name_text(target)?)
+                        let text = parse::command_name_text(target)
+                            .or_else(|| self.fixed_word_text(env, target))?;
+                        format!("{text}\n")
                     }
                     Some(_) => return None,
                     None => env.descriptors.get(&descriptor)?.as_literal()?.to_string(),

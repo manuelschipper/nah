@@ -599,34 +599,42 @@ impl Shell<'_> {
         }
         cmd.words
             .iter()
-            .map(|word| {
-                let mut value = String::new();
-                for segment in &word.segs {
-                    match segment {
-                        Seg::Literal { text, quoted }
-                            if *quoted || !text.contains(['*', '?', '[', '~']) =>
-                        {
-                            value.push_str(text)
-                        }
-                        // A definite value expands to itself, whether the
-                        // script assigned it or the shell started with it.
-                        Seg::Env { name, quoted: true } => {
-                            let target = env.reference_target(name)?;
-                            match env
-                                .vars
-                                .get(&target)
-                                .and_then(|entry| entry.value.as_deref())
-                            {
-                                Some(known) => value.push_str(known),
-                                None => value.push_str(&self.parameter_literal(env, name, None)?),
-                            }
-                        }
-                        _ => return None,
+            .map(|word| self.fixed_word_text(env, word).map(Word::literal))
+            .collect()
+    }
+
+    /// A word's text when it is fixed: literal segments, and quoted
+    /// variables whose value the shell has already established.
+    pub(in crate::shell) fn fixed_word_text(
+        &self,
+        env: &ShellEnv,
+        word: &WordTok,
+    ) -> Option<String> {
+        let mut value = String::new();
+        for segment in &word.segs {
+            match segment {
+                Seg::Literal { text, quoted }
+                    if *quoted || !text.contains(['*', '?', '[', '~']) =>
+                {
+                    value.push_str(text)
+                }
+                // A definite value expands to itself, whether the
+                // script assigned it or the shell started with it.
+                Seg::Env { name, quoted: true } => {
+                    let target = env.reference_target(name)?;
+                    match env
+                        .vars
+                        .get(&target)
+                        .and_then(|entry| entry.value.as_deref())
+                    {
+                        Some(known) => value.push_str(known),
+                        None => value.push_str(&self.parameter_literal(env, name, None)?),
                     }
                 }
-                Some(Word::literal(value))
-            })
-            .collect()
+                _ => return None,
+            }
+        }
+        Some(value)
     }
 
     /// A command substitution whose body has a modeled stdout producer, or
