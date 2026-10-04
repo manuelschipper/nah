@@ -10,7 +10,7 @@
   },
   "per_guard": {
     "(structural)": {
-      "explained_partial": 166,
+      "explained_partial": 169,
       "missing_effect": 4,
       "missing_flow": 0
     },
@@ -208,7 +208,7 @@
       "missing_flow": 0
     },
     "secrets-credentials": {
-      "explained_partial": 6,
+      "explained_partial": 8,
       "missing_effect": 0,
       "missing_flow": 0
     },
