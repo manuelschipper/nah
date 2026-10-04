@@ -4,7 +4,7 @@
     "engine_error": 0,
     "guard_silent": 8,
     "missing_effect": 8,
-    "missing_flow": 7,
+    "missing_flow": 10,
     "regression": 0,
     "unsupported": 0
   },
@@ -22,7 +22,7 @@
     "exec-decoded": {
       "explained_partial": 5,
       "missing_effect": 0,
-      "missing_flow": 1
+      "missing_flow": 4
     },
     "exec-network-shell": {
       "explained_partial": 0,

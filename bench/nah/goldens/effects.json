@@ -112632,7 +112632,7 @@
     {
       "id": "exec-decoded.ssh-remote-decoded-shell",
       "guard": "exec-decoded",
-      "derivation": "Desired block via exec-decoded: the host decodes the script and ssh sends it as the remote command. The engine has the host decode but states no code execution for a remote command built from a command substitution, so this is an expected-fail.",
+      "derivation": "the host decodes the script and ssh sends it as the remote command, so decoded bytes become code the remote login shell runs",
       "require": [
         {
           "op": "process.exec",
@@ -112677,6 +112677,168 @@
             },
             "attributes": {
               "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-decoded.ssh-remote-decoded-stdin-shell",
+      "guard": "exec-decoded",
+      "derivation": "the host decodes the script and ssh's stdin carries it to the remote shell, which runs its stdin as code",
+      "require": [
+        {
+          "op": "process.exec",
+          "resource": {
+            "eq": "base64"
+          }
+        },
+        {
+          "op": "process.stream_transform",
+          "resource": {
+            "eq": "base64"
+          },
+          "attributes": {
+            "transform": "decode"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "remote:host!sh"
+          },
+          "attributes": {
+            "source": "interactive"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "process.stream_transform",
+            "resource": {
+              "eq": "base64"
+            },
+            "attributes": {
+              "transform": "decode"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "remote:host!sh"
+            },
+            "attributes": {
+              "source": "interactive"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-decoded.ssh-remote-decoded-stdin-bash-s",
+      "guard": "exec-decoded",
+      "derivation": "the host decodes the script and ssh's stdin carries it to the remote `bash -s`, which runs its stdin as code",
+      "require": [
+        {
+          "op": "process.exec",
+          "resource": {
+            "eq": "base64"
+          }
+        },
+        {
+          "op": "process.stream_transform",
+          "resource": {
+            "eq": "base64"
+          },
+          "attributes": {
+            "transform": "decode"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "remote:host!bash"
+          },
+          "attributes": {
+            "source": "interactive"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "process.stream_transform",
+            "resource": {
+              "eq": "base64"
+            },
+            "attributes": {
+              "transform": "decode"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "remote:host!bash"
+            },
+            "attributes": {
+              "source": "interactive"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-decoded.docker-exec-stdin-decoded-shell",
+      "guard": "exec-decoded",
+      "derivation": "the host decodes the script and `docker exec -i` passes its stdin to the container's shell, which runs it as code",
+      "require": [
+        {
+          "op": "process.exec",
+          "resource": {
+            "eq": "base64"
+          }
+        },
+        {
+          "op": "process.stream_transform",
+          "resource": {
+            "eq": "base64"
+          },
+          "attributes": {
+            "transform": "decode"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "docker:box!sh"
+          },
+          "attributes": {
+            "source": "stdin"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "process.stream_transform",
+            "resource": {
+              "eq": "base64"
+            },
+            "attributes": {
+              "transform": "decode"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "docker:box!sh"
+            },
+            "attributes": {
+              "source": "stdin"
             }
           },
           "path_provenance": true
@@ -112875,6 +113037,19 @@
             "eq": "/Users/test/.nah/built-ins.json"
           }
         },
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/Users/test/.nah/built-ins.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.macos-pwsh-filtered-wildcard-remove-admits-state-file",
+      "guard": null,
+      "derivation": "-Exclude no-match admits built-ins.json, the one entry `~/.nah/*` lists, so the removal deletes Nah's state file",
+      "require": [
         {
           "op": "filesystem.delete",
           "resource": {
@@ -114073,6 +114248,38 @@
       "id": "fs-project-root.find-not-name-dot-exec-rm-root",
       "guard": "fs-project-root",
       "derivation": "`! -name .` leaves out only the start path, so `rm -rf {}` recursively deletes every child of the checkout, as `-mindepth 1` does",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/workspace/project/*"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.find-not-name-dot-delete-root",
+      "guard": "fs-project-root",
+      "derivation": "`! -name .` leaves out only the start path, so `-delete` removes everything the checkout holds, as `find . -mindepth 1 -delete` does",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/workspace/project"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.find-not-name-dot-prune-exec-rm-root",
+      "guard": "fs-project-root",
+      "derivation": "`! -name . -prune` selects each entry directly below the start path and does not descend, the portable spelling of `-mindepth 1 -maxdepth 1`, so `rm -rf {}` recursively deletes every child of the checkout",
       "require": [
         {
           "op": "filesystem.delete",

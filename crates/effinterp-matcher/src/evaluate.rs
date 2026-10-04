@@ -1116,8 +1116,9 @@ impl<'a> Evaluator<'a> {
 
     /// The occurrences in `from`'s realm that some chain of byte edges of
     /// the traversal's kinds reaches from it, `from` included, whatever their
-    /// conditions, and the code a launch argument among them hands another
-    /// realm (see [`Self::launch_argument`]). A byte route needs such a chain, so a destination outside
+    /// conditions, and the code a launch argument or the launcher's stdin
+    /// among them hands another realm (see [`Self::launch_argument`] and
+    /// [`Self::launch_stdin`]). A byte route needs such a chain, so a destination outside
     /// this set is never searched; one search per source then serves every
     /// destination. Like the route search it narrows, it costs no steps: a
     /// step is charged for each destination it reaches instead.
@@ -1145,10 +1146,10 @@ impl<'a> Evaluator<'a> {
                 if self.byte_edge_kind(edge, assurance, edges) == Truth::False {
                     continue;
                 }
-                // Nothing is followed onward from the other realm.
-                if node.realm != source.realm {
-                    reached.insert(&edge.to);
-                } else if reached.insert(&edge.to) {
+                // From the other realm only the launched command's stdin is
+                // followed onward, to the code it runs from it.
+                let onward = node.realm == source.realm || stdin_code_occurrence(node);
+                if reached.insert(&edge.to) && onward {
                     pending.push(&edge.to);
                 }
             }
@@ -1164,9 +1165,15 @@ impl<'a> Evaluator<'a> {
         source: &OccurrenceNode,
         destination: &OccurrenceNode,
     ) -> Result<Truth, Refusal> {
-        // Only the destination may lie in another realm, and only a launch
-        // argument edge leads there (`byte_edge_kind`).
-        if node.realm != source.realm && node.id != destination.id {
+        // Only the destination may lie in another realm, with the stdin
+        // that carries code to it, and only a launch argument or launch
+        // stdin edge leads there (`byte_edge_kind`).
+        if node.realm != source.realm
+            && node.id != destination.id
+            && !(node.realm == destination.realm
+                && stdin_code_occurrence(node)
+                && stdin_code_occurrence(destination))
+        {
             return Ok(Truth::False);
         }
         self.route_condition(
@@ -1220,7 +1227,10 @@ impl<'a> Evaluator<'a> {
         edges: &[ByteFlowEdgeKind],
     ) -> Truth {
         let realm = |id| self.nodes.get(id).map(|node| &node.realm);
-        if realm(&edge.from) != realm(&edge.to) && !self.launch_argument(edge) {
+        if realm(&edge.from) != realm(&edge.to)
+            && !self.launch_argument(edge)
+            && !self.launch_stdin(edge)
+        {
             return Truth::False;
         }
         match edge.reason {
@@ -1266,14 +1276,36 @@ impl<'a> Evaluator<'a> {
         matches!(from.occurrence, OccurrenceKind::Port { port: Port::Arg(_) })
             && occurrence_operation(to) == Some("process.code_execution")
             && occurrence_attribute(to, "source") == Some(&AttrValue::String("argument".into()))
-            && from
-                .execution
-                .zip(to.execution)
-                .is_some_and(|(launcher, launched)| {
-                    self.plan.execution_graph.edges.iter().any(|launch| {
-                        launch.from == launcher && launch.to == launched && !launch.cycle
-                    })
-                })
+            && self.launches(from, to)
+    }
+
+    /// A launcher's stdin handed to the command it starts in another realm,
+    /// as `docker exec -i box sh` and `ssh host sh` hand theirs to a shell
+    /// that runs it. The route
+    /// continues there only along that stdin to code run from it
+    /// (`stdin_code_occurrence`), so bytes the launched command merely reads
+    /// (`ssh host 'cat > f'`) reach nothing.
+    fn launch_stdin(&self, edge: &CausalEdge) -> bool {
+        let (Some(from), Some(to)) = (self.nodes.get(&edge.from), self.nodes.get(&edge.to)) else {
+            return false;
+        };
+        let stdin = |node: &OccurrenceNode| {
+            matches!(node.occurrence, OccurrenceKind::Port { port: Port::Stdin })
+        };
+        stdin(from) && stdin(to) && self.launches(from, to)
+    }
+
+    /// Whether the plan states that `from`'s execution starts `to`'s.
+    fn launches(&self, from: &OccurrenceNode, to: &OccurrenceNode) -> bool {
+        from.execution
+            .zip(to.execution)
+            .is_some_and(|(launcher, launched)| {
+                self.plan
+                    .execution_graph
+                    .edges
+                    .iter()
+                    .any(|launch| launch.from == launcher && launch.to == launched && !launch.cycle)
+            })
     }
 
     fn state_transition(&self, edge: &CausalEdge) -> bool {
@@ -2106,6 +2138,24 @@ fn occurrence_operation(node: &OccurrenceNode) -> Option<&str> {
         OccurrenceKind::ResourceInteraction { operation, .. } => Some(operation.as_str()),
         _ => None,
     }
+}
+
+/// An occurrence on the way from a command's stdin to the code it runs from
+/// it: its stdin, its code port, or that code execution. A launched shell
+/// that inherits its stdin is stated `interactive`, since its own analysis
+/// cannot see what the launcher was given; a byte route that arrives through
+/// that stdin shows the code is what the stdin carries.
+fn stdin_code_occurrence(node: &OccurrenceNode) -> bool {
+    matches!(
+        node.occurrence,
+        OccurrenceKind::Port {
+            port: Port::Stdin | Port::Code
+        }
+    ) || occurrence_operation(node) == Some("process.code_execution")
+        && matches!(
+            occurrence_attribute(node, "source"),
+            Some(AttrValue::String(source)) if source == "stdin" || source == "interactive"
+        )
 }
 
 fn occurrence_owns_effect(node: &OccurrenceNode, effect: &effinterp_proto::Effect) -> bool {

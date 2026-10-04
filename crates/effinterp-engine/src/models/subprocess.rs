@@ -2644,6 +2644,13 @@ impl CommandModel for Ssh {
                     },
                     provenance: vec![model_node],
                 });
+            } else {
+                // The remote command reads what ssh itself is given on stdin,
+                // so bytes piped to ssh reach a remote shell that runs them.
+                streams.stdin = Some(effinterp_proto::ExecutionStreamRef {
+                    node: builder.current_execution(),
+                    stream: effinterp_proto::ExecutionStream::Stdin,
+                });
             }
             ctx.nest.nest(
                 builder,
@@ -2663,6 +2670,13 @@ impl CommandModel for Ssh {
 
             return;
         }
+        // sshd hands the remote words, joined by spaces, to the login shell
+        // as the script of its `-c`. Words this analysis cannot read are still
+        // the code that shell runs, so the launched command states them as
+        // executed code: a decoded script sent as the remote command is then
+        // code the remote host runs, as it is for `docker exec box sh -c`.
+        // The login shell itself is not named.
+        let launched = builder.next_execution();
         unresolved_remote_command(
             builder,
             ctx,
@@ -2671,6 +2685,45 @@ impl CommandModel for Ssh {
             host_word,
             "remote command contains an expansion that is not statically recoverable",
         );
+        if builder.next_execution() == launched {
+            return;
+        }
+        // Each remote word is the launched command's own argument, forwarded
+        // from the ssh argument that supplied it.
+        let mut provenance: Vec<_> = (remote_start..ctx.argv.len())
+            .map(|index| {
+                let supplied = arg_node(builder, ctx, index as u32);
+                builder.node(
+                    effinterp_proto::ProvenanceKind::Argument {
+                        index: (index - remote_start) as u32,
+                    },
+                    &[supplied],
+                )
+            })
+            .collect();
+        provenance.push(model_node);
+        builder.push_realm(ExecutionRealm::Remote {
+            endpoint: host_word.render_raw(),
+        });
+        builder.push_execution(launched);
+        builder.effect(effinterp_proto::Effect {
+            request_assurance: effinterp_proto::RequestAssurance::Conservative,
+            id: Default::default(),
+            operation: effinterp_proto::Operation::new("process.code_execution"),
+            resource: unresolved_resource("process"),
+            attributes: [(
+                "source".to_string(),
+                effinterp_proto::AttrValue::String("argument".into()),
+            )]
+            .into(),
+            modality: effinterp_proto::Modality::May,
+            realm: ExecutionRealm::Host,
+            condition: None,
+            execution: effinterp_proto::ExecutionNodeRef(0),
+            provenance,
+        });
+        builder.pop_execution();
+        builder.pop_realm();
     }
 }
 
