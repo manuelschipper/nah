@@ -1020,7 +1020,8 @@ impl<'a> EffectVisitor<'_, 'a> {
     }
 
     /// `Buffer.from(text, "base64")` (or `"base64url"`) and `atob(text)`
-    /// decode base64 text. A program-local `Buffer` or `atob` is some other
+    /// decode base64 text. A `Buffer` or `atob` the program binds in the
+    /// module, the running function or an enclosing block is some other
     /// function.
     fn decodes_base64(&self, call: &CallExpression<'a>) -> bool {
         let local = |name: &str| {
@@ -1029,6 +1030,10 @@ impl<'a> EffectVisitor<'_, 'a> {
                     .active_bodies
                     .last()
                     .is_some_and(|body| body.local_names.contains(name))
+                || self
+                    .block_bindings
+                    .iter()
+                    .any(|(_, names)| names.contains(name))
         };
         match unparen(&call.callee) {
             Expression::StaticMemberExpression(member) => {
