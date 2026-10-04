@@ -587,10 +587,14 @@ impl<'a> Parser<'a> {
                             continue;
                         }
                     }
+                    // A pipeline of several commands that stops at a compound
+                    // stage (`a | b | while ...`) feeds that stage, as one
+                    // command does.
                     compound_pipeline |=
                         self.pipeline(&mut items, conditional, short_circuit, depth)
-                            && !matches!(&items[pipeline_start..],
-                                [ShellItem::Pipeline { cmds, .. }] if cmds.len() > 1);
+                            && (self.at_compound_stage()
+                                || !matches!(&items[pipeline_start..],
+                                    [ShellItem::Pipeline { cmds, .. }] if cmds.len() > 1));
                 }
                 Tok::Redir { .. } => {
                     let compound = self.follows_compound(&items);
@@ -870,7 +874,14 @@ impl<'a> Parser<'a> {
         while let Some(tok) = self.peek() {
             let is_do = parens == 0
                 && matches!(tok, Tok::Word(w) if literal_text(w).as_deref() == Some("do"));
-            retain_header_expansion(tok, &mut items);
+            // The walker expands a `for` list's command substitutions itself.
+            let walked = preserve_values
+                && values.is_some()
+                && !header_ended
+                && matches!(tok, Tok::Word(word) if !word.segs.iter().any(unwalked_header_seg));
+            if !walked {
+                retain_header_expansion(tok, &mut items);
+            }
             if !is_do {
                 match tok {
                     Tok::Op(Op::LParen, span) if arithmetic && !header_ended => {
@@ -1200,6 +1211,15 @@ impl<'a> Parser<'a> {
         if matches!(stop, Stop::Keyword(_)) {
             self.pos += 1;
         }
+    }
+
+    /// Whether the next token opens a compound command, which `pipeline`
+    /// leaves to the list parser when it follows a `|`.
+    fn at_compound_stage(&self) -> bool {
+        matches!(self.peek(), Some(Tok::Op(Op::LParen, _)))
+            || matches!(self.peek(), Some(Tok::Word(word))
+                if literal_text(word).is_some_and(|text|
+                    matches!(text.as_str(), "{" | "if" | "for" | "select" | "while" | "until" | "case")))
     }
 
     fn pipeline(
@@ -1937,23 +1957,27 @@ pub(crate) fn split_assignment(w: &WordTok) -> Option<Assign> {
 // Header words bypass command-word evaluation, so retain evidence before discarding them.
 fn retain_header_expansion(tok: &Tok, items: &mut Vec<ShellItem>) {
     if let Tok::Word(word) = tok
-        && word.segs.iter().any(|seg| {
-            matches!(
-                seg,
-                Seg::CommandSub { .. }
-                    | Seg::Param {
-                        unwalked_substitution: true,
-                        ..
-                    }
-                    | Seg::UnwalkedParamSub
-                    | Seg::Arith { .. }
-                    | Seg::ProcSub { .. }
-                    | Seg::ArrayLit { .. }
-            )
-        })
+        && word
+            .segs
+            .iter()
+            .any(|seg| matches!(seg, Seg::CommandSub { .. }) || unwalked_header_seg(seg))
     {
         items.push(ShellItem::UnwalkedExpansion { span: word.span });
     }
+}
+
+/// A command-capable expansion no header evaluates.
+fn unwalked_header_seg(seg: &Seg) -> bool {
+    matches!(
+        seg,
+        Seg::Param {
+            unwalked_substitution: true,
+            ..
+        } | Seg::UnwalkedParamSub
+            | Seg::Arith { .. }
+            | Seg::ProcSub { .. }
+            | Seg::ArrayLit { .. }
+    )
 }
 
 /// `items` as a body nothing enters unless `head` is redefined.

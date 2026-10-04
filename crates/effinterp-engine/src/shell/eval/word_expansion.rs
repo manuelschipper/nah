@@ -519,7 +519,7 @@ impl Shell<'_> {
         let effect = builder.effects_len();
         let mut provenance = vec![node];
         if let Some(entry) = env.vars.get_mut(name) {
-            provenance.push(var_node(builder, self.scope, entry));
+            provenance.push(var_node(builder, self.scope, entry, &env.chain_held));
         }
         // A wrapper such as `doppler run` may have injected the name's value.
         let injection = self.nest.injected_environment_node_for(name);
@@ -1000,8 +1000,21 @@ impl Shell<'_> {
                         if let Some(entry) = env.vars.get_mut(name)
                             && (entry.script_set || !entry.script_may_set && entry.value.is_some())
                         {
-                            assign_nodes.push(var_node(builder, self.scope, entry));
-                            producers.extend(entry.producers_in_condition(builder).iter().cloned());
+                            assign_nodes.push(var_node(
+                                builder,
+                                self.scope,
+                                entry,
+                                &env.chain_held,
+                            ));
+                            let observed = entry.producers_in_condition(builder, &env.chain_held);
+                            if let Some(reads) = &env.loop_reads {
+                                reads
+                                    .borrow_mut()
+                                    .entry(name.clone())
+                                    .or_default()
+                                    .extend(observed.iter().cloned());
+                            }
+                            producers.extend(observed);
                             if let Some(value) = &entry.value {
                                 let use_default =
                                     env.unset.contains(name) || default.colon && value.is_empty();
@@ -1190,6 +1203,7 @@ impl Shell<'_> {
                 } => {
                     let structural_saturated = self.structural_saturated(builder, env);
                     let eff_start = builder.effects_len() as u32;
+                    let outer_captured = env.captured_values.replace(std::rc::Rc::default());
                     let execution = self.nested_shell_source(
                         builder,
                         env,
@@ -1197,6 +1211,13 @@ impl Shell<'_> {
                         *span,
                         NestedShellMode::Capture,
                     );
+                    // What the substitution's stages passed into the capture
+                    // unchanged is part of the captured word's value.
+                    if let Some(captured) =
+                        std::mem::replace(&mut env.captured_values, outer_captured)
+                    {
+                        producers.extend(captured.take());
+                    }
                     let eff_end = builder.effects_len() as u32;
                     if let Some(execution) = execution
                         && (eff_start..eff_end)
@@ -1540,6 +1561,11 @@ impl Shell<'_> {
                 return expansion;
             }
         }
+        // A name unbound on a loop body's first pass is still a use the next
+        // iteration's value can reach.
+        if let Some(reads) = &env.loop_reads {
+            reads.borrow_mut().entry(name.to_string()).or_default();
+        }
         let Some(entry) = env.vars.get_mut(name) else {
             // A bare `$f` on an array names its first element, `${f[0]}`.
             match env.arrays.get(name) {
@@ -1565,12 +1591,18 @@ impl Shell<'_> {
             return expansion;
         };
         expansion.unresolved_default_override = entry.unresolved_default_override;
-        expansion
-            .producers
-            .extend(entry.producers_in_condition(builder).iter().cloned());
+        let observed = entry.producers_in_condition(builder, &env.chain_held);
+        if let Some(reads) = &env.loop_reads {
+            reads
+                .borrow_mut()
+                .entry(name.to_string())
+                .or_default()
+                .extend(observed.iter().cloned());
+        }
+        expansion.producers.extend(observed);
         expansion
             .assign_nodes
-            .push(var_node(builder, self.scope, entry));
+            .push(var_node(builder, self.scope, entry, &env.chain_held));
         match (&entry.value, entry.word_in_condition(builder)) {
             (Some(value), _) => expansion.parts.push(WordPart::Literal(value.clone())),
             (None, Some(word)) => {
@@ -1954,6 +1986,7 @@ pub(super) fn var_node(
     builder: &mut PlanBuilder,
     scope: Option<ProvenanceRef>,
     entry: &mut VarEntry,
+    held: &[effinterp_proto::Condition],
 ) -> ProvenanceRef {
     let node = *entry.node.get_or_insert_with(|| {
         let mut antecedents = scope.iter().copied().collect::<Vec<_>>();
@@ -1966,7 +1999,7 @@ pub(super) fn var_node(
             &antecedents,
         )
     });
-    let producers = entry.producers_in_condition(builder).to_vec();
+    let producers = entry.producers_in_condition(builder, held);
     builder.register_environment_value_producers(node, &producers);
     node
 }

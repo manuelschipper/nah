@@ -204,7 +204,7 @@ impl Shell<'_> {
         }
         let mut antecedents = converted.assign_nodes;
         if conditional && let Some(previous) = env.vars.get_mut(&assign.name) {
-            antecedents.push(var_node(builder, self.scope, previous));
+            antecedents.push(var_node(builder, self.scope, previous, &env.chain_held));
         }
         let previous_word = env
             .vars
@@ -1334,7 +1334,7 @@ fn branch_arms(
 /// Whether a set of branch-arm assignments covers every path: the disjunction
 /// of the terms is a tautology over the mutually exclusive, exhaustive arms of
 /// each branch. An empty term fixes no branch, so it already covers every path.
-fn paths_cover(
+pub(in crate::shell) fn paths_cover(
     terms: &[std::collections::BTreeMap<effinterp_proto::ConditionOrigin, (u32, u32)>],
 ) -> bool {
     if terms.iter().any(|term| term.is_empty()) {
@@ -1357,6 +1357,28 @@ fn paths_cover(
         !sub.is_empty() && paths_cover(&sub)
     })
 }
+
+/// `condition` with the term `actual` restated as `equivalent`.
+fn equivalent_condition(
+    condition: effinterp_proto::Condition,
+    actual: &effinterp_proto::Condition,
+    equivalent: &effinterp_proto::Condition,
+) -> effinterp_proto::Condition {
+    use effinterp_proto::Condition;
+    match condition {
+        condition if &condition == actual => equivalent.clone(),
+        Condition::All { conditions } => Condition::compose(
+            conditions
+                .iter()
+                .map(|term| if term == actual { equivalent } else { term }),
+        )
+        .unwrap_or(Condition::Widened),
+        condition => condition,
+    }
+}
+
+/// Cap on the earlier writes a binding keeps producers for.
+const MAX_EARLIER_WRITES: usize = 16;
 
 /// Cap on retained transparent conditional writes; a longer chain gives up the
 /// coverage proof rather than growing unbounded.
@@ -1560,12 +1582,41 @@ pub(super) fn bind_var(
     };
     let unresolved_default_override =
         conditional && previous.is_some_and(|entry| entry.unresolved_default_override);
-    // A conditional write still precedes every use inside its own region, so
-    // its producers reach those uses. A guarded write, or one under no
-    // recorded condition, has no region to scope them to.
-    let producers_condition = (conditional && !guarded && !producers.is_empty())
-        .then(|| builder.current_condition())
-        .flatten();
+    // A write that may not have run leaves the producers earlier writes bound
+    // on the paths that skip it. It still precedes every use inside its own
+    // region, so its condition scopes where its producers stand alone; a write
+    // under no recorded condition may have run anywhere.
+    let producers_condition = (conditional || guarded).then(|| {
+        let condition = builder
+            .current_condition()
+            .unwrap_or(effinterp_proto::Condition::Widened);
+        match env.chain_alias.as_deref() {
+            Some((actual, equivalent)) => equivalent_condition(condition, actual, equivalent),
+            None => condition,
+        }
+    });
+    let mut earlier_producers = Vec::new();
+    if let (Some(condition), Some(previous)) = (&producers_condition, previous) {
+        earlier_producers = previous.earlier_producers.clone();
+        earlier_producers.push((
+            previous.producers_condition.clone(),
+            previous.producers.clone(),
+        ));
+        // A write this one's region contains ran before it or not at all.
+        earlier_producers.retain(|(earlier, _)| {
+            !earlier
+                .as_ref()
+                .is_some_and(|earlier| crate::shell::condition_implies(earlier, condition))
+        });
+        // Past the cap the oldest writes fold into one that may have run anywhere.
+        if earlier_producers.len() > MAX_EARLIER_WRITES {
+            let folded = earlier_producers
+                .drain(..earlier_producers.len() - MAX_EARLIER_WRITES + 1)
+                .flat_map(|(_, producers)| producers)
+                .collect();
+            earlier_producers.insert(0, (Some(effinterp_proto::Condition::Widened), folded));
+        }
+    }
     env.vars.insert(
         name,
         VarEntry {
@@ -1586,12 +1637,9 @@ pub(super) fn bind_var(
             span,
             node: None,
             antecedents,
-            producers: if conditional && producers_condition.is_none() {
-                Vec::new()
-            } else {
-                producers
-            },
+            producers,
             producers_condition,
+            earlier_producers,
             script_set,
             script_may_set: true,
             captured_name_hidden: false,
@@ -1620,9 +1668,19 @@ pub(in crate::shell) fn for_list_producers(
         let Some(name) = env.reference_target(name) else {
             continue;
         };
-        if let Some(entry) = env.vars.get(&name) {
-            producers.extend(entry.producers_in_condition(builder).iter().cloned());
+        let observed = env
+            .vars
+            .get(&name)
+            .map(|entry| entry.producers_in_condition(builder, &env.chain_held))
+            .unwrap_or_default();
+        if let Some(reads) = &env.loop_reads {
+            reads
+                .borrow_mut()
+                .entry(name.clone())
+                .or_default()
+                .extend(observed.iter().cloned());
         }
+        producers.extend(observed);
         match env.arrays.get(&name) {
             Some(ArrayValue::Unknown(read)) => producers.extend(read.iter().cloned()),
             Some(array) => producers.extend(

@@ -258,6 +258,8 @@ impl ConditionalShellState {
             entry.word = Some(Word::new(vec![WordPart::Unknown]));
             entry.word_condition = None;
             entry.producers.clear();
+            entry.producers_condition = None;
+            entry.earlier_producers.clear();
             entry.script_may_set = true;
             entry.saturation_key = variable_saturation_key(
                 None,
@@ -353,6 +355,7 @@ impl Shell<'_> {
                     execution: None,
                     words: name.iter().cloned().map(Word::literal).collect(),
                     argument_producers: Vec::new(),
+                    stdin_producers: Vec::new(),
                     unquoted_substitutions: Vec::new(),
                     name,
                     model_eligible: false,
@@ -1175,6 +1178,7 @@ impl Shell<'_> {
                 .iter()
                 .map(|word| word.producers.clone())
                 .collect(),
+            stdin_producers,
             unquoted_substitutions: converted
                 .iter()
                 .map(|word| word.unquoted_substitution)
@@ -1754,7 +1758,12 @@ impl Shell<'_> {
                         provenance.extend(target.assign_nodes.iter().copied());
                         if let Some(name) = name {
                             if let Some(entry) = env.vars.get_mut(name) {
-                                provenance.push(var_node(builder, self.scope, entry));
+                                provenance.push(var_node(
+                                    builder,
+                                    self.scope,
+                                    entry,
+                                    &env.chain_held,
+                                ));
                             }
                         } else {
                             self.opaque_boundary(
@@ -1776,7 +1785,7 @@ impl Shell<'_> {
                                 || env.exported.contains(&name))
                         {
                             let mut provenance = vec![node];
-                            provenance.push(var_node(builder, self.scope, entry));
+                            provenance.push(var_node(builder, self.scope, entry, &env.chain_held));
                             provenance.extend(entry.antecedents.iter().copied());
                             crate::models::environment_disclosure(builder, Some(&name), provenance);
                         }
@@ -1790,7 +1799,7 @@ impl Shell<'_> {
                                 || print && command != "export"
                                 || env.exported.contains(&name))
                         {
-                            provenance.push(var_node(builder, self.scope, entry));
+                            provenance.push(var_node(builder, self.scope, entry, &env.chain_held));
                         }
                     }
                     crate::models::environment_disclosure(builder, None, provenance);
@@ -3515,6 +3524,8 @@ impl Shell<'_> {
                         entry.node = None;
                         entry.antecedents = branch.antecedents.clone();
                         entry.producers = branch.producers.clone();
+                        entry.producers_condition = None;
+                        entry.earlier_producers.clear();
                     }
                 }
                 builder.push_bound_condition(condition);
@@ -3565,7 +3576,7 @@ impl Shell<'_> {
                 .map(|value| ResourceExpr::Literal { value })
                 .or_else(|| entry.word_in_condition(builder).map(word_resource));
             environment.insert(name.clone(), value);
-            environment_nodes.insert(name, var_node(builder, self.scope, entry));
+            environment_nodes.insert(name, var_node(builder, self.scope, entry, &env.chain_held));
         }
         for name in &env.exported_functions {
             let Some(entry) = env.functions.get(name) else {
@@ -3599,7 +3610,10 @@ impl Shell<'_> {
             if let Some(node) = env.unexported_nodes.get(name).copied() {
                 environment_nodes.insert(name.clone(), node);
             } else if let Some(entry) = env.vars.get_mut(name) {
-                environment_nodes.insert(name.clone(), var_node(builder, self.scope, entry));
+                environment_nodes.insert(
+                    name.clone(),
+                    var_node(builder, self.scope, entry, &env.chain_held),
+                );
             }
         }
         let mut assigned_command_search_path = None;

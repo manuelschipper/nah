@@ -808,6 +808,8 @@ fn invalidate_unobserved_source_variables(env: &mut ShellEnv, source: Provenance
         entry.node = None;
         entry.antecedents.push(source);
         entry.producers.clear();
+        entry.producers_condition = None;
+        entry.earlier_producers.clear();
         entry.script_set = true;
         entry.script_may_set = true;
         entry.saturation_key =

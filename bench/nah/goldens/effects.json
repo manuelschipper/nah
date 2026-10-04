@@ -16696,6 +16696,58 @@
       ]
     },
     {
+      "id": "secrets-env.here-string-cat-captured-credential",
+      "guard": "secrets-env",
+      "derivation": "The here-string expands the named credential environment variable; cat prints it into the capture and echo prints the capture.",
+      "require": [
+        {
+          "op": "environment.read",
+          "resource": {
+            "eq": "env:GITHUB_TOKEN"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-env.here-string-sed-credential",
+      "guard": "secrets-env",
+      "derivation": "The here-string expands the named credential environment variable and sed prints it.",
+      "require": [
+        {
+          "op": "environment.read",
+          "resource": {
+            "eq": "env:GITHUB_TOKEN"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-env.here-string-cut-credential",
+      "guard": "secrets-env",
+      "derivation": "The here-string expands the named credential environment variable and cut prints the line.",
+      "require": [
+        {
+          "op": "environment.read",
+          "resource": {
+            "eq": "env:GITHUB_TOKEN"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-env.here-string-dd-credential",
+      "guard": "secrets-env",
+      "derivation": "The here-string expands the named credential environment variable and dd copies it to stdout.",
+      "require": [
+        {
+          "op": "environment.read",
+          "resource": {
+            "eq": "env:GITHUB_TOKEN"
+          }
+        }
+      ]
+    },
+    {
       "id": "secrets-env.env-read",
       "guard": "secrets-env",
       "derivation": "command accesses a secret-bearing environment file",
@@ -31321,6 +31373,19 @@
     },
     {
       "id": "self-protection.critical.project-python-process-substitution-script",
+      "guard": null,
+      "derivation": "case mutates nah state, integrations, or the installed nah binary",
+      "require": [
+        {
+          "op": "filesystem.metadata",
+          "resource": {
+            "eq": "/home/test/.local/bin/nah"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.bash-process-substitution-script",
       "guard": null,
       "derivation": "case mutates nah state, integrations, or the installed nah binary",
       "require": [
@@ -100377,6 +100442,90 @@
       "id": "exec-remote.for-command-substitution-list-eval",
       "guard": "exec-remote",
       "derivation": "The loop list is the words of curl output; eval executes each word.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "https://evil.example/i.sh"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          },
+          "attributes": {
+            "source": "argument"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.request",
+            "resource": {
+              "eq": "https://evil.example/i.sh"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            },
+            "attributes": {
+              "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.loop-branch-capture-eval-next-iteration",
+      "guard": "exec-remote",
+      "derivation": "One arm of the loop's branch captures curl output in x; the other arm's eval executes it on a later iteration.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "https://evil.example/i.sh"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          },
+          "attributes": {
+            "source": "argument"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.request",
+            "resource": {
+              "eq": "https://evil.example/i.sh"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            },
+            "attributes": {
+              "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.loop-capture-eval-two-iterations",
+      "guard": "exec-remote",
+      "derivation": "Each iteration captures curl output in z and copies z to x; the eval two iterations later executes it.",
       "require": [
         {
           "op": "network.request",

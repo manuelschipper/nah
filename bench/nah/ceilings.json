@@ -2,7 +2,7 @@
   "total": {
     "baseline_defect": 0,
     "engine_error": 0,
-    "guard_silent": 5,
+    "guard_silent": 7,
     "missing_effect": 7,
     "missing_flow": 7,
     "regression": 0,
@@ -214,7 +214,7 @@
     },
     "secrets-env": {
       "explained_partial": 0,
-      "guard_silent": 1,
+      "guard_silent": 3,
       "missing_effect": 1,
       "missing_flow": 0
     },

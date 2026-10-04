@@ -671,6 +671,28 @@ impl Budget {
             .map(|(_, content)| content.clone())
     }
 
+    /// The path source resolution names a descriptor operand by. A process
+    /// substitution's descriptor number is allocated at run time, so its
+    /// operand is not literal text; when the launching shell supplied its
+    /// bytes, the allocation's own name stands for the number.
+    pub(crate) fn descriptor_operand_path(&self, operand: &Word) -> Option<String> {
+        self.descriptor_sources
+            .borrow()
+            .iter()
+            .any(|(named, _)| named == operand)
+            .then(|| descriptor_path_text(operand))
+            .flatten()
+    }
+
+    /// What the launching shell holds open on the descriptor `path` names.
+    fn descriptor_content_at(&self, path: &str) -> Option<Word> {
+        self.descriptor_sources
+            .borrow()
+            .iter()
+            .find(|(named, _)| descriptor_path_text(named).as_deref() == Some(path))
+            .map(|(_, content)| content.clone())
+    }
+
     /// Record a step the analysis could not model on the host filesystem.
     pub(crate) fn note_unmodeled(&self) {
         self.unmodeled_steps.set(self.unmodeled_steps.get() + 1);
@@ -1866,7 +1888,7 @@ impl<'a> Nest<'a> {
         // A descriptor path names bytes the launching shell supplied, not a
         // file on the host.
         let inherited = (namespace == SourceNamespace::Host)
-            .then(|| self.budget.descriptor_content(&Word::literal(path)))
+            .then(|| self.budget.descriptor_content_at(path))
             .flatten()
             .and_then(|content| content.as_literal().map(str::to_owned))
             .map(|bytes| crate::builder::WrittenSource::Exact(bytes.into_bytes()));
@@ -2897,6 +2919,19 @@ fn execution_node(
             .as_ref()
             .and_then(|path| nest.selected_source_inputs.borrow().get(path).cloned()),
     }
+}
+
+/// A descriptor path as text: literal parts, with an allocated descriptor
+/// spelled by the parameter that stands for its number.
+fn descriptor_path_text(word: &Word) -> Option<String> {
+    word.parts
+        .iter()
+        .map(|part| match part {
+            crate::word::WordPart::Literal(text) => Some(text.as_str()),
+            crate::word::WordPart::Value(ResourceExpr::Parameter { name }) => Some(name.as_str()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Preserve literal and symbolic launch operands when a frontend spawns a process.
