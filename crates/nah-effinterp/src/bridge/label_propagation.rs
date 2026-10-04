@@ -782,17 +782,19 @@ fn filtered_out<'a>(
     {
         return Default::default();
     }
-    // Whether the platform folds case is not known, so an exclusion must
-    // match both as written and with case folded, and an inclusion either
-    // way: the unknown can only skip fewer files. The two differ only for a
-    // negated bracket class; otherwise an exact match is also a folded one.
+    // Whether the platform folds case is not known. An exclusion counts when
+    // it matches as written. One holding a negated bracket class must also
+    // match with case folded, where the class can stop matching and the file
+    // would be kept. A range is read as written, though folding can shrink
+    // one that spans both cases (`[A-z]`). An inclusion counts when it
+    // matches either way.
     let folded = |glob: &str, relative: &str| {
         fnmatch(&glob.to_ascii_lowercase(), &relative.to_ascii_lowercase())
     };
     let selected = |relative: &str| {
         !excluded
             .iter()
-            .any(|glob| fnmatch(glob, relative) && folded(glob, relative))
+            .any(|glob| fnmatch(glob, relative) && (!glob.contains("[!") || folded(glob, relative)))
             && included.as_ref().is_none_or(|included| {
                 included
                     .iter()
