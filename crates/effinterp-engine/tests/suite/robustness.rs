@@ -20,6 +20,8 @@ const DEEP_CST: usize = 25_000;
 const DEEP_AST: usize = 256;
 const NEST: usize = 512;
 const NEST_AST: usize = 128;
+/// Links in a generated chain: far past what the native stack survives.
+const CHAIN: usize = 50_000;
 const FLAT: usize = 8_000;
 const INTERP: usize = 2_000;
 
@@ -656,6 +658,111 @@ fn ruby_deep_groups() {
 #[test]
 fn powershell_deep_groups() {
     assert_deep_frontend_boundary(deep_group_command("pwsh -c", "$x="));
+}
+
+/// A chain that nests one level per link without holding many brackets open:
+/// each link closes the brackets it opens, breaks the line, or hides a closing
+/// bracket in a string or regular expression. The pre-scan must still count
+/// every link, or a long enough chain overflows the native stack and aborts
+/// the hook instead of reaching the walk-limit boundary.
+fn chain_source(head: &str, link: &str, tail: &str) -> String {
+    format!("{head}{}{tail}", link.repeat(CHAIN))
+}
+
+fn assert_deep_chains_reach_the_boundary(interpreter: &str, chains: &[(&str, &str, &str)]) {
+    for (head, link, tail) in chains {
+        println!("chain link: {link:?}");
+        let code = chain_source(head, link, tail);
+        assert_deep_frontend_boundary(format!("{interpreter} '{code}'\nrm -rf /data\n"));
+    }
+}
+
+#[test]
+fn js_deep_right_nested_chains() {
+    assert_deep_chains_reach_the_boundary(
+        "node -e",
+        &[
+            ("x = ", "c ? (1) : ", "0"),
+            ("x = ", "c\n? 1\n: ", "0"),
+            ("x = ", "(a) => ", "0"),
+            ("", "if (a) {} else ", "{}"),
+            ("", "if (a) b; else ", "b;"),
+            ("", "if (a) b\nelse ", "b"),
+            ("f", "(1)", ";"),
+            ("f", "``", ";"),
+            ("x = ", "class extends ", "Object {}"),
+        ],
+    );
+}
+
+#[test]
+fn js_deep_groups_closed_only_in_literals() {
+    assert_deep_chains_reach_the_boundary(
+        "node -e",
+        &[
+            ("x = ", "(`)` + ", "0"),
+            ("x = ", "(/[)]/ + ", "0"),
+            ("", "{ if (a) /}/; ", "0"),
+            ("", "{ {} /}/; ", "0"),
+            ("function f() {", "{ return /}/; ", "0"),
+            ("", "{ x++ / (y / 1); ", "0"),
+        ],
+    );
+}
+
+#[test]
+fn ts_deep_type_chains() {
+    for (head, link, tail) in [
+        ("let x: ", "A<B, ", format!("C{};", ">".repeat(CHAIN))),
+        ("type X = ", "keyof ", "T;".to_string()),
+    ] {
+        println!("chain link: {link:?}");
+        let plan = analyze(Subject::Source {
+            language: "js".into(),
+            source: chain_source(head, link, &tail),
+            dialect: Some(SourceDialect::Ts),
+            cwd: Some("/w".into()),
+            context: Default::default(),
+        });
+        assert!(truncated(&plan), "the deep type produced no boundary");
+    }
+}
+
+#[test]
+fn ruby_deep_right_nested_chains() {
+    assert_deep_chains_reach_the_boundary(
+        "ruby -e",
+        &[
+            ("x = ", "c ? (1) : ", "0"),
+            ("if a\n", "elsif (a)\n", "end"),
+        ],
+    );
+}
+
+/// The pre-scan over-counts by design, so it must not mistake a long run of
+/// ordinary sibling statements for depth: a false boundary would drop the
+/// planted delete along with the rest of the source.
+#[test]
+fn js_long_flat_source_stays_inside_the_walk_limit() {
+    let statement = "if (a) { f(x).g(y)[0]; } else if (b) { h(`${x}`, /[)]/); } else { k = c ? (1) : 2; }\n\
+                     function m(p) { return p }\nclass K { a() {} b() {} }\n";
+    let src = format!(
+        "const fs = require('fs');\nfs.unlinkSync('/data');\n{}",
+        statement.repeat(NEST)
+    );
+    let plan = analyze(Subject::Source {
+        language: "js".into(),
+        source: src,
+        dialect: Some(SourceDialect::Js),
+        cwd: Some("/w".into()),
+        context: Default::default(),
+    });
+    assert!(has_delete(&plan, "/data"));
+    assert!(!plan.boundaries.iter().any(|b| {
+        b.detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("nesting exceeds the walk limit"))
+    }));
 }
 
 // ---------------------------------------------------------------------------

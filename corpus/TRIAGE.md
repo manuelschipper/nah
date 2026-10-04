@@ -579,26 +579,22 @@ Accepted limitations with no corpus row that asserts a desired block.
   consulted. The guard silently never fires. No corpus row exists because the
   corpus does not load custom guards.
 
-- A JavaScript chain nested past the parser's stack — the depth pre-scan
-  (`scan_nesting` in `crates/effinterp-engine/src/lang/depth.rs`) resets its
-  statement and operator runs at every closing bracket, so right-nested
-  chains whose links each close a bracket are never counted:
-  `c ? (1) : c ? (1) : … 0`, `if (a) {} else if (b) {} else if …` and
-  `(a) => (a) => … 0`. Analysis recurses once per link, and a long
-  enough chain overflows the stack and aborts the process instead of ending
-  at the walk-depth boundary. With a debug build on macOS (8 MiB main stack),
-  `node -e 'x = ' + 'c ? (1) : ' * n + '0; require("fs").rmSync("/etc/sudoers")'`
-  delegates with the `max_walk_depth` boundary up to n = 4 345 and aborts
-  (`thread 'main' has overflowed its stack`, exit by SIGABRT) from 4 346, a
-  44 KiB command; the else-if chain aborts from n = 19 546 and the arrow
-  chain from n = 6 462. `nah test --source js` aborts the same way. The Ruby
-  equivalents (`elsif`, parenthesized ternary) end at a boundary up to
-  n = 50 000. A hook that dies this way returns no decision, so what the
+- A Ruby chain nested past the parser's stack — the depth pre-scan
+  (`scan_nesting` in `crates/effinterp-engine/src/lang/depth.rs`) cannot lex
+  Ruby strings, comments or keyword blocks, so two shapes still escape it.
+  A string that spans a line ends the operator run at the break:
+  `x = ` + `c ? "a\nb" : ` * n + `0`. And any `end` drops the whole block
+  run rather than one level: (`if a\nif a\nbegin end\n`) * n closed by
+  2n `end`. Both overflow the stack and abort the process at n = 50 000 on a
+  2 MiB thread (debug build, macOS) instead of ending at the walk-depth
+  boundary. A hook that dies this way returns no decision, so what the
   agent does next depends on the runtime's handling of a crashed hook. No
   corpus row exists because the replay would abort the corpus harness rather
-  than fail one case; a fix counts these chains in the pre-scan (or bounds
-  the parser's recursion) and adds generated cases to
-  `crates/effinterp-engine/tests/suite/robustness.rs`.
+  than fail one case. A fix needs token-accurate Ruby input (lib-ruby-parser's
+  lexer, or a parser whose recursion is bounded), not another byte heuristic.
+  The JavaScript and TypeScript scan skips strings, templates, comments and
+  regular expressions, and `crates/effinterp-engine/tests/suite/robustness.rs`
+  holds its generated chains.
 
 ## Audit scope
 
