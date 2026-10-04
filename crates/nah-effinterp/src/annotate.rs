@@ -858,8 +858,8 @@ fn executed_identity<'a>(view: &PlanView<'a>, effect: &Effect, path: &str) -> Op
                 |(bound, _)| {
                     nah_proto::labels::lexically_contains(&bound, path, platform)
                         || nah_proto::labels::lexically_contains(
-                            entry_path(view, &bound),
-                            entry_path(view, path),
+                            observed_entry_path(view, &bound),
+                            observed_entry_path(view, path),
                             platform,
                         )
                 },
@@ -907,8 +907,8 @@ fn transferred_sources<'a>(view: &PlanView<'a>, change: &'a Effect, path: &str) 
             identity: ResourceIdentity::FsPath { path: written },
         } if nah_proto::labels::lexical_path::same_path(written, path, platform)
             || nah_proto::labels::lexical_path::same_path(
-                entry_path(view, written),
-                entry_path(view, path),
+                observed_entry_path(view, written),
+                observed_entry_path(view, path),
                 platform,
             )
     );
@@ -1083,7 +1083,7 @@ fn copies_verbatim(view: &PlanView<'_>, execution: effinterp_proto::ExecutionNod
 
 /// `path` as its host observation resolved it, with the directory links
 /// above it followed, so `/tmp/x` and `/private/tmp/x` compare equal.
-fn entry_path<'a>(view: &PlanView<'a>, path: &'a str) -> &'a str {
+fn observed_entry_path<'a>(view: &PlanView<'a>, path: &'a str) -> &'a str {
     view.observed_entry(path)
         .map_or(path, |observed| observed.resolved().as_str())
 }
@@ -1104,10 +1104,7 @@ fn transfer_lands(view: &PlanView<'_>, change: &Effect, path: &str) -> bool {
     if observed == Some(PathKind::Directory) {
         return false;
     }
-    let Some(parent) = path
-        .rfind(['/', '\\'])
-        .map(|separator| &path[..separator.max(1)])
-    else {
+    let Some(parent) = crate::observation_request::parent_directory(path) else {
         return false;
     };
     // The copying process runs in its working directory, so that exists.

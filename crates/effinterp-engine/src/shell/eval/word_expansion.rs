@@ -1007,13 +1007,11 @@ impl Shell<'_> {
                                 &env.chain_held,
                             ));
                             let observed = entry.producers_in_condition(builder, &env.chain_held);
-                            if let Some(reads) = &env.loop_reads {
-                                reads
-                                    .borrow_mut()
-                                    .entry(name.clone())
-                                    .or_default()
-                                    .extend(observed.iter().cloned());
-                            }
+                            crate::shell::observed_producers::record_loop_read(
+                                env.loop_reads.as_ref(),
+                                name,
+                                &observed,
+                            );
                             producers.extend(observed);
                             if let Some(value) = &entry.value {
                                 let use_default =
@@ -1563,9 +1561,7 @@ impl Shell<'_> {
         }
         // A name unbound on a loop body's first pass is still a use the next
         // iteration's value can reach.
-        if let Some(reads) = &env.loop_reads {
-            reads.borrow_mut().entry(name.to_string()).or_default();
-        }
+        crate::shell::observed_producers::record_loop_read(env.loop_reads.as_ref(), name, &[]);
         let Some(entry) = env.vars.get_mut(name) else {
             // A bare `$f` on an array names its first element, `${f[0]}`.
             match env.arrays.get(name) {
@@ -1592,13 +1588,11 @@ impl Shell<'_> {
         };
         expansion.unresolved_default_override = entry.unresolved_default_override;
         let observed = entry.producers_in_condition(builder, &env.chain_held);
-        if let Some(reads) = &env.loop_reads {
-            reads
-                .borrow_mut()
-                .entry(name.to_string())
-                .or_default()
-                .extend(observed.iter().cloned());
-        }
+        crate::shell::observed_producers::record_loop_read(
+            env.loop_reads.as_ref(),
+            name,
+            &observed,
+        );
         expansion.producers.extend(observed);
         expansion
             .assign_nodes

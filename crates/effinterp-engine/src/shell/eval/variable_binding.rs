@@ -1604,9 +1604,9 @@ pub(super) fn bind_var(
         ));
         // A write this one's region contains ran before it or not at all.
         earlier_producers.retain(|(earlier, _)| {
-            !earlier
-                .as_ref()
-                .is_some_and(|earlier| crate::shell::condition_implies(earlier, condition))
+            !earlier.as_ref().is_some_and(|earlier| {
+                crate::shell::observed_producers::condition_implies(earlier, condition)
+            })
         });
         // Past the cap the oldest writes fold into one that may have run anywhere.
         if earlier_producers.len() > MAX_EARLIER_WRITES {
@@ -1673,13 +1673,11 @@ pub(in crate::shell) fn for_list_producers(
             .get(&name)
             .map(|entry| entry.producers_in_condition(builder, &env.chain_held))
             .unwrap_or_default();
-        if let Some(reads) = &env.loop_reads {
-            reads
-                .borrow_mut()
-                .entry(name.clone())
-                .or_default()
-                .extend(observed.iter().cloned());
-        }
+        crate::shell::observed_producers::record_loop_read(
+            env.loop_reads.as_ref(),
+            &name,
+            &observed,
+        );
         producers.extend(observed);
         match env.arrays.get(&name) {
             Some(ArrayValue::Unknown(read)) => producers.extend(read.iter().cloned()),

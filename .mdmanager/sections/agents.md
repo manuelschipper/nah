@@ -17,7 +17,14 @@
   `crates/nah-proto/src/effect_annotation.rs` owns their types, and no later stage
   re-validates them. The pure path classifiers the bridge uses live in
   `crates/nah-proto/src/labels/`; extend them there rather than copying them
-  into the bridge.
+  into the bridge. What an effect's selection takes is answered once, in
+  `crates/nah-effinterp/src/observation_request.rs`: link following
+  (`reads_through_links`, `opens_through_links`, `writes_through_links`), a
+  producer's narrowing (`selection_narrowing`, `subtree_reached_whole`), and
+  the read or delete a move states (`stated_by_move`). Call these instead of
+  re-reading effect attributes; `reads_through_links` has a twin over
+  occurrences in `crates/effinterp-matcher/src/evaluate.rs` that must stay
+  identical.
 - Nah crates name the engine's plan contract `nah_proto::effinterp_proto`; do
   not alias it. Each runtime adapter is entered as `<runtime>_adapter::run` in
   `crates/nah-cli/src/`, and its hook installation exposes

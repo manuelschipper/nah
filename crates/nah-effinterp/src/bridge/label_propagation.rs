@@ -103,7 +103,7 @@ pub(super) fn propagate_sensitivity<'a>(
                 let destination = copy.destination;
                 copy.entries.retain(|entry| {
                     !nah_proto::labels::lexical_path::same_path(
-                        &entry_path(destination, entry),
+                        &copied_entry_path(destination, entry),
                         path,
                         platform,
                     )
@@ -250,11 +250,7 @@ pub(super) fn propagate_sensitivity<'a>(
                 && observed
                     .and_then(|path| path.descendants())
                     .is_some_and(|descendants| descendants.unlisted_entries())
-                && !plan.effects.iter().any(|moved| {
-                    moved.operation.as_str() == "filesystem.move"
-                        && moved.execution == effect.execution
-                        && moved.resource == effect.resource
-                })
+                && !crate::observation_request::stated_by_move(plan, effect)
                 && plan.effects.iter().any(|moved| {
                     moved.operation.as_str() == "filesystem.move"
                         && crate::observation_request::observation_bound(&moved.resource)
@@ -327,7 +323,7 @@ pub(super) fn propagate_sensitivity<'a>(
                                 .filter(|entry| {
                                     effinterp_proto::glob_match(
                                         glob,
-                                        &entry_path(copy.destination, entry),
+                                        &copied_entry_path(copy.destination, entry),
                                     ) == Ok(true)
                                 })
                                 .cloned(),
@@ -609,7 +605,7 @@ impl CopiedContent<'_> {
         let entries = || {
             self.entries
                 .iter()
-                .map(|entry| entry_path(self.destination, entry))
+                .map(|entry| copied_entry_path(self.destination, entry))
         };
         match &effect.resource {
             effinterp_proto::ResourceExpr::Concrete {
@@ -633,7 +629,7 @@ impl CopiedContent<'_> {
 }
 
 /// The path of `entry` inside the directory `destination`.
-fn entry_path(destination: &str, entry: &str) -> String {
+fn copied_entry_path(destination: &str, entry: &str) -> String {
     format!("{}/{entry}", destination.trim_end_matches('/'))
 }
 

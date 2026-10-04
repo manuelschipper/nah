@@ -96,11 +96,9 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
                 && let ResourceExpr::Concrete {
                     identity: ResourceIdentity::FsPath { path },
                 } = &effect.resource
-                && let Some(separator) = path.rfind(['/', '\\'])
+                && let Some(parent) = parent_directory(path)
             {
-                paths
-                    .entry(path[..separator.max(1)].to_owned())
-                    .or_default();
+                paths.entry(parent.to_owned()).or_default();
             }
         }
     }
@@ -185,14 +183,28 @@ pub(crate) fn opens_through_links(
     effect: &effinterp_proto::Effect,
     resource: &ResourceExpr,
 ) -> bool {
-    let moved = || {
-        plan.effects.iter().any(|moved| {
-            moved.operation.as_str() == "filesystem.move"
-                && moved.execution == effect.execution
-                && moved.resource == effect.resource
-        })
-    };
-    reads_through_links(effect) && !moved() || writes_through_links(effect, resource)
+    reads_through_links(effect) && !stated_by_move(plan, effect)
+        || writes_through_links(effect, resource)
+}
+
+/// Whether a move states `effect` for what it moves: the same execution
+/// states a `filesystem.move` of the same resource. A move's read is its copy
+/// half and its delete the removal of what it moved away, so either takes a
+/// link, and a directory's contents, as the move does.
+pub(crate) fn stated_by_move(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
+    plan.effects.iter().any(|moved| {
+        moved.operation.as_str() == "filesystem.move"
+            && moved.execution == effect.execution
+            && moved.resource == effect.resource
+    })
+}
+
+/// The parent directory a path's spelling names, under either separator;
+/// the root for an entry directly below it. `None` for a path with no
+/// separator. Nothing is resolved.
+pub(crate) fn parent_directory(path: &str) -> Option<&str> {
+    path.rfind(['/', '\\'])
+        .map(|separator| &path[..separator.max(1)])
 }
 
 /// Whether an effect changes what the links its glob matches lead to. A
@@ -373,11 +385,7 @@ pub(crate) fn named_subset_reading(resource: &ResourceExpr, glob: &str) -> Optio
 pub(crate) fn removes_entries_only(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
     effect.operation.as_str() == "filesystem.delete"
         && effect.attributes.get("recursive") != Some(&AttrValue::Bool(true))
-        && !plan.effects.iter().any(|other| {
-            other.operation.as_str() == "filesystem.move"
-                && other.execution == effect.execution
-                && other.resource == effect.resource
-        })
+        && !stated_by_move(plan, effect)
 }
 
 /// Whether an effect on a root-wide selection takes the root's whole tree.
