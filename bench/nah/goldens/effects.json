@@ -113990,6 +113990,77 @@
           }
         }
       ]
+    },
+    {
+      "id": "fs-auth-identity.glob-chmod-key-alias",
+      "guard": "fs-auth-identity",
+      "derivation": "`keys*` matches `keys-alias`, a link to `~/.ssh/authorized_keys`, so `chmod 000` takes the authorization file's permissions away",
+      "require": [
+        {
+          "op": "filesystem.metadata",
+          "resource": {
+            "eq": "filesystem:/workspace/aliases/keys*"
+          },
+          "attributes": {
+            "action": "chmod"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.loop-glob-redirect-key-alias",
+      "guard": "fs-auth-identity",
+      "derivation": "the loop variable takes each `keys*` match, `keys-alias` among them, a link to `~/.ssh/authorized_keys`, so `: > \"$f\"` empties the authorization file",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "filesystem:/workspace/aliases/keys*"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-credentials.glob-tee-key-link",
+      "guard": "secrets-credentials",
+      "derivation": "`key-link*` matches `key-link`, a link to `~/.ssh/id_ed25519`, so tee replaces the private key with its standard input",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "filesystem:/workspace/aliases/key-link*"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-credentials.truncate-ssh-private-key",
+      "guard": "secrets-credentials",
+      "derivation": "`truncate -s 0` empties the SSH private key, which nothing can reissue",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.ssh/id_ed25519"
+          },
+          "attributes": {
+            "truncate": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.executable-alias-group-redirect-copy",
+      "guard": null,
+      "derivation": "case mutates nah state, integrations, or the installed nah binary",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.nah/trust.json"
+          }
+        }
+      ]
     }
   ]
 }
