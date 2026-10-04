@@ -89,7 +89,12 @@ impl PythonWalker<'_, '_> {
         if self
             .capture
             .as_ref()
-            .is_some_and(|cap| cap.effects.len() < MAX_SUMMARY_EFFECTS)
+            .is_some_and(|cap| cap.effects.len() >= MAX_SUMMARY_EFFECTS)
+        {
+            self.summary_effect_dropped(&[effect.operation.domain()], Some(node));
+            return None;
+        }
+        if self.capture.is_some()
             && !crate::nest::charge_analysis_bytes(
                 self.builder,
                 self.nest.budget,
@@ -101,17 +106,47 @@ impl PythonWalker<'_, '_> {
         }
         match self.capture.as_mut() {
             Some(cap) => {
-                if cap.effects.len() < MAX_SUMMARY_EFFECTS {
-                    cap.effects.push(effect);
-                    cap.effect_models
-                        .push(model.into_iter().map(str::to_string).collect());
-                    Some(cap.effects.len() as u32 - 1)
-                } else {
-                    None
-                }
+                cap.effects.push(effect);
+                cap.effect_models
+                    .push(model.into_iter().map(str::to_string).collect());
+                Some(cap.effects.len() as u32 - 1)
             }
             None => self.builder.effect(effect),
         }
+    }
+
+    /// Record that the active summary is full and something affecting
+    /// `domains` was left out of it. Every call site then reads partial on
+    /// those domains instead of taking the truncated summary for the whole
+    /// function.
+    pub(super) fn summary_effect_dropped(&mut self, domains: &[&str], node: Option<ProvenanceRef>) {
+        const LIMIT: &str = "max_summary_effects";
+        let domains: Vec<Domain> = domains.iter().map(|domain| Domain::new(*domain)).collect();
+        for domain in &domains {
+            self.out_coverage(domain.clone(), CoverageLevel::Partial);
+        }
+        // One boundary per domain is enough; a long function would otherwise
+        // spend the whole boundary buffer repeating it.
+        if self.capture.as_ref().is_some_and(|cap| {
+            domains.iter().all(|domain| {
+                cap.boundaries.iter().any(|boundary| {
+                    boundary.limit.as_deref() == Some(LIMIT) && boundary.domains.contains(domain)
+                })
+            })
+        }) {
+            return;
+        }
+        self.out_boundary(Boundary {
+            reason: BoundaryReason::LIMIT_SATURATED,
+            class: BoundaryClass::Limit,
+            scope: BoundaryScope::Invocation,
+            affected_resource: None,
+            callee: None,
+            domains,
+            provenance: node.into_iter().collect(),
+            limit: Some(LIMIT.into()),
+            detail: self.current_function.clone(),
+        });
     }
 
     /// Record that `source` is the source side of one modeled transfer whose
@@ -262,8 +297,15 @@ impl PythonWalker<'_, '_> {
 
     pub(super) fn push_deferred_spawn(&mut self, spawn: DeferredSpawn) {
         let span = self.callable_span();
+        // A spawn left out of a full summary could have done anything.
+        if self.capture.as_ref().is_some_and(|cap| {
+            cap.deferred_spawns.len() >= MAX_SUMMARY_EFFECTS
+                && !cap.deferred_spawns.contains(&spawn)
+        }) {
+            self.summary_effect_dropped(&DOMAINS, None);
+            return;
+        }
         if let Some(cap) = self.capture.as_mut()
-            && cap.deferred_spawns.len() < MAX_SUMMARY_EFFECTS
             && !cap.deferred_spawns.contains(&spawn)
         {
             let bytes = crate::limits::NODE_BYTES

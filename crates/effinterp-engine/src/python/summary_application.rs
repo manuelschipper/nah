@@ -218,7 +218,13 @@ impl PythonWalker<'_, '_> {
             if self
                 .capture
                 .as_ref()
-                .is_some_and(|cap| cap.effects.len() < MAX_SUMMARY_EFFECTS)
+                .is_some_and(|cap| cap.effects.len() >= MAX_SUMMARY_EFFECTS)
+            {
+                self.summary_effect_dropped(&[specialized.operation.domain()], Some(node));
+                slots.push(None);
+                continue;
+            }
+            if self.capture.is_some()
                 && !crate::nest::charge_analysis_bytes(
                     self.builder,
                     self.nest.budget,
@@ -229,7 +235,7 @@ impl PythonWalker<'_, '_> {
                 return;
             }
             match self.capture.as_mut() {
-                Some(cap) if cap.effects.len() < MAX_SUMMARY_EFFECTS => {
+                Some(cap) => {
                     cap.effects.push(specialized);
                     cap.effect_models.push(
                         summary
@@ -240,7 +246,6 @@ impl PythonWalker<'_, '_> {
                     );
                     slots.push(Some(cap.effects.len() as u32 - 1));
                 }
-                Some(_) => slots.push(None),
                 None => {
                     // The call site is where the host environment applies, as
                     // for an effect emitted directly: `$HOME` passed into a

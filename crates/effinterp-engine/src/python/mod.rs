@@ -177,7 +177,10 @@ fn star_exports(module: &str) -> Option<&'static [&'static str]> {
 
 /// Cap on effects retained in one function summary, so a pathological function
 /// (or an unconverged recursive one) cannot make a summary grow without bound.
-const MAX_SUMMARY_EFFECTS: usize = 128;
+/// Each retained effect is also charged to the shared analysis byte budget.
+/// A summary that reaches the cap records a `max_summary_effects` limit
+/// boundary for what it leaves out.
+const MAX_SUMMARY_EFFECTS: usize = 1024;
 const MAX_SUMMARY_BOUNDARIES: usize = 128;
 
 /// A module-level function definition: name, parameter names, body.

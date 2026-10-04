@@ -367,6 +367,31 @@ fn os_remove_end_to_end_via_pyexec() {
     );
 }
 
+/// A summary that reaches its effect cap must say so at the call site: the
+/// effects it left out would otherwise read as a fully covered function.
+#[test]
+fn summary_past_its_effect_cap_leaves_a_limit_boundary() {
+    let mut source = String::from("import os, shutil\ndef clean():\n");
+    for index in 0..1024 {
+        source.push_str(&format!("    os.remove('/tmp/cache/f{index}')\n"));
+    }
+    source.push_str("    shutil.rmtree('/etc')\nclean()\n");
+    let plan = py(&source);
+    assert!(has(&plan, "filesystem.delete", "/tmp/cache/f1023"));
+    assert!(!has(&plan, "filesystem.delete", "/etc"));
+    let limit = plan
+        .boundaries
+        .iter()
+        .find(|boundary| boundary.limit.as_deref() == Some("max_summary_effects"))
+        .unwrap();
+    assert_eq!(limit.class, BoundaryClass::Limit);
+    assert_eq!(limit.domains, vec![Domain::new("filesystem")]);
+    assert_eq!(
+        plan.coverage.0[&Domain::new("filesystem")].level,
+        CoverageLevel::Partial
+    );
+}
+
 #[test]
 fn open_modes_map_to_read_write_append() {
     assert!(has(&py("open('/a')"), "filesystem.read", "/a"));
