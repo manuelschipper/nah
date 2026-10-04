@@ -91,6 +91,9 @@ impl CommandModel for Find {
         let mut actions: Vec<(usize, usize, Vec<Word>)> = Vec::new();
         let mut tests: Vec<Word> = Vec::new();
         let mut output_files: Vec<(u32, &Word)> = Vec::new();
+        // The tests before the first `-delete`, and whether an earlier action,
+        // whose exit status the tests leave out, also decides whether it runs.
+        let mut delete_tests: Option<(Vec<Word>, bool)> = None;
         let mut unresolved_selector = roots.iter().any(|(_, root)| root.as_literal().is_none());
         let mut j = i;
         while j < ctx.argv.len() {
@@ -132,6 +135,9 @@ impl CommandModel for Find {
                 actions.push((start, end, tests.clone()));
                 j = end + 1;
             } else {
+                if ctx.argv[j].as_literal() == Some("-delete") && delete_tests.is_none() {
+                    delete_tests = Some((tests.clone(), !actions.is_empty()));
+                }
                 tests.push(ctx.argv[j].clone());
                 j += 1;
             }
@@ -176,25 +182,6 @@ impl CommandModel for Find {
         let roots_only = depths.max == Some(0);
 
         let selector = positive_delete_selector(ctx.argv, i);
-        // The tests before `-delete` when they name the entries it removes and
-        // form a conjunction the action matcher reads, with no earlier action
-        // whose exit status also decides whether `-delete` runs. `-delete`
-        // then removes what an `-exec rm {} +` there would be passed.
-        let delete_tests = ctx.argv[i..]
-            .iter()
-            .position(|word| word.as_literal() == Some("-delete"))
-            .map(|position| i + position)
-            .filter(|delete| actions.iter().all(|(start, _, _)| start > delete))
-            .map(|delete| ctx.argv[i..delete].to_vec())
-            .and_then(|tests| {
-                let conjunction = find_conjunction(&tests)?;
-                conjunction
-                    .names
-                    .iter()
-                    .chain(&conjunction.paths)
-                    .all(|(_, fold)| !fold)
-                    .then_some((tests, conjunction))
-            });
         let mut unmodeled_tests = false;
         let root_facts: Vec<Option<PathFact>> = roots
             .iter()
@@ -248,20 +235,42 @@ impl CommandModel for Find {
                     read_attrs,
                 );
             }
-            // Tests that may select the start path keep the model of its
-            // whole tree.
-            let named = delete_tests.as_ref().and_then(|(tests, conjunction)| {
+            // `-delete` removes the entries its tests select, as an
+            // `-exec rm {} +` there would be passed them. Tests that select
+            // every entry, or may select the start path, keep the model of
+            // its whole tree. Where a test the model does not apply, or a
+            // depth bound, may leave part of that tree in place, the whole
+            // tree is not established and the boundary says so.
+            let named = delete_tests.as_ref().and_then(|(tests, after_action)| {
+                let conjunction = find_conjunction(tests);
                 // A name or path that every entry matches narrows nothing.
-                let spelled = root.as_literal()?;
-                if !conjunction
-                    .names
-                    .iter()
-                    .any(|(name, _)| name.chars().any(|character| character != '*'))
-                    && conjunction
-                        .paths
+                let selects_all = conjunction.as_ref().is_some_and(|conjunction| {
+                    conjunction.types.is_empty()
+                        && !conjunction.filtered
+                        && !conjunction
+                            .names
+                            .iter()
+                            .any(|(name, _)| name.chars().any(|character| character != '*'))
+                        && root.as_literal().is_some_and(|spelled| {
+                            conjunction
+                                .paths
+                                .iter()
+                                .all(|(path, _)| find_path_selects_every_entry(path, spelled))
+                        })
+                });
+                if selects_all && !after_action {
+                    unmodeled_tests |= depths.max.is_some_and(|max| max > 0);
+                    return None;
+                }
+                // The name globs do not spell a case-insensitive test here.
+                if conjunction.is_some_and(|conjunction| {
+                    conjunction
+                        .names
                         .iter()
-                        .all(|(path, _)| find_path_selects_every_entry(path, spelled))
-                {
+                        .chain(&conjunction.paths)
+                        .any(|(_, fold)| *fold)
+                }) {
+                    unmodeled_tests = true;
                     return None;
                 }
                 let (matches, unmodeled) = find_action_matches(
@@ -277,7 +286,12 @@ impl CommandModel for Find {
                 let whole_root = matches.iter().any(|matched| {
                     matched == root || *matched == find_root_matches(ctx, root, roots_only)
                 });
-                (!whole_root).then_some((matches, unmodeled))
+                let unmodeled = unmodeled || *after_action;
+                if whole_root {
+                    unmodeled_tests |= unmodeled;
+                    return None;
+                }
+                Some((matches, unmodeled))
             });
             if let Some((matches, unmodeled)) = named {
                 unmodeled_tests |= unmodeled;
@@ -1603,7 +1617,14 @@ fn find_listed_matches(
         .iter()
         .any(|word| matches!(word.as_literal(), Some("-depth" | "-d" | "-delete")));
     let mut matches = Vec::new();
-    let mut unmodeled = false;
+    // -xdev and -mount stay on the start path's filesystem, and the listing
+    // does not say where another one is mounted, so entries below a mount
+    // point are listed although find skips them.
+    let mut unmodeled = descends
+        && ctx
+            .argv
+            .iter()
+            .any(|word| matches!(word.as_literal(), Some("-xdev" | "-mount")));
     let mut pruned: Vec<String> = Vec::new();
     let mut visit = |spelled: &str, kind: Option<char>| {
         let (mut action, mut prune) = (FindReach::No, FindReach::No);
