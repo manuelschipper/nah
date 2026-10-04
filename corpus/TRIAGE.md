@@ -556,6 +556,14 @@ Accepted limitations with no corpus row that asserts a desired block.
   found under none of the searched directories comes from the installed
   ones, which the search does not cover. Closing these needs the same search
   from inside the Perl frontend.
+- A process substitution sourced when its output is not fixed text.
+  `source <(printf 'x=%s\n' "$v")` delegates at full coverage with a
+  `process.code_execution` effect and no boundary, although the sourced text
+  holds a value the shell has not established: the `source /dev/fd/N` reader
+  (`crates/effinterp-engine/src/shell/eval/source_and_eval.rs`) runs only
+  wholly literal descriptor content and says nothing otherwise. No corpus
+  row exists. A fix states a `dynamic_source` boundary when the descriptor's
+  content is not literal.
 - A Perl HTTP::Tiny request whose data the bounded grammar does not follow.
   The frontend (`crates/effinterp-engine/src/lang/perl/mod.rs`) tracks an
   HTTP::Tiny client, its responses and their `{content}`, a file opened for
