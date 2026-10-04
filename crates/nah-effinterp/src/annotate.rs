@@ -71,6 +71,16 @@ pub(crate) fn annotate_path_relation(
             }
         },
     };
+    // An unknown subset of a pattern's matches may be empty and is never all
+    // of them, so the pattern's reach says nothing of what the effect takes.
+    if crate::observation_request::selection_narrowing(&effect.resource)
+        .is_some_and(|narrowing| narrowing.subset)
+    {
+        return (
+            selection.unwrap_or(PathSelection::FollowedTarget),
+            PathLabel::Unresolved,
+        );
+    }
     let Some((query_path, selection_suffix)) = observation_bound(&effect.resource) else {
         return (
             selection.unwrap_or(PathSelection::FollowedTarget),
@@ -184,9 +194,12 @@ pub(crate) fn annotate_path_relation(
     // left out as well: a recursive operation, a move or the removal it
     // states for what it moved away, which carry a directory's contents with
     // them, or an access-control change that does not provably keep a
-    // directory's contents usable.
+    // directory's contents usable. A removal that does not recurse (`rm`,
+    // `unlink`, `rmdir`) leaves a directory's contents where they are, so it
+    // keeps the narrowing.
     let applied_narrowing = if recursive
         || operation == FilesystemOperation::Delete
+            && !crate::observation_request::removes_entries_only(plan, effect)
         || effect.operation.as_str() == "filesystem.move"
         || access_control && !keeps_enclosed_access(effect)
     {

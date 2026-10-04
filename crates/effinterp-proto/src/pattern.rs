@@ -51,12 +51,18 @@ pub struct FsNarrowing {
     /// name matches one is not selected.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub excluded_names: Vec<String>,
+    /// The producer selects by a test it could not apply (`find -path` with
+    /// no listing to test), so the selection is some subset of what the glob,
+    /// kinds and names admit and may be empty. It establishes no entry and
+    /// never the whole of what its glob matches.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub subset: bool,
 }
 
 impl FsNarrowing {
     /// Whether nothing is left out: the selection is every match of its glob.
     pub fn is_none(&self) -> bool {
-        self.kinds.is_empty() && self.excluded_names.is_empty()
+        self.kinds.is_empty() && self.excluded_names.is_empty() && !self.subset
     }
 
     /// Whether the selection can hold an entry of `kind` whose last component

@@ -1429,8 +1429,8 @@ fn mv_target_directory_moves_each_source_and_rejects_unknown_flags() {
             transfers(&plan),
             vec![(
                 effinterp_proto::CausalAssurance::Exact,
-                "filesystem.delete Pattern { pattern: FsPath { glob: \"/*\", narrowing: FsNarrowing { kinds: [], excluded_names: [] } } }".to_string(),
-                "filesystem.write Pattern { pattern: FsPath { glob: \"/tmp/*\", narrowing: FsNarrowing { kinds: [], excluded_names: [] } } }".to_string(),
+                "filesystem.delete Pattern { pattern: FsPath { glob: \"/*\", narrowing: FsNarrowing { kinds: [], excluded_names: [], subset: false } } }".to_string(),
+                "filesystem.write Pattern { pattern: FsPath { glob: \"/tmp/*\", narrowing: FsNarrowing { kinds: [], excluded_names: [], subset: false } } }".to_string(),
             )],
             "{source}"
         );

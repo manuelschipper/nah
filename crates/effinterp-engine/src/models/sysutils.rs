@@ -291,8 +291,9 @@ impl CommandModel for Find {
                     false,
                 );
                 let narrowing = find_expression(tests)
-                    .map(|expression| find_narrowing(&expression, traversal).0)
-                    .unwrap_or_default();
+                    .and_then(|expression| find_narrowing(&expression, traversal))
+                    .unwrap_or_default()
+                    .0;
                 let whole_root = matches.iter().any(|matched| {
                     matched == root
                         || *matched == find_root_matches(ctx, root, roots_only, &narrowing)
@@ -1184,9 +1185,13 @@ fn find_action_matches(
     let conjunction = find_conjunction(tests);
     // What the tests say of every entry the action runs for, which the
     // root-wide selection below carries instead of losing.
-    let (narrowing, exact) = find_expression(tests).map_or_else(Default::default, |expression| {
-        find_narrowing(&expression, traversal)
-    });
+    let (narrowing, exact) = match find_expression(tests) {
+        Some(expression) => match find_narrowing(&expression, traversal) {
+            Some(narrowing) => narrowing,
+            None => return (Vec::new(), false),
+        },
+        None => Default::default(),
+    };
     let resolved = match (root.as_literal(), ctx.resolve_fs_word(root)) {
         (
             Some(spelled),
@@ -1336,13 +1341,37 @@ fn find_action_matches(
             }
             return (matches, unmodeled);
         }
+        // A test no glob carries, with no listing to apply it to (the host
+        // refused one, or it selected more entries than are passed one by
+        // one): the action receives some of the entries below the start path,
+        // possibly none, and the selection says so rather than naming them all.
+        let below = |pattern: String| {
+            if !narrowed {
+                return glob(pattern);
+            }
+            Word::new(vec![WordPart::Value(ResourceExpr::Pattern {
+                pattern: effinterp_proto::ResourcePattern::FsPath {
+                    glob: pattern,
+                    narrowing: effinterp_proto::FsNarrowing {
+                        subset: true,
+                        ..Default::default()
+                    },
+                },
+            })])
+        };
         let min = depths.min.max(1);
         if narrowed && min == 1 && depths.max.is_none() {
-            return (vec![glob(format!("{base}/**"))], unmodeled);
+            return (vec![below(format!("{base}/**"))], unmodeled);
         }
         return match find_depth_globs(builder, &base, min, depths.max, None) {
-            Some(globs) => (globs.into_iter().map(glob).collect(), unmodeled),
-            None => (descendants(), true),
+            Some(globs) => (globs.into_iter().map(below).collect(), unmodeled),
+            None => (
+                vec![
+                    below(format!("{base}/*/**")),
+                    below(format!("{base}/.*/**")),
+                ],
+                true,
+            ),
         };
     };
     let globs = find_name_globs(pattern, *fold);
@@ -1429,21 +1458,23 @@ fn find_action_matches(
 fn find_selects_every_file(tests: &[Word], depths: FindDepths) -> bool {
     depths.min <= 1
         && depths.max.is_none_or(|max| max >= 2)
-        && find_expression(tests).is_some_and(|expression| {
-            let (narrowing, exact) = find_narrowing(&expression, FindTraversal::Physical);
-            exact
-                && narrowing.excluded_names.is_empty()
-                && narrowing
-                    .kinds
-                    .contains(&effinterp_proto::FsEntryKind::File)
-        })
+        && find_expression(tests)
+            .and_then(|expression| find_narrowing(&expression, FindTraversal::Physical))
+            .is_some_and(|(narrowing, exact)| {
+                exact
+                    && narrowing.excluded_names.is_empty()
+                    && narrowing
+                        .kinds
+                        .contains(&effinterp_proto::FsEntryKind::File)
+            })
 }
 
 /// What an expression's top-level conjunction says of every entry its action
 /// runs for: the entry kinds a `-type` or its negation admits and the names a
 /// negated `-name` leaves out. The second value is whether that is everything
 /// the expression tests, so the narrowed selection is exactly what the action
-/// receives.
+/// receives. `None` when its `-type` tests admit no kind in common
+/// (`-type f ! -type f`), so the action runs for nothing.
 ///
 /// Under `-L` a `-type` test reads what a link points at, so a link may pass
 /// any of them. A name pattern is carried only where the selection's glob
@@ -1451,7 +1482,7 @@ fn find_selects_every_file(tests: &[Word], depths: FindDepths) -> bool {
 fn find_narrowing(
     expression: &FindExpr,
     traversal: FindTraversal,
-) -> (effinterp_proto::FsNarrowing, bool) {
+) -> Option<(effinterp_proto::FsNarrowing, bool)> {
     use effinterp_proto::FsEntryKind;
     /// The kinds the type letters admit, or with `negated` the kinds they
     /// leave. A letter for a FIFO, socket or device is only part of `Other`,
@@ -1493,17 +1524,24 @@ fn find_narrowing(
         expression: &FindExpr,
         follows: bool,
         narrowing: &mut effinterp_proto::FsNarrowing,
+        typed: &mut bool,
         exact: &mut bool,
     ) {
+        // Every `-type` test of the conjunction must hold, so an entry's
+        // kind is one that all of them admit.
+        let mut admit = |kinds: Vec<FsEntryKind>| {
+            if *typed {
+                narrowing.kinds.retain(|kind| kinds.contains(kind));
+            } else {
+                narrowing.kinds = kinds;
+                *typed = true;
+            }
+        };
         match expression {
             FindExpr::Always | FindExpr::Action => {}
-            FindExpr::Type(types) if narrowing.kinds.is_empty() => {
-                narrowing.kinds = kinds(types, false, follows, exact);
-            }
+            FindExpr::Type(types) => admit(kinds(types, false, follows, exact)),
             FindExpr::Not(inner) => match &**inner {
-                FindExpr::Type(types) if narrowing.kinds.is_empty() => {
-                    narrowing.kinds = kinds(types, true, follows, exact);
-                }
+                FindExpr::Type(types) => admit(kinds(types, true, follows, exact)),
                 FindExpr::Name(pattern, false)
                     if !pattern.contains(['{', '}', '(', ')', '[', ']', '\\'])
                         && effinterp_proto::validate_glob(pattern).is_ok() =>
@@ -1514,24 +1552,25 @@ fn find_narrowing(
             },
             FindExpr::And(terms) => {
                 for term in terms {
-                    collect(term, follows, narrowing, exact);
+                    collect(term, follows, narrowing, typed, exact);
                 }
             }
             FindExpr::Or(alternatives) if alternatives.len() == 1 => {
-                collect(&alternatives[0], follows, narrowing, exact);
+                collect(&alternatives[0], follows, narrowing, typed, exact);
             }
             _ => *exact = false,
         }
     }
     let mut narrowing = effinterp_proto::FsNarrowing::default();
-    let mut exact = true;
+    let (mut typed, mut exact) = (false, true);
     collect(
         expression,
         traversal == FindTraversal::Logical,
         &mut narrowing,
+        &mut typed,
         &mut exact,
     );
-    (narrowing, exact)
+    (!(typed && narrowing.kinds.is_empty())).then_some((narrowing, exact))
 }
 
 /// A find expression up to one action, read for whether that action runs for

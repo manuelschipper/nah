@@ -303,6 +303,35 @@ pub(crate) fn selection_narrowing(
     }
 }
 
+/// Whether an effect removes only the entries it is passed: a removal that
+/// does not recurse (`rm`, `unlink`, `rmdir`) cannot take a directory that
+/// holds any entry, so a directory's contents stay where they are. The
+/// removal a move states for what it moved away carries them with it.
+pub(crate) fn removes_entries_only(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
+    effect.operation.as_str() == "filesystem.delete"
+        && effect.attributes.get("recursive") != Some(&AttrValue::Bool(true))
+        && !plan.effects.iter().any(|other| {
+            other.operation.as_str() == "filesystem.move"
+                && other.execution == effect.execution
+                && other.resource == effect.resource
+        })
+}
+
+/// Whether an effect on a root-wide selection takes the root's whole tree.
+/// A removal of only the entries it is passed, whose selection leaves out
+/// regular files (`find . -type d -exec rm -f {} +`), leaves every file in
+/// the tree where it is.
+pub(crate) fn subtree_reached_whole(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
+    subtree_root(&effect.resource).is_some()
+        && !(removes_entries_only(plan, effect)
+            && selection_narrowing(&effect.resource).is_some_and(|narrowing| {
+                !narrowing.kinds.is_empty()
+                    && !narrowing
+                        .kinds
+                        .contains(&effinterp_proto::FsEntryKind::File)
+            }))
+}
+
 /// Preserve the exact set of a root and any descendant without treating an
 /// arbitrary union as one path. The root remains a selection bound. A producer
 /// may narrow the descendants (`find DIR -type d`): the selection still works
@@ -438,7 +467,7 @@ mod tests {
                         glob: r"/tmp/build\[1\]/**".into(),
                         narrowing: effinterp_proto::FsNarrowing {
                             kinds: vec![effinterp_proto::FsEntryKind::Directory],
-                            excluded_names: vec![],
+                            ..Default::default()
                         },
                     },
                 },
