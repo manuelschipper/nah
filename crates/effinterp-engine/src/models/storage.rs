@@ -2,7 +2,7 @@
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    ProvenanceRef, ResourceExpr, ResourceIdentity,
+    ProvenanceRef, RequestAssurance, ResourceExpr, ResourceIdentity,
 };
 
 use crate::builder::PlanBuilder;
@@ -11,6 +11,7 @@ use crate::models::common::{
     Attrs, arg_effect, filesystem_read_stdout_binding, fs_full_no_spawn, operand_effect,
     program_input_attrs, stdin_stdout_binding, system_full, unrecognized_arguments_boundary,
 };
+use crate::models::fsutils::requested_operand_effect;
 use crate::models::{CommandModel, InvocationCtx, ModelCausalBinding};
 use crate::resource_transfer::TransferBinding;
 use crate::value::unresolved_resource;
@@ -422,8 +423,15 @@ impl CommandModel for Shred {
             );
         }
         let remove = args.has(&["-u", "--remove"]);
+        // shred overwrites every file operand and `-u` removes each one; an
+        // option the model does not read may change that.
+        let request_assurance = if args.unknown_flags.is_empty() {
+            RequestAssurance::Exact
+        } else {
+            RequestAssurance::Conservative
+        };
         for (index, operand) in &args.operands {
-            operand_effect(
+            requested_operand_effect(
                 builder,
                 ctx,
                 model_node,
@@ -431,10 +439,11 @@ impl CommandModel for Shred {
                 operand,
                 "filesystem.write",
                 bool_attr("overwrite", true),
+                request_assurance,
             );
             destroy_device(builder, ctx, model_node, *index, operand);
             if remove {
-                operand_effect(
+                requested_operand_effect(
                     builder,
                     ctx,
                     model_node,
@@ -442,6 +451,7 @@ impl CommandModel for Shred {
                     operand,
                     "filesystem.delete",
                     Attrs::new(),
+                    request_assurance,
                 );
             }
         }

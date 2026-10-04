@@ -9,9 +9,9 @@ use effinterp_proto::{
 use crate::builder::PlanBuilder;
 use crate::models::args::{FlagSpec, Scanned, basename, scan, scan_with_value_indices};
 use crate::models::common::{
-    attrs, filesystem_read_stdout_binding, fs_arg_effect, fs_arg_node, fs_full_no_spawn,
-    operand_effect, operands_read_stdin, program_input_attrs, program_output_attrs,
-    stdin_stdout_binding, unrecognized_arguments_boundary,
+    Attrs, attrs, filesystem_read_stdout_binding, follow_parent_links, fs_arg_effect, fs_arg_node,
+    fs_full_no_spawn, operand_effect, operands_read_stdin, program_input_attrs,
+    program_output_attrs, stdin_stdout_binding, unrecognized_arguments_boundary,
 };
 use crate::models::{CommandModel, InvocationCtx, ModelCausalBinding};
 use crate::paths::resolve_fs_word_with_cwd;
@@ -30,6 +30,43 @@ pub(super) fn fsutils_models() -> Vec<Box<dyn CommandModel>> {
         Box::new(Patch),
         Box::new(Vim),
     ]
+}
+
+/// An operand effect whose request the model states: `Exact` where the
+/// command performs the operation on every entry the operand names, as tee
+/// writes each file operand and `shred -u` removes each one. `operand_effect`
+/// states a conservative request, which establishes the operation only for
+/// one concrete path; an exact request also establishes it for a pattern or
+/// a tree selection, such as the entries `find -exec` passes.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn requested_operand_effect(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    index: u32,
+    operand: &Word,
+    operation: &str,
+    attributes: Attrs,
+    request_assurance: RequestAssurance,
+) -> Option<u32> {
+    let arg = fs_arg_node(builder, ctx, index, operand);
+    let mut resource = ctx.resolve_fs_word(operand);
+    let provenance = vec![arg, model_node];
+    if !follow_parent_links(builder, ctx, operand, &mut resource, &provenance) {
+        return None;
+    }
+    builder.effect(Effect {
+        request_assurance,
+        id: Default::default(),
+        operation: Operation::new(operation),
+        resource,
+        attributes,
+        modality: Modality::May,
+        realm: ExecutionRealm::Host,
+        condition: None,
+        execution: Default::default(),
+        provenance,
+    })
 }
 
 struct Patch;
@@ -812,11 +849,18 @@ impl CommandModel for Tee {
         let scanned = tee_scan(ctx.argv);
         let mut attributes = attrs(&[("append", scanned.has(&["-a", "--append"]))]);
         attributes.extend(program_output_attrs());
+        // tee opens every file operand for writing; an option the model does
+        // not read may change that.
+        let request_assurance = if scanned.unknown_flags.is_empty() {
+            RequestAssurance::Exact
+        } else {
+            RequestAssurance::Conservative
+        };
         for (index, operand) in &scanned.operands {
             if operand.as_literal() == Some("-") {
                 continue;
             }
-            operand_effect(
+            requested_operand_effect(
                 builder,
                 ctx,
                 model_node,
@@ -824,6 +868,7 @@ impl CommandModel for Tee {
                 operand,
                 "filesystem.write",
                 attributes.clone(),
+                request_assurance,
             );
         }
         fs_full_no_spawn(builder);
