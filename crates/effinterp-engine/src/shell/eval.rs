@@ -258,6 +258,8 @@ impl ConditionalShellState {
             entry.word = Some(Word::new(vec![WordPart::Unknown]));
             entry.word_condition = None;
             entry.producers.clear();
+            entry.producers_condition = None;
+            entry.earlier_producers.clear();
             entry.script_may_set = true;
             entry.saturation_key = variable_saturation_key(
                 None,
@@ -3517,6 +3519,8 @@ impl Shell<'_> {
                         entry.node = None;
                         entry.antecedents = branch.antecedents.clone();
                         entry.producers = branch.producers.clone();
+                        entry.producers_condition = None;
+                        entry.earlier_producers.clear();
                     }
                 }
                 builder.push_bound_condition(condition);

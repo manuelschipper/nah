@@ -1001,7 +1001,15 @@ impl Shell<'_> {
                             && (entry.script_set || !entry.script_may_set && entry.value.is_some())
                         {
                             assign_nodes.push(var_node(builder, self.scope, entry));
-                            producers.extend(entry.producers_in_condition(builder).iter().cloned());
+                            let observed = entry.producers_in_condition(builder);
+                            if let Some(reads) = &env.loop_reads {
+                                reads
+                                    .borrow_mut()
+                                    .entry(name.clone())
+                                    .or_default()
+                                    .extend(observed.iter().cloned());
+                            }
+                            producers.extend(observed);
                             if let Some(value) = &entry.value {
                                 let use_default =
                                     env.unset.contains(name) || default.colon && value.is_empty();
@@ -1540,6 +1548,11 @@ impl Shell<'_> {
                 return expansion;
             }
         }
+        // A name unbound on a loop body's first pass is still a use the next
+        // iteration's value can reach.
+        if let Some(reads) = &env.loop_reads {
+            reads.borrow_mut().entry(name.to_string()).or_default();
+        }
         let Some(entry) = env.vars.get_mut(name) else {
             // A bare `$f` on an array names its first element, `${f[0]}`.
             match env.arrays.get(name) {
@@ -1565,9 +1578,15 @@ impl Shell<'_> {
             return expansion;
         };
         expansion.unresolved_default_override = entry.unresolved_default_override;
-        expansion
-            .producers
-            .extend(entry.producers_in_condition(builder).iter().cloned());
+        let observed = entry.producers_in_condition(builder);
+        if let Some(reads) = &env.loop_reads {
+            reads
+                .borrow_mut()
+                .entry(name.to_string())
+                .or_default()
+                .extend(observed.iter().cloned());
+        }
+        expansion.producers.extend(observed);
         expansion
             .assign_nodes
             .push(var_node(builder, self.scope, entry));

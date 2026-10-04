@@ -315,10 +315,15 @@ struct VarEntry {
     /// Pending flow values this binding carries, such as captured output or an
     /// inherited environment value. Any rebinding drops them.
     producers: Vec<FlowRef>,
-    /// A write inside a region that runs only on some paths binds its
-    /// producers for uses under that region's condition; elsewhere the write
-    /// may not have run, so the name carries none of them.
+    /// The condition the latest write ran under, when its region runs only
+    /// on some paths. A use under that condition observes `producers` alone;
+    /// elsewhere the write may not have run, so the use also observes
+    /// `earlier_producers`.
     producers_condition: Option<effinterp_proto::Condition>,
+    /// Producers of the writes before the latest that a path skipping it
+    /// still observes, oldest first, each under the condition its write ran
+    /// (`None` for a write that certainly ran).
+    earlier_producers: Vec<(Option<effinterp_proto::Condition>, Vec<FlowRef>)>,
     /// The script assigned this name on every path to here (any write kind),
     /// so an expansion reads the script's value, not the environment's.
     script_set: bool,
@@ -375,18 +380,144 @@ impl VarEntry {
         self.word.as_ref()
     }
 
-    /// The producers a use at the builder's current condition observes.
-    fn producers_in_condition(&self, builder: &PlanBuilder) -> &[FlowRef] {
-        if let Some(required) = &self.producers_condition
-            && !builder
-                .current_condition()
-                .is_some_and(|current| condition_implies(&current, required))
-        {
-            return &[];
+    /// The producers a use at the builder's current condition observes: those
+    /// of the latest write that certainly ran before it, joined with every
+    /// later write that may have. A write in another arm of a branch the use
+    /// sits in did not run; writes that together cover every path leave
+    /// nothing of the value before them.
+    fn producers_in_condition(&self, builder: &PlanBuilder) -> Vec<FlowRef> {
+        let current = builder.current_condition();
+        let mut fixed = Vec::new();
+        if let Some(current) = &current {
+            condition_atoms(current, &mut fixed);
         }
-        &self.producers
+        // One iteration's arm says nothing about the arm an earlier iteration took.
+        let in_loop = fixed
+            .iter()
+            .any(|atom| atom.origin.kind == effinterp_proto::ConditionKind::Loop);
+        let mut observed: Vec<&[FlowRef]> = Vec::new();
+        let mut certain = false;
+        let mut terms = Vec::new();
+        let writes = self
+            .earlier_producers
+            .iter()
+            .map(|(condition, producers)| (condition.as_ref(), producers))
+            .chain([(self.producers_condition.as_ref(), &self.producers)]);
+        for (condition, producers) in writes {
+            let Some(required) = condition else {
+                observed = vec![producers];
+                certain = true;
+                terms.clear();
+                continue;
+            };
+            if current
+                .as_ref()
+                .is_some_and(|current| condition_implies(current, required))
+            {
+                observed = vec![producers];
+                certain = true;
+                terms.clear();
+                continue;
+            }
+            let mut atoms = Vec::new();
+            let plain = condition_atoms(required, &mut atoms);
+            let exclusive = |atom: &&effinterp_proto::ConditionAtom| {
+                matches!(
+                    atom.origin.kind,
+                    effinterp_proto::ConditionKind::Branch
+                        | effinterp_proto::ConditionKind::ShortCircuit
+                ) && fixed
+                    .iter()
+                    .any(|held| held.origin == atom.origin && held.arm != atom.arm)
+            };
+            if plain && !in_loop && atoms.iter().any(exclusive) {
+                continue;
+            }
+            observed.push(producers);
+            // The arms this write still depends on once the use's own are fixed.
+            let open = atoms
+                .into_iter()
+                .filter(|atom| !fixed.iter().any(|held| held == atom))
+                .collect::<Vec<_>>();
+            if plain
+                && open.iter().all(|atom| {
+                    atom.exhaustive && atom.origin.kind == effinterp_proto::ConditionKind::Branch
+                })
+            {
+                terms.push(
+                    open.into_iter()
+                        .map(|atom| (atom.origin.clone(), (atom.arm, atom.arms)))
+                        .collect::<BTreeMap<_, _>>(),
+                );
+            }
+        }
+        if certain && observed.len() > 1 && eval::variable_binding::paths_cover(&terms) {
+            observed.remove(0);
+        }
+        let mut producers = observed.concat();
+        producers.sort();
+        producers.dedup();
+        producers
     }
 }
+
+impl VarEntry {
+    /// The writes that bound this name's producers, oldest first.
+    fn producer_writes(&self) -> Vec<(Option<effinterp_proto::Condition>, Vec<FlowRef>)> {
+        let mut writes = self.earlier_producers.clone();
+        writes.push((self.producers_condition.clone(), self.producers.clone()));
+        writes
+    }
+
+    /// This binding as the next iteration of a loop starts with it, given the
+    /// writes the name had before the loop. A write the body made ran under
+    /// an earlier iteration's conditions, which say nothing about the arms
+    /// this iteration takes, so it may have run on any path.
+    fn carried_into_next_iteration(
+        &self,
+        before: &[(Option<effinterp_proto::Condition>, Vec<FlowRef>)],
+    ) -> Self {
+        let mut writes = self.producer_writes();
+        let kept = writes
+            .iter()
+            .zip(before)
+            .take_while(|(now, before)| now == before)
+            .count();
+        for (condition, _) in &mut writes[kept..] {
+            if condition.is_some() {
+                *condition = Some(effinterp_proto::Condition::Widened);
+            }
+        }
+        let mut carried = self.clone();
+        if let Some((condition, producers)) = writes.pop() {
+            carried.producers_condition = condition;
+            carried.producers = producers;
+        }
+        carried.earlier_producers = writes;
+        carried
+    }
+}
+
+/// Collect the atoms a conjunction requires. False when the condition holds
+/// anything else (a disjunction or a widened formula), which names no arm.
+fn condition_atoms<'a>(
+    condition: &'a effinterp_proto::Condition,
+    atoms: &mut Vec<&'a effinterp_proto::ConditionAtom>,
+) -> bool {
+    use effinterp_proto::Condition;
+    match condition {
+        Condition::Atom { atom } => {
+            atoms.push(atom);
+            true
+        }
+        Condition::All { conditions } => conditions
+            .iter()
+            .fold(true, |plain, inner| condition_atoms(inner, atoms) && plain),
+        Condition::Any { .. } | Condition::Widened => false,
+    }
+}
+
+type LoopReads = Rc<RefCell<BTreeMap<String, BTreeSet<FlowRef>>>>;
 
 #[derive(Clone)]
 struct DeferredProcess {
@@ -636,6 +767,14 @@ type LocalFrame = HashMap<String, (Option<VarEntry>, Option<ArrayValue>)>;
 #[derive(Clone)]
 struct ShellEnv {
     stdout_consumed: bool,
+    /// The producers each name's uses observed during a loop body's first
+    /// pass, shared with the child shells the body starts. `walk_loop` reads
+    /// it to tell whether a value the body stored reaches an earlier use on
+    /// the next iteration.
+    loop_reads: Option<LoopReads>,
+    /// Walking a loop body's second pass, where a nested loop gets no second
+    /// pass of its own.
+    loop_carry_pass: bool,
     vars: HashMap<String, VarEntry>,
     arrays: HashMap<String, ArrayValue>,
     /// Names inherited by launched commands while host context is supplied.
@@ -1329,6 +1468,7 @@ pub(crate) fn analyze_shell(
                     antecedents: Vec::new(),
                     producers: Vec::new(),
                     producers_condition: None,
+                    earlier_producers: Vec::new(),
                     script_set: false,
                     script_may_set: false,
                     captured_name_hidden: false,
@@ -1361,6 +1501,7 @@ pub(crate) fn analyze_shell(
                 antecedents: Vec::new(),
                 producers: Vec::new(),
                 producers_condition: None,
+                earlier_producers: Vec::new(),
                 script_set: false,
                 script_may_set: false,
                 captured_name_hidden: false,
@@ -1415,6 +1556,7 @@ pub(crate) fn analyze_shell(
                 producers: builder
                     .environment_value_producers(&node.into_iter().collect::<Vec<_>>()),
                 producers_condition: None,
+                earlier_producers: Vec::new(),
                 // PHP interpolation declares unknown locals without a value.
                 // Valued entries still represent environment reads, including
                 // symbolic host pass-through values from container launches.
@@ -1513,6 +1655,7 @@ pub(crate) fn analyze_shell(
                     antecedents: Vec::new(),
                     producers: Vec::new(),
                     producers_condition: None,
+                    earlier_producers: Vec::new(),
                     script_set: false,
                     script_may_set: false,
                     captured_name_hidden: false,
@@ -1563,6 +1706,8 @@ pub(crate) fn analyze_shell(
         stdout_consumed: depth != 0,
         vars,
         arrays: HashMap::new(),
+        loop_reads: None,
+        loop_carry_pass: false,
         exported,
         unexported,
         readonly: BTreeSet::new(),
@@ -2403,7 +2548,13 @@ impl Shell<'_> {
                             .is_some_and(|name| env.functions.contains_key(name)) =>
                     {
                         if let Some(termination) =
-                            self.walk(builder, env, items, force_conditional, walk_depth + 1)
+                            self.walk_loop(builder, env, |builder, env, again| {
+                                if again {
+                                    self.walk_may_region(builder, env, items, walk_depth + 1);
+                                    return None;
+                                }
+                                self.walk(builder, env, items, force_conditional, walk_depth + 1)
+                            })
                         {
                             if let Some(depth) = hazard_depth {
                                 builder.truncate_source_hazards(depth);
@@ -2413,7 +2564,10 @@ impl Shell<'_> {
                         env.status = None;
                     }
                     GroupKind::Conditional { .. } => {
-                        self.walk_may_region(builder, env, items, walk_depth + 1);
+                        self.walk_loop(builder, env, |builder, env, _| {
+                            self.walk_may_region(builder, env, items, walk_depth + 1);
+                            None
+                        });
                         env.status = None;
                     }
                     // Nothing reaches these commands unless the command that
@@ -2584,7 +2738,10 @@ impl Shell<'_> {
                                         *span,
                                         value.producers,
                                     );
-                                    self.walk_may_region(builder, env, items, walk_depth + 1);
+                                    self.walk_loop(builder, env, |builder, env, _| {
+                                        self.walk_may_region(builder, env, items, walk_depth + 1);
+                                        None
+                                    });
                                 }
                             }
                             if let Some(depth) = hazard_depth {
@@ -2676,7 +2833,13 @@ impl Shell<'_> {
                                 .is_some_and(eval::arithmetic::arithmetic_for_enters)
                     }) {
                         if let Some(termination) =
-                            self.walk(builder, env, items, force_conditional, walk_depth + 1)
+                            self.walk_loop(builder, env, |builder, env, again| {
+                                if again {
+                                    self.walk_may_region(builder, env, items, walk_depth + 1);
+                                    return None;
+                                }
+                                self.walk(builder, env, items, force_conditional, walk_depth + 1)
+                            })
                         {
                             if let Some(depth) = hazard_depth {
                                 builder.truncate_source_hazards(depth);
@@ -2684,7 +2847,10 @@ impl Shell<'_> {
                             return Some(termination);
                         }
                     } else {
-                        self.walk_may_region(builder, env, items, walk_depth + 1);
+                        self.walk_loop(builder, env, |builder, env, _| {
+                            self.walk_may_region(builder, env, items, walk_depth + 1);
+                            None
+                        });
                     }
                     env.status = None;
                 }
@@ -3479,6 +3645,77 @@ impl Shell<'_> {
         }
     }
 
+    /// Walk a loop body with `pass`, then once more when a value the body
+    /// stored reaches a use earlier in it on the next iteration: the second
+    /// pass starts from the bindings the first left. One extra pass follows a
+    /// value across one iteration boundary, and a loop nested in a second pass
+    /// is walked once, so nesting adds a pass per level instead of doubling.
+    fn walk_loop(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &mut ShellEnv,
+        pass: impl Fn(&mut PlanBuilder, &mut ShellEnv, bool) -> Option<(Termination, u32)>,
+    ) -> Option<(Termination, u32)> {
+        if env.loop_carry_pass {
+            return pass(builder, env, false);
+        }
+        let before = env
+            .vars
+            .iter()
+            .filter(|(_, entry)| {
+                !entry.producers.is_empty()
+                    || entry.producers_condition.is_some()
+                    || !entry.earlier_producers.is_empty()
+            })
+            .map(|(name, entry)| (name.clone(), entry.producer_writes()))
+            .collect::<HashMap<_, _>>();
+        let outer = env.loop_reads.replace(Rc::default());
+        let termination = pass(builder, env, false);
+        let reads = std::mem::replace(&mut env.loop_reads, outer);
+        let reads = reads.map(|reads| reads.take()).unwrap_or_default();
+        // The enclosing loop's uses include this one's.
+        if let Some(outer) = &env.loop_reads {
+            let mut outer = outer.borrow_mut();
+            for (name, seen) in &reads {
+                outer
+                    .entry(name.clone())
+                    .or_default()
+                    .extend(seen.iter().cloned());
+            }
+        }
+        if termination.is_some() {
+            return termination;
+        }
+        let writes_before = |name: &str| before.get(name).map_or(&[][..], Vec::as_slice);
+        let reaches_earlier_use = reads.iter().any(|(name, seen)| {
+            env.vars.get(name).is_some_and(|entry| {
+                entry
+                    .carried_into_next_iteration(writes_before(name))
+                    .producers_in_condition(builder)
+                    .iter()
+                    .any(|producer| !seen.contains(producer))
+            })
+        });
+        if !reaches_earlier_use {
+            return None;
+        }
+        let carried = env
+            .vars
+            .iter()
+            .map(|(name, entry)| {
+                (
+                    name.clone(),
+                    entry.carried_into_next_iteration(writes_before(name)),
+                )
+            })
+            .collect();
+        env.vars = carried;
+        env.loop_carry_pass = true;
+        pass(builder, env, true);
+        env.loop_carry_pass = false;
+        None
+    }
+
     /// Walk `items` as a region that runs only on some paths. Inside it, a
     /// name the region assigns suppresses environment reads (the assignment
     /// precedes the read on every path through the region); afterwards the
@@ -3675,6 +3912,7 @@ impl Shell<'_> {
             antecedents: entry.antecedents.clone(),
             producers: entry.producers.clone(),
             producers_condition: entry.producers_condition.clone(),
+            earlier_producers: entry.earlier_producers.clone(),
             script_set: entry.script_set,
             script_may_set: entry.script_may_set,
             captured_name_hidden: entry.captured_name_hidden,
@@ -3682,6 +3920,8 @@ impl Shell<'_> {
         };
         ShellEnv {
             stdout_consumed: true,
+            loop_reads: env.loop_reads.clone(),
+            loop_carry_pass: env.loop_carry_pass,
             vars: match variables {
                 Some(names) => names
                     .iter()

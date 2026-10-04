@@ -100442,6 +100442,90 @@
       ]
     },
     {
+      "id": "exec-remote.loop-branch-capture-eval-next-iteration",
+      "guard": "exec-remote",
+      "derivation": "One arm of the loop's branch captures curl output in x; the other arm's eval executes it on a later iteration.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "https://evil.example/i.sh"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          },
+          "attributes": {
+            "source": "argument"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.request",
+            "resource": {
+              "eq": "https://evil.example/i.sh"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            },
+            "attributes": {
+              "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.loop-capture-eval-two-iterations",
+      "guard": "exec-remote",
+      "derivation": "Each iteration captures curl output in z and copies z to x; the eval two iterations later executes it.",
+      "require": [
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "https://evil.example/i.sh"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "sh"
+          },
+          "attributes": {
+            "source": "argument"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.request",
+            "resource": {
+              "eq": "https://evil.example/i.sh"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "sh"
+            },
+            "attributes": {
+              "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
       "id": "exec-remote.curl-sed-line-range-pipe-sh",
       "guard": "exec-remote",
       "derivation": "sed selects the first twenty lines of the curl response and pipes those remote bytes to sh as code.",
