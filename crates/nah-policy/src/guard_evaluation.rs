@@ -130,13 +130,19 @@ impl ShippedGuards {
         labels: &dyn LabelProvider,
         host: &dyn GuardHostFacts,
     ) -> Result<ShippedGuardMatches, EvidenceError> {
+        self.evaluate_within(plan, labels, host, QueryLimits::default())
+    }
+
+    /// [`Self::evaluate`] under the caller's matcher work limits.
+    pub fn evaluate_within(
+        &self,
+        plan: &Plan,
+        labels: &dyn LabelProvider,
+        host: &dyn GuardHostFacts,
+        limits: QueryLimits,
+    ) -> Result<ShippedGuardMatches, EvidenceError> {
         let index = PlanIndex::new(plan);
-        let evaluator = Evaluator::new(
-            plan,
-            host.matcher_bindings(),
-            labels,
-            QueryLimits::default(),
-        );
+        let evaluator = Evaluator::new(plan, host.matcher_bindings(), labels, limits);
         let mut matches = ShippedGuardMatches::default();
         for definition in &self.definitions {
             let mut unknown_calls = BTreeSet::new();

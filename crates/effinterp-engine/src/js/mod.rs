@@ -408,6 +408,7 @@ impl Frontend for JsFrontend {
             plus_coercion_callbacks: &functions.plus_coercion_callbacks,
             visiting: HashSet::new(),
             active_bodies: Vec::new(),
+            block_bindings: Vec::new(),
             exception_source_states: Vec::new(),
             exception_regions: Vec::new(),
             return_source_states: Vec::new(),
@@ -1179,6 +1180,10 @@ struct EffectVisitor<'v, 'a> {
     /// Lexically active bodies and their enclosing state, used to seed a
     /// nested callee without leaking locals from an intervening caller.
     active_bodies: Vec<ActiveBody>,
+    /// The block statements being walked and the names each declares,
+    /// innermost last. Entering a called body keeps only the blocks that
+    /// lexically enclose it.
+    block_bindings: Vec<(Span, HashSet<String>)>,
     /// Source-string states reaching explicit throws in the active try block.
     exception_source_states: Vec<Vec<SourceStringState>>,
     /// Starts of the try blocks and catch clauses being walked, innermost
@@ -3049,6 +3054,12 @@ impl<'a> EffectVisitor<'_, 'a> {
         }
         self.function_depth += 1;
         self.active_bodies.push(active_body);
+        let caller_blocks = std::mem::take(&mut self.block_bindings);
+        self.block_bindings = caller_blocks
+            .iter()
+            .filter(|(block, _)| block.start <= body.span.start && body.span.end <= block.end)
+            .cloned()
+            .collect();
         self.return_producers.push(Vec::new());
         self.return_source_states.push(Vec::new());
         self.return_source_values.push(Vec::new());
@@ -3126,6 +3137,7 @@ impl<'a> EffectVisitor<'_, 'a> {
         self.response_vars = saved_responses;
         self.compiled_vars = saved_compiled;
         self.active_bodies.pop();
+        self.block_bindings = caller_blocks;
         self.function_depth -= 1;
         self.visiting.remove(&body.span.start);
         let producer = returns

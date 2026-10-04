@@ -223,29 +223,21 @@ impl SemanticValue {
 
     pub fn source_literal(value: impl Into<String>) -> Self {
         let value = value.into();
-        if let Some((scheme, rest)) = value.split_once("://")
+        if let Some((scheme, _)) = value.split_once("://")
             && !scheme.is_empty()
             && scheme
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.'))
+            && let Some(ResourceIdentity::NetworkEndpoint {
+                host, port, path, ..
+            }) = parse_url_endpoint(&value)
         {
-            let (authority, path) = rest
-                .split_once('/')
-                .map(|(authority, path)| (authority, Some(format!("/{path}"))))
-                .unwrap_or((rest, None));
-            let (host, port) = authority
-                .rsplit_once(':')
-                .and_then(|(host, port)| port.parse::<u16>().ok().map(|port| (host, port)))
-                .map(|(host, port)| (host.to_string(), Some(port)))
-                .unwrap_or_else(|| (authority.to_string(), None));
-            if !host.is_empty() {
-                return Self::new(SemanticValueKind::Endpoint {
-                    host,
-                    scheme: Some(scheme.to_ascii_lowercase()),
-                    port,
-                    path,
-                });
-            }
+            return Self::new(SemanticValueKind::Endpoint {
+                host,
+                scheme: Some(scheme.to_ascii_lowercase()),
+                port,
+                path,
+            });
         }
         Self::new(SemanticValueKind::Path {
             parts: vec![Self::literal(effinterp_proto::normalize_path(

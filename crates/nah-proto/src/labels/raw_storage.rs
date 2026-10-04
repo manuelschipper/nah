@@ -21,13 +21,22 @@ pub fn pattern_selects_raw_storage(bound: &str) -> bool {
 }
 
 /// A raw storage device, the physical memory devices, or the sysrq trigger.
+/// A Windows physical drive is `\\.\PhysicalDriveN` or `\\?\PhysicalDriveN`
+/// under either separator; the engine's plan drops the `.` component, so its
+/// `//PhysicalDriveN`, which names no share and so no network path, is one too.
 pub fn is_raw_storage_or_sysrq(target: &str) -> bool {
     if target == "/proc/sysrq-trigger" {
         return true;
     }
-    let lower = target.to_ascii_lowercase();
-    if let Some(drive) = lower.strip_prefix(r"\\.\physicaldrive") {
-        return !drive.is_empty() && drive.bytes().all(|byte| byte.is_ascii_digit());
+    let lower = target.to_ascii_lowercase().replace('\\', "/");
+    if let Some(drive) = lower.strip_prefix("//").and_then(|device| {
+        device
+            .strip_prefix("./")
+            .or_else(|| device.strip_prefix("?/"))
+            .unwrap_or(device)
+            .strip_prefix("physicaldrive")
+    }) {
+        return ascii_digits(drive);
     }
     let Some(device) = target.strip_prefix("/dev/") else {
         return false;

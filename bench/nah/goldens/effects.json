@@ -109162,7 +109162,7 @@
     {
       "id": "fs-system-tree.go-hex-escaped-path-remove-all",
       "guard": "fs-system-tree",
-      "derivation": "The Go interpreted string \"\\x2fetc\" is /etc, which os.RemoveAll deletes recursively; the engine does not decode the \\x escape.",
+      "derivation": "The Go interpreted string \"\\x2fetc\" is /etc, which os.RemoveAll deletes recursively.",
       "require": [
         {
           "op": "filesystem.delete",
@@ -109351,7 +109351,7 @@
     {
       "id": "self-protection.critical.ruby-case-in-pattern-arm-state",
       "guard": null,
-      "derivation": "ARGV[0] is nil or a String, so the `in String` arm can run and unlink nah trust state; the engine does not visit case/in arms.",
+      "derivation": "ARGV[0] is nil or a String, so the `in String` arm can run and unlink nah trust state.",
       "require": [
         {
           "op": "filesystem.delete",
@@ -110080,44 +110080,6 @@
       ]
     },
     {
-      "id": "secrets-credentials.kiro-batched-fs-read-ssh-key",
-      "guard": "secrets-credentials",
-      "derivation": "each operation of a Kiro fs_read batch reads its path, the SSH private key among them; the engine has no model for the batch",
-      "require": [
-        {
-          "op": "filesystem.read",
-          "resource": {
-            "eq": "/home/test/.ssh/id_rsa"
-          }
-        }
-      ]
-    },
-    {
-      "id": "secrets-credentials.cline-read-files-ssh-key",
-      "guard": "secrets-credentials",
-      "derivation": "Cline read_files reads every listed path, the SSH private key among them; the engine has no model for the list",
-      "require": [
-        {
-          "op": "filesystem.read",
-          "resource": {
-            "eq": "/home/test/.ssh/id_rsa"
-          }
-        }
-      ]
-    },
-    {
-      "id": "self-protection.critical.kiro-batched-fs-write-trust",
-      "guard": null,
-      "derivation": "each operation of a Kiro fs_write batch writes its path, nah trust state among them. The engine has no model for the batch, so the call stays an explicit unsupported tool; that boundary must not be dropped.",
-      "require": [],
-      "require_boundary": [
-        {
-          "reason": "unsupported_tool",
-          "detail_contains": "fs_write"
-        }
-      ]
-    },
-    {
       "id": "self-protection.critical.openclaw-home-tmp-other-openclaw",
       "guard": null,
       "derivation": "OPENCLAW_HOME moves OpenClaw's home away from the ~/.openclaw state nah installs into (crates/nah-proto/src/runtime_protection.rs:87); it does not delete nah's plugin. The remaining agent execution is explicitly unresolved; policy bypass must not be translated into a filesystem deletion.",
@@ -110623,7 +110585,7 @@
     {
       "id": "registry-unpublish.launch-node-run-script",
       "guard": "registry-unpublish",
-      "derivation": "node --run runs the package.json script, as npm run does; the script runs npm unpublish. The Node launcher classes --run as inert",
+      "derivation": "node --run runs the package.json script, as npm run does; the script runs npm unpublish",
       "require": [
         {
           "op": "artifact.remove_request",

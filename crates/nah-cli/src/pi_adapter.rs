@@ -177,7 +177,7 @@ mod tests {
             ),
             (
                 "grep",
-                json!({"pattern":"needle"}),
+                json!({"pattern":"needle","ignoreCase":true,"literal":true,"context":2}),
                 "Grep",
                 json!({"pattern":"needle","path":"."}),
             ),
@@ -187,12 +187,15 @@ mod tests {
                 "Find",
                 json!({"pattern":"**/*.rs","path":"src"}),
             ),
-            ("ls", json!({}), "Ls", json!({"path":"."})),
+            ("ls", json!({"limit":20}), "Ls", json!({"path":"."})),
         ];
         for (name, input, expected_tool, expected_input) in cases {
             let call = normalized(name, input);
             assert_eq!(call.tool(), expected_tool);
             assert_eq!(call.input(), &expected_input);
+            // An incomplete normalization is a refusal that a fail-closed
+            // hook blocks, so a builtin's documented fields must not cause one.
+            assert!(call.normalization_complete(), "{name}");
         }
     }
 

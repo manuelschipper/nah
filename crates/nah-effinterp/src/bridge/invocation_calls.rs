@@ -534,7 +534,8 @@ fn unknown_kind(gap: &effects::EffectGap) -> effects::UnknownKind {
             "resource-components-unavailable"
             | "move-destination-unavailable"
             | "network-delete-resource-kind-unavailable"
-            | "git-recovery-selection-unavailable",
+            | "git-recovery-selection-unavailable"
+            | "pattern-selection-unavailable",
         ) => effects::UnknownKind::Selector,
         (
             _,

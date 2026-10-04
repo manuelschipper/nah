@@ -881,6 +881,30 @@ fn proc_and_receiver_candidate_caps_emit_dynamic_dispatch_boundaries() {
     }));
 }
 
+/// Every part of a `case ... in` runs code, as do `BEGIN` and `END` blocks;
+/// a part the walker skips is dropped at full coverage.
+#[test]
+fn pattern_match_and_program_blocks_are_walked() {
+    let plan = ruby(
+        r#"BEGIN { File.delete("/begin") }
+END { File.delete("/end") }
+case File.read("/subject")
+in String if File.delete("/guard")
+  File.delete("/arm")
+in ^(File.read("/pinned"))
+  1
+else
+  File.delete("/else")
+end"#,
+    );
+    let paths: Vec<_> = plan.effects.iter().filter_map(fs_path).collect();
+    for path in [
+        "/begin", "/end", "/subject", "/guard", "/arm", "/pinned", "/else",
+    ] {
+        assert!(paths.contains(&path), "{path}: {paths:?}");
+    }
+}
+
 #[test]
 fn file_delete_and_write() {
     let plan = ruby(

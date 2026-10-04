@@ -142,12 +142,26 @@ pub(crate) fn apply(
             "-h" | "--help" | "-v" | "--version" | "--v8-options" | "--completion-bash"
         ) || matches!(
             option.name.as_str(),
-            "--run" | "--prof-process" | "--experimental-sea-config" | "--build-snapshot-config"
+            "--prof-process" | "--experimental-sea-config" | "--build-snapshot-config"
         ) {
+            return;
+        }
+        if option.name == "--run" {
+            run_package_script(builder, ctx, model_node, option);
             return;
         }
         if matches!(option.name.as_str(), "--build-snapshot" | "--test") {
             stdin_is_code = false;
+        }
+        // Without a named file, the test runner searches the project for
+        // test files and runs each one. Standard input is not among them, so
+        // this is a boundary and not a code sink.
+        if option.name == "--test" && invocation.script.is_none() {
+            dynamic_source(
+                builder,
+                model_node,
+                "node --test runs the test files it discovers",
+            );
         }
         if matches!(
             option.class,
@@ -948,6 +962,38 @@ fn node_selected_module(
             true,
         );
     }
+}
+
+/// `node --run NAME [-- ARGS]` runs the `package.json` script NAME as `npm run`
+/// does, so it is read through that model. npm also runs the script's `pre`
+/// and `post` hooks, which node skips: the plan may hold those two extra
+/// scripts, never fewer.
+fn run_package_script(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    option: &crate::models::registry::launcher::LauncherOption,
+) {
+    // The launcher grammar declares `--run` without a value, so the script
+    // name is read here: attached as `--run=NAME`, or the next word.
+    let attached = option
+        .raw
+        .as_literal()
+        .and_then(|raw| raw.strip_prefix("--run="));
+    let (index, script) = match attached {
+        Some(name) => (option.index as usize, Word::literal(name)),
+        None => {
+            let index = option.index as usize + 1;
+            let Some(script) = ctx.argv.get(index) else {
+                return;
+            };
+            (index, script.clone())
+        }
+    };
+    let mut argv = vec![Word::literal("npm"), Word::literal("run"), script];
+    argv.extend_from_slice(&ctx.argv[index + 1..]);
+    let script_arg = arg_node(builder, ctx, index as u32);
+    ctx.delegate_command_model(builder, &argv, None, &[model_node, script_arg]);
 }
 
 // NODE_OPTIONS uses double quotes and backslash escapes inside quoted strings,

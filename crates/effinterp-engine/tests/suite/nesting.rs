@@ -426,6 +426,65 @@ fn env_strips_assignments_and_runs_command() {
 }
 
 #[test]
+fn node_run_launches_the_package_script_and_test_keeps_its_named_file() {
+    let analyze = |source: &str| {
+        let resolver = MapResolver(HashMap::from([
+            (
+                "package.json".to_string(),
+                r#"{"scripts":{"clean":"rm -rf /package-output"}}"#.to_string(),
+            ),
+            (
+                "evil.js".to_string(),
+                "require('fs').unlinkSync('/test-output')".to_string(),
+            ),
+        ]));
+        let plan = Engine::new()
+            .with_causality_detail(true)
+            .with_resolver(Box::new(resolver))
+            .analyze(&Subject::Shell {
+                source: source.to_string(),
+                cwd: None,
+                context: Default::default(),
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        plan
+    };
+    let deletes = |plan: &effinterp_proto::Plan, target: &str| {
+        plan.effects.iter().any(|effect| {
+            effect.operation.0 == "filesystem.delete"
+                && matches!(
+                    &effect.resource,
+                    ResourceExpr::Concrete {
+                        identity: effinterp_proto::ResourceIdentity::FsPath { path }
+                    } if path == target
+                )
+        })
+    };
+    let discovers = |plan: &effinterp_proto::Plan| {
+        plan.boundaries.iter().any(|boundary| {
+            boundary.detail.as_deref() == Some("node --test runs the test files it discovers")
+        })
+    };
+
+    // `--run NAME`, attached or separate, runs the script `npm run` would.
+    for source in ["node --run clean", "node --run=clean"] {
+        let plan = analyze(source);
+        assert!(deletes(&plan, "/package-output"), "{source}");
+        let kinds: Vec<_> = plan.execution_graph.edges.iter().map(|e| e.kind).collect();
+        assert!(
+            kinds.contains(&ExecutionEdgeKind::PackageScript),
+            "{source}"
+        );
+    }
+    // A bare `--test` discovers its files; a named file is still analyzed.
+    assert!(discovers(&analyze("node --test")));
+    let named = analyze("node --test evil.js");
+    assert!(deletes(&named, "/test-output"));
+    assert!(!discovers(&named));
+}
+
+#[test]
 fn package_scripts_and_make_targets_use_explicit_graph_edges() {
     let resolver = MapResolver(HashMap::from([
         (

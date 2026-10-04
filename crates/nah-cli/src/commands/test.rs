@@ -4,6 +4,7 @@ use std::fmt::Write;
 
 use nah_proto::action::Coverage;
 use nah_proto::ctx::SchemaVersion;
+use nah_proto::decision::Verdict;
 use nah_proto::tool::ToolCallInput;
 use serde_json::Value;
 
@@ -37,9 +38,20 @@ pub(crate) fn test_command(args: &TestArgs) -> Result<(String, Vec<String>), Tes
         .ok()
         .and_then(|path| path.to_str().map(str::to_owned))
         .ok_or_else(|| "current directory is unavailable".to_owned())?;
-    let (runtime, input, code) = test_tool_call(args, cwd)?;
+    let (runtime, inputs, code) = test_tool_call(args, cwd)?;
     let state = live_state::load().map_err(|error| format!("context failed: {error}"))?;
-    let result = decide_live_for_runtime(&input, code.as_ref(), &state, Some(runtime));
+    // A runtime's batch lowers to one call per operation and its hook blocks
+    // on the first that blocks, so that call's decision is the one shown.
+    let mut result = None;
+    for input in &inputs {
+        let decided = decide_live_for_runtime(input, code.as_ref(), &state, Some(runtime));
+        let blocked = decided.core().verdict() == Verdict::Block;
+        result = Some(decided);
+        if blocked {
+            break;
+        }
+    }
+    let result = result.expect("a tool call lowers to at least one call");
     let plan = result.effinterp().map(|analysis| analysis.plan());
     if args.json {
         let exec_request = match (result.observation(), result.guard_evidence()) {
@@ -111,14 +123,14 @@ pub(crate) fn test_command(args: &TestArgs) -> Result<(String, Vec<String>), Tes
     Ok((output, result.warnings().to_vec()))
 }
 
-/// The runtime whose hook this input stands for, and the tool call that hook
+/// The runtime whose hook this input stands for, and the tool calls that hook
 /// would hand the pipeline: the shell command as `Bash`, the agent's tool call
 /// through the runtime adapter's own normalization, or code under the tool
 /// name of the runtime whose hook analyzes that language.
 fn test_tool_call(
     args: &TestArgs,
     cwd: String,
-) -> Result<(Runtime, ToolCallInput, Option<CodeInput>), TestError> {
+) -> Result<(Runtime, Vec<ToolCallInput>, Option<CodeInput>), TestError> {
     let runtime = args.runtime.unwrap_or(Runtime::Claude);
     if let Some(command) = &args.command {
         let input = ToolCallInput::new(
@@ -129,7 +141,7 @@ fn test_tool_call(
             None,
         )
         .map_err(|error| format!("invalid test input: {error}"))?;
-        return Ok((runtime, input, None));
+        return Ok((runtime, vec![input], None));
     }
     if let Some(tool) = &args.tool {
         let arguments = match (&args.args_json, &args.args_file) {
@@ -188,7 +200,7 @@ fn test_tool_call(
     };
     let input = ToolCallInput::new(SchemaVersion::V1, tool, code.canonical_input(), cwd, None)
         .map_err(|error| format!("invalid test input: {error}"))?;
-    Ok((runtime, input, Some(code)))
+    Ok((runtime, vec![input], Some(code)))
 }
 
 /// The `--source` language for a code tool whose hook payload identifies it
@@ -214,8 +226,9 @@ fn runtime_tool_call(
     tool: &str,
     arguments: Value,
     cwd: &str,
-) -> Result<(ToolCallInput, Option<CodeInput>), String> {
-    let without_code = |input: ToolCallInput| (input, None);
+) -> Result<(Vec<ToolCallInput>, Option<CodeInput>), String> {
+    let without_code = |input: ToolCallInput| (vec![input], None);
+    let with_code = |(input, code): (ToolCallInput, Option<CodeInput>)| (vec![input], code);
     match runtime {
         Runtime::Amp => amp_adapter::normalize_call(tool, arguments, cwd).map(without_code),
         Runtime::Antigravity => {
@@ -225,20 +238,26 @@ fn runtime_tool_call(
             hook_adapter::normalize_call(runtime, tool.into(), arguments, cwd.into(), None)
                 .map(without_code)
         }
-        Runtime::Cline => cline_adapter::normalize_call(tool, arguments, cwd).map(without_code),
+        Runtime::Cline => {
+            cline_adapter::normalize_call(tool, arguments, cwd).map(|inputs| (inputs, None))
+        }
         Runtime::Codex => codex_adapter::normalize_call(tool, arguments, cwd).map(without_code),
-        Runtime::Copilot => copilot_adapter::normalize_call(tool, arguments, cwd),
+        Runtime::Copilot => copilot_adapter::normalize_call(tool, arguments, cwd).map(with_code),
         Runtime::Cursor => cursor_adapter::normalize_call(tool, arguments, cwd).map(without_code),
         Runtime::Devin => devin_adapter::normalize_call(tool, arguments, cwd).map(without_code),
         Runtime::Droid => droid_adapter::normalize_call(tool, arguments, cwd).map(without_code),
-        Runtime::Hermes => hermes_adapter::normalize_call(tool, arguments, cwd),
-        Runtime::Kiro => kiro_adapter::normalize_call(tool, arguments, cwd).map(without_code),
-        Runtime::OpenClaw => openclaw_adapter::normalize_call(tool, arguments, cwd),
+        Runtime::Hermes => hermes_adapter::normalize_call(tool, arguments, cwd).map(with_code),
+        Runtime::Kiro => {
+            kiro_adapter::normalize_call(tool, arguments, cwd).map(|inputs| (inputs, None))
+        }
+        Runtime::OpenClaw => openclaw_adapter::normalize_call(tool, arguments, cwd).map(with_code),
         Runtime::OpenCode => {
             opencode_adapter::normalize_call(tool, arguments, cwd).map(without_code)
         }
         Runtime::Pi => pi_adapter::normalize_call(tool, arguments, cwd).map(without_code),
-        Runtime::PrimeAgent => prime_agent_adapter::normalize_call(tool, arguments, cwd),
+        Runtime::PrimeAgent => {
+            prime_agent_adapter::normalize_call(tool, arguments, cwd).map(with_code)
+        }
     }
 }
 
