@@ -113478,6 +113478,54 @@
           }
         }
       ]
+    },
+    {
+      "id": "fs-auth-identity.find-path-ssh-incomplete-listing-exec-rm",
+      "guard": "fs-auth-identity",
+      "derivation": "`-path '*/.ssh/*'` passes every entry below a `.ssh` directory under the home, and the home is too large to list, so `rm -rf {}` receives a subset of the entries below any `.ssh` there, the SSH keys and authorized keys among them",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/home/test/**/.ssh/**"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.find-ipath-ssh-incomplete-listing-exec-rm",
+      "guard": null,
+      "derivation": "`-ipath '*/.SSH/*'` ignores case, which no glob spells, and the home is too large to list, so `rm -rf {}` keeps every entry below the home, the nap state and `~/.ssh` among them",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/home/test/**"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.find-path-nah-incomplete-listing-exec-rm",
+      "guard": null,
+      "derivation": "`-path '*/.nah/*'` passes every entry below a `.nah` directory under the home, and the home is too large to list, so `rm -rf {}` receives a subset of the entries below Nah's state directory, the nap state among them",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/home/test/**/.nah/**"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
     }
   ]
 }

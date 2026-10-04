@@ -71,11 +71,13 @@ pub(crate) fn annotate_path_relation(
             }
         },
     };
-    // An unknown subset of a pattern's matches may be empty and is never all
-    // of them, so the pattern's reach says nothing of what the effect takes.
-    if crate::observation_request::selection_narrowing(&effect.resource)
-        .is_some_and(|narrowing| narrowing.subset)
-    {
+    // A subset its producer chose by a test that names nothing may be empty
+    // and is never all of the pattern's matches, so the pattern's reach says
+    // nothing of what the effect takes.
+    let subset = crate::observation_request::selection_narrowing(&effect.resource)
+        .map(|narrowing| narrowing.subset)
+        .unwrap_or_default();
+    if subset == effinterp_proto::FsSubset::Unnamed {
         return (
             selection.unwrap_or(PathSelection::FollowedTarget),
             PathLabel::Unresolved,
@@ -160,6 +162,21 @@ pub(crate) fn annotate_path_relation(
         )
         .then_some(selection_suffix)
     });
+    // A subset chosen by the names its glob spells is labeled by those
+    // names. The listing, when there is one, still reads the glob as it is.
+    let listed_suffix = pattern_suffix;
+    let named = crate::observation_request::named_subset_reading(&effect.resource, requested).map(
+        |requested| {
+            (
+                requested,
+                pattern_suffix.map(|suffix| suffix.replace("/**/", "/")),
+            )
+        },
+    );
+    let (requested, pattern_suffix) = match &named {
+        Some((requested, suffix)) => (requested.as_str(), suffix.as_deref()),
+        None => (requested, pattern_suffix),
+    };
     let selected_target = if pattern {
         let Some(suffix) = pattern_suffix else {
             return (selection, PathLabel::Unresolved);
@@ -280,7 +297,7 @@ pub(crate) fn annotate_path_relation(
     let selection_listing = (pattern || takes_links)
         .then(|| {
             listed_selection(
-                if pattern { pattern_suffix } else { Some("/**") },
+                if pattern { listed_suffix } else { Some("/**") },
                 observed,
                 &target,
                 platform,

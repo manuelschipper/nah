@@ -126,6 +126,9 @@ pub(super) fn label_effect_target_path(
                 |(bound, tail)| {
                     let platform = view.authority().platform();
                     let glob = format!("{bound}{tail}");
+                    let glob =
+                        crate::observation_request::named_subset_reading(&effect.resource, &glob)
+                            .unwrap_or(glob);
                     let glob = if platform == nah_proto::ctx::Platform::Windows {
                         glob.replace('/', "\\")
                     } else {

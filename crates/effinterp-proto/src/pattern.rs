@@ -35,6 +35,31 @@ pub enum FsEntryKind {
     Other,
 }
 
+/// How much of what a narrowed glob admits its producer selects. A producer
+/// that could not apply a test (`find` with no listing to test) selects some
+/// subset, possibly empty: it establishes no entry and never the whole of what
+/// the glob matches.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FsSubset {
+    /// Everything the glob, kinds and names admit.
+    #[default]
+    Whole,
+    /// A subset chosen by a path test the glob over-approximates
+    /// (`find ~ -path '*/.ssh/*'` as `HOME/**/.ssh/**`): the glob's literal
+    /// components are the names the producer selects by.
+    Named,
+    /// A subset chosen by a test that says nothing of names (`-newer`,
+    /// `-size`): the glob only bounds where the entries lie.
+    Unnamed,
+}
+
+impl FsSubset {
+    pub fn is_whole(&self) -> bool {
+        *self == Self::Whole
+    }
+}
+
 /// What a filesystem glob's text cannot say about the entries it selects: a
 /// producer that tests each entry (`find -type d`, `find ! -name 'nap.*'`)
 /// states here which of the glob's matches it leaves out. A narrowed selection
@@ -51,18 +76,15 @@ pub struct FsNarrowing {
     /// name matches one is not selected.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub excluded_names: Vec<String>,
-    /// The producer selects by a test it could not apply (`find -path` with
-    /// no listing to test), so the selection is some subset of what the glob,
-    /// kinds and names admit and may be empty. It establishes no entry and
-    /// never the whole of what its glob matches.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub subset: bool,
+    /// Whether the producer could apply every test it selects by.
+    #[serde(default, skip_serializing_if = "FsSubset::is_whole")]
+    pub subset: FsSubset,
 }
 
 impl FsNarrowing {
     /// Whether nothing is left out: the selection is every match of its glob.
     pub fn is_none(&self) -> bool {
-        self.kinds.is_empty() && self.excluded_names.is_empty() && !self.subset
+        self.kinds.is_empty() && self.excluded_names.is_empty() && self.subset.is_whole()
     }
 
     /// Whether the selection can hold an entry of `kind` whose last component

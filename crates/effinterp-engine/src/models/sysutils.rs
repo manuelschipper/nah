@@ -1101,6 +1101,45 @@ fn find_path_selects_every_entry(pattern: &str, root: &str) -> bool {
         && pattern.contains('*')
 }
 
+/// A glob for every entry below `base` that a `-path` test with `pattern` can
+/// pass, where the start path is spelled `spelled`. find matches the pattern
+/// against the whole path it prints, the start path as spelled and the entry
+/// below it, and its `*` crosses `/`: `*/.ssh/*` passes everything below any
+/// `.ssh` directory, `BASE/**/.ssh/**`, and `./util/*` from `.` everything
+/// below `BASE/util`. The glob may match more than the pattern passes, never
+/// less.
+///
+/// `None` for a pattern this does not spell: one that ignores case, has a
+/// wildcard other than a whole `*` between slashes, does not begin with `*`
+/// or the start path, or names a directory the start path already lies
+/// under.
+fn find_path_glob(pattern: &str, fold: bool, spelled: &str, base: &str) -> Option<String> {
+    if fold || pattern.contains(['?', '[', '\\']) || spelled.contains(['*', '?', '[', '\\']) {
+        return None;
+    }
+    let start = format!("{}/", spelled.trim_end_matches('/'));
+    let below = match pattern.strip_prefix(start.as_str()) {
+        Some(below) => below,
+        None if pattern.starts_with("*/") => pattern,
+        None => return None,
+    };
+    let mut glob = base.to_owned();
+    for segment in below.split('/') {
+        if segment == "*" {
+            glob.push_str("/**");
+        } else if segment.is_empty()
+            || segment.contains('*')
+            || format!("/{start}").contains(&format!("/{segment}/"))
+        {
+            return None;
+        } else {
+            glob.push('/');
+            glob.push_str(&crate::paths::escape_fs_glob_path(segment));
+        }
+    }
+    Some(glob)
+}
+
 /// The host's answer for `path` as the command starts, recorded in the
 /// plan's provenance. `None` without a host to ask, when the host does not
 /// answer, or when the command may already have changed the path.
@@ -1341,23 +1380,45 @@ fn find_action_matches(
             }
             return (matches, unmodeled);
         }
-        // A test no glob carries, with no listing to apply it to (the host
-        // refused one, or it selected more entries than are passed one by
-        // one): the action receives some of the entries below the start path,
-        // possibly none, and the selection says so rather than naming them all.
-        let below = |pattern: String| {
-            if !narrowed {
-                return glob(pattern);
-            }
+        // Tests no glob carries exactly, with no listing to apply them to
+        // (the host refused one, or they selected more entries than are
+        // passed one by one): the action receives some of the entries below
+        // the start path, possibly none, and the selection says so rather
+        // than naming them all.
+        let subset = |pattern: String, subset: effinterp_proto::FsSubset| {
             Word::new(vec![WordPart::Value(ResourceExpr::Pattern {
                 pattern: effinterp_proto::ResourcePattern::FsPath {
                     glob: pattern,
                     narrowing: effinterp_proto::FsNarrowing {
-                        subset: true,
-                        ..Default::default()
+                        subset,
+                        ..narrowing.clone()
                     },
                 },
             })])
+        };
+        // A path test names the directories its entries lie under, which the
+        // glob keeps. One whose pattern no glob spells keeps every entry
+        // below the start path, as the whole selection.
+        let paths = tests
+            .paths
+            .iter()
+            .filter(|(pattern, _)| !find_path_selects_every_entry(pattern, spelled))
+            .collect::<Vec<_>>();
+        if let Some(named) = paths
+            .iter()
+            .find_map(|(pattern, fold)| find_path_glob(pattern, *fold, spelled, &base))
+        {
+            return (
+                vec![subset(named, effinterp_proto::FsSubset::Named)],
+                unmodeled,
+            );
+        }
+        let below = |pattern: String| {
+            if narrowed && paths.is_empty() {
+                subset(pattern, effinterp_proto::FsSubset::Unnamed)
+            } else {
+                glob(pattern)
+            }
         };
         let min = depths.min.max(1);
         if narrowed && min == 1 && depths.max.is_none() {

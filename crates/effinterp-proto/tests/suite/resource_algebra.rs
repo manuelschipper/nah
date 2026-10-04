@@ -800,7 +800,7 @@ fn filesystem_narrowing_is_optional_on_the_wire_and_survives_normalization() {
     let narrowing = FsNarrowing {
         kinds: vec![FsEntryKind::Directory],
         excluded_names: vec!["nap.*".into()],
-        subset: false,
+        ..Default::default()
     };
     let narrowed = pattern("/w/./**", narrowing.clone());
     assert_eq!(

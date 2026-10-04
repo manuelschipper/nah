@@ -303,6 +303,19 @@ pub(crate) fn selection_narrowing(
     }
 }
 
+/// The glob a subset chosen by the names it spells is read as, or `None` for
+/// any other selection. Such a subset reaches what lies under those names
+/// and is not every entry below its bound: read by its literal prefix,
+/// `HOME/**/node_modules/**` would take the home and every protected path in
+/// it. The names are read directly below the bound, `HOME/**/.ssh/**` as
+/// `HOME/.ssh/**`, where the protected paths a path test spells from the
+/// start path lie.
+pub(crate) fn named_subset_reading(resource: &ResourceExpr, glob: &str) -> Option<String> {
+    selection_narrowing(resource)
+        .is_some_and(|narrowing| narrowing.subset == effinterp_proto::FsSubset::Named)
+        .then(|| glob.replace("/**/", "/"))
+}
+
 /// Whether an effect removes only the entries it is passed: a removal that
 /// does not recurse (`rm`, `unlink`, `rmdir`) cannot take a directory that
 /// holds any entry, so a directory's contents stay where they are. The
