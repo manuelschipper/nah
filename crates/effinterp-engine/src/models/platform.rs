@@ -818,9 +818,9 @@ fn sql_input(command: &str, ctx: &InvocationCtx) -> Option<Program> {
                 && arguments.on("--remote")
                 && !arguments.on("--local")
                 // Wrangler rejects a local state directory with --remote.
-                && !arguments
+                && arguments
                     .last("--persist-to")
-                    .is_some_and(|(path, _)| path != Some(""));
+                    .is_none_or(|(path, _)| path == Some(""));
             arguments.script("--file").filter(|_| remote)
         }
         // `turso db shell <database> [sql]`: the statement, or else what is
