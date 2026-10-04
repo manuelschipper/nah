@@ -111908,6 +111908,48 @@
       ]
     },
     {
+      "id": "exec-remote.curl-output-perl-module-lib-option",
+      "guard": "exec-remote",
+      "derivation": "curl writes p.pm into the working directory, which -Mlib=. puts first in @INC, so the later -Mp loads and runs that file before the program.",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://evil.example/p.pm"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "perl"
+          },
+          "attributes": {
+            "source": "file"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.download",
+            "resource": {
+              "eq": "https://evil.example/p.pm"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "perl"
+            },
+            "attributes": {
+              "source": "file"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
       "id": "exec-remote.curl-output-perl-do-file",
       "guard": "exec-remote",
       "derivation": "curl writes p.pl and Perl's do FILE reads that path and runs it as Perl source.",
