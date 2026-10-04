@@ -1190,10 +1190,10 @@ fn nest_script(
         "filesystem.read",
         BTreeMap::new(),
     );
-    let resolved = script
-        .as_literal()
+    let resolved = ctx
+        .script_operand_path(script)
         .map_or(SourceResolution::Unavailable, |path| {
-            ctx.resolve_source_operand(builder, path, SourcePurpose::InvocationInput)
+            ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput)
         });
     match resolved {
         SourceResolution::Source {

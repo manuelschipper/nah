@@ -140,6 +140,15 @@ impl<'a> InvocationCtx<'a> {
         self.nest.budget.descriptor_content(operand)
     }
 
+    /// The path a script operand names: its literal text, or the spelling of
+    /// an allocated descriptor (`<(...)`) whose bytes the shell supplied.
+    pub(crate) fn script_operand_path(&self, operand: &Word) -> Option<String> {
+        operand
+            .as_literal()
+            .map(str::to_owned)
+            .or_else(|| self.nest.budget.descriptor_operand_path(operand))
+    }
+
     pub(crate) fn without_stdin(&self) -> InvocationCtx<'a> {
         InvocationCtx {
             argv: self.argv,
