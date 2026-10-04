@@ -228,6 +228,7 @@ impl CommandModel for Vim {
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         let mut commands = Vec::new();
         let mut files = Vec::new();
+        let mut scripts = Vec::new();
         let mut unknown = Vec::new();
         let mut ex_silent = false;
         let mut writes_disabled = false;
@@ -274,7 +275,15 @@ impl CommandModel for Vim {
                         | "--log"
                 )
             {
-                if ctx.argv.get(i + 1).is_some() {
+                if let Some(value) = ctx.argv.get(i + 1) {
+                    // `-S FILE` sources an Ex script and `-u`/`-U FILE` name
+                    // the startup scripts; `NONE`, `NORC` and `DEFAULTS`
+                    // name no file.
+                    if matches!(text, "-S" | "-u" | "-U")
+                        && !matches!(value.as_literal(), Some("NONE" | "NORC" | "DEFAULTS"))
+                    {
+                        scripts.push((index + 1, value));
+                    }
                     i += 1;
                 } else {
                     unknown.push((index, text.into()));
@@ -317,6 +326,29 @@ impl CommandModel for Vim {
                     program_input_attrs(),
                 );
             }
+        }
+        // A script file is read by Vim but not here, so the Ex commands it
+        // holds are unknown.
+        for (index, script) in &scripts {
+            operand_effect(
+                builder,
+                ctx,
+                model_node,
+                *index,
+                script,
+                "filesystem.read",
+                Default::default(),
+            );
+        }
+        if !scripts.is_empty() {
+            crate::models::common::boundary(
+                builder,
+                model_node,
+                BoundaryReason::UNPARSED_SCRIPT,
+                BoundaryClass::Unsupported,
+                &["filesystem", "process"],
+                "Vim script files are not read",
+            );
         }
         let mut write_current = false;
         let mut write_all = false;

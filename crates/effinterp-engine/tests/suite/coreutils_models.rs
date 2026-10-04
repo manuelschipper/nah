@@ -895,6 +895,17 @@ fn vim_ex_commands_are_read_or_keep_a_boundary() {
         let plan = analyze(&["vim", "-c", command, "target"], Some("/w"));
         assert!(!has_boundary(&plan, "unparsed_script"), "{command}");
     }
+    // A script file Vim sources is not read here, so it keeps a boundary.
+    for option in ["-S", "-u"] {
+        let plan = analyze(&["vim", option, "script.vim", "target"], Some("/w"));
+        assert!(has_boundary(&plan, "unparsed_script"), "{option}");
+        assert!(
+            has_effect(&plan, "filesystem.read", "/w/script.vim"),
+            "{option}"
+        );
+        let plan = analyze(&["vim", option, "NONE", "target"], Some("/w"));
+        assert!(!has_boundary(&plan, "unparsed_script"), "{option} NONE");
+    }
     // Any other command, or a file name Vim expands, keeps a boundary.
     for command in [
         "source x.vim",
