@@ -69018,6 +69018,19 @@
       ]
     },
     {
+      "id": "fs-startup-persistence.macos-pwsh-named-include-lands-launchagent",
+      "guard": "fs-startup-persistence",
+      "derivation": "-Include *.plist does not match the named directory `Library` but matches `com.x.plist` beneath it, which a recursive copy lands in `~/Library/LaunchAgents` whether the filter chooses among the directory's entries or does not apply to a path without a wildcard",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/Users/test/Library/LaunchAgents/com.x.plist"
+          }
+        }
+      ]
+    },
+    {
       "id": "self-protection.critical.macos-pwsh-wildcard-onto-state-file-keeps-write",
       "guard": null,
       "derivation": "settings/* selects built-ins.json, which lands on the state file itself rather than inside a directory, so the write of ~/.nah/built-ins.json stands",
@@ -105785,27 +105798,14 @@
       ]
     },
     {
-      "id": "fs-auth-identity.find-home-log-not-path-ssh-kept-conservative",
-      "guard": "fs-auth-identity",
-      "derivation": "a negated find test is not read as a conjunct, so -delete keeps the whole home tree as its conservative selection",
-      "require": [
-        {
-          "op": "filesystem.delete",
-          "resource": {
-            "eq": "/home/test"
-          }
-        }
-      ]
-    },
-    {
       "id": "fs-auth-identity.find-negated-name-glob-delete-sudoers",
       "guard": "fs-auth-identity",
-      "derivation": "`-name \"sudo*\"` selects /private/etc/sudoers; the negated test keeps the whole-root conservative delete of /private/etc",
+      "derivation": "at depth 1 of the listed /private/etc, `-name \"sudo*\"` selects `sudoers` and `! -name x` leaves it, so `-delete` removes /private/etc/sudoers",
       "require": [
         {
           "op": "filesystem.delete",
           "resource": {
-            "eq": "/private/etc"
+            "eq": "/private/etc/sudoers"
           }
         }
       ]
@@ -105836,6 +105836,38 @@
           "attributes": {
             "action": "chmod",
             "setuid": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.find-negated-name-delete-root",
+      "guard": "fs-project-root",
+      "derivation": "`! -name cleanup.py` holds for the start path `.`, so `-delete` works through the whole project tree; which entries the test leaves in place is not carried",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/workspace/project"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.find-maxdepth-type-file-delete-etc",
+      "guard": "fs-auth-identity",
+      "derivation": "`-maxdepth 1 -type f` selects the regular files /private/etc's listing holds directly in it, `sudoers` and `passwd` among them, so `-delete` removes them",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/private/etc/sudoers"
+          }
+        },
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/private/etc/passwd"
           }
         }
       ]
