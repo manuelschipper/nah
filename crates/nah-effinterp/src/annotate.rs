@@ -739,7 +739,14 @@ fn executed_identity<'a>(view: &PlanView<'a>, effect: &Effect, path: &str) -> Op
         })
         .filter(|earlier| {
             crate::observation_request::observation_bound(&earlier.resource).is_none_or(
-                |(bound, _)| nah_proto::labels::lexically_contains(&bound, path, platform),
+                |(bound, _)| {
+                    nah_proto::labels::lexically_contains(&bound, path, platform)
+                        || nah_proto::labels::lexically_contains(
+                            entry_path(view, &bound),
+                            entry_path(view, path),
+                            platform,
+                        )
+                },
             )
         })
         .last();
@@ -782,6 +789,11 @@ fn transferred_sources<'a>(view: &PlanView<'a>, change: &'a Effect, path: &str) 
         ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path: written },
         } if nah_proto::labels::lexical_path::same_path(written, path, platform)
+            || nah_proto::labels::lexical_path::same_path(
+                entry_path(view, written),
+                entry_path(view, path),
+                platform,
+            )
     );
     if !names_path
         || !matches!(
@@ -791,21 +803,7 @@ fn transferred_sources<'a>(view: &PlanView<'a>, change: &'a Effect, path: &str) 
     {
         return Vec::new();
     }
-    // The engine names the destination operand as written. A copy into a
-    // directory lands under it, and a copy that refuses to replace its
-    // destination (`cp -n`) lands only on a path that did not exist before.
-    use nah_proto::observation::PathKind;
-    let observed = view.observed_path(path).map(|observed| observed.kind());
-    let keeps_existing = literal_words(&view.execution(change.execution).argv)
-        .into_iter()
-        .flatten()
-        .any(|word| {
-            word == "--no-clobber"
-                || (word.starts_with('-') && !word.starts_with("--") && word.contains('n'))
-        });
-    if observed == Some(PathKind::Directory)
-        || (keeps_existing && observed != Some(PathKind::Missing))
-    {
+    if !transfer_lands(view, change, path) {
         return Vec::new();
     }
     view.occurrences_for_execution(change.execution)
@@ -836,6 +834,89 @@ fn transferred_sources<'a>(view: &PlanView<'a>, change: &'a Effect, path: &str) 
             _ => None,
         })
         .collect()
+}
+
+/// `path` as its host observation resolved it, with the directory links
+/// above it followed, so `/tmp/x` and `/private/tmp/x` compare equal.
+fn entry_path<'a>(view: &PlanView<'a>, path: &'a str) -> &'a str {
+    view.observed_entry(path)
+        .map_or(path, |observed| observed.resolved().as_str())
+}
+
+/// Whether the copy or link that `change` records can have put its source at
+/// `path`. The engine names the destination operand as written and marks no
+/// refusal, so the bridge rules out what it can see: a destination that is a
+/// directory (the copy lands under it), a parent that is not the copy's
+/// working directory, not observed and not created earlier in the plan (the
+/// copy fails), and a `cp` or `mv` that
+/// keeps an existing destination (`-n`) or replaces only an older one (`-u`),
+/// which lands for certain only on a path that did not exist. BSD `cp` and
+/// `mv` reject `-u`.
+fn transfer_lands(view: &PlanView<'_>, change: &Effect, path: &str) -> bool {
+    use nah_proto::observation::PathKind;
+    let platform = view.authority().platform();
+    let observed = view.observed_entry(path).map(|observed| observed.kind());
+    if observed == Some(PathKind::Directory) {
+        return false;
+    }
+    let Some(parent) = path
+        .rfind(['/', '\\'])
+        .map(|separator| &path[..separator.max(1)])
+    else {
+        return false;
+    };
+    // The copying process runs in its working directory, so that exists.
+    let runs_in_parent = matches!(
+        view.execution(change.execution).cwd,
+        Some(ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path: cwd },
+        }) if nah_proto::labels::lexical_path::same_path(cwd, parent, platform)
+    );
+    let parent_exists = runs_in_parent
+        || view.observed_directory(parent)
+        || view
+            .plan()
+            .effects
+            .iter()
+            .take_while(|earlier| !std::ptr::eq(*earlier, change))
+            .any(|earlier| {
+                earlier.operation.as_str() == "filesystem.create"
+                    && matches!(
+                        &earlier.resource,
+                        ResourceExpr::Concrete {
+                            identity: ResourceIdentity::FsPath { path: created },
+                        } if nah_proto::labels::lexical_path::same_path(created, parent, platform)
+                    )
+            });
+    if !parent_exists {
+        return false;
+    }
+    let words = literal_words(&view.execution(change.execution).argv);
+    let mut words = words.iter().flatten();
+    let copies = words
+        .next()
+        .is_some_and(|program| matches!(program.rsplit('/').next(), Some("cp" | "mv")));
+    let (mut keeps, mut updates) = (false, false);
+    for word in words.take_while(|word| *word != "--") {
+        match word.strip_prefix("--") {
+            Some(long) => {
+                keeps |= long == "no-clobber";
+                updates |= long == "update" || long.starts_with("update=");
+            }
+            // A cluster of single-letter flags; `-t` and `-S` take the rest
+            // of their word as a value.
+            None if word.starts_with('-') => {
+                let flags = word[1..].split(['t', 'S']).next().unwrap_or_default();
+                keeps |= flags.contains('n');
+                updates |= flags.contains('u');
+            }
+            None => {}
+        }
+    }
+    if !copies || !(keeps || updates) {
+        return true;
+    }
+    observed == Some(PathKind::Missing) && !(updates && platform == nah_proto::ctx::Platform::Macos)
 }
 
 /// Cargo replacing or removing Nah's binary. An uninstall removes it when it
