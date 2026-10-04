@@ -111723,6 +111723,143 @@
           "path_provenance": true
         }
       ]
+    },
+    {
+      "id": "secrets-exfil.jq-env-continuation-upload",
+      "guard": "secrets-exfil",
+      "derivation": "jq's `env,.` prints the whole process environment and then the input, which curl uploads; the jq document gives a filter that continues past `env` a boundary and no effect",
+      "require": [
+        {
+          "op": "environment.read",
+          "resource": {
+            "eq": "environment:*"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "environment.read",
+            "resource": {
+              "eq": "environment:*"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.jq-stdin-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "cat pipes the key to jq, whose identity filter prints its input to stdout, which curl uploads as its request body",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.jq-file-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "jq reads the key file as its input and its identity filter prints it to stdout, which curl uploads as its request body",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-credentials.gtar-create-member-before-directory",
+      "guard": "secrets-credentials",
+      "derivation": "gtar applies -C to the members after it, so `credentials` is read from the working directory ~/.aws, the AWS credentials file; the gtar document reads it under the -C directory. Source: https://www.gnu.org/software/tar/manual/html_node/directory.html",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/home/test/.aws/credentials"
+          },
+          "attributes": {
+            "access_purpose": "program_input"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-raw-device.cryptsetup-luksformat-detached-header-integrity",
+      "guard": "fs-raw-device",
+      "derivation": "'cryptsetup luksFormat --header hdr.img --integrity hmac-sha256 /dev/sda' writes the LUKS header to hdr.img and wipes the data device to initialise its integrity tags. Source: https://gitlab.com/cryptsetup/cryptsetup/-/blob/b18cefcc7132956f4c154aefce45b1bdb4f233cf/man/cryptsetup-luksFormat.8.adoc",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/dev/sda"
+          }
+        }
+      ]
     }
   ]
 }
