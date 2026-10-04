@@ -77,8 +77,9 @@
   options, alias expansion, the `SubCtx` effect emitters and the `dispatch`
   table. A subcommand's effects live in the `models/git/git_<question>.rs`
   module its `dispatch` arm calls, in a function named for the subcommand
-  (`gc`, `reflog`, `history_rewrite`); only a few short arms (`commit`,
-  `init`, `clone`) stay inline.
+  (`gc`, `reflog`, `history_rewrite`); a few short arms (`commit`, `init`,
+  `clone`, and `merge`/`cherry-pick`/`revert`/`am`/`apply`) stay inline, and
+  the `config` arm calls `git/git_config_command.rs`.
 - `effinterp-repo` composition and linking must not dispatch on source
   language; `tests/suite/effect_ir_linker.rs` checks an explicit list of
   `compose/*.rs` and `linker/*.rs` files, so add a new file there.
