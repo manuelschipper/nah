@@ -2,7 +2,7 @@
   "total": {
     "baseline_defect": 0,
     "engine_error": 0,
-    "guard_silent": 2,
+    "guard_silent": 4,
     "missing_effect": 13,
     "missing_flow": 2,
     "regression": 0,
@@ -22,7 +22,7 @@
     "exec-decoded": {
       "explained_partial": 4,
       "missing_effect": 0,
-      "missing_flow": 0
+      "missing_flow": 1
     },
     "exec-network-shell": {
       "explained_partial": 1,
@@ -220,7 +220,7 @@
     },
     "secrets-exfil": {
       "explained_partial": 4,
-      "guard_silent": 0,
+      "guard_silent": 2,
       "missing_effect": 4,
       "missing_flow": 2
     },
