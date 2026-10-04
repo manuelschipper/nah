@@ -51,10 +51,9 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
             {
                 continue;
             }
-            // A traversal that follows links reads what they name, so the
-            // listing below its root follows them too.
-            let follow_links =
-                effect.attributes.get("follow_links") == Some(&AttrValue::Bool(true));
+            // A read through links takes what they name, so the listing
+            // below its root follows them too.
+            let follow_links = reads_through_links(effect);
             let entry = paths.entry(path.to_owned()).or_default();
             entry.0 |= inspect_descendants;
             entry.1 |= follow_links;
@@ -139,6 +138,22 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
     ));
     ObservationRequest::new(SchemaVersion::V1, "effinterp-v1", queries)
         .expect("effinterp observation query graph is valid")
+}
+
+/// Whether an effect opens what the links it meets lead to: its model says it
+/// follows links, or, when the model says nothing, it is a content read that
+/// does not recurse, which opens each entry it names. Keep this identical to
+/// `reads_through_links` in effinterp-matcher's `evaluate.rs`.
+pub(crate) fn reads_through_links(effect: &effinterp_proto::Effect) -> bool {
+    match effect.attributes.get("follow_links") {
+        Some(AttrValue::Bool(follows)) => *follows,
+        _ => {
+            effect.operation.as_str() == "filesystem.read"
+                && effect.attributes.get("access_purpose")
+                    == Some(&AttrValue::String("program_input".into()))
+                && effect.attributes.get("recursive") != Some(&AttrValue::Bool(true))
+        }
+    }
 }
 
 /// The executed path of a host launch whose literal arguments are a nah
