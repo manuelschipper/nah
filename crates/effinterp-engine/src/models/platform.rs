@@ -13,7 +13,7 @@ use effinterp_proto::{
 
 use crate::builder::PlanBuilder;
 use crate::models::common::{arg_node, boundary};
-use crate::models::db::{Program, document_sql};
+use crate::models::db::{SqlClientInput, document_sql};
 use crate::models::{CommandModel, InvocationCtx};
 use crate::word::Word;
 
@@ -688,7 +688,7 @@ impl CommandModel for DocumentedPlatform {
         // Help stays the document's, which already models it.
         if matches!(self.tool.request(ctx.argv), Request::Help) {
             self.owner.apply(builder, ctx, model_node);
-        } else if let Some(program) = sql_input(self.tool.command, ctx) {
+        } else if let Some(program) = platform_cli_sql_input(self.tool.command, ctx) {
             builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
             if self.tool.command == "prisma" {
                 boundary(
@@ -708,13 +708,13 @@ impl CommandModel for DocumentedPlatform {
 }
 
 /// An invocation's operands and options, each with its argv index.
-struct Arguments<'a> {
+struct ReviewedArguments<'a> {
     operands: Vec<(usize, &'a str)>,
     /// (flag, value, argv index of the value)
     options: Vec<(&'a str, Option<&'a str>, usize)>,
 }
 
-impl<'a> Arguments<'a> {
+impl<'a> ReviewedArguments<'a> {
     /// Reads `argv` when every word is a literal and every option is one of
     /// `values`, which take a value, or `switches`. Any other option may
     /// take a value or change what runs, so the invocation is not read.
@@ -723,7 +723,7 @@ impl<'a> Arguments<'a> {
             .iter()
             .map(Word::as_literal)
             .collect::<Option<Vec<_>>>()?;
-        let mut arguments = Arguments {
+        let mut arguments = ReviewedArguments {
             operands: Vec::new(),
             options: Vec::new(),
         };
@@ -749,7 +749,7 @@ impl<'a> Arguments<'a> {
     }
 
     /// Whether the operands start with the command words `path`.
-    fn runs(&self, path: &[&str]) -> bool {
+    fn runs_command_path(&self, path: &[&str]) -> bool {
         self.operands.len() >= path.len()
             && self
                 .operands
@@ -758,7 +758,8 @@ impl<'a> Arguments<'a> {
                 .all(|((_, word), name)| word == name)
     }
 
-    fn last(&self, flag: &str) -> Option<(Option<&'a str>, usize)> {
+    /// The value and argv index of the last occurrence of `flag`.
+    fn last_option(&self, flag: &str) -> Option<(Option<&'a str>, usize)> {
         let (_, value, index) = self
             .options
             .iter()
@@ -768,15 +769,15 @@ impl<'a> Arguments<'a> {
     }
 
     /// Whether a switch is given and not turned off with `=false`.
-    fn on(&self, flag: &str) -> bool {
-        self.last(flag)
+    fn switch_on(&self, flag: &str) -> bool {
+        self.last_option(flag)
             .is_some_and(|(value, _)| value != Some("false"))
     }
 
     /// A script file an option names, as the program it runs.
-    fn script(&self, flag: &str) -> Option<Program> {
-        let (path, index) = self.last(flag)?;
-        Some(Program::File(Word::literal(path?), index))
+    fn script_file_option(&self, flag: &str) -> Option<SqlClientInput> {
+        let (path, index) = self.last_option(flag)?;
+        Some(SqlClientInput::File(Word::literal(path?), index))
     }
 }
 
@@ -784,14 +785,14 @@ impl<'a> Arguments<'a> {
 /// script file an option names, a statement given as an operand, a file on
 /// standard input. None for any other invocation, and for one holding an
 /// option this does not read in full, which stays the document's.
-fn sql_input(command: &str, ctx: &InvocationCtx) -> Option<Program> {
+fn platform_cli_sql_input(command: &str, ctx: &InvocationCtx) -> Option<SqlClientInput> {
     match command {
         // `wrangler d1 execute <database> --remote --file <script>`, under
         // the conditions the document nests `--command` SQL. `--cwd` moves
         // the directory the script resolves against, and `--command` beside
         // `--file` is rejected.
         "wrangler" => {
-            let arguments = Arguments::reviewed(
+            let arguments = ReviewedArguments::reviewed(
                 ctx.argv,
                 &[
                     "--config",
@@ -813,41 +814,45 @@ fn sql_input(command: &str, ctx: &InvocationCtx) -> Option<Program> {
                     "-y",
                 ],
             )?;
-            let remote = arguments.runs(&["d1", "execute"])
+            let remote = arguments.runs_command_path(&["d1", "execute"])
                 && arguments.operands.len() == 3
-                && arguments.on("--remote")
-                && !arguments.on("--local")
+                && arguments.switch_on("--remote")
+                && !arguments.switch_on("--local")
                 // Wrangler rejects a local state directory with --remote.
                 && arguments
-                    .last("--persist-to")
+                    .last_option("--persist-to")
                     .is_none_or(|(path, _)| path == Some(""));
-            arguments.script("--file").filter(|_| remote)
+            arguments.script_file_option("--file").filter(|_| remote)
         }
         // `turso db shell <database> [sql]`: the statement, or else what is
         // piped in. A dot-command and an interactive shell stay unread.
         "turso" => {
-            let arguments = Arguments::reviewed(
+            let arguments = ReviewedArguments::reviewed(
                 ctx.argv,
                 &["--config-path", "-c", "--instance", "--location", "--proxy"],
                 &[],
             )?;
-            if !arguments.runs(&["db", "shell"]) {
+            if !arguments.runs_command_path(&["db", "shell"]) {
                 return None;
             }
             match arguments.operands[2..] {
-                [_] if ctx.stdin.is_some() => Some(Program::Stdin),
+                [_] if ctx.stdin.is_some() => Some(SqlClientInput::Stdin),
                 [_, (index, sql)] if !sql.trim_start().starts_with('.') => {
-                    Some(Program::Sql(Word::literal(sql), index))
+                    Some(SqlClientInput::Sql(Word::literal(sql), index))
                 }
                 _ => None,
             }
         }
         // `prisma db execute --file <script>`.
         "prisma" => {
-            let arguments =
-                Arguments::reviewed(ctx.argv, &["--file", "--url", "--schema", "--config"], &[])?;
-            let executes = arguments.runs(&["db", "execute"]) && arguments.operands.len() == 2;
-            arguments.script("--file").filter(|_| executes)
+            let arguments = ReviewedArguments::reviewed(
+                ctx.argv,
+                &["--file", "--url", "--schema", "--config"],
+                &[],
+            )?;
+            let executes =
+                arguments.runs_command_path(&["db", "execute"]) && arguments.operands.len() == 2;
+            arguments.script_file_option("--file").filter(|_| executes)
         }
         _ => None,
     }

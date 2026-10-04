@@ -114,7 +114,7 @@ fn endpoint_effect(
 
 /// A file operand's effect (for `-f script.sql`: reading the script file),
 /// as its slot in the effect list.
-pub(super) fn file_effect(
+pub(super) fn client_file_operand_effect(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
@@ -1050,7 +1050,7 @@ const SNOW_SQL: ClientSpec = ClientSpec {
 };
 
 /// A unit of SQL input, in the order the client runs it.
-pub(super) enum Program {
+pub(super) enum SqlClientInput {
     Sql(Word, usize),
     File(Word, usize),
     Stdin,
@@ -1187,17 +1187,17 @@ fn sql_client(
         if spec.sql.contains(&name) || spec.startup_sql.contains(&name) {
             exits |= spec.sql.contains(&name);
             let rank = if spec.sql.contains(&name) { 2 } else { 1 };
-            programs.push((rank, Program::Sql(value.clone(), index)));
+            programs.push((rank, SqlClientInput::Sql(value.clone(), index)));
         } else if spec.files.contains(&name) || spec.startup_files.contains(&name) {
             exits |= spec.files.contains(&name);
             let rank = if spec.files.contains(&name) { 2 } else { 0 };
             match literal {
-                Some("-") if spec.dash_is_stdin => programs.push((rank, Program::Stdin)),
+                Some("-") if spec.dash_is_stdin => programs.push((rank, SqlClientInput::Stdin)),
                 Some(list) if spec.comma_files => programs.extend(
                     list.split(',')
-                        .map(|path| (rank, Program::File(Word::literal(path), index))),
+                        .map(|path| (rank, SqlClientInput::File(Word::literal(path), index))),
                 ),
-                _ => programs.push((rank, Program::File(value.clone(), index))),
+                _ => programs.push((rank, SqlClientInput::File(value.clone(), index))),
             }
         } else if spec.account.contains(&name) {
             account = Some((index, literal));
@@ -1239,7 +1239,7 @@ fn sql_client(
         } else if spec.output.contains(&name) {
             outputs.push((index, value.clone()));
         } else if spec.delimiter.contains(&name) {
-            match literal.and_then(delimiter_word) {
+            match literal.and_then(mysql_delimiter_word) {
                 Some(word) => delimiter = word,
                 None => db_gap(
                     builder,
@@ -1293,7 +1293,7 @@ fn sql_client(
             Operands::FileThenSql if n == 0 => db_file = Some((index, *word)),
             Operands::FileThenSql => {
                 exits = true;
-                programs.push((2, Program::Sql((*word).clone(), index)));
+                programs.push((2, SqlClientInput::Sql((*word).clone(), index)));
             }
             Operands::HostPort if n == 0 => {
                 conn.server = literal.map(str::to_string);
@@ -1380,7 +1380,7 @@ fn sql_client(
     if let Some((index, word)) = db_file {
         // The client opens the database file first; any statement may then
         // write it (below, after the scripts it reads).
-        file_effect(
+        client_file_operand_effect(
             builder,
             ctx,
             model_node,
@@ -1400,7 +1400,7 @@ fn sql_client(
                 "client output is piped to a command",
             );
         } else {
-            file_effect(
+            client_file_operand_effect(
                 builder,
                 ctx,
                 model_node,
@@ -1452,7 +1452,7 @@ fn sql_client(
     };
     let reads_stdin = programs
         .iter()
-        .any(|(_, program)| matches!(program, Program::Stdin));
+        .any(|(_, program)| matches!(program, SqlClientInput::Stdin));
     programs.sort_by_key(|(rank, _)| *rank);
     for (_, program) in programs {
         run.program(builder, program);
@@ -1470,7 +1470,7 @@ fn sql_client(
         }
     }
     if let Some((index, word)) = db_file {
-        file_effect(
+        client_file_operand_effect(
             builder,
             ctx,
             model_node,
@@ -1488,7 +1488,7 @@ pub(super) fn document_sql(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
-    program: Program,
+    program: SqlClientInput,
 ) {
     let mut run = Run {
         ctx,
@@ -1546,9 +1546,9 @@ struct Run<'r, 'a> {
 }
 
 impl Run<'_, '_> {
-    fn program(&mut self, builder: &mut PlanBuilder, program: Program) {
+    fn program(&mut self, builder: &mut PlanBuilder, program: SqlClientInput) {
         match program {
-            Program::Sql(word, index) => {
+            SqlClientInput::Sql(word, index) => {
                 let arg = arg_node(builder, self.ctx, index as u32);
                 let Some(source) = word.as_literal() else {
                     db_gap(
@@ -1572,8 +1572,8 @@ impl Run<'_, '_> {
                     self.text(builder, source, None, &provenance);
                 }
             }
-            Program::File(word, index) => {
-                let read = file_effect(
+            SqlClientInput::File(word, index) => {
+                let read = client_file_operand_effect(
                     builder,
                     self.ctx,
                     self.model_node,
@@ -1606,7 +1606,7 @@ impl Run<'_, '_> {
                     ),
                 }
             }
-            Program::Stdin => self.stdin(builder),
+            SqlClientInput::Stdin => self.stdin(builder),
         }
     }
 
@@ -1959,7 +1959,7 @@ impl Run<'_, '_> {
     }
 
     /// The value psql interpolates for `name`, when Nah can name it.
-    fn variable(&self, name: &str) -> Option<&str> {
+    fn psql_variable(&self, name: &str) -> Option<&str> {
         if self.variables_unknown {
             return None;
         }
@@ -2043,17 +2043,17 @@ impl Run<'_, '_> {
                     continue;
                 }
             };
-            let value = self
-                .variable(&text[name_start..name_end])
-                .and_then(|value| match quote {
-                    None => Some(value.to_string()),
-                    // psql writes a value holding a backslash as E'…', and
-                    // refuses to shell-quote a line break.
-                    Some(_) if value.contains(['\\', '\n', '\r']) => None,
-                    Some(b'"') => Some(format!("\"{}\"", value.replace('"', "\"\""))),
-                    Some(_) if sql => Some(format!("'{}'", value.replace('\'', "''"))),
-                    Some(_) => Some(format!("'{}'", value.replace('\'', "'\\''"))),
-                });
+            let value =
+                self.psql_variable(&text[name_start..name_end])
+                    .and_then(|value| match quote {
+                        None => Some(value.to_string()),
+                        // psql writes a value holding a backslash as E'…', and
+                        // refuses to shell-quote a line break.
+                        Some(_) if value.contains(['\\', '\n', '\r']) => None,
+                        Some(b'"') => Some(format!("\"{}\"", value.replace('"', "\"\""))),
+                        Some(_) if sql => Some(format!("'{}'", value.replace('\'', "''"))),
+                        Some(_) => Some(format!("'{}'", value.replace('\'', "'\\''"))),
+                    });
             match value {
                 Some(value) => {
                     out.push_str(&text[copied..i]);
@@ -2613,7 +2613,7 @@ fn client_segments(
             }
             Meta::None => unreachable!(),
         };
-        push_sql(&mut out, &text[start..i], &start_delimiter);
+        push_sql_segment(&mut out, &text[start..i], &start_delimiter);
         for segment in segments {
             let stop = matches!(
                 segment,
@@ -2633,12 +2633,12 @@ fn client_segments(
     if out.is_empty() && start == 0 && start_delimiter == ";" {
         return vec![ClientInputSegment::Sql(text.to_string())];
     }
-    push_sql(&mut out, &text[start..], &start_delimiter);
+    push_sql_segment(&mut out, &text[start..], &start_delimiter);
     out
 }
 
 /// SQL the client sends, collected while `delimiter` ended its statements.
-fn push_sql(out: &mut Vec<ClientInputSegment>, sql: &str, delimiter: &str) {
+fn push_sql_segment(out: &mut Vec<ClientInputSegment>, sql: &str, delimiter: &str) {
     if sql.trim().is_empty() {
         return;
     }
@@ -2664,12 +2664,12 @@ fn mysql_delimiter(line: &str) -> Option<String> {
             &line[word.len()..]
         }
     };
-    delimiter_word(args)
+    mysql_delimiter_word(args)
 }
 
 /// The delimiter `text` names, as a `DELIMITER` argument or a `--delimiter`
 /// value. None when the client would unquote or reject it.
-fn delimiter_word(text: &str) -> Option<String> {
+fn mysql_delimiter_word(text: &str) -> Option<String> {
     let delimiter = text.split_whitespace().next()?;
     (!delimiter.starts_with(['\'', '"', '`']) && !delimiter.contains('\\'))
         .then(|| delimiter.to_string())
@@ -3107,7 +3107,7 @@ fn dot_command(line: &str) -> Option<ClientInputSegment> {
             })
         }
         "connection" if !args.is_empty() => Some(connect_segment(Switch::Unknown, Switch::Keep)),
-        "shell" | "system" if !args.is_empty() => Some(match dot_shell_command(args) {
+        "shell" | "system" if !args.is_empty() => Some(match sqlite_dot_shell_command(args) {
             Some(command) => ClientInputSegment::Shell(command),
             None => ClientInputSegment::Opaque(format!(
                 "dot-command .{name} runs a shell command sqlite rebuilds from escaped arguments"
@@ -3154,7 +3154,7 @@ fn dot_name(name: &str) -> &str {
 /// them with spaces, wrapping an argument that holds a space in double
 /// quotes. None when a `"…"` argument holds a backslash escape, which
 /// sqlite3 resolves first.
-fn dot_shell_command(args: &str) -> Option<String> {
+fn sqlite_dot_shell_command(args: &str) -> Option<String> {
     let mut words = Vec::new();
     let mut rest = args.trim_start();
     while let Some(first) = rest.chars().next() {
@@ -3711,7 +3711,7 @@ pub(crate) fn bq_query(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_nod
     };
     match sql.as_slice() {
         [] => run.stdin(builder),
-        [index] => run.program(builder, Program::Sql(argv[*index].clone(), *index)),
+        [index] => run.program(builder, SqlClientInput::Sql(argv[*index].clone(), *index)),
         indices => {
             // bq joins its query operands with spaces.
             let words = indices
@@ -3722,7 +3722,7 @@ pub(crate) fn bq_query(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_nod
                 || Word::new(vec![crate::word::WordPart::Unknown]),
                 |words| Word::literal(words.join(" ")),
             );
-            run.program(builder, Program::Sql(query, indices[0]));
+            run.program(builder, SqlClientInput::Sql(query, indices[0]));
         }
     }
 }
@@ -4248,7 +4248,7 @@ impl CommandModel for PgRestore {
         }
         let mut operands = scanned.operands.iter();
         if let Some(&(index, archive)) = operands.next() {
-            file_effect(builder, ctx, model_node, index, archive, "filesystem.read");
+            client_file_operand_effect(builder, ctx, model_node, index, archive, "filesystem.read");
         }
         let extra = operands
             .map(|(_, word)| word.as_literal().unwrap_or("?"))
@@ -4258,7 +4258,14 @@ impl CommandModel for PgRestore {
         else {
             // Without a database, pg_restore writes a SQL script instead.
             if let Some(&(index, file)) = scanned.values_of(&["-f", "--file"]).last() {
-                file_effect(builder, ctx, model_node, index, file, "filesystem.write");
+                client_file_operand_effect(
+                    builder,
+                    ctx,
+                    model_node,
+                    index,
+                    file,
+                    "filesystem.write",
+                );
             }
             return;
         };
@@ -4525,7 +4532,7 @@ fn dump(
         provenance,
     });
     if let Some((idx, word)) = out {
-        file_effect(
+        client_file_operand_effect(
             builder,
             ctx,
             model_node,
