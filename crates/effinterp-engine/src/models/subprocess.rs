@@ -351,7 +351,7 @@ impl CommandModel for ShellInvocation {
                 stdin_shell(builder, ctx, model_node, None, i);
                 return;
             }
-            bash_startup_input(builder, ctx, model_node, i);
+            bash_startup_input(builder, ctx, model_node, i, Some(i));
             operand_effect(
                 builder,
                 ctx,
@@ -426,6 +426,9 @@ fn bash_startup_input(
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
     source_index: usize,
+    // Where the launch's `$0`, `$1`, ... start: the script operand itself, or
+    // the word after a `-c` command string. `None` when they are not modeled.
+    arguments_start: Option<usize>,
 ) {
     use effinterp_proto::{
         ExecutionContent, ExecutionInputReason, ExecutionInputRole, ExecutionPhase,
@@ -518,6 +521,11 @@ fn bash_startup_input(
         ctx.nest.record_input_boundary(builder, &value, input);
         return;
     }
+    // Bash 5 binds the launch's `$0`, `$1`, ... before it reads the startup
+    // file, so the file sees the launch's positional parameters.
+    if let Some(start) = arguments_start.filter(|start| *start < ctx.argv.len()) {
+        *ctx.nest.shell_arguments.borrow_mut() = Some(shell_launch_arguments(builder, ctx, start));
+    }
     runtime_selected_source(
         builder,
         ctx,
@@ -530,6 +538,7 @@ fn bash_startup_input(
         },
         RuntimeSourceLanguage::Shell,
     );
+    ctx.nest.shell_arguments.borrow_mut().take();
 }
 
 fn stdin_shell(
@@ -539,7 +548,7 @@ fn stdin_shell(
     argument: Option<u32>,
     options_end: usize,
 ) {
-    bash_startup_input(builder, ctx, model_node, options_end);
+    bash_startup_input(builder, ctx, model_node, options_end, None);
     let request_assurance = if accepted_stdin_shell(ctx.argv) {
         effinterp_proto::RequestAssurance::Exact
     } else {
@@ -584,7 +593,7 @@ pub(crate) fn inline_shell(
     index: usize,
     word: Option<&Word>,
 ) {
-    bash_startup_input(builder, ctx, model_node, index);
+    bash_startup_input(builder, ctx, model_node, index, Some(index + 1));
     code_execution(
         effinterp_proto::RequestAssurance::Conservative,
         builder,
