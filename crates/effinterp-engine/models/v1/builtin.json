@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:ba52c32fba405668091422d27325eb98bb0972ad7416f603c603fd5bb6014ab1",
+  "identity": "blake3:f6d6294a47cf947a7a673a200b9797eaf55c3657069320bc7799517c5542204c",
   "provenance": {
     "author": "migrated_handwritten",
     "sources": [
@@ -3468,6 +3468,7 @@
                   "kind": "current"
                 }
               },
+              "request_assurance": "exact",
               "attributes": {
                 "truncate": {
                   "kind": "constant_bool",
