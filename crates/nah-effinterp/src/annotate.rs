@@ -305,6 +305,7 @@ pub(crate) fn annotate_path_relation(
                     || effect.operation.as_str() == "filesystem.move",
                 operation == FilesystemOperation::Delete,
                 operation == FilesystemOperation::Delete && !recursive,
+                crate::observation_request::writes_through_links(effect, &effect.resource),
             )
         })
         .flatten();
@@ -365,6 +366,29 @@ pub(crate) fn annotate_path_relation(
             }
         }
         None => (protection, host_integrity),
+    };
+    // A write through a matched link changes the file the link leads to, so
+    // it carries that file's sensitivity as a write to the named link does.
+    let sensitivity = match &selection_listing {
+        Some((_, members))
+            if sensitivity == nah_proto::labels::Sensitivity::None
+                && crate::observation_request::writes_through_links(effect, &effect.resource) =>
+        {
+            members
+                .iter()
+                .map(|member| {
+                    nah_proto::labels::sensitivity::sensitivity(
+                        member.as_str(),
+                        member,
+                        home,
+                        platform,
+                        false,
+                    )
+                })
+                .find(|value| *value != nah_proto::labels::Sensitivity::None)
+                .unwrap_or(sensitivity)
+        }
+        _ => sensitivity,
     };
     let selects_root = matches!(&scope, PathScope::Project { root } if root == &target);
     let selects_home = selects_home(target.as_str(), home.as_str(), platform, false)
@@ -432,12 +456,18 @@ pub(crate) fn lexical_host_integrity(
 /// files, so with `files_only` any pattern reaches only the listed entries
 /// themselves, never the directories above them.
 ///
+/// A write or access-control change through a glob reaches what each
+/// matched link points at, so with `writes_links` a pattern without `**` has
+/// the same marked-whole result: `keys*` keeps what its spelling reaches and
+/// adds the `~/.ssh/authorized_keys` a matched `keys-alias` leads to.
+///
 /// A `delete` of a pattern with a wildcard directory component selects only
 /// through the directories that exist, so it reaches the listed entries it
 /// matches when the listing leaves nothing below the bound unlisted (no
 /// unfollowed link, empty directory or special file): `~/.config/*/Cache`
 /// then reaches `~/.config/autostart` only if a file lies under
 /// `autostart/Cache`.
+#[allow(clippy::too_many_arguments)]
 fn listed_selection(
     pattern_suffix: Option<&str>,
     observed: Option<&PathObservation>,
@@ -446,6 +476,7 @@ fn listed_selection(
     entry: bool,
     delete: bool,
     files_only: bool,
+    writes_links: bool,
 ) -> Option<(bool, Vec<AbsolutePath>)> {
     if platform == Platform::Windows {
         return None;
@@ -458,14 +489,17 @@ fn listed_selection(
     let wildcard_directory = segments[..segments.len() - 1]
         .iter()
         .any(|segment| segment.contains(['*', '?', '[']));
-    if !(bounded || delete && wildcard_directory) {
+    // A written glob without `**` keeps the reach its spelling has and adds
+    // what the links it matches lead to.
+    let adds_link_targets = writes_links && !bounded;
+    if !(bounded || delete && wildcard_directory || adds_link_targets) {
         return None;
     }
     let whole = segments.last() == Some(&"**");
     let descendants = observed?
         .descendants()
         .filter(|descendants| descendants.complete())
-        .filter(|descendants| bounded || !descendants.unlisted_entries())?;
+        .filter(|descendants| bounded || adds_link_targets || !descendants.unlisted_entries())?;
     let root = target.as_str().trim_end_matches('/');
     let below = |path: &str| {
         path.strip_prefix(root)
@@ -527,7 +561,10 @@ fn listed_selection(
             let mut entry = file;
             while entry.len() > root.len() {
                 if effinterp_proto::glob_match(&glob, entry).ok()? {
-                    members.insert(identity(entry));
+                    let reached = identity(entry);
+                    if !adds_link_targets || reached != entry {
+                        members.insert(reached);
+                    }
                 }
                 if files_only {
                     break;
@@ -541,7 +578,7 @@ fn listed_selection(
         .into_iter()
         .map(|member| AbsolutePath::new(platform, member).ok())
         .collect::<Option<_>>()
-        .map(|members| (whole, members))
+        .map(|members| (whole || adds_link_targets, members))
 }
 
 pub(crate) fn annotate_process_with_authority(
@@ -1355,7 +1392,7 @@ fn strongest_protection(
 /// Reports whether the effect states a permission or ownership change. A bare
 /// metadata effect does not say whether it reads or mutates, so only a stated
 /// access-control action counts.
-fn access_control_change(effect: &Effect) -> bool {
+pub(crate) fn access_control_change(effect: &Effect) -> bool {
     effect.operation.as_str() == "filesystem.metadata"
         && matches!(
             effect.attributes.get("action"),

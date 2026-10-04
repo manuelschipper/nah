@@ -352,6 +352,9 @@ pub(crate) struct PlanView<'a> {
     causality: CausalIndex,
     annotations: Vec<OnceCell<EffectAnnotation>>,
     observed_paths: BTreeMap<&'a str, &'a Observed<PathObservation>>,
+    /// The link-following listing of a path whose own observation follows no
+    /// link because a move names it.
+    followed_paths: BTreeMap<&'a str, &'a Observed<PathObservation>>,
 }
 
 impl<'a> PlanView<'a> {
@@ -362,16 +365,21 @@ impl<'a> PlanView<'a> {
         self_protection: &SelfProtectionProjection,
     ) -> Result<Self, nah_proto::ctx::CtxError> {
         let authority = AuthorityContext::new(context, observation, self_protection)?;
-        let observed_paths = observation
-            .facts()
-            .iter()
-            .filter_map(|fact| match (fact.query(), fact.value()) {
-                (ObservationQuery::Path { requested, .. }, ObservationValue::Path { observed }) => {
-                    Some((requested.as_str(), observed))
+        let mut observed_paths = BTreeMap::new();
+        let mut followed_paths = BTreeMap::new();
+        for fact in observation.facts() {
+            if let (
+                ObservationQuery::Path { key, requested, .. },
+                ObservationValue::Path { observed },
+            ) = (fact.query(), fact.value())
+            {
+                if key.ends_with(crate::observation_request::FOLLOWED_KEY_SUFFIX) {
+                    followed_paths.insert(requested.as_str(), observed);
+                } else {
+                    observed_paths.insert(requested.as_str(), observed);
                 }
-                _ => None,
-            })
-            .collect();
+            }
+        }
         authority.validate_indexes();
         let view = Self {
             plan,
@@ -384,6 +392,7 @@ impl<'a> PlanView<'a> {
             causality: CausalIndex::new(plan),
             annotations: (0..plan.effects.len()).map(|_| OnceCell::new()).collect(),
             observed_paths,
+            followed_paths,
         };
         view.validate_indexes();
         Ok(view)
@@ -623,6 +632,35 @@ impl<'a> PlanView<'a> {
         }
     }
 
+    /// The observation `effect` reads of `requested`: the listing that
+    /// follows links for an effect that opens what they lead to, where the
+    /// plan asked for one beside the no-follow listing a move reads. Both
+    /// describe the host before the plan runs, so an effect the plan orders
+    /// after a move of that path keeps the move's listing: what the move
+    /// left there is not established.
+    pub(crate) fn observed_path_for(
+        &self,
+        effect: &effinterp_proto::Effect,
+        requested: &str,
+    ) -> Option<&'a PathObservation> {
+        if let Some(Observed::Ok { value }) = self.followed_paths.get(requested)
+            && crate::observation_request::opens_through_links(self.plan, effect, &effect.resource)
+            && !self
+                .plan
+                .effects
+                .iter()
+                .take_while(|earlier| !std::ptr::eq(*earlier, effect))
+                .any(|earlier| {
+                    earlier.operation.as_str() == "filesystem.move"
+                        && crate::observation_request::observation_bound(&earlier.resource)
+                            .is_some_and(|(path, _)| path == requested)
+                })
+        {
+            return Some(value);
+        }
+        self.observed_path(requested)
+    }
+
     /// The observation of the entry at `path`, whether the plan asked for
     /// it by that spelling or by one that resolves to it through a directory
     /// link (`/tmp/x` for `/private/tmp/x`).
@@ -682,7 +720,7 @@ impl<'a> PlanView<'a> {
                     self.plan,
                     effect,
                     crate::observation_request::observation_bound(&effect.resource)
-                        .and_then(|(path, _)| self.observed_path(&path)),
+                        .and_then(|(path, _)| self.observed_path_for(effect, &path)),
                     self.authority.observed_roots(),
                     crate::annotate::PathLabelContext {
                         platform: self.authority.platform(),

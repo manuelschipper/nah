@@ -1184,7 +1184,7 @@ fn selection_reach(
             .map(|root| root.path().clone()),
     );
     if let Some(value) = crate::observation_request::observation_bound(&effect.resource)
-        .and_then(|(path, _)| view.observed_path(&path))
+        .and_then(|(path, _)| view.observed_path_for(effect, &path))
     {
         identities.insert(value.resolved().clone());
         identities.extend(value.realpath().cloned());
