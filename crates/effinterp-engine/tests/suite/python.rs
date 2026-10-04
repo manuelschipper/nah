@@ -371,6 +371,18 @@ fn os_remove_end_to_end_via_pyexec() {
 fn open_modes_map_to_read_write_append() {
     assert!(has(&py("open('/a')"), "filesystem.read", "/a"));
     assert!(has(&py("open('/a','w')"), "filesystem.write", "/a"));
+    // A name bound to one literal is that mode.
+    let bound = py("mode = 'w'\nopen('/a', mode)");
+    assert!(has(&bound, "filesystem.write", "/a"));
+    assert!(!has(&bound, "filesystem.read", "/a"));
+    // A mode with no known value decides nothing; it must not read as "r".
+    let unknown = py("import sys\nopen('/a', sys.argv[1])");
+    assert!(unknown.effects.is_empty());
+    assert!(has_boundary(&unknown, "unmodeled_dynamic"));
+    assert_eq!(
+        unknown.coverage.0[&Domain::new("filesystem")].level,
+        CoverageLevel::Partial
+    );
     let append = py("open('/a','a')");
     assert!(has(&append, "filesystem.write", "/a"));
     assert!(

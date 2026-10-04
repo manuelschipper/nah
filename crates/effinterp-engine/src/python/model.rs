@@ -12,8 +12,8 @@ use rustpython_parser::text_size::TextRange;
 
 use super::resolve::{self, host_endpoint, net_resource, str_literal};
 use super::{
-    DeferredArgv, PythonWalker, collect_returns, int_literal, keyword_bool, keyword_str,
-    program_argv, python_call_argument, resource_command_string, shell_program,
+    DeferredArgv, PythonWalker, collect_returns, int_literal, keyword_bool, program_argv,
+    python_call_argument, resource_command_string, shell_program,
 };
 use crate::paths::fs_resource_uses_cwd;
 use crate::resource_transfer::TransferBinding;
@@ -702,7 +702,9 @@ impl PythonWalker<'_, '_> {
     /// Emit read/write effects on `resource` from an open-style call's mode
     /// argument (positional `mode_index` or the `mode=` keyword, defaulting to
     /// "r"). Shared by the builtin `open` and `pathlib.Path(p).open(mode)`,
-    /// whose mode arguments sit at different positions.
+    /// whose mode arguments sit at different positions. A mode that is
+    /// neither a literal nor a name bound to one decides nothing about the
+    /// access, so it leaves a boundary instead of a guessed read.
     fn open_by_mode(
         &mut self,
         call: &ast::ExprCall,
@@ -710,12 +712,16 @@ impl PythonWalker<'_, '_> {
         resource: ResourceExpr,
         node: ProvenanceRef,
     ) {
-        let mode = call
-            .args
-            .get(mode_index)
-            .and_then(str_literal)
-            .or_else(|| keyword_str(call, "mode"))
-            .unwrap_or_else(|| "r".to_string());
+        let mode = match python_call_argument(call, mode_index, "mode") {
+            None => "r".to_string(),
+            Some(mode) => match self.known_string(mode) {
+                Some(mode) => mode,
+                None => {
+                    self.opaque_boundary("open mode is not statically bounded", node);
+                    return;
+                }
+            },
+        };
         let write = mode.contains(['w', 'a', 'x', '+']);
         let read = mode.contains('r') || mode.contains('+');
         if read {
@@ -729,6 +735,24 @@ impl PythonWalker<'_, '_> {
                 &[]
             };
             self.emit("filesystem.write", resource, attrs, node);
+        }
+    }
+
+    /// The string `expr` evaluates to: a literal, or a name whose one
+    /// reaching value in the current scope is a literal.
+    fn known_string(&self, expr: &Expr) -> Option<String> {
+        if let Some(value) = str_literal(expr) {
+            return Some(value);
+        }
+        let Expr::Name(name) = expr else {
+            return None;
+        };
+        if self.widened_vars.contains(name.id.as_str()) {
+            return None;
+        }
+        match self.var_scope.get(name.id.as_str()) {
+            Some(ResourceExpr::Literal { value }) => Some(value.clone()),
+            _ => None,
         }
     }
 
@@ -1960,9 +1984,7 @@ impl PythonWalker<'_, '_> {
         match recv.kind {
             ReceiverKind::HttpClient => match method {
                 "get" | "post" | "put" | "delete" | "patch" | "head" | "options" => {
-                    let resource = call
-                        .args
-                        .first()
+                    let resource = python_call_argument(call, 0, "url")
                         .map(|a| self.resolve_net(a))
                         .unwrap_or_else(|| unresolved_resource("network"));
                     self.emit(net_op(method), resource, &[], node);
@@ -1971,7 +1993,7 @@ impl PythonWalker<'_, '_> {
                     let resource = python_call_argument(call, 1, "url")
                         .map(|a| self.resolve_net(a))
                         .unwrap_or_else(|| unresolved_resource("network"));
-                    let verb = call.args.first().and_then(str_literal);
+                    let verb = python_call_argument(call, 0, "method").and_then(str_literal);
                     self.emit(
                         net_op(verb.as_deref().unwrap_or("request")),
                         resource,
@@ -1983,7 +2005,7 @@ impl PythonWalker<'_, '_> {
             },
             ReceiverKind::HttpConnection => {
                 if method == "request" {
-                    let verb = python_call_argument(call, 0, "method").and_then(str_literal);
+                    let verb = call.args.first().and_then(str_literal);
                     self.emit(
                         net_op(verb.as_deref().unwrap_or("request")),
                         recv.host.clone(),
@@ -1994,7 +2016,9 @@ impl PythonWalker<'_, '_> {
             }
             ReceiverKind::Socket => {
                 if method == "connect" {
-                    let resource = python_call_argument(call, 0, "url")
+                    let resource = call
+                        .args
+                        .first()
                         .map(|a| self.socket_addr(a))
                         .unwrap_or_else(|| unresolved_resource("network"));
                     self.emit("network.request", resource, &[], node);

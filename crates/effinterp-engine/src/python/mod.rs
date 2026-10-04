@@ -5056,13 +5056,6 @@ fn is_branch_mixed_path_method(method: &str) -> bool {
     is_path_method(method) && !matches!(method, "open" | "replace")
 }
 
-fn keyword_str(call: &ast::ExprCall, name: &str) -> Option<String> {
-    call.keywords
-        .iter()
-        .find(|k| k.arg.as_ref().map(|a| a.as_str()) == Some(name))
-        .and_then(|k| str_literal(&k.value))
-}
-
 /// A small non-negative integer literal (a port number), when the expression
 /// is one and fits a `u16`.
 fn int_literal(expr: &Expr) -> Option<u16> {
