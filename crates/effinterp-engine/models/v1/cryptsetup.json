@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:9fea8040f2b6d3377311d0563bccf5a10c4afb1baeb6292b4cdc08cb7672edc4",
+  "identity": "blake3:86052736d726cb12ced3e5445c75db72d40d0575bd86f9eb772dc7a153f7fb46",
   "provenance": {
     "author": "human",
     "sources": [
@@ -74,7 +74,281 @@
         "cryptsetup"
       ],
       "fragments": [],
-      "flags": [],
+      "flags": [
+        {
+          "names": [
+            "--batch-mode",
+            "-q"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verify-passphrase",
+            "-y"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--debug"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--debug-json"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--force-password"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--use-random"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--use-urandom"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--disable-locks"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--disable-blkid"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--integrity-no-wipe"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--integrity-legacy-padding"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--hw-opal"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--hw-opal-only"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--hw-opal-factory-reset"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--type",
+            "-M"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--cipher",
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--hash",
+            "-h"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--key-size",
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--iter-time",
+            "-i"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--pbkdf"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--pbkdf-memory"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--pbkdf-parallel"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--pbkdf-force-iterations"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--label"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--subsystem"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--uuid"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--sector-size"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--offset",
+            "-o"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--align-payload"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--integrity"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--key-slot",
+            "-S"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--keyfile-size",
+            "-l"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--keyfile-offset"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--luks2-metadata-size"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--luks2-keyslots-size"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--keyslot-cipher"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--keyslot-key-size"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--timeout",
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--tries",
+            "-T"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--key-description"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--key-file",
+            "-d"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--master-key-file",
+            "--volume-key-file"
+          ],
+          "takes_value": true
+        }
+      ],
       "positionals": [],
       "mutually_exclusive": [],
       "effects": [],
@@ -155,6 +429,40 @@
                   "modality": "must-on-success"
                 }
               ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--key-file",
+                  "-d",
+                  "--volume-key-file",
+                  "--master-key-file"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [
+                "-"
+              ],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "must-on-success"
+                }
+              ]
             }
           ],
           "invocations": [],
@@ -231,6 +539,40 @@
               "source": {
                 "kind": "positional",
                 "name": "key_file"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [
+                "-"
+              ],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "must-on-success"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--key-file",
+                  "-d",
+                  "--volume-key-file",
+                  "--master-key-file"
+                ]
               },
               "when": {
                 "flag_present": [],
