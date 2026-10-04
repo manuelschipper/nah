@@ -112,15 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "03b748c0a2831b9a9066bc1ae59813498db3b12d",
-      "corpus_digest": "5e546b4db508ef3854c15b3bd2870a7280759b203646add56cf69b3f4740a93e",
+      "nah_commit": "fc50972d3628a3cf3a09590d8ea2507ee9fbb4af",
+      "corpus_digest": "fbcf9561405c7729c57498bd769e203f6f06d50f26a63f8e79b67d0727596917",
       "classes": {
-        "effect_match": 5312,
+        "effect_match": 5346,
         "silent_symbolic_drop": 2,
-        "missing_effect": 23,
-        "missing_flow": 4,
-        "covered": 1449,
-        "explained_partial": 1813
+        "missing_effect": 13,
+        "missing_flow": 2,
+        "covered": 1450,
+        "explained_partial": 1805
       },
       "per_file": {
         "code.jsonl": {
@@ -134,10 +134,10 @@
           "explained_partial": 83
         },
         "database-services.jsonl": {
-          "effect_match": 219,
+          "effect_match": 220,
           "missing_effect": 2,
           "covered": 33,
-          "explained_partial": 96
+          "explained_partial": 95
         },
         "database.jsonl": {
           "effect_match": 176,
@@ -146,20 +146,18 @@
           "explained_partial": 152
         },
         "execution-flows.jsonl": {
-          "effect_match": 529,
-          "missing_flow": 1,
+          "effect_match": 535,
           "covered": 123,
-          "explained_partial": 210
+          "explained_partial": 207
         },
         "filesystem.jsonl": {
-          "effect_match": 746,
-          "missing_effect": 5,
+          "effect_match": 755,
+          "missing_effect": 1,
           "covered": 259,
-          "explained_partial": 150
+          "explained_partial": 146
         },
         "git.jsonl": {
-          "effect_match": 793,
-          "missing_effect": 1,
+          "effect_match": 794,
           "covered": 307,
           "explained_partial": 167
         },
@@ -186,14 +184,14 @@
         "native.jsonl": {
           "effect_match": 55,
           "covered": 20,
-          "explained_partial": 7
+          "explained_partial": 4
         },
         "network.jsonl": {
-          "effect_match": 25,
+          "effect_match": 27,
           "silent_symbolic_drop": 2,
           "missing_effect": 1,
           "covered": 7,
-          "explained_partial": 10
+          "explained_partial": 8
         },
         "project.jsonl": {
           "effect_match": 4,
@@ -201,21 +199,20 @@
           "explained_partial": 1
         },
         "registry.jsonl": {
-          "effect_match": 191,
-          "missing_effect": 1,
+          "effect_match": 192,
           "covered": 6,
           "explained_partial": 102
         },
         "secrets.jsonl": {
-          "effect_match": 821,
-          "missing_effect": 6,
-          "missing_flow": 3,
-          "covered": 194,
-          "explained_partial": 226
+          "effect_match": 828,
+          "missing_effect": 4,
+          "missing_flow": 2,
+          "covered": 195,
+          "explained_partial": 231
         },
         "self-protection.jsonl": {
-          "effect_match": 654,
-          "missing_effect": 4,
+          "effect_match": 657,
+          "missing_effect": 2,
           "covered": 113,
           "explained_partial": 289
         },
@@ -225,9 +222,9 @@
           "explained_partial": 28
         },
         "storage.jsonl": {
-          "effect_match": 138,
+          "effect_match": 142,
           "covered": 8,
-          "explained_partial": 53
+          "explained_partial": 52
         },
         "threat-model.jsonl": {
           "effect_match": 9,
@@ -237,19 +234,19 @@
         "windows.jsonl": {
           "effect_match": 125,
           "covered": 39,
-          "explained_partial": 34
+          "explained_partial": 35
         }
       },
       "per_guard": {
         "(structural)": {
-          "effect_match": 676,
-          "missing_effect": 4,
-          "explained_partial": 170
+          "effect_match": 679,
+          "missing_effect": 2,
+          "explained_partial": 168
         },
         "db-destroy": {
-          "effect_match": 386,
+          "effect_match": 387,
           "missing_effect": 5,
-          "explained_partial": 38
+          "explained_partial": 37
         },
         "exec-decoded": {
           "effect_match": 56,
@@ -264,13 +261,11 @@
           "explained_partial": 1
         },
         "exec-remote": {
-          "effect_match": 237,
-          "missing_flow": 1,
-          "explained_partial": 7
+          "effect_match": 243,
+          "explained_partial": 4
         },
         "fs-auth-identity": {
-          "effect_match": 110,
-          "missing_effect": 1,
+          "effect_match": 111,
           "explained_partial": 2
         },
         "fs-forkbomb": {
@@ -291,12 +286,10 @@
           "effect_match": 59
         },
         "fs-raw-device": {
-          "effect_match": 42,
-          "explained_partial": 1
+          "effect_match": 44
         },
         "fs-shell-profile": {
-          "effect_match": 38,
-          "explained_partial": 2
+          "effect_match": 40
         },
         "fs-startup-management": {
           "effect_match": 38
@@ -305,9 +298,8 @@
           "effect_match": 50
         },
         "fs-system-tree": {
-          "effect_match": 561,
-          "missing_effect": 3,
-          "explained_partial": 9
+          "effect_match": 565,
+          "explained_partial": 8
         },
         "fs-volume-destroy": {
           "effect_match": 34
@@ -338,8 +330,7 @@
           "effect_match": 97
         },
         "git-ref-delete": {
-          "effect_match": 46,
-          "missing_effect": 1
+          "effect_match": 47
         },
         "git-remote-repo-delete": {
           "effect_match": 189
@@ -366,30 +357,28 @@
           "effect_match": 42
         },
         "net-lookalike-host": {
-          "effect_match": 25,
+          "effect_match": 27,
           "silent_symbolic_drop": 2,
           "missing_effect": 1,
-          "explained_partial": 3
+          "explained_partial": 1
         },
         "registry-publish": {
           "effect_match": 65
         },
         "registry-unpublish": {
-          "effect_match": 127,
-          "missing_effect": 1
+          "effect_match": 128
         },
         "secrets-credentials": {
-          "effect_match": 186,
-          "missing_effect": 2,
-          "explained_partial": 8
+          "effect_match": 188,
+          "explained_partial": 7
         },
         "secrets-env": {
           "effect_match": 119
         },
         "secrets-exfil": {
-          "effect_match": 558,
+          "effect_match": 563,
           "missing_effect": 4,
-          "missing_flow": 3,
+          "missing_flow": 2,
           "explained_partial": 4
         },
         "secrets-store-delete": {
@@ -408,8 +397,7 @@
           "effect_match": 43
         },
         "storage-snapshot-delete": {
-          "effect_match": 61,
-          "explained_partial": 2
+          "effect_match": 65
         },
         "sys-power": {
           "effect_match": 34
@@ -530,8 +518,10 @@
         "observe:/dev/null": 23,
         "observe:/dev/stdin": 1,
         "observe:/dev/stdout": 5,
-        "observe:/dev/zero": 1,
+        "observe:/dev/zero": 2,
         "observe:/etc": 1,
+        "observe:/home/test": 1,
+        "observe:/home/test/.aws": 1,
         "observe:/home/test/.cargo/.crates.toml": 15,
         "observe:/home/test/.cargo/.crates2.json": 4,
         "observe:/home/test/.codex/hooks.json": 2,
@@ -549,7 +539,7 @@
         "observe:/home/test/.openclaw/extensions/nah/index.js": 2,
         "observe:/home/test/.openclaw/extensions/nah/openclaw.plugin.json": 2,
         "observe:/home/test/.openclaw/extensions/nah/package.json": 2,
-        "observe:/home/test/.openclaw/openclaw.json": 11,
+        "observe:/home/test/.openclaw/openclaw.json": 12,
         "observe:/home/test/.pi/agent/extensions/nah/index.js": 2,
         "observe:/home/test/.prime/agent/extensions/nah.js": 1,
         "observe:/home/test/.ssh/id_rsa": 1,
@@ -558,12 +548,14 @@
         "observe:/srv": 1,
         "observe:/srv/build": 1,
         "observe:/tmp": 2,
+        "observe:/tmp/.aws/credentials": 1,
         "observe:/tmp/.ssh": 1,
         "observe:/tmp/aws": 1,
         "observe:/tmp/bin/pulumi": 1,
         "observe:/tmp/bin/terraform": 1,
         "observe:/tmp/cargo/.crates.toml": 2,
         "observe:/tmp/cargo/.crates2.json": 2,
+        "observe:/tmp/credentials": 1,
         "observe:/tmp/errors": 2,
         "observe:/tmp/home.zip": 1,
         "observe:/tmp/input": 1,
@@ -574,6 +566,7 @@
         "observe:/tmp/local.txt": 1,
         "observe:/tmp/nah-order": 2,
         "observe:/tmp/names": 13,
+        "observe:/tmp/notes.txt": 1,
         "observe:/tmp/other.json": 1,
         "observe:/tmp/payload.sh": 1,
         "observe:/tmp/podman": 1,
@@ -626,11 +619,15 @@
         "observe:/workspace/outside/notes.txt": 1,
         "observe:/workspace/outside/objects.json": 1,
         "observe:/workspace/outside/ordinary": 3,
+        "observe:/workspace/outside/p.js": 1,
+        "observe:/workspace/outside/p.py": 1,
+        "observe:/workspace/outside/p.rb": 1,
         "observe:/workspace/outside/payload": 1,
         "observe:/workspace/outside/payload.b64": 5,
         "observe:/workspace/outside/payload.bin": 1,
         "observe:/workspace/outside/payload.txt": 1,
         "observe:/workspace/outside/poetry.lock": 1,
+        "observe:/workspace/outside/preload.php": 1,
         "observe:/workspace/outside/report.txt": 1,
         "observe:/workspace/outside/src": 2,
         "observe:/workspace/outside/src/lib.rs": 1,
@@ -715,8 +712,8 @@
       },
       "guard_queries": {
         "db-destroy": {
-          "match": 390,
-          "no_match": 39
+          "match": 391,
+          "no_match": 38
         },
         "exec-decoded": {
           "match": 58,
@@ -731,14 +728,13 @@
           "deferred": 16
         },
         "exec-remote": {
-          "deferred": 237,
+          "deferred": 243,
           "indeterminate": 3,
-          "no_match": 5
+          "no_match": 1
         },
         "fs-auth-identity": {
-          "deferred": 111,
-          "indeterminate": 1,
-          "no_match": 1
+          "deferred": 112,
+          "indeterminate": 1
         },
         "fs-forkbomb": {
           "deferred": 24
@@ -757,12 +753,10 @@
           "deferred": 59
         },
         "fs-raw-device": {
-          "deferred": 42,
-          "no_match": 1
+          "deferred": 44
         },
         "fs-shell-profile": {
-          "deferred": 38,
-          "no_match": 2
+          "deferred": 40
         },
         "fs-startup-management": {
           "deferred": 38
@@ -771,9 +765,8 @@
           "deferred": 50
         },
         "fs-system-tree": {
-          "deferred": 569,
-          "indeterminate": 1,
-          "no_match": 3
+          "deferred": 571,
+          "no_match": 2
         },
         "fs-volume-destroy": {
           "deferred": 34
@@ -807,8 +800,7 @@
           "deferred": 97
         },
         "git-ref-delete": {
-          "deferred": 46,
-          "indeterminate": 1
+          "deferred": 47
         },
         "git-remote-repo-delete": {
           "deferred": 189
@@ -838,29 +830,27 @@
           "match": 42
         },
         "net-lookalike-host": {
-          "deferred": 28,
-          "no_match": 3
+          "deferred": 29,
+          "no_match": 2
         },
         "registry-publish": {
           "match": 65
         },
         "registry-unpublish": {
-          "match": 127,
-          "no_match": 1
+          "match": 128
         },
         "secrets-credentials": {
           "match": 5,
-          "indeterminate": 187,
-          "no_match": 4
+          "indeterminate": 190
         },
         "secrets-env": {
           "match": 10,
           "indeterminate": 109
         },
         "secrets-exfil": {
-          "deferred": 28,
-          "indeterminate": 531,
-          "no_match": 10
+          "deferred": 29,
+          "indeterminate": 535,
+          "no_match": 9
         },
         "secrets-store-delete": {
           "match": 40
@@ -878,8 +868,7 @@
           "match": 43
         },
         "storage-snapshot-delete": {
-          "match": 61,
-          "no_match": 2
+          "match": 65
         },
         "sys-power": {
           "match": 34
@@ -11280,10 +11269,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.8248,
-        "p99_ms": 135.5707,
-        "max_ms": 1963.1917,
-        "max_rss_kb": 371024
+        "p50_ms": 0.8195,
+        "p99_ms": 136.5745,
+        "max_ms": 1992.6308,
+        "max_rss_kb": 358560
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11307,13 +11296,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261004T005738Z-correctness-73877",
-      "measured_at": "2026-10-04T00:57:38Z",
-      "source_fingerprint": "blake3:c08a4727562d20f72710db6e3993be5934e90046be4f31f54de77b78cb00c363",
-      "binary_hash": "blake3:e2fc5168c7c6d12feda94215901a0d6d689b29cf7c45e2e3d902110bd9ef1e66",
+      "run_id": "20261004T030233Z-correctness-38965",
+      "measured_at": "2026-10-04T03:02:33Z",
+      "source_fingerprint": "blake3:9140c4ebf46e44384a666e29c2ecb23088deba18f219dbf4b9cfd6385a5a7a07",
+      "binary_hash": "blake3:53e3f1aaa72560b4d5e164ba30ac73ad5b63de1b303ad147a93eef67670a66c3",
       "engine_version": "0.1.0",
-      "model_set": "builtin:blake3:6e946ee2386327541fcde865d3b6124dec075f5351efba6fbc1714a9d9815f95",
-      "git_head": "03b748c0a2831b9a9066bc1ae59813498db3b12d",
+      "model_set": "builtin:blake3:9a1b3025d02e4c4248d9634d84a4ee66e4ffe6c7a0f7b16768a3d7aa16604b74",
+      "git_head": "fc50972d3628a3cf3a09590d8ea2507ee9fbb4af",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

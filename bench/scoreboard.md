@@ -2,14 +2,14 @@
 
 | plane | run | measured | engine | models |
 |---|---|---|---|---|
-| correctness | `20261004T005738Z-correctness-73877` | 2026-10-04T00:57:38Z | `0.1.0` | `builtin:blake3:6e946ee2386327541fcde865d3b6124dec075f5351efba6fbc1714a9d9815f95` |
+| correctness | `20261004T030233Z-correctness-38965` | 2026-10-04T03:02:33Z | `0.1.0` | `builtin:blake3:9a1b3025d02e4c4248d9634d84a4ee66e4ffe6c7a0f7b16768a3d7aa16604b74` |
 | coverage | `20260927T155829Z-coverage-54709` | 2026-09-27T15:58:29Z | `0.1.0` | `builtin:blake3:e4a3aa943d572fb4a6c4ee6fa4eb7d50bafc33cdde32b27864e9d8f1a97b5272` |
 | repositories | `20260921T153340Z-repositories-53884` | 2026-09-21T15:33:40Z | `0.1.0` | `builtin:blake3:f4c5b1246f8269fed8c419ed2832d4607967f1357aec6027b0f2bcac2d787f40` |
 | performance | `20260921T150325Z-performance-62642` | 2026-09-21T15:03:25Z | `0.1.0` | `builtin:blake3:a73d1a25123b9661020f9e13dbb1528964df754bf91f93b64e2df5b98b703606` |
 
 ## 1. Invocation correctness
 
-run `20261004T005738Z-correctness-73877` measured 2026-10-04T00:57:38Z
+run `20261004T030233Z-correctness-38965` measured 2026-10-04T03:02:33Z
 
 Independent effect, flow, and uncertainty expectations.
 
@@ -39,60 +39,60 @@ silent drops: 326 rows tested, 71 mutants, 0 drops
 
 ### nah parity
 
-nah `03b748c0a2831b9a9066bc1ae59813498db3b12d` / corpus `5e546b4db508ef3854c15b3bd2870a7280759b203646add56cf69b3f4740a93e`
+nah `fc50972d3628a3cf3a09590d8ea2507ee9fbb4af` / corpus `fbcf9561405c7729c57498bd769e203f6f06d50f26a63f8e79b67d0727596917`
 
 | class | count |
 |---|---|
-| effect_match | 5312 |
+| effect_match | 5346 |
 | silent_symbolic_drop | 2 |
-| missing_effect | 23 |
-| missing_flow | 4 |
-| covered | 1449 |
-| explained_partial | 1813 |
+| missing_effect | 13 |
+| missing_flow | 2 |
+| covered | 1450 |
+| explained_partial | 1805 |
 
 | file | effect_match | silent_symbolic_drop | missing_effect | missing_flow | covered | explained_partial |
 |---|---|---|---|---|---|---|
 | code.jsonl | 47 | 0 | 0 | 0 | 15 | 9 |
 | compound.jsonl | 196 | 0 | 0 | 0 | 43 | 83 |
-| database-services.jsonl | 219 | 0 | 2 | 0 | 33 | 96 |
+| database-services.jsonl | 220 | 0 | 2 | 0 | 33 | 95 |
 | database.jsonl | 176 | 0 | 3 | 0 | 141 | 152 |
-| execution-flows.jsonl | 529 | 0 | 0 | 1 | 123 | 210 |
-| filesystem.jsonl | 746 | 0 | 5 | 0 | 259 | 150 |
-| git.jsonl | 793 | 0 | 1 | 0 | 307 | 167 |
+| execution-flows.jsonl | 535 | 0 | 0 | 0 | 123 | 207 |
+| filesystem.jsonl | 755 | 0 | 1 | 0 | 259 | 146 |
+| git.jsonl | 794 | 0 | 0 | 0 | 307 | 167 |
 | infrastructure.jsonl | 286 | 0 | 0 | 0 | 12 | 140 |
 | kubernetes.jsonl | 41 | 0 | 0 | 0 | 1 | 25 |
 | local-utilities.jsonl | 4 | 0 | 0 | 0 | 42 | 9 |
 | macos.jsonl | 61 | 0 | 0 | 0 | 30 | 16 |
-| native.jsonl | 55 | 0 | 0 | 0 | 20 | 7 |
-| network.jsonl | 25 | 2 | 1 | 0 | 7 | 10 |
+| native.jsonl | 55 | 0 | 0 | 0 | 20 | 4 |
+| network.jsonl | 27 | 2 | 1 | 0 | 7 | 8 |
 | project.jsonl | 4 | 0 | 0 | 0 | 17 | 1 |
-| registry.jsonl | 191 | 0 | 1 | 0 | 6 | 102 |
-| secrets.jsonl | 821 | 0 | 6 | 3 | 194 | 226 |
-| self-protection.jsonl | 654 | 0 | 4 | 0 | 113 | 289 |
+| registry.jsonl | 192 | 0 | 0 | 0 | 6 | 102 |
+| secrets.jsonl | 828 | 0 | 4 | 2 | 195 | 231 |
+| self-protection.jsonl | 657 | 0 | 2 | 0 | 113 | 289 |
 | shell-resolution.jsonl | 192 | 0 | 0 | 0 | 27 | 28 |
-| storage.jsonl | 138 | 0 | 0 | 0 | 8 | 53 |
+| storage.jsonl | 142 | 0 | 0 | 0 | 8 | 52 |
 | threat-model.jsonl | 9 | 0 | 0 | 0 | 12 | 6 |
-| windows.jsonl | 125 | 0 | 0 | 0 | 39 | 34 |
+| windows.jsonl | 125 | 0 | 0 | 0 | 39 | 35 |
 
 | guard | effect_match | silent_symbolic_drop | missing_effect | missing_flow | covered | explained_partial |
 |---|---|---|---|---|---|---|
-| (structural) | 676 | 0 | 4 | 0 | 0 | 170 |
-| db-destroy | 386 | 0 | 5 | 0 | 0 | 38 |
+| (structural) | 679 | 0 | 2 | 0 | 0 | 168 |
+| db-destroy | 387 | 0 | 5 | 0 | 0 | 37 |
 | exec-decoded | 56 | 0 | 0 | 0 | 0 | 4 |
 | exec-network-shell | 56 | 0 | 0 | 0 | 0 | 1 |
 | exec-obfuscated | 54 | 0 | 0 | 0 | 0 | 1 |
-| exec-remote | 237 | 0 | 0 | 1 | 0 | 7 |
-| fs-auth-identity | 110 | 0 | 1 | 0 | 0 | 2 |
+| exec-remote | 243 | 0 | 0 | 0 | 0 | 4 |
+| fs-auth-identity | 111 | 0 | 0 | 0 | 0 | 2 |
 | fs-forkbomb | 24 | 0 | 0 | 0 | 0 | 0 |
 | fs-home | 220 | 0 | 1 | 0 | 0 | 8 |
 | fs-outside-workspace-delete | 44 | 0 | 0 | 0 | 0 | 0 |
 | fs-permission-weaken | 55 | 0 | 0 | 0 | 0 | 0 |
 | fs-project-root | 59 | 0 | 0 | 0 | 0 | 0 |
-| fs-raw-device | 42 | 0 | 0 | 0 | 0 | 1 |
-| fs-shell-profile | 38 | 0 | 0 | 0 | 0 | 2 |
+| fs-raw-device | 44 | 0 | 0 | 0 | 0 | 0 |
+| fs-shell-profile | 40 | 0 | 0 | 0 | 0 | 0 |
 | fs-startup-management | 38 | 0 | 0 | 0 | 0 | 0 |
 | fs-startup-persistence | 50 | 0 | 0 | 0 | 0 | 0 |
-| fs-system-tree | 561 | 0 | 3 | 0 | 0 | 9 |
+| fs-system-tree | 565 | 0 | 0 | 0 | 0 | 8 |
 | fs-volume-destroy | 34 | 0 | 0 | 0 | 0 | 0 |
 | git-clean-force | 53 | 0 | 0 | 0 | 0 | 0 |
 | git-force-push | 57 | 0 | 0 | 0 | 0 | 1 |
@@ -102,7 +102,7 @@ nah `03b748c0a2831b9a9066bc1ae59813498db3b12d` / corpus `5e546b4db508ef3854c15b3
 | git-path-discard | 38 | 0 | 0 | 0 | 0 | 0 |
 | git-protected-push | 38 | 0 | 0 | 0 | 0 | 0 |
 | git-recovery-destroy | 97 | 0 | 0 | 0 | 0 | 0 |
-| git-ref-delete | 46 | 0 | 1 | 0 | 0 | 0 |
+| git-ref-delete | 47 | 0 | 0 | 0 | 0 | 0 |
 | git-remote-repo-delete | 189 | 0 | 0 | 0 | 0 | 0 |
 | git-remote-resource-delete | 44 | 0 | 0 | 0 | 0 | 0 |
 | git-rewrite-force | 43 | 0 | 0 | 0 | 0 | 0 |
@@ -111,18 +111,18 @@ nah `03b748c0a2831b9a9066bc1ae59813498db3b12d` / corpus `5e546b4db508ef3854c15b3
 | infra-container-volume-delete | 51 | 0 | 0 | 0 | 0 | 0 |
 | infra-iac-destroy | 184 | 0 | 0 | 0 | 0 | 0 |
 | infra-k8s-delete | 42 | 0 | 0 | 0 | 0 | 0 |
-| net-lookalike-host | 25 | 2 | 1 | 0 | 0 | 3 |
+| net-lookalike-host | 27 | 2 | 1 | 0 | 0 | 1 |
 | registry-publish | 65 | 0 | 0 | 0 | 0 | 0 |
-| registry-unpublish | 127 | 0 | 1 | 0 | 0 | 0 |
-| secrets-credentials | 186 | 0 | 2 | 0 | 0 | 8 |
+| registry-unpublish | 128 | 0 | 0 | 0 | 0 | 0 |
+| secrets-credentials | 188 | 0 | 0 | 0 | 0 | 7 |
 | secrets-env | 119 | 0 | 0 | 0 | 0 | 0 |
-| secrets-exfil | 558 | 0 | 4 | 3 | 0 | 4 |
+| secrets-exfil | 563 | 0 | 4 | 2 | 0 | 4 |
 | secrets-store-delete | 40 | 0 | 0 | 0 | 0 | 0 |
 | secrets-store-destroy | 61 | 0 | 0 | 0 | 0 | 0 |
 | secrets-store-read | 57 | 0 | 0 | 0 | 0 | 0 |
 | storage-backup-destroy | 28 | 0 | 0 | 0 | 0 | 0 |
 | storage-recursive-delete | 43 | 0 | 0 | 0 | 0 | 0 |
-| storage-snapshot-delete | 61 | 0 | 0 | 0 | 0 | 2 |
+| storage-snapshot-delete | 65 | 0 | 0 | 0 | 0 | 0 |
 | sys-power | 34 | 0 | 0 | 0 | 0 | 0 |
 | sys-service-stop | 49 | 0 | 0 | 0 | 0 | 0 |
 
@@ -2256,7 +2256,7 @@ nah cold catalog + first analyze median: 2731 us (target 5000 us)
 
 | source | p50 ms | p99 ms | max ms | max RSS MB |
 |---|---|---|---|---|
-| adversarial | 0.8 | 135.6 | 1963.2 | 362.3 |
+| adversarial | 0.8 | 136.6 | 1992.6 | 350.2 |
 | nah | 0.9 | 9.1 | 39.6 | 158.0 |
 | swe | 1.0 | 17.6 | 783.0 | 214.2 |
 | wild | 1.1 | 105.5 | 10000.0 | 318.3 |
