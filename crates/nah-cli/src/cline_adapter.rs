@@ -178,6 +178,8 @@ fn normalize_cline_hook_input_for_platform(
         .map_err(|error| error.to_string());
     }
 
+    // Cleared by a `read_files` entry that names no usable path.
+    let mut every_file_read = true;
     let lowered = input
         .pre_tool_use
         .parameters
@@ -186,7 +188,8 @@ fn normalize_cline_hook_input_for_platform(
         .and_then(|parameters| match input.pre_tool_use.tool_name.as_str() {
             // Cline reads every listed file, so each is its own read and is
             // judged on its own path.
-            "read_files" => read_paths(parameters).map(|paths| {
+            "read_files" => read_paths(parameters).map(|(paths, every_path_read)| {
+                every_file_read = every_path_read;
                 paths
                     .into_iter()
                     .map(|path| ("Read", json!({"file_path":path})))
@@ -200,7 +203,12 @@ fn normalize_cline_hook_input_for_platform(
     let (calls, normalization_complete) = match lowered {
         Ok(calls) => (
             calls,
-            runtime_field_names_covered("cline", &input.pre_tool_use.tool_name, &original_input),
+            every_file_read
+                && runtime_field_names_covered(
+                    "cline",
+                    &input.pre_tool_use.tool_name,
+                    &original_input,
+                ),
         ),
         Err(_) => (
             vec![(
@@ -416,7 +424,11 @@ fn cline_command_text(value: &Value) -> Result<String, String> {
     }
 }
 
-fn read_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
+/// The path of every listed file that names one, and whether every entry
+/// did. An entry without a usable path is skipped rather than refusing the
+/// call: the files beside it are still judged. A list that names no path at
+/// all is invalid.
+fn read_paths(object: &Map<String, Value>) -> Result<(Vec<String>, bool), String> {
     let value = object
         .get("files")
         .or_else(|| object.get("paths"))
@@ -427,14 +439,21 @@ fn read_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
         Value::Array(values) if !values.is_empty() => values,
         value => vec![value],
     };
-    values
+    let paths = values
         .iter()
-        .map(|value| match value {
-            Value::String(path) if !path.is_empty() => Ok(path.clone()),
-            Value::Object(object) => non_empty_alias(object, &["path", "file_path", "filePath"]),
-            _ => Err(INVALID_CLINE_TOOL_INPUT.into()),
+        .filter_map(|value| match value {
+            Value::String(path) if !path.is_empty() => Some(path.clone()),
+            Value::Object(object) => {
+                non_empty_alias(object, &["path", "file_path", "filePath"]).ok()
+            }
+            _ => None,
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        return Err(INVALID_CLINE_TOOL_INPUT.into());
+    }
+    let every_path_read = paths.len() == values.len();
+    Ok((paths, every_path_read))
 }
 
 fn cline_delegated_reply(evaluation_failed: bool) -> Value {
@@ -552,6 +571,16 @@ mod tests {
         for (read, path) in reads.iter().zip(["one", "two"]) {
             assert_eq!(read.tool(), "Read");
             assert_eq!(read.input(), &json!({"file_path":path}));
+            assert!(read.normalization_complete());
+        }
+
+        // An entry without a usable path leaves the call incomplete but
+        // never hides the files beside it.
+        let reads = normalized_calls("read_files", json!({"files":["one", "", {}, 7, "two"]}));
+        assert_eq!(reads.len(), 2);
+        for (read, path) in reads.iter().zip(["one", "two"]) {
+            assert_eq!(read.input(), &json!({"file_path":path}));
+            assert!(!read.normalization_complete());
         }
 
         let search = normalized("search_codebase", json!({"queries":"[\"one\",\"two\"]"}));

@@ -134,6 +134,15 @@ fn adapter_blocks_danger_and_delegates_safe_and_opaque_calls() {
             "fs_write",
             json!({"operations":[{"path":project.join("new.rs")},{"path":hook_path(home)}]}),
         ),
+        // An operation without a usable path does not hide the one beside it.
+        (
+            "fs_write",
+            json!({"operations":[{"path":hook_path(home)},{"path":""}]}),
+        ),
+        (
+            "fs_write",
+            json!({"operations":[{},{"path":7},{"path":hook_path(home)}]}),
+        ),
         (
             "str_replace",
             json!({

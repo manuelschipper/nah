@@ -164,15 +164,21 @@ fn lower_kiro_tool<'a>(
             ("Read", json!({"file_path":required_path(object)?}), false)
         }
         "read" | "fs_read" | "fsRead" => {
-            return Ok(operation_paths(required_object(object)?)?
+            let (paths, every_path_read) = operation_paths(required_object(object)?)?;
+            let complete =
+                every_path_read && runtime_field_names_covered("kiro", tool_name, original_input);
+            return Ok(paths
                 .into_iter()
-                .map(|path| ("Read", json!({"file_path":path}), false))
+                .map(|path| ("Read", json!({"file_path":path}), complete))
                 .collect());
         }
         "write" | "fs_write" | "fsWrite" => {
-            return Ok(operation_paths(required_object(object)?)?
+            let (paths, every_path_read) = operation_paths(required_object(object)?)?;
+            let complete =
+                every_path_read && runtime_field_names_covered("kiro", tool_name, original_input);
+            return Ok(paths
                 .into_iter()
-                .map(|path| ("Write", json!({"file_path":path,"content":""}), false))
+                .map(|path| ("Write", json!({"file_path":path,"content":""}), complete))
                 .collect());
         }
         "str_replace" => (
@@ -188,26 +194,27 @@ fn required_object(object: Option<&Map<String, Value>>) -> Result<&Map<String, V
     object.ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())
 }
 
-/// The path of every operation, or of the call itself when it carries no
-/// `operations` list. One operation without a usable path refuses the whole
-/// call.
-fn operation_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
+/// The path of every operation that names one, or of the call itself when it
+/// carries no `operations` list, and whether every operation named one. An
+/// operation without a usable path is skipped rather than refusing the call:
+/// the paths beside it are still judged. A call that names no path at all is
+/// invalid.
+fn operation_paths(object: &Map<String, Value>) -> Result<(Vec<String>, bool), String> {
     let Some(operations) = object.get("operations") else {
-        return required_path(object).map(|path| vec![path]);
+        return required_path(object).map(|path| (vec![path], true));
     };
     let operations = operations
         .as_array()
-        .filter(|operations| !operations.is_empty())
         .ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())?;
-    operations
+    let paths = operations
         .iter()
-        .map(|operation| {
-            operation
-                .as_object()
-                .ok_or_else(|| INVALID_KIRO_TOOL_INPUT.to_owned())
-                .and_then(required_path)
-        })
-        .collect()
+        .filter_map(|operation| required_path(operation.as_object()?).ok())
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        return Err(INVALID_KIRO_TOOL_INPUT.into());
+    }
+    let every_path_read = paths.len() == operations.len();
+    Ok((paths, every_path_read))
 }
 
 fn required_path(object: &Map<String, Value>) -> Result<String, String> {
@@ -262,7 +269,7 @@ mod tests {
         );
         assert_eq!(read.tool(), "Read");
         assert_eq!(read.input(), &json!({"file_path":"/repo/src/lib.rs"}));
-        assert!(!read.normalization_complete());
+        assert!(read.normalization_complete());
 
         let read_file = normalized(
             "read_file",
@@ -281,7 +288,7 @@ mod tests {
             write.input(),
             &json!({"file_path":"/repo/new.rs","content":""})
         );
-        assert!(!write.normalization_complete());
+        assert!(write.normalization_complete());
     }
 
     #[test]
@@ -307,6 +314,23 @@ mod tests {
             for (call, input) in calls.iter().zip(&inputs) {
                 assert_eq!(call.tool(), lowered);
                 assert_eq!(call.input(), input);
+                assert!(call.normalization_complete());
+            }
+
+            // An operation without a usable path, or with a field the
+            // lowering does not account for, leaves the call incomplete but
+            // never hides the paths beside it.
+            for unread in [
+                json!({"operations":[{"path":"a"},{"path":""},{},{"path":7},{"path":"b"}]}),
+                json!({"operations":[{"path":"a","unmodeled":true},{"path":"b"}]}),
+            ] {
+                let calls = normalized_calls(tool, unread);
+                assert_eq!(calls.len(), 2, "{tool}");
+                for (call, input) in calls.iter().zip(&inputs) {
+                    assert_eq!(call.tool(), lowered);
+                    assert_eq!(call.input(), input);
+                    assert!(!call.normalization_complete());
+                }
             }
         }
 
@@ -343,7 +367,6 @@ mod tests {
             ("fs_write", json!({"operations":[{}]})),
             ("str_replace", json!({})),
             ("fs_write", json!({"operations":[{"path":7}]})),
-            ("fs_write", json!({"operations":[{"path":"a"},{}]})),
             ("str_replace", json!({"path":""})),
         ] {
             let call = normalized(tool, input.clone());
