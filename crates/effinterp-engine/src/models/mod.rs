@@ -133,6 +133,13 @@ impl<'a> InvocationCtx<'a> {
         self.stdin?.word.as_literal()
     }
 
+    /// What the launching shell holds open on the descriptor a `/dev/fd/N`
+    /// operand names: a here-string's text, or what a `<(...)` operand's
+    /// command writes, with text the shell supplies as unknown parts.
+    pub(crate) fn descriptor_content(&self, operand: &Word) -> Option<Word> {
+        self.nest.budget.descriptor_content(operand)
+    }
+
     pub(crate) fn without_stdin(&self) -> InvocationCtx<'a> {
         InvocationCtx {
             argv: self.argv,

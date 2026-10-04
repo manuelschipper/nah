@@ -1965,11 +1965,11 @@ impl Shell<'_> {
                 // known to write is handed over as the consumer's stdin now.
                 let written = self
                     .literal_process_output(env, source)
-                    .map(|bytes| StdinValue {
+                    .map(|word| StdinValue {
                         paths: None,
                         piped: true,
                         file: None,
-                        word: Word::literal(bytes),
+                        word,
                         provenance: vec![self.span_node(builder, span)],
                     });
                 feed = Some((channel, written));

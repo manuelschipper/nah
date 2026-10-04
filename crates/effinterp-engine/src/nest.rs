@@ -135,6 +135,11 @@ pub(crate) struct Budget {
     /// renamed, or removed. A later identity that passes through one of them
     /// can no longer rely on the initial observation.
     topology_mutations: RefCell<BTreeSet<String>>,
+    /// The changed paths whose only change is a plain directory creation, as
+    /// `mkdir` makes: nothing but the new, empty directory is there, so a
+    /// path beneath it is resolved through it. A created link or a directory
+    /// moved in can lead anywhere and is never one of these.
+    created_directories: RefCell<BTreeSet<String>>,
     /// A modeled topology change the analysis could not pin to one path.
     topology_unknown: Cell<bool>,
     /// Concrete paths a modeled write reached. A write can create the entry
@@ -147,10 +152,10 @@ pub(crate) struct Budget {
     /// How many steps the analysis could not model on the host filesystem;
     /// any of them may have written anywhere.
     unmodeled_steps: Cell<usize>,
-    /// Bytes the launching shell holds open on a descriptor, keyed by the
-    /// path the program being launched names it with (`/dev/fd/3`): what
-    /// that program reads when it opens the path as a source file.
-    descriptor_sources: RefCell<BTreeMap<String, String>>,
+    /// What the launching shell holds open on a descriptor, beside the
+    /// operand the program being launched names it with (`/dev/fd/3`): what
+    /// that program reads when it opens the operand as a file.
+    descriptor_sources: RefCell<Vec<(Word, Word)>>,
     cancelled: Cell<bool>,
     finalizing: Cell<bool>,
     nodes: Cell<u64>,
@@ -282,11 +287,12 @@ impl Budget {
             observation_requests: Cell::new(0),
             max_observation_requests: limits.max_observation_requests,
             topology_mutations: RefCell::new(BTreeSet::new()),
+            created_directories: RefCell::new(BTreeSet::new()),
             topology_unknown: Cell::new(false),
             written_paths: RefCell::new(BTreeSet::new()),
             written_unknown: Cell::new(false),
             unmodeled_steps: Cell::new(0),
-            descriptor_sources: RefCell::new(BTreeMap::new()),
+            descriptor_sources: RefCell::new(Vec::new()),
             cancelled: Cell::new(false),
             finalizing: Cell::new(false),
             steps: Cell::new(0),
@@ -580,16 +586,61 @@ impl Budget {
     /// Record that a modeled operation changed the filesystem topology at
     /// `path`, or anywhere when the operation's resource is not one concrete
     /// path. Initial-state identity through a changed entry is no longer
-    /// evidence about the state the later operation meets.
-    pub(crate) fn note_topology_mutation(&self, path: Option<&str>) {
+    /// evidence about the state the later operation meets. `creates_directory`
+    /// says the change is a plain directory creation.
+    pub(crate) fn note_topology_mutation(&self, path: Option<&str>, creates_directory: bool) {
         match path {
             Some(path) => {
-                self.topology_mutations
+                let first = self
+                    .topology_mutations
                     .borrow_mut()
                     .insert(path.to_string());
+                let mut created = self.created_directories.borrow_mut();
+                if !creates_directory {
+                    created.remove(path);
+                } else if first {
+                    created.insert(path.to_string());
+                }
             }
             None => self.topology_unknown.set(true),
         }
+    }
+
+    /// The directory a modeled step created that `path` lies beneath, when
+    /// `path` is resolved through it: the host saw nothing there before, so
+    /// the creation made a new, empty directory, and no other modeled change
+    /// or write lies between it and `path`.
+    fn created_directory_above(&self, path: &str) -> Option<String> {
+        let above = |ancestor: &str| {
+            path.strip_prefix(ancestor.trim_end_matches('/'))
+                .is_some_and(|rest| rest.starts_with('/'))
+        };
+        let mutations = self.topology_mutations.borrow();
+        let created = self.created_directories.borrow();
+        let mut changed = mutations
+            .iter()
+            .filter(|changed| *changed == path || above(changed));
+        let directory = changed.next()?;
+        // Sets are ordered, so the first changed ancestor is the outermost:
+        // one creation, with nothing changed or written beneath it on the
+        // way to `path`.
+        if changed.next().is_some()
+            || !created.contains(directory)
+            || !above(directory)
+            || self.written_paths.borrow().iter().any(|written| {
+                above(written)
+                    && written
+                        .strip_prefix(directory.trim_end_matches('/'))
+                        .is_some_and(|rest| rest.starts_with('/'))
+            })
+        {
+            return None;
+        }
+        let initial = self.observe_initial(ObservationQuery::Path {
+            path: directory.clone(),
+        });
+        matches!(initial, ObservationOutcome::Path(fact) if fact.kind == PathKind::Missing)
+            .then(|| directory.clone())
     }
 
     /// Record that a modeled write reached `path`, or an unknown path.
@@ -606,9 +657,18 @@ impl Budget {
     /// returning the previous ones for the launcher to restore.
     pub(crate) fn replace_descriptor_sources(
         &self,
-        sources: BTreeMap<String, String>,
-    ) -> BTreeMap<String, String> {
+        sources: Vec<(Word, Word)>,
+    ) -> Vec<(Word, Word)> {
         self.descriptor_sources.replace(sources)
+    }
+
+    /// What the launching shell holds open on the descriptor `operand` names.
+    pub(crate) fn descriptor_content(&self, operand: &Word) -> Option<Word> {
+        self.descriptor_sources
+            .borrow()
+            .iter()
+            .find(|(named, _)| named == operand)
+            .map(|(_, content)| content.clone())
     }
 
     /// Record a step the analysis could not model on the host filesystem.
@@ -718,25 +778,37 @@ impl Budget {
         let reaches = |identities: Option<Vec<String>>| {
             identities.is_none_or(|identities| identities.iter().any(|identity| related(identity)))
         };
+        // Where a changed entry lies: a topology change makes its own fact
+        // stale, so its parent is asked and the name joined beneath it.
+        let changed = |path: &str| {
+            let (parent, name) = path.trim_end_matches('/').rsplit_once('/')?;
+            let parent = if parent.is_empty() { "/" } else { parent };
+            identities(parent).map(|parents| {
+                parents
+                    .iter()
+                    .map(|parent| format!("{}/{name}", parent.trim_end_matches('/')))
+                    .collect::<Vec<_>>()
+            })
+        };
         // A write leaves its path's initial fact standing, so the path itself
-        // is asked. A topology change makes that fact stale, so its parent is
-        // asked and the name joined beneath it.
-        self.written_paths
+        // is asked, unless it lies beneath a directory the analysis created:
+        // then it is the rest of the path beneath where that directory lies.
+        self.written_paths.borrow().iter().any(|path| {
+            reaches(match self.created_directory_above(path) {
+                Some(directory) => changed(&directory).map(|directories| {
+                    let beneath = &path[directory.trim_end_matches('/').len()..];
+                    directories
+                        .iter()
+                        .map(|created| format!("{created}{beneath}"))
+                        .collect()
+                }),
+                None => identities(path),
+            })
+        }) || self
+            .topology_mutations
             .borrow()
             .iter()
-            .any(|path| reaches(identities(path)))
-            || self.topology_mutations.borrow().iter().any(|path| {
-                let Some((parent, name)) = path.trim_end_matches('/').rsplit_once('/') else {
-                    return true;
-                };
-                let parent = if parent.is_empty() { "/" } else { parent };
-                reaches(identities(parent).map(|parents| {
-                    parents
-                        .iter()
-                        .map(|parent| format!("{}/{name}", parent.trim_end_matches('/')))
-                        .collect()
-                }))
-            })
+            .any(|path| reaches(changed(path)))
     }
 
     fn observe(&self, query: ObservationQuery) -> ObservationOutcome {
@@ -746,6 +818,17 @@ impl Budget {
         }
         if let Some(refusal) = self.observation_invalidated(path) {
             return ObservationOutcome::Refused(refusal);
+        }
+        self.observe_initial(query)
+    }
+
+    /// The host's fact about the state the invocation starts from, whatever
+    /// modeled steps changed since. Only a caller that accounts for those
+    /// changes itself may rely on it.
+    fn observe_initial(&self, query: ObservationQuery) -> ObservationOutcome {
+        let (ObservationQuery::Path { path } | ObservationQuery::Listing { path, .. }) = &query;
+        if !effinterp_proto::valid_observation_query(&query) {
+            return ObservationOutcome::Refused(ObservationRefusal::Invalid);
         }
         if !self.try_charge_steps(1) {
             return ObservationOutcome::Refused(ObservationRefusal::Limit {
@@ -1783,8 +1866,9 @@ impl<'a> Nest<'a> {
         // A descriptor path names bytes the launching shell supplied, not a
         // file on the host.
         let inherited = (namespace == SourceNamespace::Host)
-            .then(|| self.budget.descriptor_sources.borrow().get(path).cloned())
+            .then(|| self.budget.descriptor_content(&Word::literal(path)))
             .flatten()
+            .and_then(|content| content.as_literal().map(str::to_owned))
             .map(|bytes| crate::builder::WrittenSource::Exact(bytes.into_bytes()));
         let written = inherited.unwrap_or_else(|| {
             builder.written_source(path, |resource, path| {

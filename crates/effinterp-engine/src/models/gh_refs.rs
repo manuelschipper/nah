@@ -166,14 +166,19 @@ pub(super) fn api_ref_request(
     // query parameters, so only a body without one states `force`. gh reads
     // the last `--input`, and an empty one names no body. `--input -` is
     // standard input, whose bytes a pipe, here-document or here-string may
-    // establish; a file's are not read here.
+    // establish, and a `/dev/fd/N` operand names bytes the shell holds, such
+    // as a `<(...)` operand's output; a file's are not read here.
     let body_from_input = input
         .as_ref()
         .is_some_and(|input| input.as_literal() != Some(""));
-    let (mut force, mut source) = match (&input, ctx.stdin) {
-        (Some(input), Some(stdin)) if input.as_literal() == Some("-") => {
+    let descriptor_body = input
+        .as_ref()
+        .and_then(|input| ctx.descriptor_content(input));
+    let (mut force, mut source) = match (&input, ctx.stdin, &descriptor_body) {
+        (Some(input), Some(stdin), _) if input.as_literal() == Some("-") => {
             json_body_force(&stdin.word)
         }
+        (_, _, Some(body)) => json_body_force(body),
         _ if body_from_input => (Force::Unknown, None),
         _ => (Force::No, None),
     };

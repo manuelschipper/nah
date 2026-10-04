@@ -972,6 +972,20 @@ fn lex_word(c: &mut Cursor) -> Result<WordTok, (String, u32)> {
             '(' if !w.lit_quoted && w.lit.ends_with(['?', '*', '+', '@', '!']) => {
                 lex_extglob(c, &mut w)?;
             }
+            // `--input=<(…)`: a process substitution after other text is
+            // part of the same word.
+            '<' | '>'
+                if (c.starts("<(") || c.starts(">("))
+                    && !(w.segs.is_empty() && w.lit.is_empty()) =>
+            {
+                let start = c.pos;
+                c.bump();
+                c.bump();
+                scan_substitution_body(c, start)?;
+                w.seg(Seg::ProcSub {
+                    span: c.span_from(start),
+                });
+            }
             _ if is_word_terminator(ch) => break,
             '\'' => {
                 w.saw_quote = true;
