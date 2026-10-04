@@ -719,10 +719,12 @@ fn path_search_certified(plan: &Plan, effect: &Effect) -> bool {
 /// launch only when no effect this plan orders before the launch writes,
 /// creates, moves, deletes or mounts the path, a directory above it, or a
 /// selection whose bounds are unknown. The engine has already replaced a path
-/// this plan linked with the link's target.
+/// this plan linked with the link's target. A path this plan last changed by
+/// copying or hard-linking one file onto it (`cp nah alias; ./alias`) names
+/// that file, identified as of the copy.
 fn executed_identity<'a>(view: &PlanView<'a>, effect: &Effect, path: &str) -> Option<&'a str> {
     let platform = view.authority().platform();
-    let changed = view
+    let change = view
         .plan()
         .effects
         .iter()
@@ -735,16 +737,92 @@ fn executed_identity<'a>(view: &PlanView<'a>, effect: &Effect, path: &str) -> Op
                     "filesystem.read" | "filesystem.metadata"
                 )
         })
-        .any(|earlier| {
+        .filter(|earlier| {
             crate::observation_request::observation_bound(&earlier.resource).is_none_or(
                 |(bound, _)| nah_proto::labels::lexically_contains(&bound, path, platform),
             )
-        });
-    if changed {
-        return None;
+        })
+        .last();
+    let Some(change) = change else {
+        let observed = view.observed_path(path)?;
+        return Some(observed.realpath().unwrap_or(observed.resolved()).as_str());
+    };
+    let installed = |path: &str| {
+        tier::is_installed_nah(
+            path,
+            view.authority().installed_executables(),
+            view.authority().home(),
+            platform,
+        )
+    };
+    let identities = transferred_sources(view, change, path)
+        .into_iter()
+        .map(|source| {
+            if installed(source) {
+                Some(source)
+            } else {
+                executed_identity(view, change, source)
+            }
+        })
+        .collect::<Vec<_>>();
+    // Several files copied onto one path leave any of them there, and
+    // self-protection fails closed on the one that is Nah.
+    identities
+        .iter()
+        .flatten()
+        .copied()
+        .find(|identity| installed(identity))
+        .or_else(|| identities.into_iter().collect::<Option<Vec<_>>>()?.pop())
+}
+
+/// The files whose content `change`, a write or creation of exactly `path`,
+/// puts there: the sources of the copy or hard link the engine modeled as a
+/// resource transfer into it. Empty when `change` is any other kind of change
+/// or covers more than that one path.
+fn transferred_sources<'a>(view: &PlanView<'a>, change: &'a Effect, path: &str) -> Vec<&'a str> {
+    let platform = view.authority().platform();
+    let names_path = matches!(
+        &change.resource,
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path: written },
+        } if nah_proto::labels::lexical_path::same_path(written, path, platform)
+    );
+    if !names_path
+        || !matches!(
+            change.operation.as_str(),
+            "filesystem.write" | "filesystem.create"
+        )
+    {
+        return Vec::new();
     }
-    let observed = view.observed_path(path)?;
-    Some(observed.realpath().unwrap_or(observed.resolved()).as_str())
+    view.occurrences_for_execution(change.execution)
+        .filter(|node| {
+            node.realm == change.realm
+                && node.condition == change.condition
+                && node.provenance == change.provenance
+                && matches!(&node.occurrence, effinterp_proto::OccurrenceKind::ResourceInteraction {
+                    operation,
+                    resource,
+                    ..
+                } if operation == &change.operation && resource == &change.resource)
+        })
+        .flat_map(|node| view.incoming_edges(&node.id))
+        .filter(|edge| edge.reason == effinterp_proto::CausalReason::ResourceTransfer)
+        .filter_map(|edge| view.causal_node(&edge.from))
+        .filter_map(|source| match &source.occurrence {
+            effinterp_proto::OccurrenceKind::ResourceInteraction {
+                operation,
+                resource:
+                    ResourceExpr::Concrete {
+                        identity: ResourceIdentity::FsPath { path },
+                    },
+                ..
+            } if source.realm.is_host() && operation.as_str() == "filesystem.read" => {
+                Some(path.as_str())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Cargo replacing or removing Nah's binary. An uninstall removes it when it

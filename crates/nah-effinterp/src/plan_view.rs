@@ -602,6 +602,20 @@ impl<'a> PlanView<'a> {
         })
     }
 
+    pub(crate) fn incoming_edges(
+        &self,
+        id: &effinterp_proto::OccurrenceId,
+    ) -> impl Iterator<Item = &'a effinterp_proto::CausalEdge> {
+        self.plan.causality.graph.iter().flat_map(move |graph| {
+            self.causality
+                .incoming
+                .get(id)
+                .into_iter()
+                .flatten()
+                .map(|index| &graph.edges[*index])
+        })
+    }
+
     pub(crate) fn observed_path(&self, requested: &str) -> Option<&'a PathObservation> {
         match self.observed_paths.get(requested) {
             Some(Observed::Ok { value }) => Some(value),
