@@ -1233,7 +1233,7 @@ fn find_kind(fact: &PathFact, follow: bool) -> Option<char> {
 /// (`find_listed_matches`); without a listing, a selection those narrow keeps
 /// the name's globs and is reported as possibly narrower. Without a name, a
 /// selection of every entry is spelled as the start path's children, as is
-/// a listing whose every top-level entry is selected.
+/// a listing whose every top-level entry a removing command is passed.
 #[allow(clippy::too_many_arguments)]
 fn find_action_matches(
     builder: &mut PlanBuilder,
@@ -1284,6 +1284,7 @@ fn find_action_matches(
         })
         && let Some(listed) = find_listed_matches(
             builder, ctx, model_node, tests, root, spelled, path, root_fact, depths, traversal,
+            removes,
         )
     {
         return listed;
@@ -1724,6 +1725,22 @@ enum FindReach {
 }
 
 impl FindExpr {
+    /// The expression with each `-prune` read as the true it evaluates to.
+    fn without_prune(&self) -> FindExpr {
+        let all = |terms: &[FindExpr]| terms.iter().map(FindExpr::without_prune).collect();
+        match self {
+            Self::Always | Self::Prune => Self::Always,
+            Self::Undecided => Self::Undecided,
+            Self::Name(pattern, fold) => Self::Name(pattern.clone(), *fold),
+            Self::Path(pattern, fold) => Self::Path(pattern.clone(), *fold),
+            Self::Type(types) => Self::Type(types.clone()),
+            Self::Action => Self::Action,
+            Self::Not(inner) => Self::Not(Box::new(inner.without_prune())),
+            Self::And(terms) => Self::And(all(terms)),
+            Self::Or(terms) => Self::Or(all(terms)),
+        }
+    }
+
     /// The expression's value for an entry find spells `path`, whose type
     /// letter is `kind` when known; `None` when a test is not decided.
     /// Evaluation short-circuits as find's does, and records in `action` and
@@ -1887,12 +1904,14 @@ const FIND_MAX_LISTED_MATCHES: usize = 64;
 /// `-type`, `-path`, negation, alternatives and `-prune` are applied to the
 /// entries themselves, which a glob cannot do.
 ///
-/// Where the tests select every entry directly below the start path and not
-/// the start path itself (`find . ! -name .`), the selection is the start
-/// path's children, `ROOT/*` and `ROOT/.*`, rather than a list of them: that
-/// is what a reader of the selection asks about, however few entries the
-/// directory holds now. Every deeper entry selected too, with no depth bound,
-/// is everything below the start path.
+/// Where a command that `removes` is passed every entry directly below the
+/// start path and not the start path itself (`find . ! -name . -exec rm`),
+/// the selection is the start path's children, `ROOT/*` and `ROOT/.*`, rather
+/// than a list of them: the directory is emptied, however few entries it
+/// holds now, which is what a reader of the removal asks about. The children
+/// carry the entry kinds and names the tests leave out (`find_narrowing`),
+/// and tests that narrowing cannot state keep the list. Every deeper entry
+/// selected too, with no depth bound, is everything below the start path.
 ///
 /// `None` when the listing cannot say what find visits: the host gives none,
 /// `-L` meets a link, the expression is not read, or more entries match than
@@ -1911,6 +1930,7 @@ fn find_listed_matches(
     root_fact: Option<&PathFact>,
     depths: FindDepths,
     traversal: FindTraversal,
+    removes: bool,
 ) -> Option<(Vec<Word>, bool)> {
     let expression = find_expression(tests)?;
     let root_fact = root_fact?;
@@ -2053,12 +2073,30 @@ fn find_listed_matches(
             pruned.push(entry.path.clone());
         }
     }
-    if matches.is_empty()
+    if removes
+        && matches.is_empty()
         && children > 0
         && below.iter().filter(|(depth, _)| *depth == 1).count() == children
+        // Every entry directly below the start path was visited and
+        // selected, so a `-prune` among the tests held nothing of them back.
+        && let Some((narrowing, true)) =
+            find_narrowing(&expression.without_prune(), traversal, Some(spelled))
     {
         let base = crate::paths::escape_fs_glob_path(path.trim_end_matches('/'));
-        let glob = |pattern: String| Word::new(vec![WordPart::Glob(pattern)]);
+        // A glob word carries only its text, so a narrowed selection is
+        // passed as the resource it resolves to.
+        let glob = |glob: String| {
+            Word::new(vec![if narrowing.is_none() {
+                WordPart::Glob(glob)
+            } else {
+                WordPart::Value(ResourceExpr::Pattern {
+                    pattern: effinterp_proto::ResourcePattern::FsPath {
+                        glob,
+                        narrowing: narrowing.clone(),
+                    },
+                })
+            }])
+        };
         matches.extend([glob(format!("{base}/*")), glob(format!("{base}/.*"))]);
         if !left_out && depths.max.is_none() {
             matches.extend([glob(format!("{base}/*/**")), glob(format!("{base}/.*/**"))]);
