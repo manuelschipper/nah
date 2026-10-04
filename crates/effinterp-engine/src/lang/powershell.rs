@@ -1588,8 +1588,8 @@ fn move_item(
     }
     // -Include, -Exclude and -Filter admit items by name before a copy
     // recurses into them. A named item they do not admit is not copied or
-    // moved at all; what they admit beneath a named directory is not
-    // modeled (`landed_entries`).
+    // moved at all; whether they also choose among what a named directory
+    // holds is not established (`landed_entries`).
     let filters = [
         bound.values("Include"),
         bound.values("Exclude"),
@@ -1638,55 +1638,44 @@ fn move_item(
             resolved.push(None);
             continue;
         }
-        if filtered {
-            if matches!(resource, ResourceExpr::Pattern { .. }) {
-                // The departures below name every entry the wildcard
-                // matches, including those the filters leave in place.
-                complete = false;
-                powershell_boundary(
-                    builder,
-                    node,
-                    &format!(
-                        "PowerShell {command} filters are not applied to the source it reads or removes"
-                    ),
-                );
-            } else {
-                // Windows folds case; elsewhere both readings are asked.
-                let windows = matches!(
-                    &resource,
-                    ResourceExpr::Concrete {
-                        identity: ResourceIdentity::FsPath { path },
-                    } if drive_rooted(path)
-                );
-                let admitted = entry_name(source)
-                    .and_then(|name| Some((admits(name, true)?, admits(name, windows)?)));
-                match admitted {
-                    Some((true, true)) => {}
-                    Some((false, false)) => {
-                        left_out[index] = true;
-                        resolved.push(None);
-                        continue;
-                    }
-                    // Admitted under one case rule only: the source is kept.
-                    Some(_) => {
-                        complete = false;
-                        builder.boundary(model_gap(
-                            node,
-                            format!(
-                                "PowerShell {command} filters admit a named source only under one case rule, which is not modeled"
-                            ),
-                        ));
-                    }
-                    None => {
-                        complete = false;
-                        powershell_boundary(
-                            builder,
-                            node,
-                            &format!(
-                                "PowerShell {command} filters could not be matched against a named source"
-                            ),
-                        );
-                    }
+        // A filtered wildcard departs as the entries its filters admit, once
+        // the host has listed them (`admitted` below).
+        if filtered && !matches!(resource, ResourceExpr::Pattern { .. }) {
+            // Windows folds case; elsewhere both readings are asked.
+            let windows = matches!(
+                &resource,
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path },
+                } if drive_rooted(path)
+            );
+            let admitted = entry_name(source)
+                .and_then(|name| Some((admits(name, true)?, admits(name, windows)?)));
+            match admitted {
+                Some((true, true)) => {}
+                Some((false, false)) => {
+                    left_out[index] = true;
+                    resolved.push(None);
+                    continue;
+                }
+                // Admitted under one case rule only: the source is kept.
+                Some(_) => {
+                    complete = false;
+                    builder.boundary(model_gap(
+                        node,
+                        format!(
+                            "PowerShell {command} filters admit a named source only under one case rule, which is not modeled"
+                        ),
+                    ));
+                }
+                None => {
+                    complete = false;
+                    powershell_boundary(
+                        builder,
+                        node,
+                        &format!(
+                            "PowerShell {command} filters could not be matched against a named source"
+                        ),
+                    );
                 }
             }
         }
@@ -1791,6 +1780,38 @@ fn move_item(
             ),
         );
     }
+    // The entries a filtered wildcard reads or removes: those the listing
+    // shows its pattern matches and its filters admit. Where the listing or a
+    // reading of it leaves that open, the departure names every entry the
+    // wildcard matches, including those the filters leave in place.
+    let mut admitted = vec![None; resolved.len()];
+    for index in 0..resolved.len() {
+        let Some(ResourceExpr::Pattern {
+            pattern: ResourcePattern::FsPath { glob },
+        }) = &resolved[index]
+        else {
+            continue;
+        };
+        if !filtered {
+            continue;
+        }
+        admitted[index] = match &listings[index] {
+            Some(ObservationOutcome::Listing(listing)) => {
+                admitted_entries(glob, &listing.entries, force, &admits)
+            }
+            _ => None,
+        };
+        if admitted[index].is_none() {
+            complete = false;
+            powershell_boundary(
+                builder,
+                node,
+                &format!(
+                    "PowerShell {command} filters are not applied to the source it reads or removes"
+                ),
+            );
+        }
+    }
     // Where each named source lands: under its own name in an existing
     // directory, as the destination itself where it is not one, and where
     // the host did not say which, possibly either. A move onto an existing
@@ -1874,10 +1895,29 @@ fn move_item(
     }
     // The effect each source's content leaves through.
     let mut departures = Vec::new();
-    for resource in &resolved {
+    for (resource, admitted) in resolved.iter().zip(&admitted) {
         let Some(resource) = resource.clone() else {
             departures.push(None);
             continue;
+        };
+        let resource = match admitted.as_deref() {
+            None => resource,
+            // Nothing the wildcard matches is admitted, so nothing departs.
+            Some([]) => {
+                departures.push(None);
+                continue;
+            }
+            Some([path]) => ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path: path.clone() },
+            },
+            Some(paths) => ResourceExpr::Union {
+                alternatives: paths
+                    .iter()
+                    .map(|path| ResourceExpr::Concrete {
+                        identity: ResourceIdentity::FsPath { path: path.clone() },
+                    })
+                    .collect(),
+            },
         };
         departures.push(if copy {
             filesystem_effect(
@@ -2177,7 +2217,9 @@ fn model_gap(node: ProvenanceRef, detail: String) -> Boundary {
 /// answer for it when it is a directory.
 ///
 /// A named source lands at `landing`, and everything beneath it at the same
-/// relative path; the filters also apply beneath it, which is not modeled. A
+/// relative path. Whether the filters also choose among what a named
+/// directory holds is not established: an entry they admit, beneath
+/// directories they admit, lands either way, and any other is left open. A
 /// wildcard (`pattern`, the glob and the directory it selects beneath)
 /// selects each entry the whole pattern matches and the filters admit. Inside
 /// an existing directory each lands under its own name, with everything
@@ -2217,14 +2259,24 @@ fn landed_entries(
             .filter(move |entry| entry.path.starts_with(&prefix))
     };
     let Some((glob, root)) = pattern else {
-        if shape.filtered && !entries.is_empty() {
-            return open(Unestablished::Model(
-                "is filtered beneath a named directory, which is not modeled",
-            ));
-        }
+        let admitted = |entry: &&ListedEntry| {
+            !shape.filtered
+                || entry.path.split('/').all(|name| {
+                    (shape.admits)(name, true) == Some(true)
+                        && (shape.admits)(name, false) == Some(true)
+                })
+        };
         return Landed {
-            paths: entries.iter().map(|entry| join(&entry.path)).collect(),
-            established: if entries.iter().any(special) {
+            paths: entries
+                .iter()
+                .filter(admitted)
+                .map(|entry| join(&entry.path))
+                .collect(),
+            established: if !entries.iter().all(|entry| admitted(&entry)) {
+                Err(Unestablished::Model(
+                    "holds entries its filters may leave out, which is not modeled",
+                ))
+            } else if entries.iter().any(special) {
                 Err(SPECIAL)
             } else {
                 Ok(())
@@ -2241,52 +2293,18 @@ fn landed_entries(
             landed.established = Err(gap);
         }
     };
-    // A drive-rooted wildcard is matched as Windows matches it: without
-    // regard to case, and with hidden items marked by an attribute the
-    // listing does not carry. Elsewhere a dot name is hidden, and whether
-    // case is folded is not established, so both readings are asked.
-    let windows = drive_rooted(glob);
-    let root_components = glob_components_below(glob, root) as usize;
-    let patterns = glob.split('/').collect::<Vec<_>>();
-    let patterns = &patterns[patterns.len() - root_components.min(patterns.len())..];
     let mut selected = false;
     for entry in entries {
         let name = entry.path.rsplit('/').next().unwrap_or(&entry.path);
-        let components = entry.path.split('/').collect::<Vec<_>>();
-        if components.len() != patterns.len() {
-            continue;
-        }
-        // Whether a component a wildcard selects is a dot name, the pattern
-        // itself starting with a `.` or not.
-        let dotted = |spelled: bool| {
-            !shape.force
-                && components.iter().zip(patterns).any(|(component, pattern)| {
-                    component.starts_with('.')
-                        && pattern.contains(['*', '?', '['])
-                        && pattern.starts_with('.') == spelled
-                })
-        };
-        let reading = |fold: bool| -> Option<bool> {
-            for (component, pattern) in components.iter().zip(patterns) {
-                if !wildcard_match(pattern, component, fold)? {
-                    return Some(false);
-                }
-            }
-            (shape.admits)(name, fold)
-        };
-        let (Some(folded), Some(exact)) = (reading(true), reading(windows)) else {
+        let Some(selection) = wildcard_selects(glob, root, entry, shape.force, shape.admits) else {
             return open(Unestablished::Model(
                 "wildcard or filters could not be matched, which is not modeled",
             ));
         };
-        // Off Windows a wildcard hides dot names; whether a pattern that
-        // spells the dot, as `.*`, still hides them is not established, so
-        // such an entry is written and marked uncertain.
-        let hidden = dotted(false);
-        if !(folded || exact) || hidden && !windows {
+        let Some(uncertain) = selection else {
             continue;
-        }
-        landed.uncertain |= folded != exact || dotted(true) || hidden && windows;
+        };
+        landed.uncertain |= uncertain;
         selected = true;
         if !shape.inside {
             continue;
@@ -2323,6 +2341,87 @@ fn landed_entries(
     }
     landed.withdrawn = landed.established.is_ok() && (shape.inside || !selected);
     landed
+}
+
+/// Whether the wildcard `glob`, which selects beneath `root`, and the filters
+/// select a listed entry: `Some(None)` where they do not, and otherwise
+/// whether they do only under one reading of PowerShell's case or hidden-item
+/// rule on this host. `None` where the wildcard or a filter cannot be matched.
+///
+/// A drive-rooted wildcard is matched as Windows matches it: without regard
+/// to case, and with hidden items marked by an attribute the listing does not
+/// carry. Elsewhere a dot name is hidden unless `force`, and whether case is
+/// folded is not established, so both readings are asked.
+fn wildcard_selects(
+    glob: &str,
+    root: &str,
+    entry: &ListedEntry,
+    force: bool,
+    admits: &dyn Fn(&str, bool) -> Option<bool>,
+) -> Option<Option<bool>> {
+    let windows = drive_rooted(glob);
+    let root_components = glob_components_below(glob, root) as usize;
+    let patterns = glob.split('/').collect::<Vec<_>>();
+    let patterns = &patterns[patterns.len() - root_components.min(patterns.len())..];
+    let name = entry.path.rsplit('/').next().unwrap_or(&entry.path);
+    let components = entry.path.split('/').collect::<Vec<_>>();
+    if components.len() != patterns.len() {
+        return Some(None);
+    }
+    // Whether a component a wildcard selects is a dot name, the pattern
+    // itself starting with a `.` or not.
+    let dotted = |spelled: bool| {
+        !force
+            && components.iter().zip(patterns).any(|(component, pattern)| {
+                component.starts_with('.')
+                    && pattern.contains(['*', '?', '['])
+                    && pattern.starts_with('.') == spelled
+            })
+    };
+    let reading = |fold: bool| -> Option<bool> {
+        for (component, pattern) in components.iter().zip(patterns) {
+            if !wildcard_match(pattern, component, fold)? {
+                return Some(false);
+            }
+        }
+        admits(name, fold)
+    };
+    let (folded, exact) = (reading(true)?, reading(windows)?);
+    // Off Windows a wildcard hides dot names; whether a pattern that spells
+    // the dot, as `.*`, still hides them is not established, so such an entry
+    // is selected and marked uncertain.
+    let hidden = dotted(false);
+    if !(folded || exact) || hidden && !windows {
+        return Some(None);
+    }
+    Some(Some(folded != exact || dotted(true) || hidden && windows))
+}
+
+/// Most entries a filtered wildcard departs as one by one. Past it the
+/// departure names the wildcard itself.
+const MAX_ADMITTED_ENTRIES: usize = 64;
+
+/// The paths of the listed `entries` that the wildcard `glob` matches and the
+/// filters admit. `None` where that is not established: a reading of the
+/// wildcard, the filters or the host's case or hidden-item rule is open, or
+/// more entries are admitted than depart one by one.
+fn admitted_entries(
+    glob: &str,
+    entries: &[ListedEntry],
+    force: bool,
+    admits: &dyn Fn(&str, bool) -> Option<bool>,
+) -> Option<Vec<String>> {
+    let root = wildcard_root(glob);
+    let mut paths = Vec::new();
+    for entry in entries {
+        match wildcard_selects(glob, root, entry, force, admits)? {
+            None => {}
+            Some(true) => return None,
+            Some(false) if paths.len() == MAX_ADMITTED_ENTRIES => return None,
+            Some(false) => paths.push(format!("{}/{}", root.trim_end_matches('/'), entry.path)),
+        }
+    }
+    Some(paths)
 }
 
 /// Whether `path` is rooted at a Windows drive, as `C:/`.
