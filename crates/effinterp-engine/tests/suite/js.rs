@@ -9797,3 +9797,30 @@ fn leaves_environment_unknown(resource: &ResourceExpr) -> bool {
         _ => false,
     }
 }
+
+/// `atob` is the base64 decoder only while the program has not bound the name
+/// itself. A block's own binding hides the global inside that block and inside
+/// functions the block defines, and nowhere else.
+#[test]
+fn block_scoped_atob_is_not_the_base64_decoder() {
+    let decodes = |source: &str| {
+        js(source)
+            .effects
+            .iter()
+            .any(|effect| effect.operation.0 == "process.stream_transform")
+    };
+    for local in [
+        r#"{ const atob = (text) => text; eval(atob("console.log(1)")) }"#,
+        r#"function f() { { const atob = (t) => t; eval(atob("console.log(1)")) } } f()"#,
+        r#"{ const atob = (t) => t; function g() { eval(atob("console.log(1)")) } g() }"#,
+    ] {
+        assert!(!decodes(local), "{local}");
+    }
+    for global in [
+        r#"{ const x = 1; eval(atob("Y29uc29sZS5sb2coMSk=")) }"#,
+        r#"{ const atob = (t) => t; } eval(atob("Y29uc29sZS5sb2coMSk="))"#,
+        r#"function g() { eval(atob("Y29uc29sZS5sb2coMSk=")) } { const atob = (t) => t; g() }"#,
+    ] {
+        assert!(decodes(global), "{global}");
+    }
+}

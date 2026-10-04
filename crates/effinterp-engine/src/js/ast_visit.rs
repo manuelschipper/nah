@@ -351,12 +351,14 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             .iter()
             .map(|name| (name.clone(), self.compiled_vars.get(name).cloned()))
             .collect::<Vec<_>>();
+        self.block_bindings.push((it.span, shadowed.clone()));
         for statement in &it.body {
             self.visit_statement(statement);
             if statement_stops_sequential_execution(statement) {
                 break;
             }
         }
+        self.block_bindings.pop();
         for (name, outer) in outer_compiled {
             match outer {
                 Some(compiled) => self.compiled_vars.insert(name, compiled),

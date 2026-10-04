@@ -154,6 +154,30 @@ func main() {
     );
 }
 
+/// An interpreted string literal names its bytes through escapes: an
+/// undecoded `\057etc` would plan the delete on a cwd-relative path.
+#[test]
+fn interpreted_string_escapes_are_decoded() {
+    let plan = analyze(
+        r#"package main
+import "os"
+func main() {
+	os.RemoveAll("\057etc\x2fnah")
+	os.RemoveAll("\u002fvar\U0000002flog")
+	os.RemoveAll("/a\\nb")
+	os.RemoveAll("/\xc3\xa9")
+}
+"#,
+    );
+    for path in ["/etc/nah", "/var/log", "/a\\nb", "/é"] {
+        assert!(
+            has(&plan, "filesystem.delete", path),
+            "{path}: {:?}",
+            ops(&plan)
+        );
+    }
+}
+
 #[test]
 fn os_removeall_in_main() {
     let plan = analyze("package main\nimport \"os\"\nfunc main() { os.RemoveAll(\"/data\") }\n");

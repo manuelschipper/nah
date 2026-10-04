@@ -109162,7 +109162,7 @@
     {
       "id": "fs-system-tree.go-hex-escaped-path-remove-all",
       "guard": "fs-system-tree",
-      "derivation": "The Go interpreted string \"\\x2fetc\" is /etc, which os.RemoveAll deletes recursively; the engine does not decode the \\x escape.",
+      "derivation": "The Go interpreted string \"\\x2fetc\" is /etc, which os.RemoveAll deletes recursively.",
       "require": [
         {
           "op": "filesystem.delete",
@@ -109351,7 +109351,7 @@
     {
       "id": "self-protection.critical.ruby-case-in-pattern-arm-state",
       "guard": null,
-      "derivation": "ARGV[0] is nil or a String, so the `in String` arm can run and unlink nah trust state; the engine does not visit case/in arms.",
+      "derivation": "ARGV[0] is nil or a String, so the `in String` arm can run and unlink nah trust state.",
       "require": [
         {
           "op": "filesystem.delete",
