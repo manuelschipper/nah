@@ -162,7 +162,7 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
             "caseSensitive",
             "limit",
         ],
-        ("pi", "bash") => &["command"],
+        ("pi", "bash") => &["command", "timeout"],
         ("pi", "read") => &["path", "offset", "limit"],
         ("pi", "write") => &["path", "content"],
         ("pi", "edit") => &["path", "edits"],
@@ -189,6 +189,8 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
                     && input.get("background").is_none_or(Value::is_boolean)
             }
             ("opencode", "glob") => matches!(input.get("hidden"), None | Some(Value::Bool(false))),
+            // Pi's time limit in seconds does not change what the command does.
+            ("pi", "bash") => input.get("timeout").is_none_or(Value::is_number),
             ("openclaw" | "pi", "edit") => {
                 array_fields(input.get("edits"), &["oldText", "newText"])
             }

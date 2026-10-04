@@ -193,6 +193,9 @@ mod tests {
             let call = normalized(name, input);
             assert_eq!(call.tool(), expected_tool);
             assert_eq!(call.input(), &expected_input);
+            // An incomplete normalization is a refusal that a fail-closed
+            // hook blocks, so a builtin's documented fields must not cause one.
+            assert!(call.normalization_complete(), "{name}");
         }
     }
 
