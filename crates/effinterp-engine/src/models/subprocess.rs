@@ -2459,6 +2459,28 @@ impl CommandModel for Ssh {
         let loopback = literal_destination
             .as_ref()
             .is_some_and(|destination| ssh_loopback(destination, &options, &ctx.argv[1..start]));
+        // The command is read as this host's, but the default configuration
+        // files were not: a `Host` entry for the name may send it elsewhere.
+        if loopback {
+            builder.boundary(Boundary {
+                reason: BoundaryReason::ENVIRONMENT_CONFIGURATION,
+                class: BoundaryClass::Unresolved,
+                scope: BoundaryScope::Environment,
+                affected_resource: None,
+                callee: None,
+                domains: vec![
+                    Domain::new("filesystem"),
+                    Domain::new("process"),
+                    Domain::new("environment"),
+                ],
+                provenance: vec![model_node],
+                limit: None,
+                detail: Some(
+                    "ssh configuration files, which may redirect a loopback destination, are not read"
+                        .to_string(),
+                ),
+            });
+        }
         let mut jumps = options.jumps;
         let mut option_commands = Vec::new();
         for option in options.config {
@@ -3109,7 +3131,8 @@ fn ssh_login(transition: Transition, endpoint: Option<String>) -> Transition {
 /// the default port, with nothing on the command line that may send the
 /// connection elsewhere (a jump host, an `-o` setting such as `HostName` or
 /// `ProxyCommand`, or a configuration file `-F` names). A `Host localhost`
-/// entry in the default configuration files is not read.
+/// entry in the default configuration files is not read; the caller states
+/// that as a boundary. No name is resolved.
 fn ssh_loopback(destination: &SshDestination, options: &SshOptions, flags: &[Word]) -> bool {
     let host = destination
         .host
@@ -3118,8 +3141,9 @@ fn ssh_loopback(destination: &SshDestination, options: &SshOptions, flags: &[Wor
         .trim_end_matches('.')
         .to_ascii_lowercase();
     (host == "localhost"
+        || inet_aton(&host).is_some_and(|address| address >> 24 == 127)
         || host
-            .parse::<std::net::IpAddr>()
+            .parse::<std::net::Ipv6Addr>()
             .is_ok_and(|address| address.is_loopback()))
         && destination
             .port
@@ -3131,6 +3155,44 @@ fn ssh_loopback(destination: &SshDestination, options: &SshOptions, flags: &[Wor
             let text = flag.literal_prefix();
             text.starts_with('-') && text.contains('F')
         })
+}
+
+/// An IPv4 address as `inet_aton(3)` reads it, which is how OpenSSH takes a
+/// numeric host: one to four parts, each decimal, `0x` hexadecimal or
+/// `0`-prefixed octal, the last filling every remaining byte (`127.1` is
+/// `127.0.0.1`).
+fn inet_aton(text: &str) -> Option<u32> {
+    let parts = text
+        .split('.')
+        .map(|part| {
+            let lower = part.to_ascii_lowercase();
+            if let Some(hex) = lower.strip_prefix("0x") {
+                u32::from_str_radix(hex, 16).ok()
+            } else if part.len() > 1 && part.starts_with('0') {
+                u32::from_str_radix(part, 8).ok()
+            } else if part.bytes().all(|byte| byte.is_ascii_digit()) {
+                part.parse().ok()
+            } else {
+                None
+            }
+        })
+        .collect::<Option<Vec<u32>>>()?;
+    let (last, leading) = parts.split_last()?;
+    if leading.len() > 3 || leading.iter().any(|part| *part > 0xff) {
+        return None;
+    }
+    let free = 8 * (4 - leading.len() as u32);
+    if free < 32 && *last >> free != 0 {
+        return None;
+    }
+    Some(
+        leading
+            .iter()
+            .enumerate()
+            .fold(*last, |address, (index, part)| {
+                address | part << (24 - 8 * index as u32)
+            }),
+    )
 }
 
 struct SshDestination {
