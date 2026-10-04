@@ -6,6 +6,8 @@
 //! run but we cannot hold (an interactive session, an unreadable script, a
 //! shell escape) is a boundary, never a silently empty plan.
 
+use std::collections::BTreeMap;
+
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
     Effect, Modality, Operation, ProvenanceRef, ResourceExpr, ResourceIdentity, SqlConnection,
@@ -112,7 +114,7 @@ fn endpoint_effect(
 
 /// A file operand's effect (for `-f script.sql`: reading the script file),
 /// as its slot in the effect list.
-fn file_effect(
+pub(super) fn file_effect(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
@@ -288,45 +290,19 @@ enum Substitution {
 }
 
 impl Substitution {
+    /// Whether the client would rewrite `sql`. psql is not answered here:
+    /// its bindings are tracked, so `Run::psql_sql` interpolates instead.
     fn applies(self, sql: &str) -> bool {
         match self {
-            Substitution::None => false,
+            Substitution::None | Substitution::Psql => false,
             Substitution::Sqlcmd => sql.contains("$("),
             Substitution::Snowsql => sql.as_bytes().windows(2).any(|pair| {
                 pair[0] == b'&'
                     && (pair[1] == b'{' || pair[1].is_ascii_alphabetic() || pair[1] == b'_')
             }),
             Substitution::SnowCli => sql.contains("&{") || sql.contains("<%"),
-            Substitution::Psql => {
-                let bytes = sql.as_bytes();
-                escape_readings(SqlDialect::Postgres).iter().any(|escapes| {
-                    let lexed = positions(sql, SqlDialect::Postgres, *escapes);
-                    (0..bytes.len()).any(|i| lexed[i].code && psql_variable_at(bytes, i))
-                })
-            }
         }
     }
-
-    /// Whether the client substitutes into shell command text. psql
-    /// interpolates backquoted text regardless of shell quoting.
-    fn applies_to_shell(self, command: &str) -> bool {
-        match self {
-            Substitution::Psql => {
-                (0..command.len()).any(|i| psql_variable_at(command.as_bytes(), i))
-            }
-            other => other.applies(command),
-        }
-    }
-}
-
-/// Whether a psql variable reference (`:name`, `:'name'`, `:"name"`)
-/// starts at `bytes[i]`; `::` is a cast.
-fn psql_variable_at(bytes: &[u8], i: usize) -> bool {
-    bytes[i] == b':'
-        && (i == 0 || bytes[i - 1] != b':')
-        && bytes
-            .get(i + 1)
-            .is_some_and(|c| c.is_ascii_alphabetic() || matches!(c, b'_' | b'\'' | b'"'))
 }
 
 /// The option vocabulary and input grammar of one SQL client.
@@ -368,6 +344,8 @@ struct ClientSpec {
     setting_options: bool,
     /// Options whose effect on the SQL input is not modeled, with why.
     unmodeled_values: &'static [(&'static str, &'static str)],
+    /// Flags whose value is the statement delimiter the client starts with.
+    delimiter: &'static [&'static str],
     operands: Operands,
     scheme: Option<&'static str>,
     /// Endpoint the client connects to when argv selects none.
@@ -407,6 +385,7 @@ const CLIENT: ClientSpec = ClientSpec {
     stdin_flags: &[],
     setting_options: false,
     unmodeled_values: &[],
+    delimiter: &[],
     operands: Operands::None,
     scheme: None,
     default_host: None,
@@ -438,6 +417,7 @@ impl ClientSpec {
         flags.extend_from_slice(self.region);
         flags.extend_from_slice(self.named_connection);
         flags.extend(self.unmodeled_values.iter().map(|(flag, _)| *flag));
+        flags.extend_from_slice(self.delimiter);
         flags
     }
 
@@ -657,13 +637,8 @@ const MYSQL: ClientSpec = ClientSpec {
     ],
     help: &["-?", "--help", "-V", "--version", "-I"],
     attached_only: &["-p", "--password"],
-    unmodeled_values: &[
-        (
-            "--delimiter",
-            "mysql --delimiter changes how statements split",
-        ),
-        ("--pager", "mysql --pager sends query output to a command"),
-    ],
+    delimiter: &["--delimiter"],
+    unmodeled_values: &[("--pager", "mysql --pager sends query output to a command")],
     url_schemes: MYSQL_SCHEMES,
     operands: Operands::Database { max: 1 },
     ..CLIENT
@@ -1075,7 +1050,7 @@ const SNOW_SQL: ClientSpec = ClientSpec {
 };
 
 /// A unit of SQL input, in the order the client runs it.
-enum Program {
+pub(super) enum Program {
     Sql(Word, usize),
     File(Word, usize),
     Stdin,
@@ -1180,9 +1155,28 @@ fn sql_client(
     let mut outputs = Vec::new();
     let mut exits = scanned.has(spec.no_stdin);
     let mut substitute = true;
+    let mut variables = BTreeMap::new();
+    let mut variables_unknown = false;
+    let mut delimiter = ";".to_string();
     for flag in &scanned.flags {
         if flag.name == "-x" && spec.substitution == Substitution::Sqlcmd {
             substitute = false;
+        }
+        if spec.substitution == Substitution::Psql
+            && ["-v", "--set", "--variable"].contains(&flag.name)
+        {
+            // `-v name=value` binds a variable; `-v name` unsets it.
+            match flag.value.as_ref().and_then(|value| value.as_literal()) {
+                Some(binding) => match binding.split_once('=') {
+                    Some((name, value)) => {
+                        variables.insert(name.to_string(), Some(value.to_string()));
+                    }
+                    None => {
+                        variables.remove(binding);
+                    }
+                },
+                None => variables_unknown = true,
+            }
         }
         let (Some(value), Some(index)) = (&flag.value, flag.value_index) else {
             continue;
@@ -1244,6 +1238,16 @@ fn sql_client(
             database_index = Some(index);
         } else if spec.output.contains(&name) {
             outputs.push((index, value.clone()));
+        } else if spec.delimiter.contains(&name) {
+            match literal.and_then(delimiter_word) {
+                Some(word) => delimiter = word,
+                None => db_gap(
+                    builder,
+                    &[model_node],
+                    CLIENT_DOMAINS,
+                    "mysql --delimiter changes how statements split",
+                ),
+            }
         } else if let Some((_, detail)) =
             spec.unmodeled_values.iter().find(|(flag, _)| *flag == name)
         {
@@ -1439,6 +1443,10 @@ fn sql_client(
         conn,
         context,
         substitute,
+        variables,
+        variables_unknown,
+        conditionals: 0,
+        delimiter,
         includes: Vec::new(),
         stopped: false,
     };
@@ -1473,6 +1481,33 @@ fn sql_client(
     }
 }
 
+/// Run SQL input of a CLI a model document owns, where the document cannot
+/// read it (a script file). It runs as the document nests inline SQL: in no
+/// particular dialect, on a connection the document does not name.
+pub(super) fn document_sql(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    program: Program,
+) {
+    let mut run = Run {
+        ctx,
+        model_node,
+        spec: &CLIENT,
+        meta: CLIENT.meta,
+        conn: SqlConnection::default(),
+        context: Vec::new(),
+        substitute: false,
+        variables: BTreeMap::new(),
+        variables_unknown: false,
+        conditionals: 0,
+        delimiter: ";".to_string(),
+        includes: Vec::new(),
+        stopped: false,
+    };
+    run.program(builder, program);
+}
+
 /// The host a server argument names first: sqlcmd's `tcp:host,port` and
 /// `host\instance`, or the first of a libpq host list (`a,b`).
 fn host_name(text: &str) -> String {
@@ -1494,6 +1529,16 @@ struct Run<'r, 'a> {
     /// Connection arguments that inline SQL inherits as provenance.
     context: Vec<usize>,
     substitute: bool,
+    /// psql variables bound by `-v` and `\set`; `None` is a value Nah
+    /// cannot name (a command's output).
+    variables: BTreeMap<String, Option<String>>,
+    /// A command bound variables Nah cannot name (`\gset`), so no reference
+    /// resolves any more.
+    variables_unknown: bool,
+    /// Open psql `\if` blocks: a `\set` inside one may not run.
+    conditionals: usize,
+    /// The statement delimiter the client starts each input with.
+    delimiter: String,
     /// Origins of the scripts being run, outermost first.
     includes: Vec<String>,
     /// A client command made the rest of the input unanalyzable.
@@ -1624,6 +1669,19 @@ impl Run<'_, '_> {
                 segments
             }
             Meta::Sqlite if command.starts_with('.') => dot_command(command).into_iter().collect(),
+            // psql sends `-c` SQL as one request, which the server parses
+            // whole before it runs any of it.
+            _ if self.spec.substitution == Substitution::Psql && psql_request_rejected(text) => {
+                return;
+            }
+            // sqlite3 stops at the first statement it cannot prepare, and
+            // runs no later argument either.
+            _ if self.spec.dialect == SqlDialect::Sqlite => {
+                let runs = sqlite_argument_runs(text);
+                self.nest_sql(builder, runs.to_string(), None, provenance);
+                self.stopped = runs.len() < text.len();
+                return;
+            }
             _ => {
                 self.nest_sql(builder, text.to_string(), None, provenance);
                 return;
@@ -1646,7 +1704,15 @@ impl Run<'_, '_> {
         }
         let mut readings = escape_readings(self.spec.dialect)
             .iter()
-            .map(|escapes| client_segments(text, self.meta, self.spec.dialect, *escapes))
+            .map(|escapes| {
+                client_segments(
+                    text,
+                    self.meta,
+                    self.spec.dialect,
+                    *escapes,
+                    &self.delimiter,
+                )
+            })
             .collect::<Vec<_>>();
         readings.dedup();
         if readings.len() > 1 {
@@ -1711,6 +1777,30 @@ impl Run<'_, '_> {
                     file,
                 } => self.connect(builder, database, server, file, provenance),
                 ClientInputSegment::Shell(command) => self.shell(builder, command, provenance),
+                ClientInputSegment::Backquote(command) => match self.psql_backquote(&command) {
+                    Some(command) => self.shell(builder, command, provenance),
+                    None => opaque_source_with_provenance(
+                        builder,
+                        provenance,
+                        &["environment", "filesystem", "network", "process"],
+                        "client variable substitution leaves a shell command unresolved",
+                    ),
+                },
+                ClientInputSegment::Bind { name, value } => {
+                    let value = value.filter(|_| self.conditionals == 0);
+                    self.variables.insert(name, value);
+                }
+                ClientInputSegment::Unbind(name) if self.conditionals == 0 => {
+                    self.variables.remove(&name);
+                }
+                ClientInputSegment::Unbind(name) => {
+                    self.variables.insert(name, None);
+                }
+                ClientInputSegment::BindUnknown => self.variables_unknown = true,
+                ClientInputSegment::Conditional(true) => self.conditionals += 1,
+                ClientInputSegment::Conditional(false) => {
+                    self.conditionals = self.conditionals.saturating_sub(1)
+                }
                 // duckdb shares the dot-command reader but not sqlite's .restore.
                 ClientInputSegment::Restore(_) if self.spec.dialect != SqlDialect::Sqlite => {
                     db_gap(
@@ -1750,6 +1840,10 @@ impl Run<'_, '_> {
                 }
                 ClientInputSegment::Stop(detail) => {
                     db_gap(builder, provenance, CLIENT_DOMAINS, &detail);
+                    self.stopped = true;
+                    return;
+                }
+                ClientInputSegment::Quit => {
                     self.stopped = true;
                     return;
                 }
@@ -1819,7 +1913,7 @@ impl Run<'_, '_> {
 
     /// A shell command the client runs, analyzed as the shell would run it.
     fn shell(&mut self, builder: &mut PlanBuilder, command: String, provenance: &[ProvenanceRef]) {
-        if self.substitute && self.spec.substitution.applies_to_shell(&command) {
+        if self.substitute && self.spec.substitution.applies(&command) {
             opaque_source_with_provenance(
                 builder,
                 provenance,
@@ -1843,16 +1937,135 @@ impl Run<'_, '_> {
         origin: Option<&str>,
         provenance: &[ProvenanceRef],
     ) {
-        if self.substitute && self.spec.substitution.applies(&source) {
+        let (source, unresolved) = match self.spec.substitution {
+            Substitution::Psql => self.psql_sql(source),
+            substitution => {
+                let unresolved = self.substitute && substitution.applies(&source);
+                (source, unresolved)
+            }
+        };
+        if unresolved {
+            // The statement is still read: the SQL frontend takes each
+            // reference as a placeholder, so `DROP TABLE $(t)` keeps its drop
+            // with an unnamed target. What the value itself adds is the gap.
             db_gap(
                 builder,
                 provenance,
                 &["database"],
                 "client variable substitution leaves the SQL unresolved",
             );
-            return;
         }
         self.nest_sql(builder, source, origin, provenance);
+    }
+
+    /// The value psql interpolates for `name`, when Nah can name it.
+    fn variable(&self, name: &str) -> Option<&str> {
+        if self.variables_unknown {
+            return None;
+        }
+        self.variables.get(name)?.as_deref()
+    }
+
+    /// Script SQL as psql sends it: `:name`, `:'name'` and `:"name"` outside
+    /// literals replaced by their bound values. True when a reference stays,
+    /// or the server's string escaping decides where the references are.
+    fn psql_sql(&self, source: String) -> (String, bool) {
+        let mut readings = escape_readings(SqlDialect::Postgres)
+            .iter()
+            .map(|escapes| {
+                let lexed = positions(&source, SqlDialect::Postgres, *escapes, ";");
+                self.psql_interpolate(&source, |i| lexed[i].code, true)
+            })
+            .collect::<Vec<_>>();
+        readings.dedup();
+        match readings.pop() {
+            Some(reading) if readings.is_empty() => reading,
+            _ => (source, true),
+        }
+    }
+
+    /// Backquoted command text as psql hands it to the shell, or None when a
+    /// variable it references is not bound to a value Nah can name. psql
+    /// interpolates there whatever the shell quoting, and `:'name'` as one
+    /// shell-quoted word.
+    fn psql_backquote(&self, command: &str) -> Option<String> {
+        if self.spec.substitution != Substitution::Psql {
+            return Some(command.to_string());
+        }
+        let (command, unresolved) = self.psql_interpolate(command, |_| true, false);
+        (!unresolved).then_some(command)
+    }
+
+    /// Replace the psql variable references of `text` at the bytes `code`
+    /// admits; true when one stays. `sql` selects SQL quoting for the quoted
+    /// forms, else shell quoting, which has no `:"name"`.
+    fn psql_interpolate(
+        &self,
+        text: &str,
+        code: impl Fn(usize) -> bool,
+        sql: bool,
+    ) -> (String, bool) {
+        let bytes = text.as_bytes();
+        let mut out = String::new();
+        let mut unresolved = false;
+        let mut copied = 0;
+        let mut i = 0;
+        while i < bytes.len() {
+            // `::` is a cast in SQL; in a shell command psql rescans the
+            // second colon.
+            if sql && bytes[i..].starts_with(b"::") {
+                i += 2;
+                continue;
+            }
+            if !(bytes[i] == b':' && code(i)) {
+                i += 1;
+                continue;
+            }
+            let quote = bytes
+                .get(i + 1)
+                .copied()
+                .filter(|c| *c == b'\'' || (sql && *c == b'"'));
+            let name_start = i + 1 + usize::from(quote.is_some());
+            let name_len = bytes[name_start..]
+                .iter()
+                .take_while(|c| c.is_ascii_alphanumeric() || **c == b'_')
+                .count();
+            let name_end = name_start + name_len;
+            let end = match quote {
+                Some(quote) if name_len > 0 && bytes.get(name_end) == Some(&quote) => name_end + 1,
+                // `a[1:2]` is an array slice, not a variable named `2`.
+                None if name_len > 0 && !bytes[name_start].is_ascii_digit() => name_end,
+                // Not a reference (`:=`, an unclosed `:'name`), except
+                // `:{?name}`, which tests a variable.
+                _ => {
+                    unresolved |= sql && bytes[i..].starts_with(b":{?");
+                    i += 1;
+                    continue;
+                }
+            };
+            let value = self
+                .variable(&text[name_start..name_end])
+                .and_then(|value| match quote {
+                    None => Some(value.to_string()),
+                    // psql writes a value holding a backslash as E'…', and
+                    // refuses to shell-quote a line break.
+                    Some(_) if value.contains(['\\', '\n', '\r']) => None,
+                    Some(b'"') => Some(format!("\"{}\"", value.replace('"', "\"\""))),
+                    Some(_) if sql => Some(format!("'{}'", value.replace('\'', "''"))),
+                    Some(_) => Some(format!("'{}'", value.replace('\'', "'\\''"))),
+                });
+            match value {
+                Some(value) => {
+                    out.push_str(&text[copied..i]);
+                    out.push_str(&value);
+                    copied = end;
+                }
+                None => unresolved = true,
+            }
+            i = end;
+        }
+        out.push_str(&text[copied..]);
+        (out, unresolved)
     }
 
     fn nest_sql(
@@ -2019,8 +2232,22 @@ enum ClientInputSegment {
         server: Switch,
         file: Option<String>,
     },
-    /// A shell command the client runs (psql backquotes and `\!`, `.shell`).
+    /// A shell command the client runs (psql `\!`, `.shell`).
     Shell(String),
+    /// psql backquoted argument text: a shell command, once psql has
+    /// interpolated its variables into it.
+    Backquote(String),
+    /// psql `\set name value`; `None` is a value Nah cannot name.
+    Bind {
+        name: String,
+        value: Option<String>,
+    },
+    /// psql `\unset name`.
+    Unbind(String),
+    /// psql binds variables Nah cannot name (`\gset`).
+    BindUnknown,
+    /// psql `\if` (true) or `\endif` (false).
+    Conditional(bool),
     /// sqlite `.restore ?DB? FILE`: replaces the contents of the connected
     /// database, or of the attached schema `DB`, with FILE's.
     Restore(Option<String>),
@@ -2028,6 +2255,8 @@ enum ClientInputSegment {
     Opaque(String),
     /// Nothing after this command can be analyzed.
     Stop(String),
+    /// The client quits here; no later input runs.
+    Quit,
 }
 
 /// How a connection switch changes one part of the connection.
@@ -2076,8 +2305,14 @@ enum LexState {
 }
 
 /// The lexical position of every byte of `text` (and one past its end),
-/// reading string literals with or without backslash escapes.
-fn positions(text: &str, dialect: SqlDialect, backslash_escapes: bool) -> Vec<Position> {
+/// reading string literals with or without backslash escapes. `delimiter`
+/// ends a statement: `;`, or what a mysql `DELIMITER` command set.
+fn positions(
+    text: &str,
+    dialect: SqlDialect,
+    backslash_escapes: bool,
+    delimiter: &str,
+) -> Vec<Position> {
     let bytes = text.as_bytes();
     let hash_comments = matches!(
         dialect,
@@ -2098,11 +2333,15 @@ fn positions(text: &str, dialect: SqlDialect, backslash_escapes: bool) -> Vec<Po
         let mut width = 1;
         match state {
             LexState::Code => match c {
+                _ if bytes[i..].starts_with(delimiter.as_bytes()) => {
+                    pending = false;
+                    width = delimiter.len();
+                }
                 b'\'' | b'"' | b'`' => {
                     state = LexState::Quote(c);
                     pending = true;
                 }
-                b'[' if dialect == SqlDialect::TSql => {
+                b'[' if matches!(dialect, SqlDialect::TSql | SqlDialect::Sqlite) => {
                     state = LexState::Bracket;
                     pending = true;
                 }
@@ -2132,7 +2371,6 @@ fn positions(text: &str, dialect: SqlDialect, backslash_escapes: bool) -> Vec<Po
                         width = len;
                     }
                 }
-                b';' => pending = false,
                 c if !c.is_ascii_whitespace() => pending = true,
                 _ => {}
             },
@@ -2149,7 +2387,8 @@ fn positions(text: &str, dialect: SqlDialect, backslash_escapes: bool) -> Vec<Po
             }
             LexState::Bracket => {
                 if c == b']' {
-                    if next == Some(b']') {
+                    // T-SQL doubles `]` to escape it; SQLite ends at the first.
+                    if next == Some(b']') && dialect == SqlDialect::TSql {
                         width = 2;
                     } else {
                         state = LexState::Code;
@@ -2197,6 +2436,77 @@ fn positions(text: &str, dialect: SqlDialect, backslash_escapes: bool) -> Vec<Po
     out
 }
 
+/// Whether a Postgres server certainly rejects `text`, a psql `-c` request
+/// psql sends as written: a byte outside literals and comments that its
+/// lexer or grammar accepts nowhere there. psql's own syntax is the usual
+/// cause: `\;`, a `:name` variable, `:{?name}`.
+fn psql_request_rejected(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let readings = escape_readings(SqlDialect::Postgres)
+        .iter()
+        .map(|escapes| positions(text, SqlDialect::Postgres, *escapes, ";"))
+        .collect::<Vec<_>>();
+    // Where literals end must not depend on the server's string escaping.
+    if readings.iter().any(|reading| *reading != readings[0]) {
+        return false;
+    }
+    let is_word = |c: &u8| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'$') || *c >= 0x80;
+    let (mut parens, mut brackets) = (0usize, 0usize);
+    for i in (0..bytes.len()).filter(|i| readings[0][*i].code) {
+        let previous = i.checked_sub(1).map(|at| &bytes[at]);
+        let next = bytes.get(i + 1);
+        match bytes[i] {
+            b'(' => parens += 1,
+            b')' => parens = parens.saturating_sub(1),
+            b'[' => brackets += 1,
+            b']' => brackets = brackets.saturating_sub(1),
+            b'\\' => return true,
+            // A colon is an array slice bound inside `[…]`, a JSON key
+            // separator inside `(…)`, or part of `::` and `:=`.
+            b':' if parens == 0
+                && brackets == 0
+                && previous != Some(&b':')
+                && !matches!(next, Some(b':' | b'=')) =>
+            {
+                return true;
+            }
+            // A `$` that continues no identifier and opens no `$n`
+            // parameter or dollar quote.
+            b'$' if !previous.is_some_and(is_word)
+                && !next.is_some_and(u8::is_ascii_digit)
+                && dollar_tag(bytes, i, SqlDialect::Postgres).is_none() =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// The leading statements of a sqlite3 SQL argument that run: sqlite3
+/// prepares one statement at a time and stops at the first whose text holds
+/// a byte its tokenizer rejects (a stray `]`, `\`, a `$` naming no parameter).
+fn sqlite_argument_runs(text: &str) -> &str {
+    let bytes = text.as_bytes();
+    let lexed = positions(text, SqlDialect::Sqlite, false, ";");
+    let is_word = |c: &u8| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'$') || *c >= 0x80;
+    let mut statement = 0;
+    for i in (0..bytes.len()).filter(|i| lexed[*i].code) {
+        match bytes[i] {
+            b';' => statement = i + 1,
+            b']' | b'\\' => return &text[..statement],
+            b'$' if !i.checked_sub(1).is_some_and(|at| is_word(&bytes[at]))
+                && !bytes.get(i + 1).is_some_and(is_word) =>
+            {
+                return &text[..statement];
+            }
+            _ => {}
+        }
+    }
+    text
+}
+
 /// Length of a dollar-quote opening tag at `i` (`$$`, `$tag$`), where the
 /// dialect has dollar quoting and `$` does not continue an identifier.
 fn dollar_tag(bytes: &[u8], i: usize, dialect: SqlDialect) -> Option<usize> {
@@ -2237,6 +2547,7 @@ fn client_segments(
     meta: Meta,
     dialect: SqlDialect,
     backslash_escapes: bool,
+    delimiter: &str,
 ) -> Vec<ClientInputSegment> {
     if meta == Meta::None {
         return vec![ClientInputSegment::Sql(text.to_string())];
@@ -2247,7 +2558,11 @@ fn client_segments(
     // Lexical positions are relative to `base`, where lexing last restarted:
     // a client command's arguments are not SQL, so lexing resumes after it.
     let mut base = 0;
-    let mut lexed = positions(text, dialect, backslash_escapes);
+    // The mysql statement delimiter in effect, and the one in effect where
+    // the SQL being collected starts.
+    let mut delimiter = delimiter.to_string();
+    let mut start_delimiter = delimiter.clone();
+    let mut lexed = positions(text, dialect, backslash_escapes, &delimiter);
     let mut i = 0;
     let mut line_start = true;
     while i < bytes.len() {
@@ -2275,11 +2590,20 @@ fn client_segments(
         let (segments, end) = match meta {
             Meta::Psql => psql_meta(text, i, eol),
             Meta::Mysql | Meta::MysqlNamed => {
-                let (segment, end) = mysql_command(text, i, eol);
+                if let Some(new) = mysql_delimiter(&text[i..eol]) {
+                    // The command stays in the SQL: the SQL frontend switches
+                    // its statement terminator there, as the client does.
+                    delimiter = new;
+                    i = eol;
+                    base = eol;
+                    lexed = positions(&text[eol..], dialect, backslash_escapes, &delimiter);
+                    continue;
+                }
+                let (segment, end) = mysql_command(text, i, eol, &delimiter);
                 (segment.into_iter().collect(), end)
             }
             Meta::Sqlite => (dot_command(&text[i..eol]).into_iter().collect(), eol),
-            Meta::Sqlcmd => (sqlcmd_command(&text[i..eol]).into_iter().collect(), eol),
+            Meta::Sqlcmd => (sqlcmd_command(&text[i..eol]), eol),
             Meta::Snow => (snow_command(&text[i..eol]).into_iter().collect(), eol),
             Meta::Cql => {
                 let end = (i..eol)
@@ -2289,9 +2613,12 @@ fn client_segments(
             }
             Meta::None => unreachable!(),
         };
-        push_sql(&mut out, &text[start..i]);
+        push_sql(&mut out, &text[start..i], &start_delimiter);
         for segment in segments {
-            let stop = matches!(segment, ClientInputSegment::Stop(_));
+            let stop = matches!(
+                segment,
+                ClientInputSegment::Stop(_) | ClientInputSegment::Quit
+            );
             out.push(segment);
             if stop {
                 return out;
@@ -2300,19 +2627,52 @@ fn client_segments(
         start = end;
         i = end;
         base = end;
-        lexed = positions(&text[end..], dialect, backslash_escapes);
+        start_delimiter = delimiter.clone();
+        lexed = positions(&text[end..], dialect, backslash_escapes, &delimiter);
     }
-    if out.is_empty() && start == 0 {
+    if out.is_empty() && start == 0 && start_delimiter == ";" {
         return vec![ClientInputSegment::Sql(text.to_string())];
     }
-    push_sql(&mut out, &text[start..]);
+    push_sql(&mut out, &text[start..], &start_delimiter);
     out
 }
 
-fn push_sql(out: &mut Vec<ClientInputSegment>, sql: &str) {
-    if !sql.trim().is_empty() {
-        out.push(ClientInputSegment::Sql(sql.to_string()));
+/// SQL the client sends, collected while `delimiter` ended its statements.
+fn push_sql(out: &mut Vec<ClientInputSegment>, sql: &str, delimiter: &str) {
+    if sql.trim().is_empty() {
+        return;
     }
+    out.push(ClientInputSegment::Sql(if delimiter == ";" {
+        sql.to_string()
+    } else {
+        // SQL cut from after a DELIMITER command still splits by it.
+        format!("DELIMITER {delimiter}\n{sql}")
+    }));
+}
+
+/// The delimiter a mysql `DELIMITER x` or `\d x` line sets. None when the
+/// line is another command, or the client would unquote or reject the
+/// argument (a quoted or missing delimiter, one holding a backslash).
+fn mysql_delimiter(line: &str) -> Option<String> {
+    let args = match line.strip_prefix("\\d") {
+        Some(args) => args,
+        None => {
+            let word = leading_word_chars(line);
+            if !word.eq_ignore_ascii_case("delimiter") {
+                return None;
+            }
+            &line[word.len()..]
+        }
+    };
+    delimiter_word(args)
+}
+
+/// The delimiter `text` names, as a `DELIMITER` argument or a `--delimiter`
+/// value. None when the client would unquote or reject it.
+fn delimiter_word(text: &str) -> Option<String> {
+    let delimiter = text.split_whitespace().next()?;
+    (!delimiter.starts_with(['\'', '"', '`']) && !delimiter.contains('\\'))
+        .then(|| delimiter.to_string())
 }
 
 /// Whether `line` (the rest of a line from a non-blank byte) begins a client
@@ -2321,7 +2681,8 @@ fn push_sql(out: &mut Vec<ClientInputSegment>, sql: &str) {
 fn command_start(meta: Meta, line: &str, at_line_start: bool) -> Option<bool> {
     let word = leading_word_chars(line);
     match meta {
-        Meta::Psql => line.starts_with('\\').then_some(false),
+        // `\;` puts a `;` in the query buffer; the SQL frontend splits there.
+        Meta::Psql => (line.starts_with('\\') && !line.starts_with("\\;")).then_some(false),
         Meta::Mysql | Meta::MysqlNamed => {
             if line.starts_with('\\') {
                 Some(false)
@@ -2332,7 +2693,10 @@ fn command_start(meta: Meta, line: &str, at_line_start: bool) -> Option<bool> {
         }
         Meta::Sqlite => (at_line_start && line.starts_with('.')).then_some(true),
         Meta::Sqlcmd => (at_line_start
-            && (line.starts_with(':') || line.starts_with("!!") || is_go(line)))
+            && (line.starts_with(':')
+                || line.starts_with("!!")
+                || is_go(line)
+                || is_sqlcmd_exit(line)))
         .then_some(false),
         Meta::Snow => (at_line_start && line.starts_with('!')).then_some(true),
         Meta::Cql => (at_line_start
@@ -2419,7 +2783,7 @@ fn psql_meta(text: &str, i: usize, eol: usize) -> (Vec<ClientInputSegment>, usiz
     // psql runs backquoted argument text as a shell command first.
     let mut segments = shells
         .into_iter()
-        .map(ClientInputSegment::Shell)
+        .map(ClientInputSegment::Backquote)
         .collect::<Vec<_>>();
     segments.extend(psql_command(name, text[start..end].trim()));
     (segments, resume)
@@ -2474,6 +2838,16 @@ fn psql_command(name: &str, args: &str) -> Option<ClientInputSegment> {
             "psql \\! starts an interactive shell".into(),
         )),
         "!" => Some(ClientInputSegment::Shell(args.to_string())),
+        "set" => psql_set(args),
+        "unset" => args
+            .split_whitespace()
+            .next()
+            .map(|name| ClientInputSegment::Unbind(name.to_string())),
+        // These bind variables to a query result, typed input or the
+        // environment.
+        "gset" | "prompt" | "getenv" => Some(ClientInputSegment::BindUnknown),
+        "if" => Some(ClientInputSegment::Conditional(true)),
+        "endif" => Some(ClientInputSegment::Conditional(false)),
         _ if PSQL_INERT.contains(&name) || name.starts_with('d') => None,
         _ => Some(ClientInputSegment::Opaque(format!(
             "psql meta-command \\{name} is not modeled"
@@ -2504,6 +2878,43 @@ fn psql_connect(args: &str) -> ClientInputSegment {
     }
 }
 
+/// psql `\set name [value ...]`, which concatenates its values. A value psql
+/// would expand or unescape (a backquoted command, another variable, a
+/// backslash) binds the name to a value Nah cannot name; a bare `\set` only
+/// lists the variables.
+fn psql_set(args: &str) -> Option<ClientInputSegment> {
+    let name = args.split_whitespace().next()?;
+    let mut rest = args[name.len()..].trim_start();
+    let mut value = String::new();
+    while !rest.is_empty() {
+        // One word: text up to whitespace, or a single-quoted string.
+        let (word, after) = match rest.strip_prefix('\'') {
+            Some(quoted) => match quoted.split_once('\'') {
+                Some(split) => split,
+                None => (quoted, ""),
+            },
+            None => {
+                let end = rest
+                    .find(|c: char| c.is_whitespace() || c == '\'')
+                    .unwrap_or(rest.len());
+                rest.split_at(end)
+            }
+        };
+        if word.contains(['"', '`', '\\', ':']) {
+            return Some(ClientInputSegment::Bind {
+                name: name.to_string(),
+                value: None,
+            });
+        }
+        value.push_str(word);
+        rest = after.trim_start();
+    }
+    Some(ClientInputSegment::Bind {
+        name: name.to_string(),
+        value: Some(value),
+    })
+}
+
 fn connect_segment(database: Switch, server: Switch) -> ClientInputSegment {
     ClientInputSegment::Connect {
         database,
@@ -2515,8 +2926,6 @@ fn connect_segment(database: Switch, server: Switch) -> ClientInputSegment {
 /// psql commands that change only client display or variables, or read the
 /// catalog (`\d...`).
 const PSQL_INERT: &[&str] = &[
-    "set",
-    "unset",
     "echo",
     "qecho",
     "warn",
@@ -2534,12 +2943,9 @@ const PSQL_INERT: &[&str] = &[
     "html",
     "T",
     "C",
-    "prompt",
     "errverbose",
-    "if",
     "elif",
     "else",
-    "endif",
     "p",
     "print",
     "r",
@@ -2547,7 +2953,6 @@ const PSQL_INERT: &[&str] = &[
     "g",
     "gx",
     "s",
-    "gset",
     "gdesc",
     "crosstabview",
     "l",
@@ -2594,11 +2999,19 @@ const MYSQL_NAMED: &[&str] = &[
 ];
 
 /// A mysql client command at `i`, and where its text ends. Short forms
-/// (`\.`) may appear mid-line; most take arguments up to `;` or end of line.
-fn mysql_command(text: &str, i: usize, eol: usize) -> (Option<ClientInputSegment>, usize) {
+/// (`\.`) may appear mid-line; most take arguments up to the statement
+/// `delimiter` or end of line.
+fn mysql_command(
+    text: &str,
+    i: usize,
+    eol: usize,
+    delimiter: &str,
+) -> (Option<ClientInputSegment>, usize) {
     // A command's parameters end at the delimiter; mysql reads the rest of
     // the line as SQL.
-    let delimited = text[i..eol].find(';').map_or(eol, |n| i + n + 1);
+    let delimited = text[i..eol]
+        .find(delimiter)
+        .map_or(eol, |n| i + n + delimiter.len());
     let line = &text[i..eol];
     let backslash = line.starts_with('\\');
     let (name, args) = match line.strip_prefix('\\') {
@@ -2646,7 +3059,7 @@ fn mysql_command(text: &str, i: usize, eol: usize) -> (Option<ClientInputSegment
         };
         return (Some(segment), if backslash { delimited } else { eol });
     }
-    let args = args.split(';').next().unwrap_or_default().trim();
+    let args = args.split(delimiter).next().unwrap_or_default().trim();
     let segment = match name.as_str() {
         "source" => Some(include(args, false, "mysql")),
         "use" | "connect" => {
@@ -2676,7 +3089,7 @@ fn dot_command(line: &str) -> Option<ClientInputSegment> {
     let name_len = rest
         .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
         .unwrap_or(rest.len());
-    let (name, args) = (&rest[..name_len], rest[name_len..].trim());
+    let (name, args) = (dot_name(&rest[..name_len]), rest[name_len..].trim());
     match name {
         "read" if args.starts_with('|') || args.starts_with("'|") => Some(
             ClientInputSegment::Opaque("dot-command .read runs a shell command".into()),
@@ -2694,14 +3107,12 @@ fn dot_command(line: &str) -> Option<ClientInputSegment> {
             })
         }
         "connection" if !args.is_empty() => Some(connect_segment(Switch::Unknown, Switch::Keep)),
-        // sqlite unquotes the arguments and rebuilds the command line, which
-        // matches the text only when it has no quoting.
-        "shell" | "system" if args.contains(['\'', '"', '\\']) => {
-            Some(ClientInputSegment::Opaque(format!(
-                "dot-command .{name} runs a shell command sqlite rebuilds from quoted arguments"
-            )))
-        }
-        "shell" | "system" if !args.is_empty() => Some(ClientInputSegment::Shell(args.to_string())),
+        "shell" | "system" if !args.is_empty() => Some(match dot_shell_command(args) {
+            Some(command) => ClientInputSegment::Shell(command),
+            None => ClientInputSegment::Opaque(format!(
+                "dot-command .{name} runs a shell command sqlite rebuilds from escaped arguments"
+            )),
+        }),
         "cd" => Some(ClientInputSegment::Stop(
             "dot-command .cd changes the directory later scripts resolve against".into(),
         )),
@@ -2720,6 +3131,51 @@ fn dot_command(line: &str) -> Option<ClientInputSegment> {
             "dot-command .{name} is not modeled"
         ))),
     }
+}
+
+/// The dot-command an abbreviated name runs, among those this model
+/// interprets: sqlite3 compares only the letters given, in a fixed order
+/// that leaves each of these a shortest prefix.
+fn dot_name(name: &str) -> &str {
+    [
+        ("shell", 2),
+        ("system", 2),
+        ("read", 3),
+        ("restore", 3),
+        ("open", 2),
+    ]
+    .into_iter()
+    .find(|(full, shortest)| name.len() >= *shortest && full.starts_with(name))
+    .map_or(name, |(full, _)| full)
+}
+
+/// The command line `.shell` hands the shell: sqlite3 splits the arguments
+/// at whitespace, strips one level of `'…'` or `"…"` from each, and joins
+/// them with spaces, wrapping an argument that holds a space in double
+/// quotes. None when a `"…"` argument holds a backslash escape, which
+/// sqlite3 resolves first.
+fn dot_shell_command(args: &str) -> Option<String> {
+    let mut words = Vec::new();
+    let mut rest = args.trim_start();
+    while let Some(first) = rest.chars().next() {
+        let (word, after) = if first == '\'' || first == '"' {
+            let body = &rest[1..];
+            let close = body.find(first).unwrap_or(body.len());
+            if first == '"' && body[..close].contains('\\') {
+                return None;
+            }
+            (&body[..close], body.get(close + 1..).unwrap_or_default())
+        } else {
+            rest.split_at(rest.find(char::is_whitespace).unwrap_or(rest.len()))
+        };
+        words.push(if word.contains(' ') {
+            format!("\"{word}\"")
+        } else {
+            word.to_string()
+        });
+        rest = after.trim_start();
+    }
+    Some(words.join(" "))
 }
 
 /// Dot-commands that change only display or settings, or read the schema.
@@ -2780,20 +3236,28 @@ fn is_go(line: &str) -> bool {
         && count.chars().all(|c| c.is_ascii_digit())
 }
 
+/// A line that is sqlcmd's `EXIT` or `QUIT`, which need no colon: bare, or
+/// with a parenthesized argument.
+fn is_sqlcmd_exit(line: &str) -> bool {
+    line.get(..4)
+        .is_some_and(|word| word.eq_ignore_ascii_case("exit") || word.eq_ignore_ascii_case("quit"))
+        && (line[4..].trim().is_empty() || line[4..].trim_start().starts_with('('))
+}
+
 /// A sqlcmd command line: `GO`, `:r file`, `:setvar`, `!! cmd`, and so on.
-fn sqlcmd_command(line: &str) -> Option<ClientInputSegment> {
+fn sqlcmd_command(line: &str) -> Vec<ClientInputSegment> {
     if is_go(line) {
-        return None;
+        return Vec::new();
     }
     let rest = line
         .strip_prefix(':')
         .unwrap_or(line)
         .trim_start_matches(' ');
     if let Some(command) = rest.strip_prefix("!!") {
-        return Some(match command.trim() {
+        return vec![match command.trim() {
             "" => ClientInputSegment::Opaque("sqlcmd !! without a command".into()),
             command => ClientInputSegment::Shell(command.to_string()),
-        });
+        }];
     }
     let name_len = rest
         .find(|c: char| !c.is_ascii_alphabetic())
@@ -2802,33 +3266,43 @@ fn sqlcmd_command(line: &str) -> Option<ClientInputSegment> {
         rest[..name_len].to_ascii_lowercase(),
         rest[name_len..].trim(),
     );
-    match name.as_str() {
-        "r" => Some(include(args, false, "sqlcmd :r")),
+    let segment = match name.as_str() {
+        "r" => include(args, false, "sqlcmd :r"),
         // `:connect server[\\instance] [-l timeout] [-U user [-P password]]`
         // logs in to that server's default database.
-        "connect" => Some(connect_segment(
+        "connect" => connect_segment(
             Switch::Unknown,
             match Switch::word(args.split_whitespace().next().as_ref()) {
                 Switch::Set(server) => Switch::Set(host_name(&server)),
                 _ => Switch::Unknown,
             },
-        )),
+        ),
         "out" | "error" | "perftrace"
             if !["stdout", "stderr"].contains(&args.to_ascii_lowercase().as_str()) =>
         {
-            Some(ClientInputSegment::Opaque(format!(
-                "sqlcmd :{name} writes to a file"
-            )))
+            ClientInputSegment::Opaque(format!("sqlcmd :{name} writes to a file"))
         }
-        "exit" if args.starts_with('(') && args != "()" => Some(ClientInputSegment::Opaque(
-            "sqlcmd :exit runs a query".into(),
-        )),
-        "setvar" | "on" | "out" | "error" | "perftrace" | "exit" | "quit" | "reset" | "list"
-        | "listvar" | "serverlist" | "xml" | "help" => None,
-        _ => Some(ClientInputSegment::Opaque(format!(
-            "sqlcmd command :{name} is not modeled"
-        ))),
-    }
+        // `EXIT(query)` runs the query, then quits with its result.
+        "exit" if args.starts_with('(') && args != "()" => {
+            return match args.strip_prefix('(').and_then(|q| q.strip_suffix(')')) {
+                Some(query) => vec![
+                    ClientInputSegment::Sql(query.to_string()),
+                    ClientInputSegment::Quit,
+                ],
+                None => vec![ClientInputSegment::Stop("sqlcmd :exit runs a query".into())],
+            };
+        }
+        // `QUIT` is documented without a query, and go-sqlcmd rejects one;
+        // what the ODBC sqlcmd does with an argument is not established.
+        "quit" if !args.is_empty() => {
+            ClientInputSegment::Stop("sqlcmd quit with an argument is not modeled".into())
+        }
+        "exit" | "quit" => ClientInputSegment::Quit,
+        "setvar" | "on" | "out" | "error" | "perftrace" | "reset" | "list" | "listvar"
+        | "serverlist" | "xml" | "help" => return Vec::new(),
+        _ => ClientInputSegment::Opaque(format!("sqlcmd command :{name} is not modeled")),
+    };
+    vec![segment]
 }
 
 /// A SnowSQL or Snowflake CLI `!command` line.
@@ -3228,6 +3702,10 @@ pub(crate) fn bq_query(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_nod
         },
         context: Vec::new(),
         substitute: false,
+        variables: BTreeMap::new(),
+        variables_unknown: false,
+        conditionals: 0,
+        delimiter: ";".to_string(),
         includes: Vec::new(),
         stopped: false,
     };
@@ -3583,12 +4061,14 @@ impl CommandModel for Mysqladmin {
                 unmodeled.push("?".to_string());
                 continue;
             };
+            // mysqladmin matches command names without regard to case.
+            let lower = text.to_ascii_lowercase();
             let mut matches = MYSQLADMIN_COMMANDS
                 .iter()
-                .filter(|command| **command == text || command.starts_with(text));
+                .filter(|command| command.starts_with(lower.as_str()));
             let command = match (matches.next(), matches.next()) {
                 (Some(command), None) => *command,
-                _ if MYSQLADMIN_COMMANDS.contains(&text) => text,
+                _ if MYSQLADMIN_COMMANDS.contains(&lower.as_str()) => lower.as_str(),
                 _ => {
                     unmodeled.push(text.to_string());
                     continue;

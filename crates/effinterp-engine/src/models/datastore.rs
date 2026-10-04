@@ -13,9 +13,12 @@ use effinterp_proto::{
     ProvenanceRef, ResourceExpr, ResourceIdentity, SourceDialect, Subject,
 };
 
+use crate::SourcePurpose;
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::models::common::{Attrs, arg_node, boundary};
-use crate::models::{CommandModel, InvocationCtx};
+use crate::models::db::file_effect;
+use crate::models::{CommandModel, InvocationCtx, source_refusal_detail};
+use crate::nest::SourceResolution;
 use crate::value::unresolved_resource;
 use crate::word::Word;
 
@@ -697,7 +700,8 @@ impl CommandModel for Mongo {
         builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
         let argv = ctx.argv;
         let mut evals = Vec::new();
-        let mut files = false;
+        // Script files the shell loads after its --eval scripts.
+        let mut files: Vec<(usize, Word)> = Vec::new();
         let mut shell = false;
         let mut nodb = false;
         let mut unknown = Vec::new();
@@ -710,7 +714,7 @@ impl CommandModel for Mongo {
                 if address.is_none() {
                     address = Some((index, word));
                 } else {
-                    files = true;
+                    files.push((index, word.clone()));
                 }
                 index += 1;
                 continue;
@@ -733,7 +737,10 @@ impl CommandModel for Mongo {
                                 host = Some((value_index, value));
                             }
                         }
-                        _ => files = true,
+                        _ => files.extend(match attached {
+                            Some(path) => Some((index, Word::literal(path))),
+                            None => value.map(|value| (value_index, value.clone())),
+                        }),
                     }
                     index = value_index + 1;
                 }
@@ -765,14 +772,14 @@ impl CommandModel for Mongo {
                     index += 1;
                 }
                 _ if text.ends_with(".js") => {
-                    files = true;
+                    files.push((index, word.clone()));
                     index += 1;
                 }
                 _ => {
                     if address.is_none() {
                         address = Some((index, word));
                     } else {
-                        files = true;
+                        files.push((index, word.clone()));
                     }
                     index += 1;
                 }
@@ -832,15 +839,59 @@ impl CommandModel for Mongo {
                 None => mongo_opaque(builder, model_node, "mongo shell --eval is not literal"),
             }
         }
-        if files {
-            mongo_opaque(
+        let has_files = !files.is_empty();
+        for (index, file) in files {
+            let read = file_effect(
                 builder,
+                ctx,
                 model_node,
-                "mongo shell script files are not modeled",
+                index as u32,
+                &file,
+                "filesystem.read",
             );
+            let Some(path) = file.as_literal() else {
+                mongo_opaque(
+                    builder,
+                    model_node,
+                    "mongo shell script file is not literal",
+                );
+                continue;
+            };
+            if let Some(source) = mongo_script_file(builder, ctx, model_node, path) {
+                // This read stands in for the selection's own program-input
+                // read, which the builder skips once the resource is read.
+                if let Some(read) = read {
+                    builder.set_effect_string_attribute(
+                        read as usize,
+                        "access_purpose",
+                        "program_input",
+                    );
+                }
+                let arg = arg_node(builder, ctx, index as u32);
+                scripts.push((source, vec![arg, model_node], false));
+            }
         }
-        if scripts.is_empty() && !files {
-            if let Some(source) = ctx.stdin_literal() {
+        if scripts.is_empty() && !has_files {
+            // `< FILE` runs the file as piped input; the shell's redirection
+            // already records reading it.
+            if let Some(stdin) = ctx.stdin
+                && let Some(file) = &stdin.file
+            {
+                let mut provenance = vec![model_node];
+                provenance.extend(stdin.provenance.iter().copied());
+                match file.as_literal() {
+                    Some(path) => {
+                        if let Some(source) = mongo_script_file(builder, ctx, model_node, path) {
+                            scripts.push((source, provenance, false));
+                        }
+                    }
+                    None => mongo_opaque(
+                        builder,
+                        model_node,
+                        "stdin mongo shell script is not statically recoverable",
+                    ),
+                }
+            } else if let Some(source) = ctx.stdin_literal() {
                 let mut provenance = vec![model_node];
                 provenance.extend(ctx.stdin.unwrap().provenance.iter().copied());
                 // The shell reads piped input line by line, not as one
@@ -933,6 +984,33 @@ const MONGO_BOOL_FLAGS: &[&str] = &[
     "--oidcNoNonce",
     "--deepInspect",
 ];
+
+/// The text of a script file the shell runs, read through source
+/// observation. None, behind a boundary, when it is not available.
+fn mongo_script_file(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    path: &str,
+) -> Option<String> {
+    let unavailable = "mongo shell script file contents are unavailable";
+    match ctx.resolve_source_operand(builder, path, SourcePurpose::InvocationInput) {
+        SourceResolution::Source { source, .. } => return Some(source.to_string()),
+        SourceResolution::Refused(refusal) => {
+            if let Some(detail) = source_refusal_detail(builder, refusal, unavailable) {
+                mongo_opaque(builder, model_node, &detail);
+            }
+        }
+        SourceResolution::UnsupportedEncoding => mongo_opaque(
+            builder,
+            model_node,
+            "mongo shell script file is not valid UTF-8",
+        ),
+        SourceResolution::AlreadySelected => {}
+        SourceResolution::Unavailable => mongo_opaque(builder, model_node, unavailable),
+    }
+    None
+}
 
 fn mongo_opaque(builder: &mut PlanBuilder, model_node: ProvenanceRef, detail: &str) {
     for domain in ["database", "network"] {
@@ -2295,6 +2373,169 @@ fn emit_mongo_op(
 }
 
 // ---- mongorestore ----
+
+/// State the data a POST to an Elasticsearch or OpenSearch REST route
+/// removes. `<index>/_delete_by_query` deletes the documents its `query`
+/// selects, and `_aliases` deletes each index a `remove_index` action
+/// names. Both route names are the search API's own, so the effect is
+/// stated on any host, but only a host or port that names the service
+/// establishes that the server implements them. `body` is the request's
+/// one data body, `None` when curl reads it from a file or joins several.
+/// Every other route states nothing here.
+pub(super) fn elasticsearch_request(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    node: ProvenanceRef,
+    (url_index, url): (u32, &Word),
+    body: Option<&Word>,
+) {
+    let Some(url) = url.as_literal() else {
+        return;
+    };
+    // `[scheme://][user@]host[:port]/path[?query]`.
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let (path, query) = path.split_once('?').unwrap_or((path, ""));
+    let (host, port) = split_host_port(authority.rsplit('@').next().unwrap_or(authority));
+    // The default HTTP ports of Elasticsearch, OpenSearch and Elastic Cloud,
+    // or a host named for the service (the managed AWS domains included).
+    let search_service = matches!(port, Some(9200 | 9243)) || {
+        let host = host.to_ascii_lowercase();
+        [
+            "elastic",
+            "opensearch",
+            ".es.amazonaws.com",
+            ".aoss.amazonaws.com",
+        ]
+        .iter()
+        .any(|name| host.contains(name))
+    };
+    let segments = path
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    let body = body
+        .and_then(Word::as_literal)
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok());
+    // An index the request names outright; a pattern, a list entry that
+    // excludes, or `_all` names no one index.
+    let index = |name: &str| {
+        if name.is_empty()
+            || name == "_all"
+            || name.starts_with(['-', '+', '<'])
+            || name.contains('*')
+        {
+            unresolved_resource("db")
+        } else {
+            db_table(Some(host.clone()), None, None, name.to_string())
+        }
+    };
+    let (operation, targets, attributes, unread) = match segments[..] {
+        [target, "_delete_by_query"] => {
+            // `q=` selects documents from the URL, where `*` and `*:*`
+            // select them all, and `max_docs` caps how many are deleted.
+            let mut pairs = query.split('&');
+            let url_query = pairs.clone().find_map(|pair| pair.strip_prefix("q="));
+            let capped = pairs.any(|pair| pair.starts_with("max_docs="))
+                || body
+                    .as_ref()
+                    .is_some_and(|body| body.get("max_docs").is_some());
+            let filtered = match url_query {
+                _ if capped => None,
+                Some("*" | "*:*" | "*%3A*" | "*%3a*") => Some(false),
+                Some(_) => None,
+                None => body
+                    .as_ref()
+                    .and_then(|body| body.get("query"))
+                    .map(|query| !elasticsearch_matches_all(query)),
+            };
+            let mut attributes = text_attrs(&[("action", "delete")]);
+            if let Some(filtered) = filtered {
+                attributes.insert("filtered".into(), AttrValue::Bool(filtered));
+            }
+            let targets = target.split(',').map(str::to_string).collect::<Vec<_>>();
+            let unread = filtered
+                .is_none()
+                .then_some("Elasticsearch delete-by-query selection is not a literal query");
+            ("database.write", targets, attributes, unread)
+        }
+        ["_aliases"] => {
+            let actions = body
+                .as_ref()
+                .and_then(|body| body.get("actions"))
+                .and_then(serde_json::Value::as_array);
+            let targets = actions.map(|actions| {
+                actions
+                    .iter()
+                    .filter_map(|action| action.get("remove_index"))
+                    .flat_map(|remove| {
+                        let names = [remove.get("index"), remove.get("indices")];
+                        names.into_iter().flatten().flat_map(|names| match names {
+                            serde_json::Value::Array(names) => names.clone(),
+                            name => vec![name.clone()],
+                        })
+                    })
+                    .map(|name| name.as_str().unwrap_or_default().to_string())
+                    .collect::<Vec<_>>()
+            });
+            let unread = targets
+                .is_none()
+                .then_some("Elasticsearch alias actions are not a literal body");
+            (
+                "database.schema_drop",
+                targets.unwrap_or_default(),
+                // An index holds its documents, as a collection does.
+                text_attrs(&[("object_kind", "collection")]),
+                unread,
+            )
+        }
+        _ => return,
+    };
+    builder.declare_coverage(Domain::new("database"), CoverageLevel::Full);
+    let provenance = vec![node, arg_node(builder, ctx, url_index)];
+    for target in targets {
+        datastore_effect(
+            builder,
+            provenance.clone(),
+            operation,
+            index(&target),
+            attributes.clone(),
+        );
+    }
+    let unestablished = (!search_service)
+        .then_some("the host is not established as an Elasticsearch or OpenSearch service");
+    for detail in unread.into_iter().chain(unestablished) {
+        boundary(
+            builder,
+            node,
+            BoundaryReason::PARTIAL_ANALYSIS,
+            BoundaryClass::Unresolved,
+            &["database"],
+            detail,
+        );
+    }
+}
+
+/// Whether an Elasticsearch query selects every document: `match_all`, or a
+/// `bool` whose only clauses are `must` and `filter` of such queries.
+fn elasticsearch_matches_all(query: &serde_json::Value) -> bool {
+    let Some(query) = query.as_object().filter(|query| query.len() == 1) else {
+        return false;
+    };
+    match (query.get("match_all"), query.get("bool")) {
+        (Some(_), _) => true,
+        (_, Some(serde_json::Value::Object(clauses))) => clauses.iter().all(|(kind, clause)| {
+            matches!(kind.as_str(), "must" | "filter")
+                && match clause {
+                    serde_json::Value::Array(clauses) => {
+                        clauses.iter().all(elasticsearch_matches_all)
+                    }
+                    clause => elasticsearch_matches_all(clause),
+                }
+        }),
+        _ => false,
+    }
+}
 
 struct Mongorestore;
 

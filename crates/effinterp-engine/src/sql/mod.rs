@@ -241,9 +241,17 @@ impl SqlCtx<'_> {
         };
 
         // A leading CTE (`WITH ...`) can rewrite what tables a following
-        // statement touches; resolving it is out of scope, so widen.
+        // statement touches; resolving it is out of scope, so widen. The
+        // parts that write name their own targets and are still read.
         if head == "WITH" {
             self.unsupported(builder, stmt.span, "common table expression");
+            for part in with_writes(self.dialect, toks) {
+                self.statement(builder, &fragment(part), state);
+            }
+            return;
+        }
+        if head == "DO" && self.dialect == SqlDialect::Postgres {
+            self.do_block(builder, stmt, state);
             return;
         }
 
@@ -327,6 +335,94 @@ impl SqlCtx<'_> {
                 &format!("unsupported statement `{head}`"),
             ),
         }
+    }
+
+    /// Postgres `DO [LANGUAGE lang] 'code'`, an anonymous block the server
+    /// runs at once. A PL/pgSQL body is read statement by statement, each
+    /// as if it ran; its control flow is not followed, which the boundary
+    /// records.
+    fn do_block(&self, builder: &mut PlanBuilder, stmt: &SqlStatement, state: &ConnectionScope) {
+        let toks = &stmt.toks;
+        let language = top_level_positions(toks, "LANGUAGE")
+            .next()
+            .map(|at| at + 1);
+        let plpgsql = language.is_none_or(|at| {
+            matches!(
+                tok(toks, at),
+                Some(SqlTok::Word(name) | SqlTok::Ident(name) | SqlTok::Str(name))
+                    if name.eq_ignore_ascii_case("plpgsql")
+            )
+        });
+        let code = toks
+            .iter()
+            .enumerate()
+            .find_map(|(i, lexeme)| match &lexeme.tok {
+                SqlTok::Str(code) if language != Some(i) => Some(code),
+                _ => None,
+            });
+        let Some(code) = code.filter(|_| plpgsql) else {
+            self.unsupported(builder, stmt.span, "unsupported statement `DO`");
+            return;
+        };
+        self.unsupported(
+            builder,
+            stmt.span,
+            "DO block statements are analyzed as if executed",
+        );
+        self.embedded(builder, code, stmt.span, state, true);
+    }
+
+    /// Analyze SQL text a statement carries (a DO block's body, the string a
+    /// PL/pgSQL `EXECUTE` runs) under every lexical reading, attributing
+    /// what it does to `span`, the carrying statement.
+    fn embedded(
+        &self,
+        builder: &mut PlanBuilder,
+        source: &str,
+        span: SqlSpan,
+        state: &ConnectionScope,
+        plpgsql: bool,
+    ) {
+        let inner = SqlCtx {
+            dialect: self.dialect,
+            source,
+            scope: self.scope,
+            emitted: RefCell::new(self.emitted.take()),
+        };
+        let mut analyzed = HashSet::new();
+        for lexing in lex::readings(self.dialect) {
+            for stmt in lex::lex(source, &lexing) {
+                let toks = if plpgsql {
+                    plpgsql_sql(&stmt.toks)
+                } else {
+                    Some(&stmt.toks[..])
+                };
+                let Some(toks) = toks.filter(|_| stmt.kind == StatementKind::Sql) else {
+                    continue;
+                };
+                if !analyzed.insert(toks.to_vec()) {
+                    continue;
+                }
+                if plpgsql && keyword(toks, 0).as_deref() == Some("EXECUTE") {
+                    match execute_sql(toks) {
+                        Some(sql) => inner.embedded(builder, &sql, span, state, false),
+                        None => inner.unsupported(
+                            builder,
+                            span,
+                            "EXECUTE of a statement built at run time",
+                        ),
+                    }
+                    continue;
+                }
+                let stmt = SqlStatement {
+                    kind: StatementKind::Sql,
+                    span,
+                    toks: toks.to_vec(),
+                };
+                inner.statement(builder, &stmt, state);
+            }
+        }
+        self.emitted.replace(inner.emitted.into_inner());
     }
 
     /// Add the scope a statement switches to for the statements after it.
@@ -1644,6 +1740,142 @@ fn read_name(dialect: SqlDialect, toks: &[Lexeme], i: usize) -> Option<(Name, us
         Name::Parts(parts)
     };
     Some((name, j))
+}
+
+/// A statement made of `toks`, a non-empty part of a longer statement.
+fn fragment(toks: &[Lexeme]) -> SqlStatement {
+    SqlStatement {
+        kind: StatementKind::Sql,
+        span: SqlSpan {
+            start: toks[0].span.start,
+            end: toks[toks.len() - 1].span.end,
+        },
+        toks: toks.to_vec(),
+    }
+}
+
+/// The parts of a `WITH name [(columns)] AS (body), … statement` that
+/// write: each data-modifying body (Postgres), and the statement the list
+/// leads to. That statement is left out when it names a CTE outside
+/// parentheses, where the name may stand for the table it writes or joins.
+fn with_writes(dialect: SqlDialect, toks: &[Lexeme]) -> Vec<&[Lexeme]> {
+    const WRITES: &[&str] = &["INSERT", "UPDATE", "DELETE", "MERGE"];
+    let writes = |part: &[Lexeme]| keyword(part, 0).is_some_and(|w| WRITES.contains(&w.as_str()));
+    let modifying_bodies = matches!(dialect, SqlDialect::Postgres | SqlDialect::Generic);
+    let mut parts = Vec::new();
+    let mut names = Vec::new();
+    let mut i = skip_word(toks, 1, "RECURSIVE");
+    loop {
+        match tok(toks, i) {
+            Some(SqlTok::Word(name) | SqlTok::Ident(name)) => names.push(name),
+            _ => return parts,
+        }
+        i = skip_group(toks, i + 1);
+        if keyword(toks, i).as_deref() != Some("AS") {
+            return parts;
+        }
+        i = skip_words(toks, i + 1, &["NOT", "MATERIALIZED"]);
+        let end = skip_group(toks, i);
+        if end == i {
+            return parts;
+        }
+        let closed = matches!(tok(toks, end - 1), Some(SqlTok::Punct(')')));
+        let body = &toks[i + 1..end - usize::from(closed)];
+        if modifying_bodies && writes(body) {
+            parts.push(body);
+        }
+        i = end;
+        if !matches!(tok(toks, i), Some(SqlTok::Punct(','))) {
+            break;
+        }
+        i += 1;
+    }
+    let main = &toks[i..];
+    let names_cte = |lexeme: &Lexeme| {
+        matches!(
+            &lexeme.tok,
+            SqlTok::Word(word) | SqlTok::Ident(word)
+                if names.iter().any(|name| name.eq_ignore_ascii_case(word))
+        )
+    };
+    if writes(main) && !top_level(main).any(|j| names_cte(&main[j])) {
+        parts.push(main);
+    }
+    parts
+}
+
+/// The SQL statement one PL/pgSQL statement runs: its text from a statement
+/// keyword that starts it or follows a block or branch opener (`BEGIN DROP
+/// …`, `IF … THEN DELETE …`). None for PL/pgSQL's own statements.
+fn plpgsql_sql(toks: &[Lexeme]) -> Option<&[Lexeme]> {
+    const OPENERS: &[&str] = &["BEGIN", "THEN", "ELSE", "LOOP"];
+    const HEADS: &[&str] = &[
+        "INSERT", "UPDATE", "DELETE", "MERGE", "TRUNCATE", "DROP", "CREATE", "ALTER", "COPY",
+        "EXECUTE", "WITH",
+    ];
+    let is =
+        |i: usize, words: &[&str]| keyword(toks, i).is_some_and(|w| words.contains(&w.as_str()));
+    top_level(toks)
+        .find(|&i| is(i, HEADS) && (i == 0 || is(i - 1, OPENERS)))
+        .map(|i| &toks[i..])
+}
+
+/// The SQL a PL/pgSQL `EXECUTE` statement runs, with `?` for each part
+/// computed at run time: a string literal concatenated with expressions, or
+/// `format('…%I…', …)`. None when no literal text starts the command.
+fn execute_sql(toks: &[Lexeme]) -> Option<String> {
+    let end = top_level_positions_of(toks, &["INTO", "USING"])
+        .next()
+        .unwrap_or(toks.len());
+    let command = &toks[1..end];
+    if keyword(command, 0).as_deref() == Some("FORMAT")
+        && let Some(SqlTok::Str(format)) = tok(command, 2)
+    {
+        // `%s`, `%I`, `%L`, with an optional `n$` position and width.
+        let mut sql = String::new();
+        let mut rest = format.as_str();
+        while let Some(at) = rest.find('%') {
+            sql.push_str(&rest[..at]);
+            rest = &rest[at + 1..];
+            if let Some(after) = rest.strip_prefix('%') {
+                sql.push('%');
+                rest = after;
+                continue;
+            }
+            let spec = rest
+                .find(|c: char| !(c.is_ascii_digit() || matches!(c, '$' | '-' | '*')))
+                .unwrap_or(rest.len());
+            sql.push('?');
+            rest = rest[spec..].get(1..).unwrap_or_default();
+        }
+        sql.push_str(rest);
+        return Some(sql);
+    }
+    if !matches!(tok(command, 0), Some(SqlTok::Str(_))) {
+        return None;
+    }
+    let mut sql = String::new();
+    let mut computed = false;
+    for i in top_level(command) {
+        match &command[i].tok {
+            SqlTok::Str(text) => {
+                sql.push_str(text);
+                computed = false;
+            }
+            _ if !computed => {
+                // A word the literal leaves unfinished is part of the name
+                // the expression completes.
+                let word = sql
+                    .trim_end_matches(|c: char| c.is_alphanumeric() || c == '_')
+                    .len();
+                sql.truncate(word);
+                sql.push('?');
+                computed = true;
+            }
+            _ => {}
+        }
+    }
+    Some(sql)
 }
 
 /// Where a MySQL `CREATE|ALTER [OR REPLACE] [DEFINER = user] [SQL SECURITY

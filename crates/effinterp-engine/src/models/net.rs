@@ -1183,10 +1183,10 @@ impl CommandModel for Curl {
         }
         // One PATCH of GitHub's ref route updates a ref. A body read from a
         // file or config, sent as a form, or moved to the query is not read
-        // here, so its force stays unknown.
+        // here, so its force stays unknown. A POST to an Elasticsearch delete
+        // route takes its body the same way.
         if scanned.unknown_flags.is_empty()
-            && method_flags.len() == 1
-            && method_flags[0].value.as_ref().and_then(Word::as_literal) == Some("PATCH")
+            && matches!(method, Some("PATCH" | "POST"))
             && urls.len() == 1
         {
             let bodies = scanned
@@ -1215,15 +1215,17 @@ impl CommandModel for Curl {
                 "-T",
                 "--upload-file",
             ]);
-            if unread_body || !bodies.is_empty() {
-                // curl joins several bodies with `&` and reads an `@file` body
-                // from that file; only `--data-raw` sends a leading `@` as text.
-                let body = match bodies.as_slice() {
-                    [flag] if !unread_body => flag.value.as_ref().filter(|value| {
-                        flag.name == "--data-raw" || !value.literal_prefix().starts_with('@')
-                    }),
-                    _ => None,
-                };
+            // curl joins several bodies with `&` and reads an `@file` body
+            // from that file; only `--data-raw` sends a leading `@` as text.
+            let body = match bodies.as_slice() {
+                [flag] if !unread_body => flag.value.as_ref().filter(|value| {
+                    flag.name == "--data-raw" || !value.literal_prefix().starts_with('@')
+                }),
+                _ => None,
+            };
+            if method == Some("POST") {
+                super::datastore::elasticsearch_request(builder, ctx, model_node, urls[0], body);
+            } else if unread_body || !bodies.is_empty() {
                 super::gh_refs::curl_ref_request(builder, ctx, model_node, urls[0], body);
             }
         }

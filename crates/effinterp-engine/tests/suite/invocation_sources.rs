@@ -906,18 +906,24 @@ fn sql_client_scripts_and_their_includes_run_as_sql() {
         let plan = exec(&root.0, argv, true);
         assert!(!has_effect(&plan, "filesystem.delete", "work"), "{argv:?}");
     }
-    // sqlite rebuilds a quoted .shell line, so only unquoted text is nested.
-    let plan = exec(&root.0, &["sqlite3", "app.db", ".shell rm -rf work"], true);
-    assert!(has_effect(&plan, "filesystem.delete", "work"));
+    // sqlite strips the quotes when it rebuilds a .shell line, so a quoted
+    // `;` separates commands; an escape it resolves first stays a boundary.
+    for command in [".shell rm -rf work", ".shell echo 'a;rm' -rf work"] {
+        let plan = exec(&root.0, &["sqlite3", "app.db", command], true);
+        assert!(has_effect(&plan, "filesystem.delete", "work"), "{command}");
+    }
     let plan = exec(
         &root.0,
-        &["sqlite3", "app.db", ".shell echo 'a;rm' -rf work"],
+        &["sqlite3", "app.db", ".shell echo \"a\\x3brm\" -rf work"],
         true,
     );
     assert!(!has_effect(&plan, "filesystem.delete", "work"));
     assert!(has_boundary(&plan, "unrecoverable_source", None));
-    // psql interpolates variables into script SQL, so the table is unknown.
+    // psql interpolates variables into script SQL: a bound one names the
+    // table, an unbound one leaves it unknown.
     let plan = exec(&root.0, &["psql", "-v", "t=users", "-f", "var.sql"], true);
+    assert!(has_effect(&plan, "database.schema_drop", "\"users\""));
+    let plan = exec(&root.0, &["psql", "-f", "var.sql"], true);
     assert!(!has_effect(&plan, "database.schema_drop", "\"t\""));
     assert!(has_boundary(&plan, "unrecoverable_source", None));
     // A -c string is one meta-command or verbatim SQL, never a script.

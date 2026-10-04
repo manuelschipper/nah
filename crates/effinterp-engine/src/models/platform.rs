@@ -13,6 +13,7 @@ use effinterp_proto::{
 
 use crate::builder::PlanBuilder;
 use crate::models::common::{arg_node, boundary};
+use crate::models::db::{Program, document_sql};
 use crate::models::{CommandModel, InvocationCtx};
 use crate::word::Word;
 
@@ -27,11 +28,14 @@ pub(super) fn platform_models() -> Vec<Box<dyn CommandModel>> {
 
 /// The Wrangler and Supabase documents model their database deletes (D1,
 /// projects and branches) and leave the rest of the CLI unmodeled. The other
-/// reviewed deletes are read here; anything else continues to the document.
+/// reviewed deletes are read here, and so is the SQL input a document cannot
+/// read (`sql_input`); anything else continues to the document.
 pub(super) fn with_platform_deletes(owner: Box<dyn CommandModel>) -> Box<dyn CommandModel> {
     let tool = match owner.id() {
         "p18b/cloud/wrangler@v1" => &WRANGLER,
         "p18b/cloud/supabase@v1" => &SUPABASE,
+        "p18b/cloud/turso@v1" => &TURSO,
+        "p18b/database/prisma@v1" => &PRISMA,
         _ => return owner,
     };
     Box::new(DocumentedPlatform { owner, tool })
@@ -411,6 +415,26 @@ const SUPABASE: Tool = Tool {
     }],
 };
 
+/// Turso and Prisma have no reviewed delete here: their documents model
+/// those, and only their SQL input is read natively.
+const TURSO: Tool = Tool {
+    command: "turso",
+    provider: "turso",
+    help: &["--help", "-h", "--version", "-v"],
+    values: &[],
+    switches: &[],
+    deletes: &[],
+};
+
+const PRISMA: Tool = Tool {
+    command: "prisma",
+    provider: "prisma",
+    help: &["--help", "-h", "--version", "-v"],
+    values: &[],
+    switches: &[],
+    deletes: &[],
+};
+
 /// What a platform invocation requests.
 enum Request<'a> {
     /// Help or the version, which act on nothing.
@@ -662,10 +686,169 @@ impl CommandModel for DocumentedPlatform {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         // Help stays the document's, which already models it.
-        if matches!(self.tool.request(ctx.argv), Request::Help)
-            || !self.tool.apply(builder, ctx, model_node)
-        {
+        if matches!(self.tool.request(ctx.argv), Request::Help) {
+            self.owner.apply(builder, ctx, model_node);
+        } else if let Some(program) = sql_input(self.tool.command, ctx) {
+            builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
+            if self.tool.command == "prisma" {
+                boundary(
+                    builder,
+                    model_node,
+                    BoundaryReason::ENVIRONMENT_CONFIGURATION,
+                    BoundaryClass::Unmodeled,
+                    &["database", "process"],
+                    "Prisma reads the target database from the Prisma schema and config",
+                );
+            }
+            document_sql(builder, ctx, model_node, program);
+        } else if !self.tool.apply(builder, ctx, model_node) {
             self.owner.apply(builder, ctx, model_node);
         }
+    }
+}
+
+/// An invocation's operands and options, each with its argv index.
+struct Arguments<'a> {
+    operands: Vec<(usize, &'a str)>,
+    /// (flag, value, argv index of the value)
+    options: Vec<(&'a str, Option<&'a str>, usize)>,
+}
+
+impl<'a> Arguments<'a> {
+    /// Reads `argv` when every word is a literal and every option is one of
+    /// `values`, which take a value, or `switches`. Any other option may
+    /// take a value or change what runs, so the invocation is not read.
+    fn reviewed(argv: &'a [Word], values: &[&str], switches: &[&str]) -> Option<Self> {
+        let literals = argv
+            .iter()
+            .map(Word::as_literal)
+            .collect::<Option<Vec<_>>>()?;
+        let mut arguments = Arguments {
+            operands: Vec::new(),
+            options: Vec::new(),
+        };
+        let mut index = 1;
+        while index < literals.len() {
+            let word = literals[index];
+            match word.split_once('=') {
+                _ if !word.starts_with('-') => arguments.operands.push((index, word)),
+                Some((flag, value)) if values.contains(&flag) || switches.contains(&flag) => {
+                    arguments.options.push((flag, Some(value), index));
+                }
+                None if values.contains(&word) => {
+                    index += 1;
+                    let value = literals.get(index).copied()?;
+                    arguments.options.push((word, Some(value), index));
+                }
+                None if switches.contains(&word) => arguments.options.push((word, None, index)),
+                _ => return None,
+            }
+            index += 1;
+        }
+        Some(arguments)
+    }
+
+    /// Whether the operands start with the command words `path`.
+    fn runs(&self, path: &[&str]) -> bool {
+        self.operands.len() >= path.len()
+            && self
+                .operands
+                .iter()
+                .zip(path)
+                .all(|((_, word), name)| word == name)
+    }
+
+    fn last(&self, flag: &str) -> Option<(Option<&'a str>, usize)> {
+        let (_, value, index) = self
+            .options
+            .iter()
+            .rev()
+            .find(|(name, _, _)| *name == flag)?;
+        Some((*value, *index))
+    }
+
+    /// Whether a switch is given and not turned off with `=false`.
+    fn on(&self, flag: &str) -> bool {
+        self.last(flag)
+            .is_some_and(|(value, _)| value != Some("false"))
+    }
+
+    /// A script file an option names, as the program it runs.
+    fn script(&self, flag: &str) -> Option<Program> {
+        let (path, index) = self.last(flag)?;
+        Some(Program::File(Word::literal(path?), index))
+    }
+}
+
+/// SQL a documented platform CLI runs where its document cannot read it: a
+/// script file an option names, a statement given as an operand, a file on
+/// standard input. None for any other invocation, and for one holding an
+/// option this does not read in full, which stays the document's.
+fn sql_input(command: &str, ctx: &InvocationCtx) -> Option<Program> {
+    match command {
+        // `wrangler d1 execute <database> --remote --file <script>`, under
+        // the conditions the document nests `--command` SQL. `--cwd` moves
+        // the directory the script resolves against, and `--command` beside
+        // `--file` is rejected.
+        "wrangler" => {
+            let arguments = Arguments::reviewed(
+                ctx.argv,
+                &[
+                    "--config",
+                    "-c",
+                    "--env",
+                    "-e",
+                    "--env-file",
+                    "--profile",
+                    "--file",
+                    "--persist-to",
+                ],
+                &[
+                    "--local",
+                    "--remote",
+                    "--preview",
+                    "--json",
+                    "--skip-confirmation",
+                    "--yes",
+                    "-y",
+                ],
+            )?;
+            let remote = arguments.runs(&["d1", "execute"])
+                && arguments.operands.len() == 3
+                && arguments.on("--remote")
+                && !arguments.on("--local")
+                // Wrangler rejects a local state directory with --remote.
+                && arguments
+                    .last("--persist-to")
+                    .is_none_or(|(path, _)| path == Some(""));
+            arguments.script("--file").filter(|_| remote)
+        }
+        // `turso db shell <database> [sql]`: the statement, or else what is
+        // piped in. A dot-command and an interactive shell stay unread.
+        "turso" => {
+            let arguments = Arguments::reviewed(
+                ctx.argv,
+                &["--config-path", "-c", "--instance", "--location", "--proxy"],
+                &[],
+            )?;
+            if !arguments.runs(&["db", "shell"]) {
+                return None;
+            }
+            match arguments.operands[2..] {
+                [_] if ctx.stdin.is_some() => Some(Program::Stdin),
+                [_, (index, sql)] if !sql.trim_start().starts_with('.') => {
+                    Some(Program::Sql(Word::literal(sql), index))
+                }
+                _ => None,
+            }
+        }
+        // `prisma db execute --file <script>`.
+        "prisma" => {
+            let arguments =
+                Arguments::reviewed(ctx.argv, &["--file", "--url", "--schema", "--config"], &[])?;
+            let executes = arguments.runs(&["db", "execute"]) && arguments.operands.len() == 2;
+            arguments.script("--file").filter(|_| executes)
+        }
+        _ => None,
     }
 }
