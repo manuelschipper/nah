@@ -229,64 +229,25 @@ fn collect_init_attrs(
 ) {
     for stmt in body {
         match stmt {
-            Stmt::Assign(a) => {
-                let direct_attr = match a.targets.as_slice() {
-                    [Expr::Attribute(target)] if matches!(target.value.as_ref(), Expr::Name(name) if name.id.as_str() == "self") => {
-                        Some(target.attr.to_string())
-                    }
-                    _ => None,
-                };
-                let prior_class = direct_attr.as_ref().and_then(|attr| {
-                    attr_classes
-                        .iter()
-                        .find(|(name, _)| name == attr)
-                        .map(|(_, ty)| ty.clone())
-                });
-                let prior_value = direct_attr.as_ref().and_then(|attr| {
-                    attr_values
-                        .iter()
-                        .find(|(name, _)| name == attr)
-                        .map(|(_, value)| Rc::clone(value))
-                });
-                for target in &a.targets {
-                    drop_init_attr_targets(target, attr_params, attr_classes, attr_values);
-                }
-                let Some(attr) = direct_attr else {
-                    continue;
-                };
-                match a.value.as_ref() {
-                    Expr::Name(v) if params.iter().any(|p| p == v.id.as_str()) => {
-                        attr_params.push((attr.clone(), v.id.to_string()));
-                    }
-                    Expr::Call(call) => {
-                        let preserves_attr = matches!(call.func.as_ref(), Expr::Attribute(method)
-                            if matches!(method.value.as_ref(), Expr::Attribute(receiver)
-                                if receiver.attr.as_str() == attr
-                                    && matches!(receiver.value.as_ref(), Expr::Name(name)
-                                        if name.id.as_str() == "self")));
-                        if preserves_attr {
-                            if let Some(ty) = prior_class {
-                                attr_classes.push((attr.clone(), ty));
-                            }
-                            if let Some(value) = prior_value {
-                                attr_values.push((attr.clone(), value));
-                            }
-                        } else if let Some(name) = callee_written(&call.func) {
-                            if name.rsplit('.').next() == Some("Path")
-                                && let [Expr::Name(value)] = call.args.as_slice()
-                                && params.iter().any(|param| param == value.id.as_str())
-                            {
-                                attr_params.push((attr.clone(), value.id.to_string()));
-                            }
-                            attr_classes.push((attr.clone(), name));
-                        }
-                    }
-                    _ => {}
-                }
-                if is_init_attr_value(&a.value, params)
-                    && !attr_values.iter().any(|(name, _)| *name == attr)
-                {
-                    attr_values.push((attr.clone(), Rc::new(a.value.as_ref().clone())));
+            Stmt::Assign(a) => record_init_assignment(
+                &a.targets,
+                &a.value,
+                params,
+                attr_params,
+                attr_classes,
+                attr_values,
+            ),
+            Stmt::AnnAssign(a) => {
+                // A bare annotation (`self.x: int`) binds nothing.
+                if let Some(value) = &a.value {
+                    record_init_assignment(
+                        std::slice::from_ref(a.target.as_ref()),
+                        value,
+                        params,
+                        attr_params,
+                        attr_classes,
+                        attr_values,
+                    );
                 }
             }
             Stmt::Delete(s) => {
@@ -389,6 +350,75 @@ fn collect_init_attrs(
             }
             _ => {}
         }
+    }
+}
+
+/// Record one `__init__` assignment: every `self.<attr>` among `targets`
+/// loses what was known, and a single direct `self.<attr>` target then takes
+/// what `value` establishes.
+fn record_init_assignment(
+    targets: &[Expr],
+    value: &Expr,
+    params: &[String],
+    attr_params: &mut Vec<(String, String)>,
+    attr_classes: &mut Vec<(String, String)>,
+    attr_values: &mut Vec<(String, Rc<Expr>)>,
+) {
+    let direct_attr = match targets {
+        [Expr::Attribute(target)] if matches!(target.value.as_ref(), Expr::Name(name) if name.id.as_str() == "self") => {
+            Some(target.attr.to_string())
+        }
+        _ => None,
+    };
+    let prior_class = direct_attr.as_ref().and_then(|attr| {
+        attr_classes
+            .iter()
+            .find(|(name, _)| name == attr)
+            .map(|(_, ty)| ty.clone())
+    });
+    let prior_value = direct_attr.as_ref().and_then(|attr| {
+        attr_values
+            .iter()
+            .find(|(name, _)| name == attr)
+            .map(|(_, value)| Rc::clone(value))
+    });
+    for target in targets {
+        drop_init_attr_targets(target, attr_params, attr_classes, attr_values);
+    }
+    let Some(attr) = direct_attr else {
+        return;
+    };
+    match value {
+        Expr::Name(v) if params.iter().any(|p| p == v.id.as_str()) => {
+            attr_params.push((attr.clone(), v.id.to_string()));
+        }
+        Expr::Call(call) => {
+            let preserves_attr = matches!(call.func.as_ref(), Expr::Attribute(method)
+                if matches!(method.value.as_ref(), Expr::Attribute(receiver)
+                    if receiver.attr.as_str() == attr
+                        && matches!(receiver.value.as_ref(), Expr::Name(name)
+                            if name.id.as_str() == "self")));
+            if preserves_attr {
+                if let Some(ty) = prior_class {
+                    attr_classes.push((attr.clone(), ty));
+                }
+                if let Some(value) = prior_value {
+                    attr_values.push((attr.clone(), value));
+                }
+            } else if let Some(name) = callee_written(&call.func) {
+                if name.rsplit('.').next() == Some("Path")
+                    && let [Expr::Name(value)] = call.args.as_slice()
+                    && params.iter().any(|param| param == value.id.as_str())
+                {
+                    attr_params.push((attr.clone(), value.id.to_string()));
+                }
+                attr_classes.push((attr.clone(), name));
+            }
+        }
+        _ => {}
+    }
+    if is_init_attr_value(value, params) && !attr_values.iter().any(|(name, _)| *name == attr) {
+        attr_values.push((attr.clone(), Rc::new(value.clone())));
     }
 }
 
