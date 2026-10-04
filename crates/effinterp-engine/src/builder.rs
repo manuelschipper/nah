@@ -49,9 +49,8 @@ pub struct PlanBuilder {
     execution_edges: Vec<ExecutionEdge>,
     execution_stack: Vec<ExecutionNodeRef>,
     /// Effect counts at which a command model said its program consumes
-    /// standard input without binding it to one of its own effects, as
-    /// `xargs` does: the stage holding that point reads a redirected file as
-    /// program input.
+    /// standard input as program input, as `xargs` and `cat` do: the stage
+    /// holding that point reads a redirected file as program input.
     stdin_consumers: Vec<usize>,
     /// The shell a language runtime selected for each shell it started.
     runtime_shells: BTreeMap<ExecutionNodeRef, RuntimeShell>,

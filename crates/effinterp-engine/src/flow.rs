@@ -404,7 +404,7 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
         );
         let effects: Vec<u32> = (spec.effect_start..spec.effect_end).collect();
         let mut bindings = command_bindings(builder, spec);
-        classify_stdin_program_input(builder, spec, &fd_tables[index], &bindings);
+        classify_stdin_program_input(builder, spec, &fd_tables[index]);
         bindings.extend(redirect_bindings(&fd_tables[index]));
         for (argument, (producers, unquoted)) in spec
             .argument_producers
@@ -1270,18 +1270,18 @@ fn echo_printf_writes_stdout(spec: &StageSpec) -> bool {
 }
 
 /// A file redirected onto the standard input of a command that consumes it
-/// is that command's program input, the way an operand of `cat` is. A
-/// program consumes it when its model binds standard input to what it does
-/// (`cat` to its output, `curl -d @-` to its request) or says it consumes
-/// it, as `xargs` does for its command's arguments. `read`, `mapfile` and `readarray` are the
-/// builtins that read descriptor 0; every other command leaves the
-/// descriptor untouched (`chmod < file` never reads it), so its redirection
-/// stays unmarked.
+/// as program input is marked so, the way an operand of `cat` is. `read`,
+/// `mapfile` and `readarray` are the builtins that read descriptor 0. A
+/// command model says so for a program: `xargs`, whose standard input is its
+/// command's arguments, and a model that reads a file operand as program
+/// input and takes standard input in its place (`cat`, `head`). A binding
+/// from standard input alone does not: `sha256sum < file` prints a digest,
+/// and its operand read states no purpose either. Every other command leaves
+/// the redirection unmarked (`chmod < file` never reads it).
 fn classify_stdin_program_input(
     builder: &mut PlanBuilder,
     spec: &StageSpec,
     fds: &HashMap<Descriptor, Dest>,
-    bindings: &[PortBinding],
 ) {
     let builtin = matches!(spec.name.as_deref(), Some("read" | "mapfile" | "readarray"))
         // `-u FD` moves the input off descriptor 0.
@@ -1290,10 +1290,7 @@ fn classify_stdin_program_input(
                 text.starts_with('-') && !text.starts_with("--") && text.contains('u')
             })
         });
-    let bound = bindings
-        .iter()
-        .any(|binding| binding.from == BindEnd::Port(Port::Stdin));
-    if !builtin && !bound && !builder.stdin_consumed_within(spec.effect_start, spec.effect_end) {
+    if !builtin && !builder.stdin_consumed_within(spec.effect_start, spec.effect_end) {
         return;
     }
     if let Some(Dest::File {

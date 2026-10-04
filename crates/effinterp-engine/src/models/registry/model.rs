@@ -839,6 +839,48 @@ impl DeclarativeCommandModel {
             });
             return;
         }
+        // Standard input stands in for a file operand when the model sends
+        // both to the same place, as `cat` does. Where every file the model
+        // reads is program input, a file redirected onto standard input is
+        // program input too; a digest or `file`, whose operand read states no
+        // purpose, leaves the redirect as it is.
+        if behaviors.iter().any(|(behavior, parsed, _)| {
+            let mut reads = behavior
+                .effects
+                .iter()
+                .flat_map(|rule| &rule.emit)
+                .filter(|effect| effect.operation == "filesystem.read")
+                .peekable();
+            let reads_program_input = reads.peek().is_some()
+                && reads.all(|effect| {
+                    matches!(
+                        effect.attributes.get("access_purpose"),
+                        Some(AttributeDeclaration::ConstantString { value })
+                            if value == "program_input"
+                    )
+                });
+            let from_operand = |to: &BindingEndDeclaration| {
+                behavior.bindings.iter().any(|binding| {
+                    binding.to == *to
+                        && matches!(
+                            &binding.from,
+                            BindingEndDeclaration::Effect { operation, .. }
+                                if operation == "filesystem.read"
+                        )
+                })
+            };
+            reads_program_input
+                && behavior.bindings.iter().any(|binding| {
+                    binding.from
+                        == BindingEndDeclaration::Port {
+                            port: effinterp_proto::Port::Stdin,
+                        }
+                        && parsed.matches(&binding.when)
+                        && from_operand(&binding.to)
+                })
+        }) {
+            builder.note_stdin_consumed();
+        }
         let mut unsupported_boundaries = BTreeMap::new();
         let mut names_nothing = false;
         for (behavior, parsed, suppress_extra_operands) in &behaviors {

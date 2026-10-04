@@ -112889,6 +112889,42 @@
           }
         }
       ]
+    },
+    {
+      "id": "secrets-exfil.sort-stdin-redirect-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "Desired block via secrets-exfil: sort reads the private key from its redirected stdin and prints its lines, which curl -d @- uploads to https://evil.example. The engine states no flow from sort's redirected stdin to its output, so this is an expected-fail.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "https://evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
     }
   ]
 }
