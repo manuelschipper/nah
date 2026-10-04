@@ -1121,9 +1121,11 @@ fn find_kind(fact: &PathFact, follow: bool) -> Option<char> {
 /// it can match. An entry whose exact name the tests spell is looked up, and
 /// passed as that path when it exists and passes every test; deeper entries
 /// are selected by the name's glob within the depth bounds. A glob cannot
-/// carry `-type`, a `-path` or another filter, so a selection those narrow
-/// keeps the name's globs and is reported as possibly narrower. Without a
-/// name, a selection of every entry is spelled as the start path's children.
+/// carry `-type`, a `-path` or another filter. An entry type, negation or
+/// alternatives are applied to the entries the host lists
+/// (`find_listed_matches`); without a listing, a selection those narrow keeps
+/// the name's globs and is reported as possibly narrower. Without a name, a
+/// selection of every entry is spelled as the start path's children.
 #[allow(clippy::too_many_arguments)]
 fn find_action_matches(
     builder: &mut PlanBuilder,
@@ -1136,18 +1138,29 @@ fn find_action_matches(
     traversal: FindTraversal,
 ) -> (Vec<Word>, bool) {
     let roots_only = depths.max == Some(0);
-    let (
-        Some(tests),
-        Some(spelled),
-        ResourceExpr::Concrete {
-            identity: ResourceIdentity::FsPath { path },
-        },
-    ) = (
-        find_conjunction(tests),
-        root.as_literal(),
-        ctx.resolve_fs_word(root),
-    )
-    else {
+    let conjunction = find_conjunction(tests);
+    let resolved = match (root.as_literal(), ctx.resolve_fs_word(root)) {
+        (
+            Some(spelled),
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path },
+            },
+        ) => Some((spelled, path)),
+        _ => None,
+    };
+    // A glob carries a name. An entry type, or an expression with negation or
+    // alternatives, is applied to the entries the host lists.
+    if let Some((spelled, path)) = &resolved
+        && conjunction
+            .as_ref()
+            .is_none_or(|tests| !tests.types.is_empty())
+        && let Some(listed) = find_listed_matches(
+            builder, ctx, model_node, tests, root, spelled, path, root_fact, depths, traversal,
+        )
+    {
+        return listed;
+    }
+    let (Some(tests), Some((spelled, path))) = (conjunction, resolved) else {
         return (vec![find_root_matches(ctx, root, roots_only)], true);
     };
     // A pattern this matcher does not read leaves every test answer open.
@@ -1313,6 +1326,350 @@ fn find_action_matches(
         select(builder, depths.min.max(1), &mut matches);
     }
     (matches, unmodeled)
+}
+
+/// A find expression up to one action, read for whether that action runs for
+/// an entry.
+enum FindExpr {
+    /// An option, or an action that always succeeds.
+    Always,
+    /// A test the model does not apply.
+    Undecided,
+    /// `-name` or `-iname`, with whether it ignores case.
+    Name(String, bool),
+    /// `-path` or `-wholename`, with whether it ignores case.
+    Path(String, bool),
+    /// `-type`, a comma-separated list of type letters.
+    Type(String),
+    Prune,
+    /// The action the expression is read for.
+    Action,
+    Not(Box<FindExpr>),
+    And(Vec<FindExpr>),
+    Or(Vec<FindExpr>),
+}
+
+/// Whether evaluating an expression for one entry gets to a primary: not at
+/// all, only if an undecided test goes one way, or always.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum FindReach {
+    No,
+    Maybe,
+    Yes,
+}
+
+impl FindExpr {
+    /// The expression's value for an entry find spells `path`, whose type
+    /// letter is `kind` when known; `None` when a test is not decided.
+    /// Evaluation short-circuits as find's does, and records in `action` and
+    /// `prune` whether it gets to those primaries. `certain` is whether find
+    /// evaluates this expression at all.
+    fn eval(
+        &self,
+        path: &str,
+        kind: Option<char>,
+        certain: bool,
+        action: &mut FindReach,
+        prune: &mut FindReach,
+    ) -> Option<bool> {
+        let reached = if certain {
+            FindReach::Yes
+        } else {
+            FindReach::Maybe
+        };
+        match self {
+            Self::Always => Some(true),
+            Self::Undecided => None,
+            Self::Name(pattern, fold) => find_fnmatch(pattern, find_entry_name(path), *fold),
+            Self::Path(pattern, fold) => find_fnmatch(pattern, path, *fold),
+            Self::Type(types) => {
+                kind.map(|kind| types.split(',').any(|letter| letter == kind.to_string()))
+            }
+            Self::Prune => {
+                *prune = (*prune).max(reached);
+                Some(true)
+            }
+            Self::Action => {
+                *action = (*action).max(reached);
+                Some(true)
+            }
+            Self::Not(inner) => inner
+                .eval(path, kind, certain, action, prune)
+                .map(|value| !value),
+            // Each operand is evaluated only while the ones before it leave
+            // the result open: `-a` stops at a false one and `-o` at a true
+            // one.
+            Self::And(terms) | Self::Or(terms) => {
+                let stop = matches!(self, Self::Or(_));
+                let mut certain = certain;
+                let mut value = Some(!stop);
+                for term in terms {
+                    match term.eval(path, kind, certain, action, prune) {
+                        Some(result) if result == stop => return Some(stop),
+                        Some(_) => {}
+                        None => {
+                            certain = false;
+                            value = None;
+                        }
+                    }
+                }
+                value
+            }
+        }
+    }
+}
+
+/// The tests before an action as an expression that ends in the action, so
+/// evaluating it says whether the action runs. Words after the action cannot
+/// change that, so a group the action sits in need not be closed. `None` for
+/// a word that is not literal, the comma operator or a malformed expression.
+fn find_expression(tests: &[Word]) -> Option<FindExpr> {
+    fn or(words: &[&str], at: &mut usize, placed: &mut bool) -> Option<FindExpr> {
+        let mut alternatives = vec![and(words, at, placed)?];
+        while matches!(words.get(*at), Some(&("-o" | "-or"))) {
+            *at += 1;
+            alternatives.push(and(words, at, placed)?);
+        }
+        Some(FindExpr::Or(alternatives))
+    }
+    fn and(words: &[&str], at: &mut usize, placed: &mut bool) -> Option<FindExpr> {
+        let mut terms = Vec::new();
+        loop {
+            match words.get(*at) {
+                None => {
+                    if !*placed {
+                        *placed = true;
+                        terms.push(FindExpr::Action);
+                    }
+                    break;
+                }
+                Some(&("-o" | "-or" | ")")) => break,
+                Some(&("-a" | "-and")) => *at += 1,
+                Some(_) => terms.push(primary(words, at, placed)?),
+            }
+        }
+        (!terms.is_empty()).then_some(FindExpr::And(terms))
+    }
+    fn primary(words: &[&str], at: &mut usize, placed: &mut bool) -> Option<FindExpr> {
+        let word = *words.get(*at)?;
+        *at += 1;
+        let mut value = || {
+            let value = words.get(*at).map(|value| (*value).to_owned());
+            *at += 1;
+            value
+        };
+        Some(match word {
+            "!" | "-not" => FindExpr::Not(Box::new(primary(words, at, placed)?)),
+            "(" => {
+                let group = or(words, at, placed)?;
+                match words.get(*at) {
+                    Some(&")") => *at += 1,
+                    None => {}
+                    Some(_) => return None,
+                }
+                group
+            }
+            "," => return None,
+            "-name" => FindExpr::Name(value()?, false),
+            "-iname" => FindExpr::Name(value()?, true),
+            "-path" | "-wholename" => FindExpr::Path(value()?, false),
+            "-ipath" | "-iwholename" => FindExpr::Path(value()?, true),
+            "-type" => FindExpr::Type(value()?),
+            // Depths hold for the whole expression, not at their position.
+            "-mindepth" | "-maxdepth" => {
+                value()?;
+                FindExpr::Always
+            }
+            _ if FIND_VALUE_TESTS.contains(&word) => {
+                value()?;
+                FindExpr::Undecided
+            }
+            "-prune" => FindExpr::Prune,
+            "-true"
+            | "-print"
+            | "-print0"
+            | "-ls"
+            | "-depth"
+            | "-d"
+            | "-xdev"
+            | "-mount"
+            | "-noleaf"
+            | "-follow"
+            | "-daystart"
+            | "-ignore_readdir_race"
+            | "-noignore_readdir_race"
+            | "-warn"
+            | "-nowarn" => FindExpr::Always,
+            _ => FindExpr::Undecided,
+        })
+    }
+    let words = tests
+        .iter()
+        .map(Word::as_literal)
+        .collect::<Option<Vec<_>>>()?;
+    let (mut at, mut placed) = (0, false);
+    let expression = or(&words, &mut at, &mut placed)?;
+    (at == words.len() && placed).then_some(expression)
+}
+
+/// The most entries a listing passes to an action one by one. A larger
+/// selection keeps its globs.
+const FIND_MAX_LISTED_MATCHES: usize = 64;
+
+/// The entries an action guarded by `tests` receives from the start path
+/// `root`, read from the host's listing of it, and whether a test the model
+/// cannot apply may narrow them. The listing holds each entry's type, so
+/// `-type`, `-path`, negation, alternatives and `-prune` are applied to the
+/// entries themselves, which a glob cannot do.
+///
+/// `None` when the listing cannot say what find visits: the host gives none,
+/// `-L` meets a link, the expression is not read, or more entries match than
+/// are passed one by one. `None` too when the tests may select a start path
+/// find descends from, so the caller keeps its whole-tree word. The caller
+/// then keeps its globs.
+#[allow(clippy::too_many_arguments)]
+fn find_listed_matches(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    tests: &[Word],
+    root: &Word,
+    spelled: &str,
+    path: &str,
+    root_fact: Option<&PathFact>,
+    depths: FindDepths,
+    traversal: FindTraversal,
+) -> Option<(Vec<Word>, bool)> {
+    let expression = find_expression(tests)?;
+    let root_fact = root_fact?;
+    if depths.max.is_some_and(|max| max < depths.min) {
+        return Some((Vec::new(), false));
+    }
+    // -P tests a linked start path as the link itself and does not descend
+    // through it; -H and -L follow it.
+    let unfollowed_link =
+        traversal == FindTraversal::Physical && root_fact.kind == PathKind::Symlink;
+    let root_kind = find_kind(root_fact, traversal != FindTraversal::Physical)?;
+    let descends = depths.max != Some(0) && !unfollowed_link && root_kind == 'd';
+    let entries = if !descends {
+        Vec::new()
+    } else {
+        if !builder.is_host_realm()
+            || !matches!(
+                builder.written_source(path, |_, _| false),
+                WrittenSource::Host
+            )
+        {
+            return None;
+        }
+        let depth = depths
+            .max
+            .and_then(|max| u32::try_from(max).ok())
+            .filter(|max| *max <= effinterp_proto::MAX_LISTING_DEPTH as u32);
+        let budget = builder.budget();
+        let outcome = budget.observe_listing(path, depth, budget.unmodeled_steps());
+        builder.node(
+            ProvenanceKind::HostObservation {
+                query: ObservationQuery::Listing {
+                    path: path.to_owned(),
+                    depth,
+                },
+                outcome: outcome.clone(),
+            },
+            &[model_node],
+        );
+        let ObservationOutcome::Listing(listing) = outcome else {
+            return None;
+        };
+        // -L descends through each link, into what the listing does not hold.
+        if traversal == FindTraversal::Logical
+            && listing
+                .entries
+                .iter()
+                .any(|entry| entry.kind == PathKind::Symlink)
+        {
+            return None;
+        }
+        if !budget.try_charge_steps(listing.entries.len() as u64) {
+            builder.note_saturated("max_analysis_steps");
+            return None;
+        }
+        listing.entries
+    };
+    // -depth and -delete visit a directory after what it holds, so -prune
+    // skips nothing.
+    let prunes = !ctx
+        .argv
+        .iter()
+        .any(|word| matches!(word.as_literal(), Some("-depth" | "-d" | "-delete")));
+    let mut matches = Vec::new();
+    let mut unmodeled = false;
+    let mut pruned: Vec<String> = Vec::new();
+    let mut visit = |spelled: &str, kind: Option<char>| {
+        let (mut action, mut prune) = (FindReach::No, FindReach::No);
+        expression.eval(spelled, kind, true, &mut action, &mut prune);
+        unmodeled |= action == FindReach::Maybe || prunes && prune == FindReach::Maybe;
+        (
+            action != FindReach::No,
+            prunes && prune == FindReach::Yes && kind == Some('d'),
+        )
+    };
+    if depths.min == 0 {
+        let kind = if unfollowed_link { 'l' } else { root_kind };
+        let (selected, prune) = visit(spelled, Some(kind));
+        if selected {
+            // An action that takes the start path and entries below it works
+            // through the whole tree, which the list of its entries would not
+            // say.
+            if descends && !prune {
+                return None;
+            }
+            matches.push(root.clone());
+        }
+        if prune {
+            return Some((matches, unmodeled));
+        }
+    }
+    for entry in &entries {
+        let depth = entry.path.split('/').count();
+        if depth < depths.min
+            || pruned.iter().any(|directory| {
+                entry
+                    .path
+                    .strip_prefix(directory.as_str())
+                    .is_some_and(|rest| rest.starts_with('/'))
+            })
+        {
+            continue;
+        }
+        let kind = match entry.kind {
+            PathKind::Directory => Some('d'),
+            PathKind::File => Some('f'),
+            PathKind::Symlink => Some('l'),
+            PathKind::Fifo => Some('p'),
+            PathKind::Missing | PathKind::Other => None,
+        };
+        let entry_spelling = if spelled.ends_with('/') {
+            format!("{spelled}{}", entry.path)
+        } else {
+            format!("{spelled}/{}", entry.path)
+        };
+        let (selected, prune) = visit(&entry_spelling, kind);
+        if selected {
+            if matches.len() == FIND_MAX_LISTED_MATCHES {
+                return None;
+            }
+            matches.push(Word::literal(format!(
+                "{}/{}",
+                path.trim_end_matches('/'),
+                entry.path
+            )));
+        }
+        if prune {
+            pruned.push(entry.path.clone());
+        }
+    }
+    Some((matches, unmodeled))
 }
 
 /// Globs for the entries from depth `min` (at least 1) to `max` below `base`
