@@ -30023,6 +30023,42 @@
       ]
     },
     {
+      "id": "secrets-exfil.cp-pattern-links-staging-tar-upload",
+      "guard": "secrets-exfil",
+      "derivation": "plain cp follows the links the pattern names, so the key they lead to is copied into staging, archived and uploaded",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "filesystem:/workspace/project/pattern-links/*"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "filesystem:/workspace/project/pattern-links/*"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
       "id": "secrets-exfil.scp-pattern-links-evil-example-tmp",
       "guard": "secrets-exfil",
       "derivation": "sensitive input reaches an external sink",
