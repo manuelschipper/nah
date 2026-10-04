@@ -140,6 +140,7 @@ pub struct EvidencePlan {
     request: ObservationRequest,
     source_observations: Vec<SourceObservation>,
     path_observations: Vec<effinterp_proto::ProvenanceKind>,
+    git_config_credentials: BTreeMap<String, Option<bool>>,
     host: ObservedHost,
 }
 impl EvidencePlan {
@@ -375,6 +376,7 @@ pub fn plan_evidence(
         .map_err(|_| adapter_refusal(root, RefusalKind::AnalysisFailed, "analysis-failed"))?;
     effinterp_proto::validate_plan(&plan)
         .map_err(|_| adapter_refusal(root, RefusalKind::InvalidGraph, "engine-plan"))?;
+    let git_config_credentials = git_config_credentials(&plan, sources, ctx.platform());
     let source_observations = sources.observations();
     let path_observations = crate::path_observation::host_observation_manifest(&plan);
     let base = crate::plan_observation_request(&plan, &site);
@@ -517,8 +519,67 @@ pub fn plan_evidence(
         request,
         source_observations,
         path_observations,
+        git_config_credentials,
         host,
     })
+}
+
+/// Whether each repository configuration a host filesystem effect reads or
+/// moves holds a credential, by the path the effect names. A path alone
+/// cannot say, so its bytes are demanded from `sources` like any other
+/// source, which records them in the observation manifest. A missing file
+/// holds none; `None` is a file whose bytes were not served.
+fn git_config_credentials(
+    plan: &Plan,
+    sources: &dyn SourceProvider,
+    platform: Platform,
+) -> BTreeMap<String, Option<bool>> {
+    use effinterp_engine::{
+        SourceNamespace, SourcePurpose, SourceRefusal, SourceRequest, SourceResponse,
+        UnavailableReason,
+    };
+    let mut credentials = BTreeMap::new();
+    for effect in plan.effects.iter().filter(|effect| {
+        effect.realm.is_host()
+            && matches!(
+                effect.operation.as_str(),
+                "filesystem.read" | "filesystem.move"
+            )
+    }) {
+        for member in crate::observation_request::finite_members(&effect.resource)
+            .unwrap_or(std::slice::from_ref(&effect.resource))
+        {
+            let effinterp_proto::ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::FsPath { path },
+            } = member
+            else {
+                continue;
+            };
+            if credentials.contains_key(path)
+                || !nah_proto::labels::git_config::is_git_config_path(path, platform)
+            {
+                continue;
+            }
+            let held = match sources.resolve(SourceRequest {
+                path,
+                namespace: SourceNamespace::Host,
+                purpose: SourcePurpose::InvocationInput,
+                requester_language: None,
+            }) {
+                SourceResponse::Source(bytes) => {
+                    Some(nah_proto::labels::git_config::git_config_holds_credential(
+                        &String::from_utf8_lossy(&bytes),
+                    ))
+                }
+                SourceResponse::Refused(SourceRefusal::Unavailable(UnavailableReason::Missing)) => {
+                    Some(false)
+                }
+                SourceResponse::Refused(_) => None,
+            };
+            credentials.insert(path.clone(), held);
+        }
+    }
+    credentials
 }
 
 /// Bind every observed source identity into the same observation the evidence uses.
@@ -754,7 +815,14 @@ pub fn project_guard_evidence<'a>(
         directories,
         selections,
         ..
-    } = propagate_sensitivity(&view, observation, plan.root.cwd(), &mut graph, &effects);
+    } = propagate_sensitivity(
+        &view,
+        observation,
+        plan.root.cwd(),
+        &plan.git_config_credentials,
+        &mut graph,
+        &effects,
+    );
     let access_unknowns = add_access_semantics_gaps(&mut graph, &effects.stated_non_content_access);
     Ok(Projection {
         root: &plan.root,
