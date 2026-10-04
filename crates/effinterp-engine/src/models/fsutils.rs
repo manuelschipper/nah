@@ -1200,6 +1200,12 @@ impl CommandModel for Sed {
                 );
             }
         }
+        // With no file operand, or `-`, the stream sed edits is its standard
+        // input, which it takes as program input as it does a file's. An
+        // option the model does not read may have named the input instead.
+        if !in_place && unknown.is_empty() && operands_read_stdin(&files) {
+            builder.note_stdin_consumed();
+        }
         fs_full_no_spawn(builder);
         // A boundary only for scripts we cannot prove pure: a script file we
         // do not read, a non-literal or unparsable script, or one using the

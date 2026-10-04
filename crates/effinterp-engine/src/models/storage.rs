@@ -75,6 +75,12 @@ fn dd_operands(argv: &[Word]) -> (bool, bool) {
     (input, to_stdout)
 }
 
+/// The operands dd accepts (GNU and BSD).
+const DD_OPERANDS: &[&str] = &[
+    "if", "of", "bs", "ibs", "obs", "cbs", "count", "skip", "iseek", "seek", "oseek", "conv",
+    "iflag", "oflag", "status", "files", "speed", "msgfmt",
+];
+
 impl CommandModel for Dd {
     fn domains(&self) -> &'static [&'static str] {
         &["filesystem", "process", "system"]
@@ -101,6 +107,16 @@ impl CommandModel for Dd {
         // operand keeps the last one, as dd itself does.
         let mut input = None;
         let mut output = None;
+        // Every argument is one of dd's `key=value` operands, so none can
+        // name an input or an output the model does not read.
+        let known = ctx.argv[1..].iter().all(|word| {
+            matches!(
+                word.parts.first(),
+                Some(WordPart::Literal(text) | WordPart::Glob(text))
+                    if text.split_once('=').is_some_and(|(key, _)| DD_OPERANDS.contains(&key))
+            )
+        });
+        let mut reads_file = false;
         for (index, word) in ctx.argv.iter().enumerate().skip(1) {
             let Some(first @ (WordPart::Literal(text) | WordPart::Glob(text))) = word.parts.first()
             else {
@@ -126,7 +142,9 @@ impl CommandModel for Dd {
                     destroy_device(builder, ctx, model_node, index as u32, &target);
                     let mut attributes = bool_attr("raw_device", is_device(&target));
                     attributes.insert("truncate".to_string(), AttrValue::Bool(true));
-                    output = operand_effect(
+                    // dd opens the file `of=` names and replaces what it
+                    // held, whichever entry of a selection that is.
+                    output = requested_operand_effect(
                         builder,
                         ctx,
                         model_node,
@@ -134,9 +152,15 @@ impl CommandModel for Dd {
                         &target,
                         "filesystem.write",
                         attributes,
+                        if known {
+                            RequestAssurance::Exact
+                        } else {
+                            RequestAssurance::Conservative
+                        },
                     );
                 }
                 "if" => {
+                    reads_file = true;
                     input = operand_effect(
                         builder,
                         ctx,
@@ -152,6 +176,11 @@ impl CommandModel for Dd {
         }
         if let (Some(input), Some(output)) = (input, output) {
             builder.transfer_binding(TransferBinding::new(input, output));
+        }
+        // Without `if=` dd copies its standard input, which it takes as
+        // program input as it does a file's.
+        if known && !reads_file {
+            builder.note_stdin_consumed();
         }
         fs_full_no_spawn(builder);
     }
