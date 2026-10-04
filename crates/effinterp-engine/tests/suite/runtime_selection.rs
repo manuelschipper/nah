@@ -4128,6 +4128,30 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
                 }
     }));
 
+    // A lookup substitution prints the candidate the search selects, passing
+    // over an earlier one that is absent or not executable, so the deletion
+    // names the installed binary.
+    for lookup in ["which nah", "command -v nah"] {
+        let mut facts = vec![
+            ("/decoy/nah", missing("/decoy/nah")),
+            ("/data/nah", file("/data/nah", "/data/nah", false)),
+            installed(),
+            ("/bin/rm", file("/bin/rm", "/bin/rm", true)),
+        ];
+        for absent in ["/decoy/rm", "/data/rm", "/installed/rm"] {
+            facts.push((absent, missing(absent)));
+        }
+        let plan = analyze(
+            shell(
+                &format!("rm \"$({lookup})\""),
+                "/decoy:/data:/installed:/bin",
+            ),
+            facts,
+            &[],
+        );
+        assert_eq!(deleted(&plan), ["fs:/installed/nah"], "{lookup}");
+    }
+
     // Every candidate charges the observation bound; a PATH longer than it
     // ends in a limit boundary instead of a certificate.
     let limits = effinterp_engine::AnalysisLimits {

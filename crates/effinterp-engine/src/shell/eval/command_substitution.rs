@@ -1,7 +1,9 @@
 //! Shell command substitution: the value and producer a `$(...)` or backtick
 //! substitution yields, including literal output recovered without running it.
 
-use effinterp_proto::{ExecutionNodeRef, Port, ResourceExpr};
+use effinterp_proto::{
+    Effect, ExecutionNodeRef, Modality, Operation, Port, ResourceExpr, ResourceIdentity,
+};
 
 use crate::builder::PlanBuilder;
 use crate::flow::{BindEnd, FlowStage, PortBinding};
@@ -336,7 +338,11 @@ impl Shell<'_> {
                 })
                 .collect::<Vec<_>>();
             resources.dedup();
+            let located = (resources.is_empty() && here_string.is_none())
+                .then(|| self.located_command(builder, env, &words))
+                .flatten();
             let value = match resources.as_slice() {
+                _ if located.is_some() => located?,
                 [value] => value.clone(),
                 [] => match &here_string {
                     // A here-string delivers its word and a newline.
@@ -395,6 +401,119 @@ impl Shell<'_> {
             })
             .collect::<Option<String>>()
             .map(|value| ResourceExpr::Literal { value })
+    }
+
+    /// The path `which NAME` or `command -v NAME` prints: the first PATH
+    /// candidate the host shows to be an executable file. A candidate whose
+    /// executable bit the host did not report may be the answer or be passed
+    /// over, so it joins the later candidates and an unknown result as
+    /// alternatives. A search that establishes no candidate recovers nothing.
+    fn located_command(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &ShellEnv,
+        words: &[Word],
+    ) -> Option<ResourceExpr> {
+        use effinterp_proto::{Fact, ObservationOutcome, PathKind};
+        let words = words
+            .iter()
+            .map(Word::as_literal)
+            .collect::<Option<Vec<_>>>()?;
+        let command = match words.as_slice() {
+            ["which", command] => *command,
+            // The shell names a function, alias or builtin instead of a file.
+            ["command", "-v", command]
+                if !crate::shell::shell_builtin(command)
+                    && !env.functions.contains_key(*command)
+                    && !env.function_alternatives.contains_key(*command)
+                    && !env.aliases.contains_key(*command)
+                    && !env.alias_alternatives.contains_key(*command) =>
+            {
+                *command
+            }
+            _ => return None,
+        };
+        if command.is_empty() || command.starts_with('-') || command.contains('/') {
+            return None;
+        }
+        if !builder.is_host_realm() || builder.budget().observations.is_none() {
+            return None;
+        }
+        // The shell's own PATH when the script holds one, else the one the
+        // shell was started with.
+        let path = match env.vars.get("PATH") {
+            _ if env.unset.contains("PATH") => return None,
+            Some(entry) => entry.value.clone()?,
+            None => match self
+                .nest
+                .context
+                .and_then(|context| context.env.get("PATH"))
+            {
+                Some(path) => path.clone(),
+                // The search reads PATH, so the host is asked for it.
+                None => {
+                    builder.effect(Effect {
+                        id: Default::default(),
+                        operation: Operation::new("environment.read"),
+                        resource: ResourceExpr::Concrete {
+                            identity: ResourceIdentity::EnvironmentVariable {
+                                name: "PATH".into(),
+                            },
+                        },
+                        attributes: Default::default(),
+                        modality: Modality::May,
+                        request_assurance: effinterp_proto::RequestAssurance::Conservative,
+                        realm: effinterp_proto::ExecutionRealm::Host,
+                        condition: None,
+                        execution: ExecutionNodeRef(0),
+                        provenance: self.scope.iter().copied().collect(),
+                    });
+                    return None;
+                }
+            },
+        };
+        let literal = |value: String| ResourceExpr::Literal { value };
+        let mut candidates = Vec::new();
+        for directory in path.split(':') {
+            let candidate = format!("{}/{command}", directory.trim_end_matches('/'));
+            // A relative directory, a candidate this plan changed and one the
+            // host does not answer end what the search can establish.
+            if !directory.starts_with('/')
+                || !matches!(
+                    builder.written_source(&candidate, |_, _| false),
+                    crate::builder::WrittenSource::Host
+                )
+            {
+                break;
+            }
+            let ObservationOutcome::Path(fact) = builder.budget().observe_path(&candidate) else {
+                break;
+            };
+            let file = match &fact.followed {
+                Fact::Known(target) => target.kind == Fact::Known(PathKind::File),
+                Fact::Unavailable(_) => fact.kind == PathKind::File,
+            };
+            match fact.executable {
+                Some(true) if file => {
+                    if candidates.is_empty() {
+                        return Some(literal(candidate));
+                    }
+                    candidates.push(literal(candidate));
+                    return Some(ResourceExpr::Union {
+                        alternatives: candidates,
+                    });
+                }
+                None if file => candidates.push(literal(candidate)),
+                _ => {}
+            }
+        }
+        if candidates.is_empty() {
+            return None;
+        }
+        candidates.push(crate::value::unresolved_resource("fs_path"));
+        Some(ResourceExpr::Union {
+            alternatives: candidates,
+        })
     }
 
     fn literal_function_stdout(&self, env: &ShellEnv, entry: &FnEntry) -> Option<ResourceExpr> {
