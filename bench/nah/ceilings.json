@@ -10,7 +10,7 @@
   },
   "per_guard": {
     "(structural)": {
-      "explained_partial": 166,
+      "explained_partial": 164,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -108,7 +108,7 @@
       "missing_flow": 0
     },
     "git-force-push": {
-      "explained_partial": 1,
+      "explained_partial": 0,
       "missing_effect": 0,
       "missing_flow": 0
     },

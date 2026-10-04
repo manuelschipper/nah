@@ -112,15 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "c872d959c86af86ac9744e5d2880cbb8ed146c9e",
-      "corpus_digest": "e06f8bffd20390bd449d4d8b0989187ef2b2d8a17f0309cee06ad4a4e28a0bbc",
+      "nah_commit": "234848a058c761df0deb3ffe0fde09b42910a84f",
+      "corpus_digest": "e831cd282dd507bd651bb4756b0543ab2b227bcc3aafe00234a9f969d6c4c3dd",
       "classes": {
-        "effect_match": 5457,
+        "effect_match": 5482,
         "silent_symbolic_drop": 3,
-        "missing_effect": 5,
+        "missing_effect": 7,
         "missing_flow": 7,
-        "covered": 1495,
-        "explained_partial": 1732
+        "covered": 1515,
+        "explained_partial": 1722
       },
       "per_file": {
         "code.jsonl": {
@@ -139,26 +139,27 @@
           "explained_partial": 89
         },
         "database.jsonl": {
-          "effect_match": 214,
+          "effect_match": 215,
           "missing_effect": 3,
           "covered": 148,
-          "explained_partial": 107
+          "explained_partial": 106
         },
         "execution-flows.jsonl": {
-          "effect_match": 547,
+          "effect_match": 548,
           "missing_flow": 1,
-          "covered": 123,
-          "explained_partial": 208
+          "covered": 125,
+          "explained_partial": 209
         },
         "filesystem.jsonl": {
-          "effect_match": 767,
-          "covered": 276,
-          "explained_partial": 136
+          "effect_match": 772,
+          "missing_effect": 2,
+          "covered": 282,
+          "explained_partial": 134
         },
         "git.jsonl": {
-          "effect_match": 798,
+          "effect_match": 799,
           "covered": 308,
-          "explained_partial": 166
+          "explained_partial": 165
         },
         "infrastructure.jsonl": {
           "effect_match": 286,
@@ -202,16 +203,16 @@
           "explained_partial": 102
         },
         "secrets.jsonl": {
-          "effect_match": 850,
+          "effect_match": 860,
           "missing_effect": 2,
           "missing_flow": 6,
-          "covered": 206,
-          "explained_partial": 227
+          "covered": 212,
+          "explained_partial": 228
         },
         "self-protection.jsonl": {
-          "effect_match": 665,
-          "covered": 115,
-          "explained_partial": 289
+          "effect_match": 672,
+          "covered": 121,
+          "explained_partial": 281
         },
         "shell-resolution.jsonl": {
           "effect_match": 192,
@@ -236,18 +237,18 @@
       },
       "per_guard": {
         "(structural)": {
-          "effect_match": 690,
-          "explained_partial": 166
+          "effect_match": 697,
+          "explained_partial": 164
         },
         "db-destroy": {
-          "effect_match": 425,
+          "effect_match": 426,
           "missing_effect": 3,
           "explained_partial": 1
         },
         "exec-decoded": {
-          "effect_match": 56,
+          "effect_match": 57,
           "missing_flow": 1,
-          "explained_partial": 4
+          "explained_partial": 5
         },
         "exec-network-shell": {
           "effect_match": 58
@@ -261,14 +262,14 @@
           "explained_partial": 3
         },
         "fs-auth-identity": {
-          "effect_match": 115,
+          "effect_match": 116,
           "explained_partial": 2
         },
         "fs-forkbomb": {
           "effect_match": 24
         },
         "fs-home": {
-          "effect_match": 232
+          "effect_match": 233
         },
         "fs-outside-workspace-delete": {
           "effect_match": 44
@@ -277,7 +278,8 @@
           "effect_match": 56
         },
         "fs-project-root": {
-          "effect_match": 62
+          "effect_match": 65,
+          "missing_effect": 2
         },
         "fs-raw-device": {
           "effect_match": 44
@@ -302,8 +304,7 @@
           "effect_match": 53
         },
         "git-force-push": {
-          "effect_match": 61,
-          "explained_partial": 1
+          "effect_match": 62
         },
         "git-hard-reset": {
           "effect_match": 42
@@ -369,7 +370,7 @@
           "missing_effect": 1
         },
         "secrets-exfil": {
-          "effect_match": 584,
+          "effect_match": 594,
           "missing_effect": 1,
           "missing_flow": 6
         },
@@ -515,7 +516,6 @@
         "observe:/dev/zero": 2,
         "observe:/etc": 1,
         "observe:/home/test": 1,
-        "observe:/home/test/.aws": 1,
         "observe:/home/test/.cargo/.crates.toml": 15,
         "observe:/home/test/.cargo/.crates2.json": 4,
         "observe:/home/test/.codex/hooks.json": 2,
@@ -637,7 +637,6 @@
         "observe:/workspace/project/.env.sample": 1,
         "observe:/workspace/project/.environment": 1,
         "observe:/workspace/project/.git/HEAD": 1,
-        "observe:/workspace/project/.git/config": 1,
         "observe:/workspace/project/.git/objects": 3,
         "observe:/workspace/project/.git/rebase-merge/head-name": 1,
         "observe:/workspace/project/.git/refs/heads/main": 1,
@@ -647,6 +646,7 @@
         "observe:/workspace/project/@": 1,
         "observe:/workspace/project/CHANGELOG.md": 1,
         "observe:/workspace/project/Cargo.toml": 1,
+        "observe:/workspace/project/README": 1,
         "observe:/workspace/project/README.md": 13,
         "observe:/workspace/project/README.md󠁲󠁭": 1,
         "observe:/workspace/project/a.txt": 1,
@@ -708,10 +708,10 @@
       },
       "guard_queries": {
         "db-destroy": {
-          "match": 429
+          "match": 430
         },
         "exec-decoded": {
-          "match": 59,
+          "deferred": 61,
           "no_match": 2
         },
         "exec-network-shell": {
@@ -727,14 +727,14 @@
           "no_match": 1
         },
         "fs-auth-identity": {
-          "deferred": 115,
+          "deferred": 116,
           "indeterminate": 2
         },
         "fs-forkbomb": {
           "deferred": 24
         },
         "fs-home": {
-          "deferred": 232
+          "deferred": 233
         },
         "fs-outside-workspace-delete": {
           "deferred": 44
@@ -743,7 +743,8 @@
           "deferred": 56
         },
         "fs-project-root": {
-          "deferred": 62
+          "deferred": 66,
+          "indeterminate": 1
         },
         "fs-raw-device": {
           "deferred": 44
@@ -768,8 +769,7 @@
           "indeterminate": 52
         },
         "git-force-push": {
-          "deferred": 61,
-          "indeterminate": 1
+          "deferred": 62
         },
         "git-hard-reset": {
           "deferred": 42
@@ -841,8 +841,8 @@
         },
         "secrets-exfil": {
           "deferred": 31,
-          "indeterminate": 557,
-          "no_match": 3
+          "indeterminate": 566,
+          "no_match": 4
         },
         "secrets-store-delete": {
           "match": 40
@@ -11267,10 +11267,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.8018,
-        "p99_ms": 142.2101,
-        "max_ms": 2039.1006,
-        "max_rss_kb": 360576
+        "p50_ms": 0.815,
+        "p99_ms": 140.0875,
+        "max_ms": 2012.9442,
+        "max_rss_kb": 358464
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11294,13 +11294,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261004T071116Z-correctness-90949",
-      "measured_at": "2026-10-04T07:11:16Z",
-      "source_fingerprint": "blake3:3dd5860bd4719545faee03d6ef82dfd3ac44d4a757102c6a17f69da7c784a395",
-      "binary_hash": "blake3:a230c939cd38acd8adc4e6213f2365578c5f5d9933e333850fd6bba342fc566f",
+      "run_id": "20261004T185758Z-correctness-55797",
+      "measured_at": "2026-10-04T18:57:58Z",
+      "source_fingerprint": "blake3:bc61e2e3cd5b90c7b2877034c9d3e816f7830b17141c649af8aa16356e6ffccf",
+      "binary_hash": "blake3:82225beee7e3a6b4abdc5d462b92c2fb11c5696e2db2ae11d315a49cb5952b3f",
       "engine_version": "0.1.0",
-      "model_set": "builtin:blake3:55b4b6f7e484c2220c40cd10644e7a2860e864f2dc46ef3a481fd63c3acd954b",
-      "git_head": "c872d959c86af86ac9744e5d2880cbb8ed146c9e",
+      "model_set": "builtin:blake3:642063d44c51bccf91fddeaa97ee141da8fdd5ae0f56a672c4c90e94fdfcf279",
+      "git_head": "234848a058c761df0deb3ffe0fde09b42910a84f",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,
