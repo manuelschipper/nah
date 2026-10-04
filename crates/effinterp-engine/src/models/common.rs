@@ -152,10 +152,68 @@ pub(crate) fn runtime_selected_source(
     input.selected = Some(ResourceExpr::Concrete {
         identity: ResourceIdentity::FsPath { path: path.clone() },
     });
-    let resolved = ctx
-        .nest
-        .resolve_execution_input(builder, path, namespace, purpose, input);
+    let resolved =
+        ctx.nest
+            .resolve_execution_input(builder, path.clone(), namespace, purpose, input);
+    if runs_unobserved(phase)
+        && !matches!(
+            resolved,
+            SourceResolution::Source { .. } | SourceResolution::AlreadySelected
+        )
+    {
+        unobserved_code_sink(builder, ctx, model_node, path);
+    }
     analyze_runtime_source(builder, ctx, model_node, phase, language, resolved)
+}
+
+/// The phases in which the invocation itself names the file the runtime runs
+/// before the program: a preload option or a startup variable.
+fn runs_unobserved(phase: ExecutionPhase) -> bool {
+    matches!(phase, ExecutionPhase::Preload | ExecutionPhase::Startup)
+}
+
+/// A file the invocation names to run before the program runs as code whether
+/// or not its content can be read: a file downloaded earlier in the command
+/// is stale here. The read and the execution it supplies are recorded as they
+/// are for a selection whose content is observed, so a flow into the file
+/// reaches a code sink.
+fn unobserved_code_sink(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    model_node: ProvenanceRef,
+    path: String,
+) {
+    let read = builder.effect(Effect {
+        request_assurance: effinterp_proto::RequestAssurance::Conservative,
+        id: Default::default(),
+        operation: Operation::new("filesystem.read"),
+        resource: ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        },
+        attributes: program_input_attrs(),
+        modality: Modality::May,
+        realm: effinterp_proto::ExecutionRealm::Host,
+        condition: None,
+        execution: effinterp_proto::ExecutionNodeRef(0),
+        provenance: vec![model_node],
+    });
+    // The execution carries the read's provenance, which is what binds a
+    // file read to the code it supplies.
+    let provenance = read
+        .and_then(|read| builder.effect_provenance(read as usize))
+        .map_or_else(|| vec![model_node], <[ProvenanceRef]>::to_vec);
+    builder.effect(Effect {
+        request_assurance: effinterp_proto::RequestAssurance::Conservative,
+        id: Default::default(),
+        operation: Operation::new("process.code_execution"),
+        resource: code_execution_resource(ctx),
+        attributes: Attrs::from([("source".to_string(), AttrValue::String("file".into()))]),
+        modality: Modality::May,
+        realm: effinterp_proto::ExecutionRealm::Host,
+        condition: None,
+        execution: effinterp_proto::ExecutionNodeRef(0),
+        provenance,
+    });
 }
 
 /// Resolve an ordered runtime search and analyze its first observed winner.
@@ -204,6 +262,18 @@ pub(crate) fn runtime_searched_source(
         ctx.nest.record_input_boundary(builder, request, input);
         return RuntimeSourceOutcome::Boundary;
     }
+    // A candidate this command wrote earlier is the one an unobserved search
+    // stopped at: the host has no file to offer before it.
+    let written = candidates
+        .iter()
+        .map(|(_, path)| path)
+        .find(|path| {
+            !matches!(
+                builder.written_source(path, |_, _| false),
+                crate::builder::WrittenSource::Host
+            )
+        })
+        .cloned();
     let (resolved, exhausted) =
         ctx.nest
             .resolve_execution_search(builder, candidates, purpose, input, record_missing);
@@ -219,6 +289,11 @@ pub(crate) fn runtime_searched_source(
             RuntimeSourceOutcome::Selected
         }
         SourceResolution::Refused(_) | SourceResolution::Unavailable => {
+            if runs_unobserved(phase)
+                && let Some(path) = written
+            {
+                unobserved_code_sink(builder, ctx, model_node, path);
+            }
             RuntimeSourceOutcome::Boundary
         }
     }

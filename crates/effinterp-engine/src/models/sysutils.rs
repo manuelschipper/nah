@@ -90,6 +90,7 @@ impl CommandModel for Find {
         // it runs for a visited path.
         let mut actions: Vec<(usize, usize, Vec<Word>)> = Vec::new();
         let mut tests: Vec<Word> = Vec::new();
+        let mut output_files: Vec<(u32, &Word)> = Vec::new();
         let mut unresolved_selector = roots.iter().any(|(_, root)| root.as_literal().is_none());
         let mut j = i;
         while j < ctx.argv.len() {
@@ -99,6 +100,19 @@ impl CommandModel for Find {
             {
                 tests.extend(ctx.argv[j..ctx.argv.len().min(j + 2)].iter().cloned());
                 j += 2;
+                continue;
+            }
+            // `-fprint`, `-fprint0` and `-fls` create or truncate the file
+            // they name, and `-fprintf` takes a format after it. find opens
+            // the file while it parses the expression, whatever the tests
+            // later select.
+            if let Some(action @ ("-fprint" | "-fprint0" | "-fls" | "-fprintf")) =
+                ctx.argv[j].as_literal()
+            {
+                if let Some(file) = ctx.argv.get(j + 1) {
+                    output_files.push(((j + 1) as u32, file));
+                }
+                j += if action == "-fprintf" { 3 } else { 2 };
                 continue;
             }
             unresolved_selector |= ctx.argv[j].as_literal().is_none();
@@ -123,6 +137,17 @@ impl CommandModel for Find {
             }
         }
 
+        for (index, file) in output_files {
+            operand_effect(
+                builder,
+                ctx,
+                model_node,
+                index,
+                file,
+                "filesystem.write",
+                Default::default(),
+            );
+        }
         let has_delete = ctx.argv[i..]
             .iter()
             .any(|w| w.as_literal() == Some("-delete"));

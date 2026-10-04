@@ -367,10 +367,62 @@ fn os_remove_end_to_end_via_pyexec() {
     );
 }
 
+/// A summary that reaches its effect cap must say so at the call site: the
+/// effects it left out would otherwise read as a fully covered function.
+#[test]
+fn summary_past_its_effect_cap_leaves_a_limit_boundary() {
+    let mut source = String::from("import os, shutil\ndef clean():\n");
+    for index in 0..1024 {
+        source.push_str(&format!("    os.remove('/tmp/cache/f{index}')\n"));
+    }
+    source.push_str("    shutil.rmtree('/etc')\nclean()\n");
+    let plan = py(&source);
+    assert!(has(&plan, "filesystem.delete", "/tmp/cache/f1023"));
+    assert!(!has(&plan, "filesystem.delete", "/etc"));
+    let limit = plan
+        .boundaries
+        .iter()
+        .find(|boundary| boundary.limit.as_deref() == Some("max_summary_effects"))
+        .unwrap();
+    assert_eq!(limit.class, BoundaryClass::Limit);
+    assert_eq!(limit.domains, vec![Domain::new("filesystem")]);
+    assert_eq!(
+        plan.coverage.0[&Domain::new("filesystem")].level,
+        CoverageLevel::Partial
+    );
+}
+
 #[test]
 fn open_modes_map_to_read_write_append() {
     assert!(has(&py("open('/a')"), "filesystem.read", "/a"));
     assert!(has(&py("open('/a','w')"), "filesystem.write", "/a"));
+    // A mode whose every part is known is that mode, however it is spelled.
+    for source in [
+        "mode = 'w'\nopen('/a', mode)",
+        "open('/a', f'w')",
+        "open('/a', 'w' + 'b')",
+        "mode = f'w'\nopen('/a', mode)",
+        "mode = 'w' + 'b'\nopen('/a', mode)",
+        "kind = 'w'\nopen('/a', kind + 'b')",
+    ] {
+        let known = py(source);
+        assert!(has(&known, "filesystem.write", "/a"), "{source}");
+        assert!(!has(&known, "filesystem.read", "/a"), "{source}");
+    }
+    // A mode with an unknown part decides nothing; it must not read as "r".
+    for source in [
+        "import sys\nopen('/a', sys.argv[1])",
+        "import sys\nopen('/a', 'w' + sys.argv[1])",
+    ] {
+        let unknown = py(source);
+        assert!(unknown.effects.is_empty(), "{source}");
+        assert!(has_boundary(&unknown, "unmodeled_dynamic"), "{source}");
+        assert_eq!(
+            unknown.coverage.0[&Domain::new("filesystem")].level,
+            CoverageLevel::Partial,
+            "{source}"
+        );
+    }
     let append = py("open('/a','a')");
     assert!(has(&append, "filesystem.write", "/a"));
     assert!(

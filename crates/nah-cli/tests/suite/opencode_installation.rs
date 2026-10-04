@@ -51,7 +51,7 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
     assert!(installed_again.status.success(), "{installed_again:?}");
     assert_eq!(std::fs::read(&plugin).unwrap(), first_bytes);
 
-    if Command::new("bun").arg("--version").output().is_ok() {
+    if support::interpreter_available("bun") {
         assert_eq!(
             run_plugin(
                 home,
@@ -156,7 +156,7 @@ try {
 fn plugin_delegates_when_the_adapter_is_unavailable() {
     use std::os::unix::fs::PermissionsExt;
 
-    if Command::new("bun").arg("--version").output().is_err() {
+    if !support::interpreter_available("bun") {
         return;
     }
     let home_temp = tempfile::tempdir().unwrap();

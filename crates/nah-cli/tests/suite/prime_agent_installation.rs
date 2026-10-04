@@ -48,7 +48,7 @@ fn install_runs_the_extension_and_uninstall_removes_only_owned_wiring() {
     assert!(installed_again.status.success(), "{installed_again:?}");
     assert_eq!(std::fs::read(&extension).unwrap(), first_bytes);
 
-    if Command::new("node").arg("--version").output().is_ok() {
+    if support::interpreter_available("node") {
         assert_eq!(
             run_extension(
                 &home,
