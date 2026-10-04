@@ -31814,6 +31814,19 @@
       ]
     },
     {
+      "id": "self-protection.terminal.overclaim-tmux-new-session-d-rm-rf-home",
+      "guard": "fs-home",
+      "derivation": "a new tmux server takes the starting client's environment, so $HOME in the session's command is the caller's home and rm -rf deletes it; the leading ! only negates the status",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
       "id": "exec-obfuscated.declare-u-tool-rm-tool-rf",
       "guard": "exec-obfuscated",
       "derivation": "obfuscation hides the guarded operation",
