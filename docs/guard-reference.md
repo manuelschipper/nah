@@ -353,7 +353,8 @@ This guard stops a command that would wipe or lock the whole home directory,
 destroying dotfiles, keys, unpushed work in other projects, and everything
 else under `~`. It blocks a recursive delete, or a recursive `chmod`, `chown`,
 or `chgrp`, that selects the home directory itself. A pattern that selects
-every entry of home, such as `~/{*,.*}`, counts too.
+every entry of home, such as `~/{*,.*}`, counts too, and so does emptying or
+overwriting every file below it, as `find ~ -type f -exec shred {} +` does.
 
 Blocked examples:
 
@@ -477,7 +478,9 @@ On by default.
 This guard prevents a command that wipes or locks the whole project checkout
 at once, taking uncommitted work with it. It blocks a recursive delete, or a
 recursive `chmod`, `chown`, or `chgrp`, that selects the project root itself or
-every entry in it through `*`, `.*`, or `{*,.*}`.
+every entry in it through `*`, `.*`, or `{*,.*}`. Emptying or overwriting
+every file below the root, as `find . -type f -exec shred {} +` does, loses
+the same work and blocks too.
 
 Blocked examples:
 
@@ -488,9 +491,11 @@ Blocked examples:
 - `find . -delete`
 - `git rm -rf .`
 - `python3 -c "import shutil,os; shutil.rmtree(os.getcwd())"`
+- `find . -type f -exec shred {} +`
 
 Outside the guard:
 
+- `find . -name '*.log' -exec truncate -s 0 {} +`: -name '*.log' limits the truncation to log files.
 - `rm -rf build`: build is a named child, not the root.
 - `find . -name '*.pyc' -delete`: -name '*.pyc' limits the delete to compiled files.
 - `chmod 755 .`: Without -R, chmod changes only the root directory's own mode.
@@ -684,7 +689,8 @@ unbootable. It blocks a recursive delete, or a recursive `chmod`, `chown`, or
 `/etc`, `/lib`, `/root`, `/run`, `/sbin`, `/proc`, `/sys`, `/usr`, `/var`,
 `/tmp`, `/Library`, `/System`, or a Windows drive root or system directory. A
 pattern that still reaches one of these counts, and so does moving every entry
-of `/` with `mv /* …`.
+of `/` with `mv /* …`, and emptying or overwriting every file below one, as
+`find /etc -type f -exec shred {} +` does.
 
 Blocked examples:
 

@@ -114061,6 +114061,142 @@
           }
         }
       ]
+    },
+    {
+      "id": "fs-project-root.find-type-file-exec-shred-overwrite-root",
+      "guard": "fs-project-root",
+      "derivation": "`-type f` alone selects every regular file beneath the start path `.`, so `shred {}` overwrites all of them: the project's tree, narrowed to regular files",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "one_of(/workspace/project, filesystem:/workspace/project/**)"
+          },
+          "attributes": {
+            "overwrite": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.find-exec-truncate-root",
+      "guard": "fs-project-root",
+      "derivation": "find with no test passes the start path `.` and every entry beneath it, so `truncate -s 0 {}` empties every file of the project",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "one_of(/workspace/project, filesystem:/workspace/project/**)"
+          },
+          "attributes": {
+            "truncate": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.find-type-file-exec-truncate-root",
+      "guard": "fs-project-root",
+      "derivation": "`-type f` alone selects every regular file beneath the start path `.`, so `truncate -s 0 {}` empties all of them: the project's tree, narrowed to regular files",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "one_of(/workspace/project, filesystem:/workspace/project/**)"
+          },
+          "attributes": {
+            "truncate": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.find-type-file-exec-shred-home",
+      "guard": "fs-home",
+      "derivation": "`-type f` alone selects every regular file beneath the home, so `shred {}` overwrites all of them",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "one_of(/home/test, filesystem:/home/test/**)"
+          },
+          "attributes": {
+            "overwrite": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.sed-stdin-key-upload-blocks",
+      "guard": "secrets-exfil",
+      "derivation": "sed prints the key it reads from its redirected standard input to stdout, which curl -d @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.dd-stdin-key-upload-blocks",
+      "guard": "secrets-exfil",
+      "derivation": "dd without `if=` copies the key on its redirected standard input to stdout, which curl -d @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
     }
   ]
 }

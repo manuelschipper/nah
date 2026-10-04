@@ -1,10 +1,12 @@
-summary = "Blocks recursive deletion or recursive permission changes selecting the exact project root or its `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target."
+summary = "Blocks recursive deletion, recursive permission changes, or overwriting every file, selecting the exact project root or its `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target."
 
 description = '''
 This guard prevents a command that wipes or locks the whole project checkout
 at once, taking uncommitted work with it. It blocks a recursive delete, or a
 recursive `chmod`, `chown`, or `chgrp`, that selects the project root itself or
-every entry in it through `*`, `.*`, or `{*,.*}`.
+every entry in it through `*`, `.*`, or `{*,.*}`. Emptying or overwriting
+every file below the root, as `find . -type f -exec shred {} +` does, loses
+the same work and blocks too.
 '''
 
 limits = '''
@@ -50,6 +52,15 @@ why = "git rm -rf . deletes every tracked file from the working tree."
 [[blocks]]
 row = "fs-project-root.python-getcwd-rmtree"
 why = "rmtree is given os.getcwd(), the project root."
+
+[[blocks]]
+row = "fs-project-root.find-type-file-exec-shred-overwrite-root"
+why = "shred overwrites every regular file under the project root."
+
+[[passes]]
+row = "fs-project-root.find-name-exec-truncate-delegates"
+why = "-name '*.log' limits the truncation to log files."
+cause = "out-of-scope"
 
 [[passes]]
 row = "fs-project-root.rm-child-delegates"

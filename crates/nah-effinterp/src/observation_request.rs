@@ -381,12 +381,14 @@ pub(crate) fn removes_entries_only(plan: &Plan, effect: &effinterp_proto::Effect
 }
 
 /// Whether an effect on a root-wide selection takes the root's whole tree.
-/// A removal of only the entries it is passed, whose selection leaves out
-/// regular files (`find . -type d -exec rm -f {} +`), leaves every file in
-/// the tree where it is.
+/// A removal of only the entries it is passed, or a write, which changes
+/// only a regular file's contents, takes none of the tree's files when its
+/// selection leaves regular files out (`find . -type d -exec rm -f {} +`,
+/// `find . -type d -exec truncate -s 0 {} +`).
 pub(crate) fn subtree_reached_whole(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
     subtree_root(&effect.resource).is_some()
-        && !(removes_entries_only(plan, effect)
+        && !((removes_entries_only(plan, effect)
+            || effect.operation.as_str() == "filesystem.write")
             && selection_narrowing(&effect.resource).is_some_and(|narrowing| {
                 !narrowing.kinds.is_empty()
                     && !narrowing

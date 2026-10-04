@@ -134,6 +134,8 @@
   "fs-project-root.delete-root-glob": "rm -rf *",
   "fs-project-root.find-dot-delete": "find . -delete",
   "fs-project-root.find-filtered-root": "find . -name '*.pyc' -delete",
+  "fs-project-root.find-name-exec-truncate-delegates": "find . -name '*.log' -exec truncate -s 0 {} +",
+  "fs-project-root.find-type-file-exec-shred-overwrite-root": "find . -type f -exec shred {} +",
   "fs-project-root.git-rm-bundled-rf-cached-delegates": "git rm -rf --cached .",
   "fs-project-root.git-rm-bundled-rf-root": "git rm -rf .",
   "fs-project-root.python-getcwd-rmtree": "python3 -c \"import shutil,os; shutil.rmtree(os.getcwd())\"",
