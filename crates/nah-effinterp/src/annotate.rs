@@ -371,9 +371,8 @@ fn listed_selection(
     if platform == Platform::Windows {
         return None;
     }
-    // Only a bound that is the pattern's directory lists what it selects: a
-    // bound that ends inside a name (`.nah/nap.` for `.nah/nap.*`) lists
-    // nothing of its siblings.
+    // Below a root bound (`/` for `/et*`) the suffix carries no separator of
+    // its own, and the root's listing is not read for such a selection.
     let suffix = pattern_suffix.filter(|suffix| suffix.starts_with('/'))?;
     let segments: Vec<&str> = suffix.split('/').collect();
     let bounded = segments.contains(&"**") || files_only;

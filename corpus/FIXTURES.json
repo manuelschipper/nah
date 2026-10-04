@@ -925,7 +925,10 @@
           "kind": "directory",
           "realpath": "/home/test/.nah",
           "requested": "/home/test/.nah",
-          "resolved": "/home/test/.nah"
+          "resolved": "/home/test/.nah",
+          "descendants": [
+            "/home/test/.nah/nap.json"
+          ]
         },
         {
           "exists": false,
@@ -939,12 +942,6 @@
           "realpath": "/home/test/.local/bin/nah",
           "requested": "/home/test/.local/bin/nah",
           "resolved": "/home/test/.local/bin/nah"
-        },
-        {
-          "exists": false,
-          "kind": "missing",
-          "requested": "/home/test/.nah/nap.",
-          "resolved": "/home/test/.nah/nap."
         },
         {
           "exists": true,
@@ -2930,10 +2927,11 @@
           "resolved": "/tmp"
         },
         {
-          "exists": false,
-          "kind": "missing",
-          "requested": "/home/test/.aws/credential",
-          "resolved": "/home/test/.aws/credential"
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.aws",
+          "requested": "/home/test/.aws",
+          "resolved": "/home/test/.aws"
         },
         {
           "requested": "/workspace/project/certs.zip",
@@ -5945,10 +5943,11 @@
           "resolved": "/tmp"
         },
         {
-          "exists": false,
-          "kind": "missing",
-          "requested": "/home/test/.aws/credential",
-          "resolved": "/home/test/.aws/credential"
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.aws",
+          "requested": "/home/test/.aws",
+          "resolved": "/home/test/.aws"
         }
       ],
       "roots": [

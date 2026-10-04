@@ -199,9 +199,10 @@ fn process_descriptor_path(path: &str) -> bool {
 }
 
 /// The observed path that bounds a resource's selection, and the glob text
-/// that follows it. A pattern's bound is its literal prefix with the escapes of
-/// the filesystem glob grammar decoded, so `/w/proj\[1]/**/*` is bounded by
-/// `/w/proj[1]` and followed by `/**/*`.
+/// that follows it. A pattern's bound is the directory holding its first
+/// wildcard component, with the escapes of the filesystem glob grammar
+/// decoded, so `/w/proj\[1]/**/*` is bounded by `/w/proj[1]` and followed by
+/// `/**/*`, and `/w/source/serv*` by `/w/source`, followed by `/serv*`.
 pub(crate) fn observation_bound(resource: &ResourceExpr) -> Option<(Cow<'_, str>, &str)> {
     match resource {
         ResourceExpr::Concrete {
@@ -219,11 +220,13 @@ fn pattern_observation_bound(glob: &str) -> Option<(Cow<'_, str>, &str)> {
     // `nah_proto::action::pattern_bound` stops, with its end in `glob`.
     let bytes = glob.as_bytes();
     let mut literal = Vec::<(char, usize)>::new();
+    let mut wildcard = false;
     let mut chars = glob.char_indices();
     while let Some((index, character)) = chars.next() {
         if matches!(character, '*' | '?' | '[' | '{')
             || matches!(character, '@' | '+' | '!') && bytes.get(index + 1) == Some(&b'(')
         {
+            wildcard = true;
             break;
         }
         if character == '\\' {
@@ -237,10 +240,14 @@ fn pattern_observation_bound(glob: &str) -> Option<(Cow<'_, str>, &str)> {
     }
     let spelled = |literal: &[(char, usize)]| literal.iter().map(|(c, _)| *c).collect::<String>();
     let mut kept = literal.len();
-    // The dot in .* belongs to the selection, not to the observed directory
-    // identity. Keep it in the pattern suffix.
-    if spelled(&literal[..kept]).ends_with("/.") {
-        kept = (kept - 2).max(1);
+    // A wildcard that starts inside a component (`source/serv*`, `HOME/.*`)
+    // selects among the entries of the directory holding that component. The
+    // literal start of the name belongs to the selection, not to the observed
+    // directory identity: keep it in the pattern suffix.
+    if wildcard
+        && let Some(separator) = literal.iter().rposition(|(character, _)| *character == '/')
+    {
+        kept = (separator + 1).max(1);
     }
     // Observe the directory that bounds the selection, not a trailing
     // separator introduced by the pattern (for example, HOME/*). A root, `/`
