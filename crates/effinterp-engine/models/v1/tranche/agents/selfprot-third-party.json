@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:badf3ff16b4fc1c4c4f6232f269ffe4bdfdd772327470eb3f466c5a7ef9a6b62",
+  "identity": "blake3:6c78deda8ba68320aa362986b6bef814916cb6b9859165adc5666f2e10d67fd9",
   "provenance": {
     "author": "human",
     "sources": [
@@ -2192,6 +2192,44 @@
                     },
                     "allow_missing": false,
                     "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "plugins.entries.nah"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah."
+                    },
+                    "allow_missing": false,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah["
+                    },
+                    "allow_missing": false,
+                    "matches": false
                   }
                 ],
                 "flag_present": [],
@@ -3005,6 +3043,1546 @@
                       "values": [
                         "false"
                       ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--dev"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "plugins.entries.nah"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--dev",
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--container",
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "environment_or",
+                      "name": "OPENCLAW_CONFIG_PATH",
+                      "default": {
+                        "kind": "join",
+                        "parts": [
+                          {
+                            "kind": "environment_or",
+                            "name": "HOME",
+                            "default": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            }
+                          },
+                          {
+                            "kind": "literal",
+                            "value": ".openclaw/openclaw.json"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "environment_or",
+                      "name": "OPENCLAW_CONFIG_PATH",
+                      "default": {
+                        "kind": "join",
+                        "parts": [
+                          {
+                            "kind": "environment_or",
+                            "name": "HOME",
+                            "default": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            }
+                          },
+                          {
+                            "kind": "literal",
+                            "value": ".openclaw/openclaw.json"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "plugins.entries.nah"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--dev",
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--container",
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "plugins.entries.nah"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "plugins.entries.nah"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "plugins.entries.nah"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--container"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "plugins.entries.nah"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--container"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "plugins.entries.nah"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--dev"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "plugins.entries.nah"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--dev"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--dev",
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--container",
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "environment_or",
+                      "name": "OPENCLAW_CONFIG_PATH",
+                      "default": {
+                        "kind": "join",
+                        "parts": [
+                          {
+                            "kind": "environment_or",
+                            "name": "HOME",
+                            "default": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            }
+                          },
+                          {
+                            "kind": "literal",
+                            "value": ".openclaw/openclaw.json"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "environment_or",
+                      "name": "OPENCLAW_CONFIG_PATH",
+                      "default": {
+                        "kind": "join",
+                        "parts": [
+                          {
+                            "kind": "environment_or",
+                            "name": "HOME",
+                            "default": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            }
+                          },
+                          {
+                            "kind": "literal",
+                            "value": ".openclaw/openclaw.json"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--dev",
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--container",
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--container"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--container"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--dev"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--dev"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--dev",
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--container",
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "environment_or",
+                      "name": "OPENCLAW_CONFIG_PATH",
+                      "default": {
+                        "kind": "join",
+                        "parts": [
+                          {
+                            "kind": "environment_or",
+                            "name": "HOME",
+                            "default": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            }
+                          },
+                          {
+                            "kind": "literal",
+                            "value": ".openclaw/openclaw.json"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "program_input"
+                    }
+                  },
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "environment_or",
+                      "name": "OPENCLAW_CONFIG_PATH",
+                      "default": {
+                        "kind": "join",
+                        "parts": [
+                          {
+                            "kind": "environment_or",
+                            "name": "HOME",
+                            "default": {
+                              "kind": "environment",
+                              "name": "HOME"
+                            }
+                          },
+                          {
+                            "kind": "literal",
+                            "value": ".openclaw/openclaw.json"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--dev",
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--container",
+                  "--profile"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--profile"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--container"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [
+                  "--container"
+                ],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": false,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [
+                  "--dev"
+                ],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-V",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "filesystem"
+                  },
+                  "attributes": {
+                    "disclosure": {
+                      "kind": "constant_string",
+                      "value": "contents"
+                    },
+                    "nah_control": {
+                      "kind": "constant_string",
+                      "value": "hook_wiring"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "key"
+              },
+              "when": {
+                "unknown_flags_present": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "key"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "plugins.entries.nah["
                     },
                     "allow_missing": false,
                     "matches": true
