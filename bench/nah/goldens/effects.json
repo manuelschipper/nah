@@ -110623,7 +110623,7 @@
     {
       "id": "registry-unpublish.launch-node-run-script",
       "guard": "registry-unpublish",
-      "derivation": "node --run runs the package.json script, as npm run does; the script runs npm unpublish. The Node launcher classes --run as inert",
+      "derivation": "node --run runs the package.json script, as npm run does; the script runs npm unpublish",
       "require": [
         {
           "op": "artifact.remove_request",
