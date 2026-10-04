@@ -595,6 +595,24 @@ Accepted limitations with no corpus row that asserts a desired block.
   the parser's recursion) and adds generated cases to
   `crates/effinterp-engine/tests/suite/robustness.rs`.
 
+- Fail-closed installs when the adapter cannot run. A `--fail-closed` hook
+  blocks what `nah hook <runtime> run --fail-closed` refuses, which requires
+  Nah to respond: `docs/security.md` leaves missing binaries and runtime
+  failure outside the promise. The Droid install keeps its wrapper's exit-0
+  fallback under `--fail-closed` (`desired_droid_handler` in
+  `crates/nah-cli/src/commands/droid_installation.rs`), so a missing `nah`, or
+  one that exits with any status but 2, delegates, as `docs/runtimes/droid.md`
+  states. The OpenClaw plugin's `catch` returns `undefined` under
+  `--fail-closed` too (`openclaw_plugin_source` in
+  `crates/nah-cli/src/commands/openclaw_installation.rs`), so a child that
+  cannot start, times out, exits nonzero or prints an invalid decision
+  delegates, as `docs/runtimes/openclaw.md` states. Prime Agent's fail-closed
+  wiring blocks in each of those cases (`docs/runtimes/prime-agent.md`).
+  Decision needed: whether every runtime's fail-closed wiring denies when its
+  `nah` subprocess is missing, crashes or times out, as Prime Agent's does, or
+  whether that stays outside the promise. No installer test pins either
+  result until then.
+
 ## Audit scope
 
 These expectations were reviewed against the commands, frozen fixtures, and
