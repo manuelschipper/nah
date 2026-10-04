@@ -1089,7 +1089,18 @@ impl Shell<'_> {
             // A redirection opens the file its final component points at.
             let observation =
                 crate::models::common::follow_final_link(builder, &mut resource, &[node]);
-            let exact_selection = matches!(&resource, ResourceExpr::Concrete { .. });
+            // A quoted variable or positional parameter is not expanded as a
+            // pattern, so a pattern there is the selection its binding stands
+            // for: the entries `find -exec sh -c … _ {} \;` passes one at a
+            // time, or a loop variable's. The redirection opens each of them.
+            // A glob written as the target, or an unquoted variable holding
+            // pattern text, names one file only when it matches one.
+            let selection = matches!(&resource, ResourceExpr::Pattern { .. })
+                && matches!(
+                    target.segs.as_slice(),
+                    [Seg::Env { quoted: true, .. } | Seg::Positional { quoted: true, .. }]
+                );
+            let exact_selection = selection || matches!(&resource, ResourceExpr::Concrete { .. });
             let selection_node = exact_selection.then(|| {
                 builder.node(
                     ProvenanceKind::ModelApplication {
